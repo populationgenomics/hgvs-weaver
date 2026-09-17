@@ -324,9 +324,11 @@ impl<'a> VariantEquivalence<'a> {
         let mut s = SparseReference::new();
         match var {
             SequenceVariant::Protein(vp) => {
-                if let Ok(seq) =
-                    self.hdp
-                        .get_seq(&vp.ac, 0, -1, crate::data::IdentifierType::ProteinAccession)
+                if let Ok(seq) = self
+                    .mapper
+                    .refs
+                    .reference(&vp.ac, crate::data::IdentifierType::ProteinAccession)
+                    .whole()
                 {
                     if let Ok(aas) = decompose_aa(&seq) {
                         for (i, aa) in aas.iter().enumerate() {
@@ -338,13 +340,15 @@ impl<'a> VariantEquivalence<'a> {
             SequenceVariant::Coding(vc) => {
                 if let Some(pos) = &vc.posedit.pos {
                     if let Ok((start, end, spdi_ac)) = pos.spdi_interval(&vc.ac, self.hdp) {
-                        if let Ok(seq) = self.hdp.get_seq(
-                            &spdi_ac,
-                            start,
-                            end,
-                            crate::data::IdentifierType::GenomicAccession,
-                        ) {
-                            let _ = s.set(start, seq);
+                        if let (Ok(s0), Ok(e0)) = (usize::try_from(start), usize::try_from(end)) {
+                            if let Ok(seq) = self
+                                .mapper
+                                .refs
+                                .reference(&spdi_ac, crate::data::IdentifierType::GenomicAccession)
+                                .slice(s0, e0)
+                            {
+                                let _ = s.set(start, seq);
+                            }
                         }
                     }
                 }
@@ -467,9 +471,11 @@ impl<'a> VariantEquivalence<'a> {
                 ref_: None,
                 uncertain,
             } => {
-                let seq =
-                    self.hdp
-                        .get_seq(ac, start as i32, end as i32, kind.into_identifier_type())?;
+                let seq = self
+                    .mapper
+                    .refs
+                    .reference(ac, kind.into_identifier_type())
+                    .slice(start, end)?;
                 Ok(crate::edits::NaEdit::Del {
                     ref_: Some(seq),
                     uncertain,
@@ -479,9 +485,11 @@ impl<'a> VariantEquivalence<'a> {
                 ref_: None,
                 uncertain,
             } => {
-                let seq =
-                    self.hdp
-                        .get_seq(ac, start as i32, end as i32, kind.into_identifier_type())?;
+                let seq = self
+                    .mapper
+                    .refs
+                    .reference(ac, kind.into_identifier_type())
+                    .slice(start, end)?;
                 Ok(crate::edits::NaEdit::Dup {
                     ref_: Some(seq),
                     uncertain,
@@ -840,9 +848,11 @@ impl<'a> VariantEquivalence<'a> {
         if check_start < 0 {
             return Ok(None);
         }
-        let ref_seq =
-            self.hdp
-                .get_seq(ac, check_start, start_idx + 1, kind.into_identifier_type())?;
+        let ref_seq = self
+            .mapper
+            .refs
+            .reference(ac, kind.into_identifier_type())
+            .slice(check_start as usize, (start_idx + 1) as usize)?;
         if ref_seq == *seq {
             Ok(Some((
                 check_start,
@@ -1040,13 +1050,9 @@ mod tests {
             _kind: IdentifierType,
         ) -> Result<String, HgvsError> {
             let seq = "ACGTACGTACGTACGTACGT"; // A=0, C=1, G=2, T=3, A=4, ...
-            let s = start as usize;
-            let e = end as usize;
-            if s < seq.len() && e <= seq.len() {
-                Ok(seq[s..e].to_string())
-            } else {
-                Ok("".to_string())
-            }
+            let s = (start.max(0) as usize).min(seq.len());
+            let e = if end < 0 { seq.len() } else { (end as usize).min(seq.len()) };
+            Ok(seq[s..e.max(s)].to_string())
         }
         fn get_symbol_accessions(
             &self,

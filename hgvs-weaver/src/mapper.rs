@@ -2,7 +2,8 @@ use crate::altseq::AltSeqBuilder;
 use crate::altseq_to_hgvsp::AltSeqToHgvsp;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
-use crate::sequence::{MemSequence, RevCompSequence, Sequence, TranslatedSequence};
+use crate::reference::{Reference, ReferenceStore};
+use crate::sequence::{MemSequence, Sequence, TranslatedSequence};
 use crate::structs::{
     BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, NVariant, PVariant,
 };
@@ -58,18 +59,16 @@ fn apply_strand_complement(
     strand: crate::data::Strand,
 ) -> crate::edits::NaEdit {
     if strand == crate::data::Strand::Minus {
-        edit.map_sequence(|s| {
-            let seq = MemSequence(s.to_string());
-            RevCompSequence { inner: &seq }.to_string()
-        })
+        edit.map_sequence(|s| crate::utils::reverse_complement(s))
     } else {
         edit
     }
 }
 
+/// The (reference, alternate) bases an edit denotes over `[start, end)` of
+/// `reference`, or `None` for edit kinds that cannot be shifted.
 fn extract_edit_sequences(
-    hdp: &dyn DataProvider,
-    ac: &str,
+    reference: &Reference<'_, '_>,
     start: usize,
     end: usize,
     edit: &crate::edits::NaEdit,
@@ -89,24 +88,14 @@ fn extract_edit_sequences(
             let r = if let Some(r) = ref_ {
                 r.clone()
             } else {
-                hdp.get_seq(
-                    ac,
-                    start as i32,
-                    end as i32,
-                    IdentifierType::GenomicAccession,
-                )?
+                reference.slice(start, end)?
             };
             let a = r.repeat(*max as usize);
             Some((r, a))
         }
         crate::edits::NaEdit::Inv { .. } => {
-            let r = hdp.get_seq(
-                ac,
-                start as i32,
-                end as i32,
-                IdentifierType::GenomicAccession,
-            )?;
-            let a = crate::sequence::rev_comp(&r);
+            let r = reference.slice(start, end)?;
+            let a = crate::utils::reverse_complement(&r);
             Some((r, a))
         }
         _ => None,
@@ -121,6 +110,46 @@ fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
             r.is_empty() || r.chars().all(|c| c.is_ascii_digit()) || r == actual
         }
         _ => true,
+    }
+}
+
+/// The bases whose repetition lets an edit over `[start, end)` slide along the
+/// reference, or `None` when the edit cannot be shifted at all.
+///
+/// Deletions, duplications and length-changing delins slide while the bases
+/// beyond the edit repeat its reference bases; pure insertions slide while
+/// they repeat the inserted bases.
+fn shift_pattern(
+    reference: &Reference<'_, '_>,
+    start: usize,
+    end: usize,
+    edit: &crate::edits::NaEdit,
+) -> Result<Option<String>, HgvsError> {
+    let (ref_str, alt_str) = match extract_edit_sequences(reference, start, end, edit)? {
+        None => return Ok(None),
+        Some(seqs) => seqs,
+    };
+    if ref_str == alt_str && matches!(edit, crate::edits::NaEdit::RefAlt { .. }) {
+        return Ok(None);
+    }
+    let is_del_or_dup = matches!(
+        edit,
+        crate::edits::NaEdit::Del { .. } | crate::edits::NaEdit::Dup { .. }
+    );
+    if is_del_or_dup
+        || (!ref_str.is_empty() && alt_str.is_empty())
+        || (matches!(edit, crate::edits::NaEdit::RefAlt { .. }) && (end - start) != alt_str.len())
+    {
+        let pattern = if ref_str.is_empty() {
+            reference.slice(start, end)?
+        } else {
+            ref_str
+        };
+        Ok((!pattern.is_empty()).then_some(pattern))
+    } else if start == end && !alt_str.is_empty() {
+        Ok(Some(alt_str))
+    } else {
+        Ok(None)
     }
 }
 
@@ -139,12 +168,17 @@ fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
 pub struct VariantMapper<'a> {
     /// Data provider used to retrieve transcript and sequence information.
     pub hdp: &'a dyn DataProvider,
+    /// Cached, random-access view of every sequence the provider serves.
+    pub refs: ReferenceStore<'a>,
 }
 
 impl<'a> VariantMapper<'a> {
     /// Creates a new `VariantMapper` with the given data provider.
     pub fn new(hdp: &'a dyn DataProvider) -> Self {
-        VariantMapper { hdp }
+        VariantMapper {
+            hdp,
+            refs: ReferenceStore::new(hdp),
+        }
     }
 
     /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
@@ -488,12 +522,10 @@ impl<'a> VariantMapper<'a> {
         }
 
         let transcript = self.hdp.get_transcript(transcript_ac, None)?;
-        let ref_seq = self.hdp.get_seq(
-            transcript_ac,
-            0,
-            -1,
-            IdentifierKind::Transcript.into_identifier_type(),
-        )?;
+        let ref_seq = self
+            .refs
+            .reference(transcript_ac, IdentifierType::TranscriptAccession)
+            .whole()?;
 
         let cds_start_tx = transcript
             .cds_start_index
@@ -625,12 +657,10 @@ impl<'a> VariantMapper<'a> {
             .0 as usize;
 
         // Get transcript sequence
-        let tx_seq_str = self.hdp.get_seq(
-            &tx_ac,
-            0,
-            -1,
-            IdentifierKind::Transcript.into_identifier_type(),
-        )?;
+        let tx_seq_str = self
+            .refs
+            .reference(&tx_ac, IdentifierType::TranscriptAccession)
+            .whole()?;
 
         // Calculate codon position (0-based in transcript)
         let codon_start = cds_start + (aa_pos - 1) * 3;
@@ -767,12 +797,13 @@ impl<'a> VariantMapper<'a> {
                     .end
                     .as_ref()
                     .map_or(start_0 + 1, |e| e.base.to_index() + 1);
-                let ref_seq = self.hdp.get_seq(
-                    &v.ac,
-                    start_0.0,
-                    end_0.0,
-                    IdentifierKind::Genomic.into_identifier_type(),
-                )?;
+                let ref_seq = self
+                    .refs
+                    .reference(&v.ac, IdentifierType::GenomicAccession)
+                    .slice(
+                        checked_usize(start_0.0, "genomic start index")?,
+                        checked_usize(end_0.0, "genomic end index")?,
+                    )?;
                 Ok(stated_ref_matches(&v.posedit.edit, &ref_seq))
             }
             crate::SequenceVariant::Coding(v) => {
@@ -790,12 +821,10 @@ impl<'a> VariantMapper<'a> {
                 let start_idx = checked_usize(n_start.0, "transcript start index")?;
                 let end_idx = checked_usize(n_end.0, "transcript end index")?;
 
-                let ref_seq = self.hdp.get_seq(
-                    &v.ac,
-                    0,
-                    -1,
-                    IdentifierKind::Transcript.into_identifier_type(),
-                )?;
+                let ref_seq = self
+                    .refs
+                    .reference(&v.ac, IdentifierType::TranscriptAccession)
+                    .whole()?;
                 if start_idx >= ref_seq.len() || end_idx > ref_seq.len() {
                     return Err(HgvsError::ValidationError(
                         "Transcript sequence too short".into(),
@@ -889,12 +918,11 @@ impl<'a> VariantMapper<'a> {
                             let n = ins_seq.len() as i32;
                             let check_start = cur_n_start as i32 - n + 1;
                             if check_start >= 0 {
-                                if let Ok(ref_seq) = self.hdp.get_seq(
-                                    &v_c.ac,
-                                    check_start,
-                                    cur_n_start as i32 + 1,
-                                    IdentifierKind::Transcript.into_identifier_type(),
-                                ) {
+                                if let Ok(ref_seq) = self
+                                    .refs
+                                    .reference(&v_c.ac, IdentifierType::TranscriptAccession)
+                                    .slice(check_start as usize, cur_n_start + 1)
+                                {
                                     if ref_seq == ins_seq {
                                         let am2 = TranscriptMapper::new(transcript.clone())?;
                                         if let Some(pos_mut) = &mut v_c.posedit.pos {
@@ -1024,12 +1052,11 @@ impl<'a> VariantMapper<'a> {
         if let crate::edits::NaEdit::Del { ref_: r, .. }
         | crate::edits::NaEdit::Dup { ref_: r, .. } = edit
         {
-            *r = Some(self.hdp.get_seq(
-                ac,
-                new_start as i32,
-                (new_start + span) as i32,
-                kind.into_identifier_type(),
-            )?);
+            *r = Some(
+                self.refs
+                    .reference(ac, kind.into_identifier_type())
+                    .slice(new_start, new_start + span)?,
+            );
         }
         Ok(())
     }
@@ -1054,6 +1081,7 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
+    /// Slides an edit over `[start, end)` as far 3' as the reference allows.
     fn shift_3_prime(
         &self,
         ac: &str,
@@ -1062,138 +1090,15 @@ impl<'a> VariantMapper<'a> {
         end: usize,
         edit: &crate::edits::NaEdit,
     ) -> Result<(usize, usize), HgvsError> {
-        let (ref_owned, alt_owned) = match extract_edit_sequences(self.hdp, ac, start, end, edit)? {
-            None => return Ok((start, end)),
-            Some(seqs) => seqs,
-        };
-        let ref_str = ref_owned.as_str();
-        let alt_str = alt_owned.as_str();
-
-        if ref_str == alt_str && matches!(edit, crate::edits::NaEdit::RefAlt { .. }) {
+        let reference = self.refs.reference(ac, kind.into_identifier_type());
+        let Some(pattern) = shift_pattern(&reference, start, end, edit)? else {
             return Ok((start, end));
-        }
-
-        let mut curr_start = start;
-        let mut curr_end = end;
-        let mut chunk_size = 128;
-
-        let mut chunk_start = end;
-        let mut chunk = self.hdp.get_seq(
-            ac,
-            chunk_start as i32,
-            (chunk_start + chunk_size) as i32,
-            kind.into_identifier_type(),
-        )?;
-        let mut chunk_bytes = chunk.as_bytes();
-
-        let is_del_or_dup = matches!(
-            edit,
-            crate::edits::NaEdit::Del { .. } | crate::edits::NaEdit::Dup { .. }
-        );
-
-        if is_del_or_dup
-            || (!ref_str.is_empty() && alt_str.is_empty())
-            || (matches!(edit, crate::edits::NaEdit::RefAlt { .. })
-                && (end - start) != alt_str.len())
-        {
-            // Deletion, Duplication, or DelIns with a non-empty range
-            let mut current_ref = if ref_str.is_empty() {
-                self.hdp.get_seq(
-                    ac,
-                    curr_start as i32,
-                    curr_end as i32,
-                    kind.into_identifier_type(),
-                )?
-            } else {
-                ref_str.to_string()
-            };
-
-            if current_ref.is_empty() {
-                return Ok((curr_start, curr_end));
-            }
-
-            loop {
-                if (curr_end - chunk_start) >= chunk_bytes.len() {
-                    if chunk_bytes.len() < chunk_size {
-                        break;
-                    }
-                    chunk_start += chunk_bytes.len();
-                    chunk_size = std::cmp::min(chunk_size * 2, 4096);
-                    chunk = self.hdp.get_seq(
-                        ac,
-                        chunk_start as i32,
-                        (chunk_start + chunk_size) as i32,
-                        kind.into_identifier_type(),
-                    )?;
-                    chunk_bytes = chunk.as_bytes();
-                    if chunk_bytes.is_empty() {
-                        break;
-                    }
-                }
-
-                // To shift a delins/del/dup, the next base must match the first base of the range being shifted.
-                // And the range must be "internally" repetitive or we must match the whole range?
-                // Standard 3' shift: if seq[start] == seq[end], then [start, end) -> [start+1, end+1) is equivalent.
-                let first_ref_byte = current_ref.as_bytes()[0];
-                if first_ref_byte == chunk_bytes[curr_end - chunk_start] {
-                    curr_start += 1;
-                    curr_end += 1;
-                    // Update current_ref for the next iteration (it's the sequence at the new [start, end))
-                    current_ref = self.hdp.get_seq(
-                        ac,
-                        curr_start as i32,
-                        curr_end as i32,
-                        kind.into_identifier_type(),
-                    )?;
-                    if current_ref.is_empty() {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-        } else if start == end && !alt_str.is_empty() {
-            // Pure Insertion (start == end)
-            let alt_bytes = alt_str.as_bytes();
-            let n = alt_bytes.len();
-            if n == 0 {
-                return Ok((curr_start, curr_end));
-            }
-
-            loop {
-                if (curr_end - chunk_start) >= chunk_bytes.len() {
-                    if chunk_bytes.len() < chunk_size {
-                        break;
-                    }
-                    chunk_start += chunk_bytes.len();
-                    chunk_size = std::cmp::min(chunk_size * 2, 4096);
-                    chunk = self.hdp.get_seq(
-                        ac,
-                        chunk_start as i32,
-                        (chunk_start + chunk_size) as i32,
-                        kind.into_identifier_type(),
-                    )?;
-                    chunk_bytes = chunk.as_bytes();
-                    if chunk_bytes.is_empty() {
-                        break;
-                    }
-                }
-
-                // For an insertion to shift right, the base we pass MUST match the base we are putting "behind" it.
-                // If we insert 'ABC' at pos 1 in 'XABC', we can move it to pos 2 only if ref[1] == 'A'.
-                // 'X | ABC' -> 'XA | BCA' -> 'XAB | CAB' -> 'XABC | ABC'.
-                // So at each step k, we need ref[end+k] == alt[k % n].
-                if chunk_bytes[curr_end - chunk_start] == alt_bytes[(curr_start - start) % n] {
-                    curr_start += 1;
-                    curr_end += 1;
-                } else {
-                    break;
-                }
-            }
-        }
-        Ok((curr_start, curr_end))
+        };
+        let k = reference.run_right(end, pattern.as_bytes())?;
+        Ok((start + k, end + k))
     }
 
+    /// Slides an edit over `[start, end)` as far 5' as the reference allows.
     fn shift_5_prime(
         &self,
         ac: &str,
@@ -1202,107 +1107,12 @@ impl<'a> VariantMapper<'a> {
         end: usize,
         edit: &crate::edits::NaEdit,
     ) -> Result<(usize, usize), HgvsError> {
-        let (ref_owned, alt_owned) = match extract_edit_sequences(self.hdp, ac, start, end, edit)? {
-            None => return Ok((start, end)),
-            Some(seqs) => seqs,
-        };
-        let ref_str = ref_owned.as_str();
-        let alt_str = alt_owned.as_str();
-
-        if ref_str == alt_str && matches!(edit, crate::edits::NaEdit::RefAlt { .. }) {
+        let reference = self.refs.reference(ac, kind.into_identifier_type());
+        let Some(pattern) = shift_pattern(&reference, start, end, edit)? else {
             return Ok((start, end));
-        }
-
-        let mut curr_start = start;
-        let mut curr_end = end;
-
-        let is_del_or_dup = matches!(
-            edit,
-            crate::edits::NaEdit::Del { .. } | crate::edits::NaEdit::Dup { .. }
-        );
-
-        if is_del_or_dup
-            || (!ref_str.is_empty() && alt_str.is_empty())
-            || (matches!(edit, crate::edits::NaEdit::RefAlt { .. })
-                && (end - start) != alt_str.len())
-        {
-            // Deletion, Duplication, or DelIns with a non-empty range
-            let mut current_ref = if ref_str.is_empty() {
-                self.hdp.get_seq(
-                    ac,
-                    curr_start as i32,
-                    curr_end as i32,
-                    kind.into_identifier_type(),
-                )?
-            } else {
-                ref_str.to_string()
-            };
-
-            if current_ref.is_empty() {
-                return Ok((curr_start, curr_end));
-            }
-
-            loop {
-                if curr_start == 0 {
-                    break;
-                }
-
-                let prev_base_pos = curr_start - 1;
-                let prev_base = self.hdp.get_seq(
-                    ac,
-                    prev_base_pos as i32,
-                    curr_start as i32,
-                    kind.into_identifier_type(),
-                )?;
-                if prev_base.is_empty() {
-                    break;
-                }
-
-                let last_ref_byte = current_ref.as_bytes()[current_ref.len() - 1];
-                if prev_base.as_bytes()[0] == last_ref_byte {
-                    curr_start -= 1;
-                    curr_end -= 1;
-                    current_ref = self.hdp.get_seq(
-                        ac,
-                        curr_start as i32,
-                        curr_end as i32,
-                        kind.into_identifier_type(),
-                    )?;
-                } else {
-                    break;
-                }
-            }
-        } else if start == end && !alt_str.is_empty() {
-            // Pure Insertion
-            let alt_bytes = alt_str.as_bytes();
-            let n = alt_bytes.len();
-
-            loop {
-                if curr_start == 0 {
-                    break;
-                }
-                let prev_base_pos = curr_start - 1;
-                let prev_base = self.hdp.get_seq(
-                    ac,
-                    prev_base_pos as i32,
-                    curr_start as i32,
-                    kind.into_identifier_type(),
-                )?;
-                if prev_base.is_empty() {
-                    break;
-                }
-
-                let rel_pos =
-                    (curr_start as i64 - start as i64 + n as i64 - 1).rem_euclid(n as i64) as usize;
-                if prev_base.as_bytes()[0] == alt_bytes[rel_pos] {
-                    curr_start -= 1;
-                    curr_end -= 1;
-                } else {
-                    break;
-                }
-            }
-        }
-        Ok((curr_start, curr_end))
+        };
+        let k = reference.run_left(start, pattern.as_bytes())?;
+        Ok((start - k, end - k))
     }
 
     pub fn expand_unambiguous_range(
@@ -1363,7 +1173,7 @@ impl<'a> VariantMapper<'a> {
                 crate::SequenceVariant::Genomic(v) => v,
                 _ => unreachable!(),
             };
-            g_norm.posedit.to_spdi(&g_norm.ac, &*self.hdp)
+            g_norm.posedit.to_spdi(&g_norm.ac, &self.refs)
         }
     }
 
@@ -1435,12 +1245,8 @@ impl<'a> VariantMapper<'a> {
             )?;
 
             // 4. Construct expanded sequences
-            let r_seq = self.hdp.get_seq(
-                ac,
-                u_start as i32,
-                u_end as i32,
-                IdentifierType::GenomicAccession,
-            )?;
+            let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
+            let r_seq = reference.slice(u_start, u_end)?;
 
             let rel_start = start_idx - u_start;
             let rel_end = end_idx - u_start;
@@ -1458,34 +1264,24 @@ impl<'a> VariantMapper<'a> {
                     let unit = if let Some(u) = ref_ {
                         u.clone()
                     } else {
-                        self.hdp.get_seq(
-                            ac,
-                            start_idx as i32,
-                            end_idx as i32,
-                            IdentifierType::GenomicAccession,
-                        )?
+                        reference.slice(start_idx, end_idx)?
                     };
                     alt_storage = unit.repeat(*max as usize);
                     &alt_storage
                 }
                 crate::edits::NaEdit::Inv { .. } => {
-                    let s = self.hdp.get_seq(
-                        ac,
-                        start_idx as i32,
-                        end_idx as i32,
-                        IdentifierType::GenomicAccession,
-                    )?;
-                    alt_storage = crate::sequence::rev_comp(&s);
+                    let s = reference.slice(start_idx, end_idx)?;
+                    alt_storage = crate::utils::reverse_complement(&s);
                     &alt_storage
                 }
-                _ => return g_norm.posedit.to_spdi(ac, &*self.hdp),
+                _ => return g_norm.posedit.to_spdi(ac, &self.refs),
             };
 
             let a_seq = format!("{}{}{}", &r_seq[..rel_start], alt_str, &r_seq[rel_end..]);
 
             Ok(format!("{}:{}:{}:{}", ac, u_start, r_seq, a_seq))
         } else {
-            g_norm.posedit.to_spdi(&g_norm.ac, &*self.hdp) // Fallback for identity?
+            g_norm.posedit.to_spdi(&g_norm.ac, &self.refs) // Fallback for identity?
         }
     }
 }

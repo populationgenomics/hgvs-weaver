@@ -1,6 +1,6 @@
 use crate::edits::{AaEdit, NaEdit};
-use crate::utils::aa1_to_aa3;
 use crate::structs::*;
+use crate::utils::aa1_to_aa3;
 use std::fmt;
 
 impl fmt::Display for SequenceVariant {

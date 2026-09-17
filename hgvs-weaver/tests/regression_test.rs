@@ -42,35 +42,25 @@ impl DataProvider for MockDataProvider {
         }
     }
     fn get_seq(&self, ac: &str, s: i32, e: i32, _k: IdentifierType) -> Result<String, HgvsError> {
-        let effective_e = if e == -1 { 4000 } else { e };
-        let len = (effective_e - s).max(0) as usize;
-        let mut seq = vec!['N'; len];
-
+        // 4000 N's with the few bases the cases below depend on.
+        let mut seq = vec![b'N'; 4000];
         if ac == "NM_BRAF" || ac == "NC_BRAF" {
-            // BRAF Val600 is GTG (1798-1800)
-            // 1798 is 'G', 1799 is 'T', 1800 is 'G'
-            for pos in s..effective_e {
-                let char_idx = (pos - s) as usize;
-                if pos == 1797 {
-                    seq[char_idx] = 'G';
-                } else if pos == 1798 {
-                    seq[char_idx] = 'T';
-                } else if pos == 1799 {
-                    seq[char_idx] = 'G';
-                }
-            }
-            return Ok(seq.into_iter().collect());
-        }
-
-        if s == 3966 && len == 1 {
-            // Case 9: c.35 matches G3966.
-            Ok("A".to_string())
-        } else if s == 1328 && len == 1 {
-            // Case 15: c.2673 matches G1328.
-            Ok("T".to_string())
+            // BRAF Val600 is GTG at transcript indices 1797..=1799.
+            seq[1797] = b'G';
+            seq[1798] = b'T';
+            seq[1799] = b'G';
         } else {
-            Ok(seq.into_iter().collect())
+            // Case 9: c.35 is transcript index 34, genomic 3966 (A). The base
+            // after it must differ so the insertion cannot shift further.
+            seq[3966] = b'A';
+            seq[34] = b'A';
+            // Case 15: c.2673 is transcript index 2672, genomic 1328 (T).
+            seq[1328] = b'T';
+            seq[2672] = b'T';
         }
+        let start = (s.max(0) as usize).min(seq.len());
+        let end = if e < 0 { seq.len() } else { (e as usize).min(seq.len()) };
+        Ok(String::from_utf8(seq[start..end.max(start)].to_vec()).unwrap())
     }
     fn get_symbol_accessions(
         &self,

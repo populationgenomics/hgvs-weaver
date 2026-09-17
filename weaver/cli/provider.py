@@ -46,6 +46,9 @@ class SequenceProxy:
         self.cache_path = cache_path or os.environ.get("WEAVER_SEQ_CACHE")
         self.mode = mode or os.environ.get("WEAVER_SEQ_MODE", "live")
         self.cache: dict[str, str] = {}
+        # Replay only: every recorded base by accession and 0-based position, so
+        # that any requested range can be served, not just the ranges recorded.
+        self._known: dict[str, dict[int, str]] = {}
         self.fasta: typing.Any = None
         self.references: list[str] = []
 
@@ -54,6 +57,8 @@ class SequenceProxy:
                 try:
                     with open(self.cache_path) as f:
                         self.cache = json.load(f)
+
+                    self._known = self._index_recorded_bases(self.cache)
 
                     # Try to get references from manifest first
                     manifest_data = self.cache.get("_manifest")
@@ -92,8 +97,7 @@ class SequenceProxy:
         if self.mode == "replay":
             if key in self.cache:
                 return self.cache[key]
-            logger.error("Missing sequence in cache for %s", key)
-            return ""
+            return self._replay_range(ac, start, key_end)
 
         if not self.fasta:
             return ""
@@ -107,6 +111,40 @@ class SequenceProxy:
         except Exception as e:
             logger.error("Error fetching from FASTA for %s: %s", key, e)
             return ""
+
+    @staticmethod
+    def _index_recorded_bases(cache: dict[str, str]) -> dict[str, dict[int, str]]:
+        """Spreads recorded "AC:start-end" fragments into per-position bases."""
+        known: dict[str, dict[int, str]] = {}
+        for key, seq in cache.items():
+            if key.startswith("_") or ":" not in key or not isinstance(seq, str):
+                continue
+            ac, _, rng = key.rpartition(":")
+            start_s, _, _ = rng.partition("-")
+            try:
+                start = int(start_s)
+            except ValueError:
+                continue
+            bases = known.setdefault(ac, {})
+            for i, base in enumerate(seq):
+                bases[start + i] = base
+        return known
+
+    def _replay_range(self, ac: str, start: int, end: int | None) -> str:
+        """Serves a range from recorded bases, with N for positions never recorded.
+
+        A caller may page through a sequence in blocks far wider than any recorded
+        fragment; returning the full block keeps it from concluding the sequence
+        ends where the recording does. A base that was never recorded reads as N,
+        so a comparison that depends on it fails rather than silently passing.
+        """
+        bases = self._known.get(ac)
+        if not bases:
+            logger.error("No recorded sequence for %s in cache", ac)
+            return ""
+        if end is None:
+            end = max(bases) + 1
+        return "".join(bases.get(i, "N") for i in range(start, max(start, end)))
 
     def save_cache(self) -> None:
         if self.mode == "record" and self.cache_path:

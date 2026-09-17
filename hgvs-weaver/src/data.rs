@@ -77,6 +77,12 @@ pub trait DataProvider {
         transcript_ac: &str,
         reference_ac: Option<&str>,
     ) -> Result<TranscriptData, HgvsError>;
+    /// Returns the bases of `ac` in the 0-based half-open range `[start, end)`.
+    ///
+    /// `end == -1` means "to the end of the sequence". A range that extends past
+    /// the end must return the bases that exist, not an error or an empty string:
+    /// the core pages through sequences in fixed-size blocks and relies on a short
+    /// final block to learn where the sequence ends.
     fn get_seq(
         &self,
         ac: &str,
@@ -120,7 +126,7 @@ impl IdentifierKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IdentifierType {
     GenomicAccession,
     TranscriptAccession,

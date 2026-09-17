@@ -108,10 +108,10 @@ where
     pub fn to_spdi(
         &self,
         ac: &str,
-        data_provider: &dyn crate::data::DataProvider,
+        refs: &crate::reference::ReferenceStore<'_>,
     ) -> Result<String, HgvsError> {
         let (start, end, spdi_ac) = if let Some(pos) = &self.pos {
-            pos.spdi_interval(ac, data_provider)?
+            pos.spdi_interval(ac, refs.provider())?
         } else {
             return Err(HgvsError::ValidationError(
                 "SPDI requires a position".into(),
@@ -121,7 +121,7 @@ where
         // SPDI is 0-based. HGVS is 1-based (mostly).
         // IntervalSpdi trait handles the coordinate conversion to 0-based.
 
-        self.edit.to_spdi(&spdi_ac, start, end, data_provider)
+        self.edit.to_spdi(&spdi_ac, start, end, refs)
     }
 }
 
@@ -166,12 +166,14 @@ impl IntervalSpdi for BaseOffsetInterval {
 }
 
 pub trait EditSpdi {
+    /// Renders the edit as SPDI over the 0-based half-open genomic range
+    /// `[start, end)` of `ac`, reading reference bases from `refs` as needed.
     fn to_spdi(
         &self,
         ac: &str,
         start: i32,
         end: i32,
-        data_provider: &dyn crate::data::DataProvider,
+        refs: &crate::reference::ReferenceStore<'_>,
     ) -> Result<String, HgvsError>;
 }
 
@@ -181,18 +183,28 @@ impl EditSpdi for NaEdit {
         ac: &str,
         start: i32,
         end: i32,
-        data_provider: &dyn crate::data::DataProvider,
+        refs: &crate::reference::ReferenceStore<'_>,
     ) -> Result<String, HgvsError> {
+        // SPDI is always on the chromosomal accession.
+        let reference = refs.reference(ac, IdentifierType::GenomicAccession);
+        let fetch = || -> Result<String, HgvsError> {
+            let range = |v: i32, what: &str| {
+                usize::try_from(v).map_err(|_| {
+                    HgvsError::ValidationError(format!("Negative SPDI {} {}", what, v))
+                })
+            };
+            reference.slice(range(start, "start")?, range(end, "end")?)
+        };
         match self {
             NaEdit::RefAlt { ref_, alt, .. } => {
                 let r_seq = if let Some(r) = ref_ {
                     if r.chars().all(|c| c.is_ascii_digit()) {
-                        data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?
+                        fetch()?
                     } else {
                         r.clone()
                     }
                 } else {
-                    data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?
+                    fetch()?
                 };
 
                 let a_seq = if ref_.is_none() && alt.is_none() {
@@ -207,12 +219,12 @@ impl EditSpdi for NaEdit {
             NaEdit::Del { ref_, .. } => {
                 let r_seq = if let Some(r) = ref_ {
                     if r.chars().all(|c| c.is_ascii_digit()) {
-                        data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?
+                        fetch()?
                     } else {
                         r.clone()
                     }
                 } else {
-                    data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?
+                    fetch()?
                 };
                 Ok(format!("{}:{}:{}:", ac, start, r_seq))
             }
@@ -224,7 +236,7 @@ impl EditSpdi for NaEdit {
                 let r_seq = if let Some(r) = ref_ {
                     r.clone()
                 } else {
-                    data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?
+                    fetch()?
                 };
                 Ok(format!("{}:{}:{}:{}", ac, end, "", r_seq))
             }
@@ -232,18 +244,18 @@ impl EditSpdi for NaEdit {
                 let unit = if let Some(r) = ref_ {
                     r.clone()
                 } else {
-                    data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?
+                    fetch()?
                 };
                 let ins_seq = unit.repeat(*max as usize);
-                let r_seq = data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?;
+                let r_seq = fetch()?;
 
                 let (p_start, r_strip, a_strip) =
                     strip_common_prefix_suffix(start, &r_seq, &ins_seq);
                 Ok(format!("{}:{}:{}:{}", ac, p_start, r_strip, a_strip))
             }
             NaEdit::Inv { .. } => {
-                let r_seq = data_provider.get_seq(ac, start, end, IdentifierType::Unknown)?;
-                let a_seq = crate::sequence::rev_comp(&r_seq);
+                let r_seq = fetch()?;
+                let a_seq = crate::utils::reverse_complement(&r_seq);
 
                 let (p_start, r_strip, a_strip) = strip_common_prefix_suffix(start, &r_seq, &a_seq);
                 Ok(format!("{}:{}:{}:{}", ac, p_start, r_strip, a_strip))

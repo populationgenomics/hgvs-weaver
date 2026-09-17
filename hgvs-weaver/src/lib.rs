@@ -155,6 +155,7 @@ pub mod error;
 pub mod fmt;
 pub mod mapper;
 pub mod parser;
+pub mod reference;
 pub mod sequence;
 pub mod structs;
 pub mod transcript_mapper;
