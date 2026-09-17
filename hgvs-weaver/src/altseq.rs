@@ -51,6 +51,14 @@ fn window(seq: &str, start: usize, end: usize) -> &str {
 impl<'a> AltSeqBuilder<'a> {
     pub fn build_altseq(&self) -> Result<AltTranscriptData, HgvsError> {
         let (start_idx, end_idx) = self.get_variant_indices()?;
+        let len = self.transcript_sequence.len();
+        if end_idx > len {
+            let first_bad = if start_idx >= len { start_idx } else { end_idx };
+            return Err(HgvsError::ValidationError(format!(
+                "Coordinate out of bounds: index {} is beyond transcript length {}",
+                first_bad, len
+            )));
+        }
 
         // --- Validate reference sequence ---
         match &self.var_c.posedit.edit {
