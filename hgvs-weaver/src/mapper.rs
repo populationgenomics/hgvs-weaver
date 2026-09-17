@@ -160,6 +160,14 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing genomic position".into()))?;
+        let run;
+        let pos = match self.repeat_run_g(var_g, pos)? {
+            Some(iv) => {
+                run = iv;
+                &run
+            }
+            None => pos,
+        };
         let g_start_0 = pos.start.base.to_index();
         let (mut n_pos, mut offset) = am.g_to_n(g_start_0)?;
 
@@ -223,6 +231,69 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
+    /// A repeat names its first unit by its first base, and its run extends 3'
+    /// on the sequence it is written on. Projected to the other strand, that
+    /// base is the unit's last and the run lies below it, so a run detected from
+    /// the projected start would be wrong. Before projecting, widen the interval
+    /// to the whole run here; the projected range then covers every copy and
+    /// reads as a run from its lower end on either strand.
+    fn repeat_run_tx<V: TranscriptVariant>(
+        &self,
+        am: &TranscriptMapper,
+        var: &V,
+        pos: &BaseOffsetInterval,
+    ) -> Result<Option<BaseOffsetInterval>, HgvsError> {
+        let edit = &var.posedit().edit;
+        if !matches!(edit, crate::edits::NaEdit::Repeat { .. }) || has_intronic_offset(pos) {
+            return Ok(None);
+        }
+        let (n_start, n_end) = am.interval_to_n(pos)?;
+        if n_start.0 < 0 {
+            return Ok(None);
+        }
+        let reference = self
+            .refs
+            .reference(var.ac(), IdentifierType::TranscriptAccession);
+        let resolved = edit.resolve(&reference, n_start.0 as usize, n_end.0 as usize)?;
+        if resolved.end <= resolved.start {
+            return Ok(None);
+        }
+        Ok(Some(BaseOffsetInterval {
+            start: pos.start,
+            end: Some(V::position_from_index(am, (resolved.end - 1) as i32)?),
+            uncertain: pos.uncertain,
+        }))
+    }
+
+    /// The genomic counterpart of [`repeat_run_tx`](Self::repeat_run_tx).
+    fn repeat_run_g(
+        &self,
+        var_g: &GVariant,
+        pos: &SimpleInterval,
+    ) -> Result<Option<SimpleInterval>, HgvsError> {
+        let edit = &var_g.posedit.edit;
+        if !matches!(edit, crate::edits::NaEdit::Repeat { .. }) {
+            return Ok(None);
+        }
+        let (start, end) = simple_interval_range(pos)?;
+        let reference = self
+            .refs
+            .reference(&var_g.ac, IdentifierType::GenomicAccession);
+        let resolved = edit.resolve(&reference, start, end)?;
+        if resolved.end <= resolved.start {
+            return Ok(None);
+        }
+        Ok(Some(SimpleInterval {
+            start: pos.start,
+            end: Some(SimplePosition {
+                base: GenomicPos((resolved.end - 1) as i32).to_hgvs(),
+                end: None,
+                uncertain: false,
+            }),
+            uncertain: pos.uncertain,
+        }))
+    }
+
     /// Transforms a coding cDNA variant (`c.`) to a genomic variant (`g.`).
     pub fn c_to_g(
         &self,
@@ -255,6 +326,14 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
+        let run;
+        let pos = match self.repeat_run_tx(&am, var_c, pos)? {
+            Some(iv) => {
+                run = iv;
+                &run
+            }
+            None => pos,
+        };
         let n_pos = am.c_to_n(pos.start.base.to_index(), pos.start.anchor)?;
         let g_pos = am.n_to_g(
             n_pos,

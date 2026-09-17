@@ -20,21 +20,40 @@ use hgvs_weaver::structs::IntervalSpdi;
 use hgvs_weaver::SequenceVariant;
 
 const REF_AC: &str = "NC_TEST.1";
+/// A second reference: 5 T, three copies of GCCATT, 5 A, then C to 100 bases.
+/// GCCATT is not its own reverse complement (that is AATGGC), so a repeat on
+/// the minus strand reads differently from the genome.
+const REP_AC: &str = "NC_REP.1";
+fn rep_genome() -> String {
+    format!("TTTTT{}AAAAA{}", "GCCATT".repeat(3), "C".repeat(72))
+}
 
 /// One exon: transcript indices 0..=99 <-> genomic indices 1000..=1099.
 fn transcript(ac: &str, strand: Strand, cds_start: i32, cds_end: i32) -> TranscriptData {
+    transcript_on(ac, REF_AC, 1000, strand, cds_start, cds_end)
+}
+
+/// One 100-base exon on `reference` starting at genomic index `g0`.
+fn transcript_on(
+    ac: &str,
+    reference: &str,
+    g0: i32,
+    strand: Strand,
+    cds_start: i32,
+    cds_end: i32,
+) -> TranscriptData {
     TranscriptData {
         ac: ac.to_string(),
         gene: "TEST".to_string(),
         cds_start_index: Some(TranscriptPos(cds_start)),
         cds_end_index: Some(TranscriptPos(cds_end)),
         strand,
-        reference_accession: REF_AC.to_string(),
+        reference_accession: reference.to_string(),
         exons: vec![ExonData {
             transcript_start: TranscriptPos(0),
             transcript_end: TranscriptPos(100),
-            reference_start: GenomicPos(1000),
-            reference_end: GenomicPos(1099),
+            reference_start: GenomicPos(g0),
+            reference_end: GenomicPos(g0 + 99),
             alt_strand: strand,
             cigar: "100M".to_string(),
         }],
@@ -58,6 +77,8 @@ impl DataProvider for Provider {
             "NM_PLUS0.1" => Ok(transcript(ac, Strand::Plus, 0, 99)),
             // CDS at transcript indices 10..=39 on the minus strand.
             "NM_MINUS10.1" => Ok(transcript(ac, Strand::Minus, 10, 39)),
+            // The whole of NC_REP.1, read on the minus strand, CDS the whole transcript.
+            "NM_REP_MINUS.1" => Ok(transcript_on(ac, REP_AC, 0, Strand::Minus, 0, 99)),
             _ => Err(HgvsError::DataProviderError(format!("unknown {}", ac))),
         }
     }
@@ -69,12 +90,19 @@ impl DataProvider for Provider {
         end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
-        let genome = Self::genome();
         let seq: String = if ac == REF_AC {
-            genome
+            Self::genome()
+        } else if ac == REP_AC {
+            rep_genome()
         } else {
             let tx = self.get_transcript(ac, None)?;
-            let exonic = &genome[1000..1100];
+            let genome = if tx.reference_accession == REP_AC {
+                rep_genome()
+            } else {
+                Self::genome()
+            };
+            let exon = &tx.exons[0];
+            let exonic = &genome[exon.reference_start.0 as usize..=exon.reference_end.0 as usize];
             match tx.strand {
                 Strand::Plus => exonic.to_string(),
                 Strand::Minus => exonic
@@ -363,4 +391,45 @@ fn canonical_alleles_make_spdi_vrs_and_equivalence_one_value() {
         .unwrap();
     assert_eq!(s.spdi(), "NC_TEST.1:1012:A:C");
     assert_eq!(s.repeat_subunit, None);
+}
+
+#[test]
+fn repeat_on_the_minus_strand_projects_to_its_whole_run() {
+    // On the transcript (reverse complement of NC_REP.1), the GCCATT run reads
+    // as AATGGC x3 starting at transcript index 77, i.e. c.78.
+    let mapper = VariantMapper::new(&Provider);
+    let parse = |h: &str| parse_hgvs_variant(h).unwrap();
+    let SequenceVariant::Coding(c) = parse("NM_REP_MINUS.1:c.78AATGGC[4]") else {
+        panic!()
+    };
+    // Projected to the genome the repeat covers the whole run, indices 5..=22,
+    // written in plus-strand orientation.
+    let g = mapper.c_to_g(&c, None).unwrap();
+    assert_eq!(g.to_string(), "NC_REP.1:g.6_23GCCATT[4]");
+
+    // One more copy, however it is written, is one allele.
+    let expand = mapper
+        .canonical_allele(&parse("NM_REP_MINUS.1:c.78AATGGC[4]"))
+        .unwrap();
+    let genomic = mapper
+        .canonical_allele(&parse("NC_REP.1:g.6GCCATT[4]"))
+        .unwrap();
+    let dup = mapper
+        .canonical_allele(&parse("NC_REP.1:g.18_23dup"))
+        .unwrap();
+    let ins = mapper
+        .canonical_allele(&parse("NC_REP.1:g.23_24insGCCATT"))
+        .unwrap();
+    assert_eq!(expand, genomic);
+    assert_eq!(expand, dup);
+    assert_eq!(expand, ins);
+    assert_eq!(expand.repeat_subunit, Some(6));
+    assert_eq!(expand.alternate.len() - expand.reference.len(), 6);
+
+    // And the reverse projection gives back the run on the transcript.
+    let SequenceVariant::Genomic(gv) = parse("NC_REP.1:g.6GCCATT[4]") else {
+        panic!()
+    };
+    let back = mapper.g_to_c(&gv, "NM_REP_MINUS.1").unwrap();
+    assert_eq!(back.to_string(), "NM_REP_MINUS.1:c.78_95AATGGC[4]");
 }
