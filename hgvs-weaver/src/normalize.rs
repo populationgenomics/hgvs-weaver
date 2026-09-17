@@ -144,11 +144,11 @@ fn shift_pattern(
     if ref_str == alt_str && matches!(edit, NaEdit::RefAlt { .. }) {
         return Ok(None);
     }
+    // A delins (bases out, different bases in) has no shift rule: sliding it
+    // by the deletion rule changes the resulting sequence unless the inserted
+    // bases happen to be a run of the repeated base.
     let is_del_or_dup = matches!(edit, NaEdit::Del { .. } | NaEdit::Dup { .. });
-    if is_del_or_dup
-        || (!ref_str.is_empty() && alt_str.is_empty())
-        || (matches!(edit, NaEdit::RefAlt { .. }) && (end - start) != alt_str.len())
-    {
+    if is_del_or_dup || (!ref_str.is_empty() && alt_str.is_empty()) {
         let pattern = if ref_str.is_empty() {
             reference.slice(start, end)?
         } else {
@@ -305,6 +305,30 @@ mod tests {
                 start: 2,
                 end: 2,
                 edit: ins("GGG")
+            }
+        );
+    }
+
+    #[test]
+    fn delins_is_not_shifted() {
+        // Deleting CAG at [2,5) and inserting TT: the base after the range (C)
+        // equals the first deleted base, but sliding would put TT after that C,
+        // which is a different sequence.
+        let delins = NaEdit::RefAlt {
+            ref_: Some("CAG".into()),
+            alt: Some("TT".into()),
+            uncertain: false,
+        };
+        let out = run(
+            "TTCAGCAGTT",
+            PlacedEdit::from_hgvs_range(2, 5, delins.clone()),
+        );
+        assert_eq!(
+            out,
+            PlacedEdit {
+                start: 2,
+                end: 5,
+                edit: delins
             }
         );
     }
