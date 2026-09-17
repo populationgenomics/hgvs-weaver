@@ -307,3 +307,60 @@ fn mitochondrial_variants_share_the_genomic_implementation() {
         EquivalenceLevel::Identity
     );
 }
+
+#[test]
+fn canonical_alleles_make_spdi_vrs_and_equivalence_one_value() {
+    let mapper = VariantMapper::new(&Provider);
+    let parse = |h: &str| parse_hgvs_variant(h).unwrap();
+    // Two spellings of one change in the ACGT repeat: inserting ACGT anywhere
+    // in the run, or duplicating any copy, is the same allele.
+    let a = mapper
+        .canonical_allele(&parse("NC_TEST.1:g.1012_1013insACGT"))
+        .unwrap();
+    let b = mapper
+        .canonical_allele(&parse("NC_TEST.1:g.1005_1008dup"))
+        .unwrap();
+    let c = mapper
+        .canonical_allele(&parse("NM_PLUS0.1:c.12_13insACGT"))
+        .unwrap();
+    assert_eq!(a, b);
+    assert_eq!(a, c);
+    // The run is the whole 2000-base repeat, so the allele spans all of it.
+    assert_eq!((a.start, a.end), (0, 2000));
+    assert_eq!(a.repeat_subunit, Some(4));
+    assert_eq!(
+        mapper
+            .to_spdi_unambiguous(&parse("NC_TEST.1:g.1005_1008dup"))
+            .unwrap(),
+        a.spdi()
+    );
+
+    let vrs_a = mapper
+        .to_vrs(&parse("NC_TEST.1:g.1012_1013insACGT"))
+        .unwrap();
+    let vrs_c = mapper.to_vrs(&parse("NM_PLUS0.1:c.12_13insACGT")).unwrap();
+    assert_eq!(vrs_a.id, vrs_c.id);
+    assert!(vrs_a.id.starts_with("ga4gh:VA."));
+    // No provider hook here, so the refget accession is computed from the sequence.
+    assert_eq!(
+        vrs_a.location.sequence_reference.refget_accession,
+        hgvs_weaver::vrs::refget_accession(&Provider::genome())
+    );
+    assert_eq!(vrs_a.expressions[0].syntax, "hgvs.g");
+    assert_eq!(vrs_c.expressions[0].value, "NM_PLUS0.1:c.12_13insACGT");
+
+    // Equivalence rides on the same value.
+    let eq = VariantEquivalence::new(&Provider, &Provider);
+    assert!(eq
+        .equivalent(
+            &parse("NC_TEST.1:g.1012_1013insACGT"),
+            &parse("NC_TEST.1:g.1005_1008dup")
+        )
+        .unwrap());
+    // A substitution is trimmed to the base that changes and is not a repeat.
+    let s = mapper
+        .canonical_allele(&parse("NC_TEST.1:g.1011_1013delGTAinsGTC"))
+        .unwrap();
+    assert_eq!(s.spdi(), "NC_TEST.1:1012:A:C");
+    assert_eq!(s.repeat_subunit, None);
+}

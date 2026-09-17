@@ -76,9 +76,10 @@ fn test_equivalence_levels() -> Result<(), HgvsError> {
     let v2 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1001A>C")?;
     assert_eq!(eq.equivalent_level(&v1, &v2)?, EquivalenceLevel::Identity);
 
-    // 2. Analogous (Normalization) - ins vs dup
-    let v3 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1005dupC")?;
-    let v4 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1005_1006insC")?;
+    // 2. Analogous (Normalization) - ins vs dup. The reference is ACGT repeated,
+    // so g.1006 is a C; duplicating it and inserting a C after it are one change.
+    let v3 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1006dupC")?;
+    let v4 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1006_1007insC")?;
     let lvl = eq.equivalent_level(&v3, &v4)?;
     assert!(lvl == EquivalenceLevel::Identity || lvl == EquivalenceLevel::Analogous);
 

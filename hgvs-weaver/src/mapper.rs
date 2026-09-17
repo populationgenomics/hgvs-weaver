@@ -1,12 +1,15 @@
+use crate::allele::CanonicalAllele;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
 use crate::reference::ReferenceStore;
+use crate::structs::Variant;
 use crate::structs::{
     BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, GenomicPos, LinearVariant,
     NVariant, PVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
+use crate::vrs::VrsAllele;
 
 fn make_base_offset_position(
     base: crate::coords::HgvsTranscriptPos,
@@ -879,17 +882,60 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
-    /// The widest range over which `resolved` is ambiguous: the reference
-    /// positions it could equally well be written at, 5' and 3'. Only a
-    /// length-changing edit is ambiguous; substitutions are not expanded.
-    pub fn expand_unambiguous_range(
+    /// The canonical allele of a nucleotide variant on its genomic reference:
+    /// the one unambiguous statement of the change that SPDI, VRS and
+    /// equivalence all derive from. See [`CanonicalAllele`].
+    pub fn canonical_allele(
         &self,
-        ac: &str,
-        kind: IdentifierKind,
-        resolved: &crate::edits::ResolvedEdit,
-    ) -> Result<(usize, usize), HgvsError> {
-        let reference = self.refs.reference(ac, kind.into_identifier_type());
-        normalize::ambiguous_range(&reference, resolved)
+        var: &crate::SequenceVariant,
+    ) -> Result<CanonicalAllele, HgvsError> {
+        let g = self.as_genomic(var).ok_or_else(|| {
+            HgvsError::UnsupportedOperation(
+                "Canonical alleles exist for genomic, mitochondrial, coding and non-coding variants only".into(),
+            )
+        })??;
+        let pos = g
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let edit = &g.posedit.edit;
+        if matches!(
+            edit,
+            crate::edits::NaEdit::None
+                | crate::edits::NaEdit::Con { .. }
+                | crate::edits::NaEdit::NACopy { .. }
+        ) {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "Edit type {:?} has no canonical allele",
+                edit
+            )));
+        }
+        let (hgvs_start, hgvs_end) = simple_interval_range(pos)?;
+        let reference = self.refs.reference(&g.ac, IdentifierType::GenomicAccession);
+        let resolved = edit.resolve(&reference, hgvs_start, hgvs_end)?;
+        CanonicalAllele::canonicalize(&reference, &g.ac, &resolved)
+    }
+
+    /// The unambiguous SPDI of a variant: its canonical allele, rendered.
+    pub fn to_spdi_unambiguous(&self, var: &crate::SequenceVariant) -> Result<String, HgvsError> {
+        Ok(self.canonical_allele(var)?.spdi())
+    }
+
+    /// The GA4GH VRS 2.0 Allele of a variant, with computed identifiers. The
+    /// input HGVS is carried as an expression.
+    pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
+        let allele = self.canonical_allele(var)?;
+        let refget = self
+            .refs
+            .reference(&allele.accession, IdentifierType::GenomicAccession)
+            .refget_accession()?;
+        let syntax = format!("hgvs.{}", var.coordinate_type());
+        Ok(VrsAllele::new(
+            &allele,
+            &refget,
+            Some((&syntax, &var.to_string())),
+        ))
     }
 
     pub fn to_spdi(
@@ -927,56 +973,5 @@ impl<'a> VariantMapper<'a> {
             SV::NonCoding(v) => self.tx_to_g(v, None),
             SV::Protein(_) | SV::Rna(_) => return None,
         })
-    }
-
-    pub fn to_spdi_unambiguous(&self, var: &crate::SequenceVariant) -> Result<String, HgvsError> {
-        // 1. Resolve to genomic if possible. Unambiguous SPDI is ideally on chromosomal coordinates.
-        let g_var_obj = self.as_genomic(var).ok_or_else(|| {
-            HgvsError::UnsupportedOperation(
-                "SPDI expansion only for genomic/coding/non-coding".into(),
-            )
-        })??;
-
-        // 2. Normalize (3' shift, minimal delins)
-        let g_norm_var = self.normalize_variant(crate::SequenceVariant::Genomic(g_var_obj))?;
-        let g_norm = match g_norm_var {
-            crate::SequenceVariant::Genomic(v) => v,
-            _ => unreachable!(),
-        };
-
-        let ac = &g_norm.ac;
-        if let Some(pos) = &g_norm.posedit.pos {
-            let edit = &g_norm.posedit.edit;
-            if matches!(
-                edit,
-                crate::edits::NaEdit::None
-                    | crate::edits::NaEdit::Con { .. }
-                    | crate::edits::NaEdit::NACopy { .. }
-            ) {
-                return g_norm.posedit.to_spdi(ac, &self.refs);
-            }
-            let (hgvs_start, hgvs_end) = simple_interval_range(pos)?;
-            let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
-            let resolved = edit.resolve(&reference, hgvs_start, hgvs_end)?;
-
-            // 3. Expand range to cover ambiguity
-            let (u_start, u_end) =
-                self.expand_unambiguous_range(ac, IdentifierKind::Genomic, &resolved)?;
-
-            // 4. Construct expanded sequences
-            let r_seq = reference.slice(u_start, u_end)?;
-            let rel_start = resolved.start - u_start;
-            let rel_end = resolved.end - u_start;
-            let a_seq = format!(
-                "{}{}{}",
-                &r_seq[..rel_start],
-                resolved.alt,
-                &r_seq[rel_end..]
-            );
-
-            Ok(format!("{}:{}:{}:{}", ac, u_start, r_seq, a_seq))
-        } else {
-            g_norm.posedit.to_spdi(&g_norm.ac, &self.refs) // Fallback for identity?
-        }
     }
 }

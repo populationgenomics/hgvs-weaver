@@ -26,6 +26,8 @@ struct Cached {
     len: Option<usize>,
     /// The complete sequence, if a caller asked for all of it.
     whole: Option<String>,
+    /// The refget accession, once looked up or computed.
+    refget: Option<String>,
 }
 
 /// Owns the sequence cache for one [`DataProvider`].
@@ -165,6 +167,25 @@ impl<'s, 'a> Reference<'s, 'a> {
     /// The base at `index`, or `None` past the end.
     pub fn base(&self, index: usize) -> Result<Option<u8>, HgvsError> {
         Ok(self.slice(index, index + 1)?.bytes().next())
+    }
+
+    /// The refget accession (`SQ.` + sha512t24u) identifying this sequence:
+    /// from the provider if it knows it, otherwise computed from the whole
+    /// sequence and cached.
+    pub fn refget_accession(&self) -> Result<String, HgvsError> {
+        {
+            let cache = self.store.cache.borrow();
+            if let Some(r) = cache.get(&self.key()).and_then(|c| c.refget.clone()) {
+                return Ok(r);
+            }
+        }
+        let refget = match self.store.hdp.get_refget_accession(&self.ac)? {
+            Some(r) => r,
+            None => crate::vrs::refget_accession(&self.whole()?),
+        };
+        let mut cache = self.store.cache.borrow_mut();
+        cache.entry(self.key()).or_default().refget = Some(refget.clone());
+        Ok(refget)
     }
 
     /// The complete sequence.

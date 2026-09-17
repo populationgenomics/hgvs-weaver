@@ -375,6 +375,19 @@ impl DataProvider for PyDataProviderBridge {
         })
     }
 
+    fn get_refget_accession(&self, ac: &str) -> Result<Option<String>, HgvsError> {
+        Python::attach(|py| {
+            let provider = self.provider.bind(py);
+            if !provider.hasattr("get_refget_accession").unwrap_or(false) {
+                return Ok(None);
+            }
+            provider
+                .call_method1("get_refget_accession", (ac,))
+                .and_then(|r| r.extract::<Option<String>>())
+                .map_err(|e: PyErr| HgvsError::DataProviderError(e.to_string()))
+        })
+    }
+
     fn get_seq(
         &self,
         ac: &str,
@@ -629,6 +642,22 @@ impl PyVariantMapper {
             },
             is_unique,
         ))
+    }
+
+    #[pyo3(signature = (var))]
+    #[doc = "Returns the GA4GH VRS 2.0 Allele for a nucleotide variant as a dict.\n\nThe variant is projected to its genomic reference, canonicalised (fully\njustified over its region of ambiguity) and rendered with computed\nidentifiers. The sequence is identified by its refget accession, taken from\nthe DataProvider's optional get_refget_accession or computed from the whole\nsequence.\n\nArgs:\n    var: A g., m., c. or n. Variant.\n\nReturns:\n    A dict in the VRS 2.0 Allele schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    fn to_vrs(&self, py: Python, var: &PyVariant) -> PyResult<Py<PyAny>> {
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let json_str = mapper.to_vrs(&var.inner).map_err(map_hgvs_error)?.to_json();
+        let json_mod = py.import("json")?;
+        Ok(json_mod.call_method1("loads", (json_str,))?.unbind())
+    }
+
+    #[pyo3(signature = (var))]
+    #[doc = "Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a nucleotide variant.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier.\n\nArgs:\n    var: A g., m., c. or n. Variant.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    fn vrs_id(&self, _py: Python, var: &PyVariant) -> PyResult<String> {
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        Ok(mapper.to_vrs(&var.inner).map_err(map_hgvs_error)?.id)
     }
 
     #[pyo3(signature = (var))]

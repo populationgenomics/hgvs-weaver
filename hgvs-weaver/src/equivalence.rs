@@ -514,18 +514,16 @@ impl<'a> VariantEquivalence<'a> {
         s
     }
 
+    /// Two genomic variants are the same change exactly when their canonical
+    /// alleles are equal.
     fn n_vs_n_equivalent(&self, v1: &GVariant, v2: &GVariant) -> Result<bool, HgvsError> {
-        let nv1 = self
+        let a1 = self
             .mapper
-            .normalize_variant(SequenceVariant::Genomic(v1.clone()))?;
-        let nv2 = self
+            .canonical_allele(&SequenceVariant::Genomic(v1.clone()))?;
+        let a2 = self
             .mapper
-            .normalize_variant(SequenceVariant::Genomic(v2.clone()))?;
-
-        let s1 = self.normalize_format(&nv1.to_string());
-        let s2 = self.normalize_format(&nv2.to_string());
-
-        Ok(s1 == s2)
+            .canonical_allele(&SequenceVariant::Genomic(v2.clone()))?;
+        Ok(a1 == a2)
     }
 
     /// Two transcript-space variants, compared on their references.

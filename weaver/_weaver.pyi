@@ -307,6 +307,37 @@ class VariantTransformSettings:
     Create with keyword arguments:
         settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
     """
+    def to_vrs(self, var: Variant) -> dict[str, Any]:
+        """Returns the GA4GH VRS 2.0 Allele for a nucleotide variant as a dict.
+
+        The variant is projected to its genomic reference, canonicalised (fully
+        justified over its region of ambiguity) and rendered with computed
+        identifiers. The sequence is identified by its refget accession, taken from
+        the DataProvider's optional get_refget_accession or computed from the whole
+        sequence.
+
+        Args:
+            var: A g., m., c. or n. Variant.
+
+        Returns:
+            A dict in the VRS 2.0 Allele schema.
+
+        Raises:
+            HGVSError: If the variant cannot be resolved against the reference.
+        """
+
+    def vrs_id(self, var: Variant) -> str:
+        """Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a nucleotide variant.
+
+        Two variants describing the same change on the same sequence have the same
+        identifier.
+
+        Args:
+            var: A g., m., c. or n. Variant.
+
+        Raises:
+            HGVSError: If the variant cannot be resolved against the reference.
+        """
     def __new__(cls, start_codon: StartCodonConvention = ...) -> VariantTransformSettings:
         """
         Creates a new VariantTransformSettings.

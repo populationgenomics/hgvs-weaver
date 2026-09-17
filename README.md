@@ -95,6 +95,10 @@ class DataProvider(Protocol):
         """Map gene symbols to accessions (e.g., 'ATM' -> [('transcript_accession', 'NM_000051.3')])."""
         ...
 
+    def get_refget_accession(self, ac: str) -> str | None:  # optional
+        """Refget accession ("SQ." + sha512t24u) for ac; None lets weaver compute it. Used by to_vrs."""
+        ...
+
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
         """Identify what type of identifier a string is (e.g., 'genomic_accession', 'gene_symbol')."""
         ...

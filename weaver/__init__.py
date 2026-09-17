@@ -116,6 +116,14 @@ class DataProvider(Protocol):
         """
         ...
 
+    def get_refget_accession(self, ac: str) -> str | None:  # optional
+        """Return the refget accession ("SQ." + sha512t24u of the sequence) for ``ac``.
+
+        Optional. When absent or returning None, weaver fetches the whole sequence and
+        computes it, which is slow for a chromosome. Used by ``VariantMapper.to_vrs``.
+        """
+        ...
+
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
         """Identify what type of identifier a string is.
 
