@@ -3,7 +3,6 @@ use crate::altseq_to_hgvsp::AltSeqToHgvsp;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::reference::{Reference, ReferenceStore};
-use crate::sequence::{MemSequence, Sequence, TranslatedSequence};
 use crate::structs::{
     BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, NVariant, PVariant,
 };
@@ -536,33 +535,30 @@ impl<'a> VariantMapper<'a> {
         let cds_start_idx = checked_usize(cds_start_tx.0, "CDS start")?;
         let cds_end_idx = checked_usize(cds_end_tx.0, "CDS end")?;
 
-        let ref_seq_obj = MemSequence(ref_seq);
-
-        if ref_seq_obj.len() < cds_end_idx {
+        if ref_seq.len() < cds_end_idx {
             return Err(HgvsError::ValidationError(format!(
                 "Transcript sequence too short (len={}, expected at least {})",
-                ref_seq_obj.len(),
+                ref_seq.len(),
                 cds_end_idx
             )));
         }
 
-        if cds_start_idx > ref_seq_obj.len() {
+        if cds_start_idx > ref_seq.len() {
             return Err(HgvsError::ValidationError(format!(
                 "CDS start {} out of sequence bounds {}",
                 cds_start_idx,
-                ref_seq_obj.len()
+                ref_seq.len()
             )));
         }
 
         // Translate from the already-fetched transcript sequence (avoids a second provider call).
-        let cds_slice = ref_seq_obj.slice(cds_start_idx, ref_seq_obj.len());
-        let ref_aa = TranslatedSequence { inner: &cds_slice }.to_string();
+        let ref_aa = crate::utils::translate(&ref_seq[cds_start_idx..]);
 
         let am = TranscriptMapper::new(transcript)?;
         let builder = AltSeqBuilder {
             var_c,
             mapper: &am,
-            transcript_sequence: &ref_seq_obj,
+            transcript_sequence: &ref_seq,
             cds_start_index: cds_start_tx,
             cds_end_index: cds_end_tx,
             protein_accession: pro_ac_str,

@@ -59,7 +59,11 @@ impl DataProvider for MockDataProvider {
             seq[2672] = b'T';
         }
         let start = (s.max(0) as usize).min(seq.len());
-        let end = if e < 0 { seq.len() } else { (e as usize).min(seq.len()) };
+        let end = if e < 0 {
+            seq.len()
+        } else {
+            (e as usize).min(seq.len())
+        };
         Ok(String::from_utf8(seq[start..end.max(start)].to_vec()).unwrap())
     }
     fn get_symbol_accessions(

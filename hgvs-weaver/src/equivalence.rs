@@ -1051,7 +1051,11 @@ mod tests {
         ) -> Result<String, HgvsError> {
             let seq = "ACGTACGTACGTACGTACGT"; // A=0, C=1, G=2, T=3, A=4, ...
             let s = (start.max(0) as usize).min(seq.len());
-            let e = if end < 0 { seq.len() } else { (end as usize).min(seq.len()) };
+            let e = if end < 0 {
+                seq.len()
+            } else {
+                (end as usize).min(seq.len())
+            };
             Ok(seq[s..e.max(s)].to_string())
         }
         fn get_symbol_accessions(
