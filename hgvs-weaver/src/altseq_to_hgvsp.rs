@@ -1,6 +1,6 @@
 use crate::altseq::AltTranscriptData;
 use crate::error::HgvsError;
-use crate::fmt::aa1_to_aa3;
+use crate::utils::aa1_to_aa3;
 use crate::structs::{AAPosition, AaEdit, AaInterval, PVariant, PosEdit, ProteinPos};
 
 pub struct AltSeqToHgvsp<'a> {

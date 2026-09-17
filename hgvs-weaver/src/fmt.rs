@@ -1,4 +1,5 @@
 use crate::edits::{AaEdit, NaEdit};
+use crate::utils::aa1_to_aa3;
 use crate::structs::*;
 use std::fmt;
 
@@ -486,33 +487,6 @@ impl fmt::Display for AaEdit {
             AaEdit::Special { value, .. } => write!(f, "{}", value),
             _ => write!(f, "unknown_aa_edit"),
         }
-    }
-}
-
-pub fn aa1_to_aa3(c: char) -> &'static str {
-    match c {
-        'A' => "Ala",
-        'C' => "Cys",
-        'D' => "Asp",
-        'E' => "Glu",
-        'F' => "Phe",
-        'G' => "Gly",
-        'H' => "His",
-        'I' => "Ile",
-        'K' => "Lys",
-        'L' => "Leu",
-        'M' => "Met",
-        'N' => "Asn",
-        'P' => "Pro",
-        'Q' => "Gln",
-        'R' => "Arg",
-        'S' => "Ser",
-        'T' => "Thr",
-        'V' => "Val",
-        'W' => "Trp",
-        'Y' => "Tyr",
-        '*' => "Ter",
-        _ => "Xaa",
     }
 }
 
