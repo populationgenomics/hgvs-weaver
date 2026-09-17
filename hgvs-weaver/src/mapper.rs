@@ -114,6 +114,16 @@ fn extract_edit_sequences(
     Ok(result)
 }
 
+/// True unless the edit states literal reference bases that differ from `actual`.
+fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
+    match edit {
+        crate::edits::NaEdit::RefAlt { ref_: Some(r), .. } => {
+            r.is_empty() || r.chars().all(|c| c.is_ascii_digit()) || r == actual
+        }
+        _ => true,
+    }
+}
+
 fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
     if val < 0 {
         Err(HgvsError::ValidationError(format!(
@@ -738,6 +748,70 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// Normalizes a variant to its 3' most position.
+    /// Checks a variant's stated reference bases against the reference sequence.
+    ///
+    /// Returns `Ok(true)` when the stated reference matches, or when the edit
+    /// states no reference (or only a length) so there is nothing to check.
+    /// Intronic c. positions are accepted unchecked. Only g. and c. variants
+    /// are supported.
+    pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
+        match var {
+            crate::SequenceVariant::Genomic(v) => {
+                let pos = v
+                    .posedit
+                    .pos
+                    .as_ref()
+                    .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+                let start_0 = pos.start.base.to_index();
+                let end_0 = pos
+                    .end
+                    .as_ref()
+                    .map_or(start_0 + 1, |e| e.base.to_index() + 1);
+                let ref_seq = self.hdp.get_seq(
+                    &v.ac,
+                    start_0.0,
+                    end_0.0,
+                    IdentifierKind::Genomic.into_identifier_type(),
+                )?;
+                Ok(stated_ref_matches(&v.posedit.edit, &ref_seq))
+            }
+            crate::SequenceVariant::Coding(v) => {
+                let transcript = self.hdp.get_transcript(&v.ac, None)?;
+                let pos = v
+                    .posedit
+                    .pos
+                    .as_ref()
+                    .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+                if pos.start.offset.is_some() || pos.end.as_ref().and_then(|e| e.offset).is_some() {
+                    return Ok(true);
+                }
+                let am = TranscriptMapper::new(transcript)?;
+                let (n_start, n_end) = am.interval_to_n(pos)?;
+                let start_idx = checked_usize(n_start.0, "transcript start index")?;
+                let end_idx = checked_usize(n_end.0, "transcript end index")?;
+
+                let ref_seq = self.hdp.get_seq(
+                    &v.ac,
+                    0,
+                    -1,
+                    IdentifierKind::Transcript.into_identifier_type(),
+                )?;
+                if start_idx >= ref_seq.len() || end_idx > ref_seq.len() {
+                    return Err(HgvsError::ValidationError(
+                        "Transcript sequence too short".into(),
+                    ));
+                }
+                Ok(stated_ref_matches(
+                    &v.posedit.edit,
+                    &ref_seq[start_idx..end_idx],
+                ))
+            }
+            _ => Err(HgvsError::UnsupportedOperation(
+                "Validation not implemented for this variant type".into(),
+            )),
+        }
+    }
+
     pub fn normalize_variant(
         &self,
         var: crate::SequenceVariant,

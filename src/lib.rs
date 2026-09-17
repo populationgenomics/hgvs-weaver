@@ -279,111 +279,15 @@ impl PyVariant {
     #[doc = "Validates the variant's reference sequence against the provided DataProvider.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if the reference sequence matches, False otherwise.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
-        let result = match &self.inner {
-            SequenceVariant::Genomic(v) => self.validate_genomic(v, &bridge),
-            SequenceVariant::Coding(v) => self.validate_coding(v, &bridge),
-            _ => Err(HgvsError::UnsupportedOperation(
-                "Validation not implemented for this variant type".into(),
-            )),
-        };
-        match result {
-            Ok(is_valid) => Ok(is_valid),
-            Err(e) => Err(map_hgvs_error(e)),
-        }
+        VariantMapper::new(&bridge)
+            .validate(&self.inner)
+            .map_err(map_hgvs_error)
     }
 
     #[doc = "Returns a new variant with the given transform settings applied.\n\nCurrently transforms protein variants according to the start_codon convention.\nAll other variant types are returned unchanged.\n\nArgs:\n    settings: A VariantTransformSettings object.\n\nReturns:\n    A new Variant with the settings applied."]
     fn transform(&self, settings: &PyVariantTransformSettings) -> PyVariant {
         PyVariant {
             inner: transform_variant(&self.inner, &settings.inner),
-        }
-    }
-}
-
-impl PyVariant {
-    fn validate_genomic(
-        &self,
-        v: &::hgvs_weaver::GVariant,
-        bridge: &PyDataProviderBridge,
-    ) -> Result<bool, HgvsError> {
-        let pos = v
-            .posedit
-            .pos
-            .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        let start_0 = pos.start.base.to_index();
-        let end_0 = pos
-            .end
-            .as_ref()
-            .map_or(start_0 + 1, |e| e.base.to_index() + 1);
-
-        let ref_seq = bridge.get_seq(
-            &v.ac,
-            start_0.0,
-            end_0.0,
-            IdentifierKind::Genomic.into_identifier_type(),
-        )?;
-
-        match &v.posedit.edit {
-            ::hgvs_weaver::edits::NaEdit::RefAlt { ref_: Some(r), .. } => {
-                if r.is_empty() || r.chars().all(|c| c.is_ascii_digit()) {
-                    return Ok(true);
-                }
-                Ok(r == &ref_seq)
-            }
-            _ => Ok(true),
-        }
-    }
-
-    fn validate_coding(
-        &self,
-        v: &::hgvs_weaver::CVariant,
-        bridge: &PyDataProviderBridge,
-    ) -> Result<bool, HgvsError> {
-        let transcript = bridge.get_transcript(&v.ac, None)?;
-
-        let pos = v
-            .posedit
-            .pos
-            .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-
-        let ref_seq = bridge.get_seq(
-            &v.ac,
-            0,
-            -1,
-            IdentifierKind::Transcript.into_identifier_type(),
-        )?;
-
-        if pos.start.offset.is_some() || pos.end.as_ref().and_then(|e| e.offset).is_some() {
-            return Ok(true);
-        }
-
-        let tm = ::hgvs_weaver::transcript_mapper::TranscriptMapper::new(transcript)?;
-        let n_start = tm.c_to_n(pos.start.base.to_index(), pos.start.anchor)?;
-        let n_end = if let Some(e) = &pos.end {
-            tm.c_to_n(e.base.to_index(), e.anchor)?
-        } else {
-            n_start
-        };
-
-        let start_idx = n_start.0 as usize;
-        let end_idx = (n_end.0 + 1) as usize;
-        if start_idx >= ref_seq.len() || end_idx > ref_seq.len() {
-            return Err(HgvsError::ValidationError(
-                "Transcript sequence too short".into(),
-            ));
-        }
-        let sub_seq = &ref_seq[start_idx..end_idx];
-
-        match &v.posedit.edit {
-            ::hgvs_weaver::edits::NaEdit::RefAlt { ref_: Some(r), .. } => {
-                if r.is_empty() || r.chars().all(|c| c.is_ascii_digit()) {
-                    return Ok(true);
-                }
-                Ok(r == sub_seq)
-            }
-            _ => Ok(true),
         }
     }
 }

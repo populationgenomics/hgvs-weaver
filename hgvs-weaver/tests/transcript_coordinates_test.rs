@@ -14,6 +14,7 @@ use hgvs_weaver::data::{
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
+use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::structs::IntervalSpdi;
 use hgvs_weaver::SequenceVariant;
@@ -189,4 +190,23 @@ fn coding_variants_on_transcripts_with_different_cds_starts_are_equivalent() {
         eq.equivalent_level(&v1, &v3).unwrap(),
         EquivalenceLevel::Different
     );
+}
+
+#[test]
+fn validate_checks_stated_reference_through_transcript_coordinates() {
+    let mapper = VariantMapper::new(&Provider);
+    let ok = |hgvs: &str| mapper.validate(&parse_hgvs_variant(hgvs).unwrap()).unwrap();
+
+    // Plus strand, CDS at index 10: c.1 is transcript index 10, genome[1010] = G.
+    assert!(ok("NM_PLUS10.1:c.1G>A"));
+    assert!(!ok("NM_PLUS10.1:c.1A>G"));
+    // c.*1 is transcript index 40, genome[1040] = A.
+    assert!(ok("NM_PLUS10.1:c.*1A>G"));
+    // Minus strand: transcript index 10 is the complement of genome[1089] = C.
+    assert!(ok("NM_MINUS10.1:c.1G>A"));
+    assert!(!ok("NM_MINUS10.1:c.1C>A"));
+    // Intronic positions are accepted unchecked; genomic goes straight to the reference.
+    assert!(ok("NM_MINUS10.1:c.1+5T>A"));
+    assert!(ok("NC_TEST.1:g.1011G>A"));
+    assert!(!ok("NC_TEST.1:g.1011A>G"));
 }
