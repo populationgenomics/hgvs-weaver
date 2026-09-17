@@ -1,6 +1,8 @@
 use crate::data::{ExonData, TranscriptData};
 use crate::error::HgvsError;
-use crate::structs::{Anchor, GenomicPos, IntronicOffset, TranscriptPos};
+use crate::structs::{
+    Anchor, BaseOffsetInterval, BaseOffsetPosition, GenomicPos, IntronicOffset, TranscriptPos,
+};
 
 /// Handles coordinate transformations within a single transcript.
 pub struct TranscriptMapper {
@@ -113,6 +115,63 @@ impl TranscriptMapper {
             };
         }
         Ok((best_n, IntronicOffset(best_offset)))
+    }
+
+    /// Resolves a c./n. position to a 0-based transcript index.
+    ///
+    /// The anchor (transcript start, CDS start, CDS end) is applied here, so callers
+    /// never do CDS arithmetic themselves. An intronic offset is rejected: an
+    /// intronic base has no transcript index.
+    pub fn position_to_n(&self, pos: &BaseOffsetPosition) -> Result<TranscriptPos, HgvsError> {
+        if pos.offset.is_some_and(|o| o.0 != 0) {
+            return Err(HgvsError::UnsupportedOperation(
+                "Intronic position has no transcript index".into(),
+            ));
+        }
+        self.c_to_n(pos.base.to_index(), pos.anchor)
+    }
+
+    /// Resolves a c./n. position, including any intronic offset, to a 0-based
+    /// genomic position on the transcript's reference. Strand is handled here.
+    pub fn position_to_g(&self, pos: &BaseOffsetPosition) -> Result<GenomicPos, HgvsError> {
+        let n = self.c_to_n(pos.base.to_index(), pos.anchor)?;
+        self.n_to_g(n, pos.offset.unwrap_or(IntronicOffset(0)))
+    }
+
+    /// Resolves a c./n. interval to a half-open 0-based transcript index range
+    /// `[start, end)`. A single position yields a range of length one.
+    pub fn interval_to_n(
+        &self,
+        interval: &BaseOffsetInterval,
+    ) -> Result<(TranscriptPos, TranscriptPos), HgvsError> {
+        let start = self.position_to_n(&interval.start)?;
+        let last = match &interval.end {
+            Some(e) => self.position_to_n(e)?,
+            None => start,
+        };
+        let end = last
+            .0
+            .checked_add(1)
+            .ok_or_else(|| HgvsError::ValidationError("Transcript end position overflow".into()))?;
+        Ok((start, TranscriptPos(end)))
+    }
+
+    /// Resolves a c./n. interval to a half-open 0-based genomic range `[start, end)`
+    /// on the transcript's reference, ordered low-to-high regardless of strand.
+    pub fn interval_to_g(
+        &self,
+        interval: &BaseOffsetInterval,
+    ) -> Result<(GenomicPos, GenomicPos), HgvsError> {
+        let a = self.position_to_g(&interval.start)?;
+        let b = match &interval.end {
+            Some(e) => self.position_to_g(e)?,
+            None => a,
+        };
+        let (lo, hi) = (a.0.min(b.0), a.0.max(b.0));
+        let end = hi
+            .checked_add(1)
+            .ok_or_else(|| HgvsError::ValidationError("Genomic end position overflow".into()))?;
+        Ok((GenomicPos(lo), GenomicPos(end)))
     }
 
     /// Maps a 0-based transcript position to a 0-based cDNA position and anchor.

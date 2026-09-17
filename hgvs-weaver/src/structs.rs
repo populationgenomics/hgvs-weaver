@@ -155,28 +155,13 @@ impl IntervalSpdi for BaseOffsetInterval {
         ac: &str,
         data_provider: &dyn crate::data::DataProvider,
     ) -> Result<(i32, i32, String), HgvsError> {
-        // Resolving transcript/non-coding positions to genomic coordinates for SPDI.
-        // This ensures the resulting SPDI uses a chromosomal accession.
-        let g_start = data_provider.c_to_g(
-            ac,
-            self.start.base.to_index(),
-            self.start.offset.unwrap_or(IntronicOffset(0)),
-        )?;
-        let g_end = if let Some(e) = &self.end {
-            data_provider.c_to_g(ac, e.base.to_index(), e.offset.unwrap_or(IntronicOffset(0)))?
-        } else {
-            g_start.clone()
-        };
-
-        if g_start.0 != g_end.0 {
-            return Err(HgvsError::UnsupportedOperation(
-                "Interval spans multiple genomic accessions".into(),
-            ));
-        }
-        let s = g_start.1 .0.min(g_end.1 .0);
-        let e = g_start.1 .0.max(g_end.1 .0) + 1;
-
-        Ok((s, e, g_start.0))
+        // SPDI is expressed on the chromosomal accession, so resolve the
+        // transcript interval to genomic coordinates via the transcript model.
+        let transcript = data_provider.get_transcript(ac, None)?;
+        let reference_ac = transcript.reference_accession.clone();
+        let am = crate::transcript_mapper::TranscriptMapper::new(transcript)?;
+        let (start, end) = am.interval_to_g(self)?;
+        Ok((start.0, end.0, reference_ac))
     }
 }
 

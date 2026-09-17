@@ -1,6 +1,6 @@
 use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
 use hgvs_weaver::data::{
-    DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
+    DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
@@ -10,6 +10,7 @@ struct MockDataProvider;
 impl DataProvider for MockDataProvider {
     fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
         if ac == "NM_001166478.1" || ac == "NM_005813.3" {
+            // One minus-strand exon: transcript index i is genomic index 4000 - i.
             Ok(TranscriptData {
                 ac: ac.to_string(),
                 gene: "TEST".to_string(),
@@ -17,7 +18,14 @@ impl DataProvider for MockDataProvider {
                 cds_end_index: Some(TranscriptPos(3000)),
                 strand: hgvs_weaver::data::Strand::Minus,
                 reference_accession: "NC_000001.1".to_string(),
-                exons: vec![],
+                exons: vec![ExonData {
+                    transcript_start: TranscriptPos(0),
+                    transcript_end: TranscriptPos(3001),
+                    reference_start: GenomicPos(1000),
+                    reference_end: GenomicPos(4000),
+                    alt_strand: hgvs_weaver::data::Strand::Minus,
+                    cigar: "3001M".to_string(),
+                }],
             })
         } else if ac == "NM_BRAF" {
             Ok(TranscriptData {

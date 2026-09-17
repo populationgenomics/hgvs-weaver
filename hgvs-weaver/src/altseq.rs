@@ -1,6 +1,6 @@
 use crate::error::HgvsError;
 use crate::sequence::{MemSequence, Sequence, SliceSequence, SplicedSequence, TranslatedSequence};
-use crate::structs::{Anchor, CVariant, NaEdit, ProteinPos, TranscriptPos};
+use crate::structs::{CVariant, NaEdit, ProteinPos, TranscriptPos};
 
 /// Represents the data for a transcript with a variant applied.
 pub struct AltTranscriptData {
@@ -23,6 +23,8 @@ pub struct AltTranscriptData {
 
 pub struct AltSeqBuilder<'a> {
     pub var_c: &'a CVariant,
+    /// Resolves the variant's c. positions to transcript indices.
+    pub mapper: &'a crate::transcript_mapper::TranscriptMapper,
     pub transcript_sequence: &'a dyn Sequence,
     pub cds_start_index: TranscriptPos,
     pub cds_end_index: TranscriptPos,
@@ -381,67 +383,18 @@ impl<'a> AltSeqBuilder<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        let start = self.pos_to_idx(&pos.start)?;
-        let mut end = if let Some(e) = &pos.end {
-            self.pos_to_idx(e)?
-        } else {
-            start
-        };
-        end += 1;
-        Ok((start, end))
-    }
-
-    fn pos_to_idx(&self, pos: &crate::structs::BaseOffsetPosition) -> Result<usize, HgvsError> {
-        let base_idx_0 = pos.base.to_index();
-
-        if pos.offset.is_some() && pos.offset.unwrap().0 != 0 {
-            return Err(HgvsError::UnsupportedOperation(
+        let (start, end) = self.mapper.interval_to_n(pos).map_err(|e| match e {
+            HgvsError::UnsupportedOperation(_) => HgvsError::UnsupportedOperation(
                 "Intronic variants not yet supported in c_to_p".into(),
-            ));
-        }
-
-        let idx = match pos.anchor {
-            Anchor::TranscriptStart => {
-                let i = base_idx_0.0;
-                if i < 0 {
-                    return Err(HgvsError::ValidationError(format!(
-                        "Position {} before transcript start",
-                        i
-                    )));
-                }
-                i as usize
-            }
-            Anchor::CdsStart => {
-                let i = (self.cds_start_index.0 + base_idx_0.0) as i32;
-                if i < 0 {
-                    return Err(HgvsError::ValidationError(format!(
-                        "Position {} before transcript start",
-                        i
-                    )));
-                }
-                i as usize
-            }
-            Anchor::CdsEnd => {
-                let mut i = (self.cds_end_index.0 + base_idx_0.0) as i32;
-                if base_idx_0.0 >= 0 {
-                    i += 1;
-                }
-                if i < 0 {
-                    return Err(HgvsError::ValidationError(format!(
-                        "Position {} before transcript start",
-                        i
-                    )));
-                }
-                i as usize
-            }
-        };
-        if idx >= self.transcript_sequence.len() {
+            ),
+            other => other,
+        })?;
+        if start.0 < 0 {
             return Err(HgvsError::ValidationError(format!(
-                "Coordinate out of bounds: index {} is beyond transcript length {}",
-                idx,
-                self.transcript_sequence.len()
+                "Position {} before transcript start",
+                start.0
             )));
         }
-        Ok(idx)
+        Ok((start.0 as usize, end.0 as usize))
     }
 }

@@ -516,8 +516,10 @@ impl<'a> VariantMapper<'a> {
         let cds_slice = ref_seq_obj.slice(cds_start_idx, ref_seq_obj.len());
         let ref_aa = TranslatedSequence { inner: &cds_slice }.to_string();
 
+        let am = TranscriptMapper::new(transcript)?;
         let builder = AltSeqBuilder {
             var_c,
+            mapper: &am,
             transcript_sequence: &ref_seq_obj,
             cds_start_index: cds_start_tx,
             cds_end_index: cds_end_tx,
@@ -964,12 +966,7 @@ impl<'a> VariantMapper<'a> {
         transcript: &TranscriptData,
     ) -> Result<(usize, usize), HgvsError> {
         let am = TranscriptMapper::new(transcript.clone())?;
-        let n_start = am.c_to_n(pos.start.base.to_index(), pos.start.anchor)?;
-        let n_end = if let Some(e) = &pos.end {
-            am.c_to_n(e.base.to_index(), e.anchor)?
-        } else {
-            n_start
-        };
+        let (n_start, n_end) = am.interval_to_n(pos)?;
         if n_start.0 < 0 {
             return Err(HgvsError::ValidationError(format!(
                 "Transcript start position {:?} maps to a negative index; \
@@ -977,15 +974,9 @@ impl<'a> VariantMapper<'a> {
                 pos.start.base
             )));
         }
-        let end_val = n_end.0.checked_add(1).filter(|&v| v >= 0).ok_or_else(|| {
-            HgvsError::ValidationError(format!(
-                "Transcript end position {:?} is out of sequence bounds",
-                pos.end.as_ref().map(|e| e.base)
-            ))
-        })?;
         Ok((
             checked_usize(n_start.0, "transcript start index")?,
-            checked_usize(end_val, "transcript end index")?,
+            checked_usize(n_end.0, "transcript end index")?,
         ))
     }
 

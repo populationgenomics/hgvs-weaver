@@ -3,8 +3,8 @@ use crate::data::{DataProvider, IdentifierKind, TranscriptData, TranscriptSearch
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{
-    BaseOffsetInterval, BaseOffsetPosition, GVariant, GenomicPos, IntervalSpdi, IntronicOffset,
-    NaEdit, PVariant, SequenceVariant, SimpleInterval, SimplePosition, TranscriptPos, Variant,
+    BaseOffsetInterval, BaseOffsetPosition, GVariant, GenomicPos, IntervalSpdi, NaEdit, PVariant,
+    SequenceVariant, SimpleInterval, SimplePosition, TranscriptPos, Variant,
 };
 use crate::utils::decompose_aa;
 
@@ -158,37 +158,17 @@ impl<'a> VariantEquivalence<'a> {
                     let t2 = self.hdp.get_transcript(&c2.ac, None)?;
                     let edit2 = strand_aware_edit(&c2.posedit.edit, t2.strand);
 
-                    if matches!(c1.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos1.end {
-                            let g1 = self.hdp.c_to_g(
-                                &c1.ac,
-                                pos1.start.base.to_index(),
-                                pos1.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &c1.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0); // keep consistent with spdi_interval which is currently 1-based
-                            i1 = (p, p + 1, g1.0);
-                        }
+                    if matches!(c1.posedit.edit, NaEdit::Ins { .. }) && pos1.end.is_some() {
+                        // An insertion between two flanking bases is anchored at the
+                        // lower genomic index for projection.
+                        let (p, _, ac) = i1;
+                        i1 = (p, p + 1, ac);
                     }
-                    if matches!(c2.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos2.end {
-                            let g1 = self.hdp.c_to_g(
-                                &c2.ac,
-                                pos2.start.base.to_index(),
-                                pos2.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &c2.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0); // keep consistent with spdi_interval
-                            i2 = (p, p + 1, g1.0);
-                        }
+                    if matches!(c2.posedit.edit, NaEdit::Ins { .. }) && pos2.end.is_some() {
+                        // An insertion between two flanking bases is anchored at the
+                        // lower genomic index for projection.
+                        let (p, _, ac) = i2;
+                        i2 = (p, p + 1, ac);
                     }
 
                     let (start1, end1, _) = i1;
@@ -218,37 +198,17 @@ impl<'a> VariantEquivalence<'a> {
                     let t2 = self.hdp.get_transcript(&n2.ac, None)?;
                     let edit2 = strand_aware_edit(&n2.posedit.edit, t2.strand);
 
-                    if matches!(n1.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos1.end {
-                            let g1 = self.hdp.c_to_g(
-                                &n1.ac,
-                                pos1.start.base.to_index(),
-                                pos1.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &n1.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0);
-                            i1 = (p, p + 1, g1.0);
-                        }
+                    if matches!(n1.posedit.edit, NaEdit::Ins { .. }) && pos1.end.is_some() {
+                        // An insertion between two flanking bases is anchored at the
+                        // lower genomic index for projection.
+                        let (p, _, ac) = i1;
+                        i1 = (p, p + 1, ac);
                     }
-                    if matches!(n2.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos2.end {
-                            let g1 = self.hdp.c_to_g(
-                                &n2.ac,
-                                pos2.start.base.to_index(),
-                                pos2.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &n2.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0);
-                            i2 = (p, p + 1, g1.0);
-                        }
+                    if matches!(n2.posedit.edit, NaEdit::Ins { .. }) && pos2.end.is_some() {
+                        // An insertion between two flanking bases is anchored at the
+                        // lower genomic index for projection.
+                        let (p, _, ac) = i2;
+                        i2 = (p, p + 1, ac);
                     }
 
                     let (start1, end1, _) = i1;
