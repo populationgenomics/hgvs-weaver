@@ -185,86 +185,25 @@ impl EditSpdi for NaEdit {
         end: i32,
         refs: &crate::reference::ReferenceStore<'_>,
     ) -> Result<String, HgvsError> {
-        // SPDI is always on the chromosomal accession.
-        let reference = refs.reference(ac, IdentifierType::GenomicAccession);
-        let fetch = || -> Result<String, HgvsError> {
-            let range = |v: i32, what: &str| {
-                usize::try_from(v).map_err(|_| {
-                    HgvsError::ValidationError(format!("Negative SPDI {} {}", what, v))
-                })
-            };
-            reference.slice(range(start, "start")?, range(end, "end")?)
-        };
-        match self {
-            NaEdit::RefAlt { ref_, alt, .. } => {
-                let r_seq = if let Some(r) = ref_ {
-                    if r.chars().all(|c| c.is_ascii_digit()) {
-                        fetch()?
-                    } else {
-                        r.clone()
-                    }
-                } else {
-                    fetch()?
-                };
-
-                let a_seq = if ref_.is_none() && alt.is_none() {
-                    r_seq.clone()
-                } else {
-                    alt.as_deref().unwrap_or("").to_string()
-                };
-
-                let (p_start, r_strip, a_strip) = strip_common_prefix_suffix(start, &r_seq, &a_seq);
-                Ok(format!("{}:{}:{}:{}", ac, p_start, r_strip, a_strip))
-            }
-            NaEdit::Del { ref_, .. } => {
-                let r_seq = if let Some(r) = ref_ {
-                    if r.chars().all(|c| c.is_ascii_digit()) {
-                        fetch()?
-                    } else {
-                        r.clone()
-                    }
-                } else {
-                    fetch()?
-                };
-                Ok(format!("{}:{}:{}:", ac, start, r_seq))
-            }
-            NaEdit::Ins { alt, .. } => {
-                let a_seq = alt.as_deref().unwrap_or("");
-                Ok(format!("{}:{}:{}:{}", ac, start, "", a_seq))
-            }
-            NaEdit::Dup { ref_, .. } => {
-                let r_seq = if let Some(r) = ref_ {
-                    r.clone()
-                } else {
-                    fetch()?
-                };
-                Ok(format!("{}:{}:{}:{}", ac, end, "", r_seq))
-            }
-            NaEdit::Repeat { ref_, max, .. } => {
-                let unit = if let Some(r) = ref_ {
-                    r.clone()
-                } else {
-                    fetch()?
-                };
-                let ins_seq = unit.repeat(*max as usize);
-                let r_seq = fetch()?;
-
-                let (p_start, r_strip, a_strip) =
-                    strip_common_prefix_suffix(start, &r_seq, &ins_seq);
-                Ok(format!("{}:{}:{}:{}", ac, p_start, r_strip, a_strip))
-            }
-            NaEdit::Inv { .. } => {
-                let r_seq = fetch()?;
-                let a_seq = crate::utils::reverse_complement(&r_seq);
-
-                let (p_start, r_strip, a_strip) = strip_common_prefix_suffix(start, &r_seq, &a_seq);
-                Ok(format!("{}:{}:{}:{}", ac, p_start, r_strip, a_strip))
-            }
-            _ => Err(HgvsError::UnsupportedOperation(format!(
+        if matches!(
+            self,
+            NaEdit::None | NaEdit::Con { .. } | NaEdit::NACopy { .. }
+        ) {
+            return Err(HgvsError::UnsupportedOperation(format!(
                 "Edit type {:?} not yet supported for SPDI",
                 self
-            ))),
+            )));
         }
+        let range = |v: i32, what: &str| {
+            usize::try_from(v)
+                .map_err(|_| HgvsError::ValidationError(format!("Negative SPDI {} {}", what, v)))
+        };
+        // SPDI is always on the chromosomal accession.
+        let reference = refs.reference(ac, IdentifierType::GenomicAccession);
+        let resolved = self.resolve(&reference, range(start, "start")?, range(end, "end")?)?;
+        let (p_start, r_strip, a_strip) =
+            strip_common_prefix_suffix(resolved.start as i32, &resolved.ref_, &resolved.alt);
+        Ok(format!("{}:{}:{}:{}", ac, p_start, r_strip, a_strip))
     }
 }
 

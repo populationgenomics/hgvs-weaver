@@ -60,26 +60,21 @@ impl<'a> AltSeqBuilder<'a> {
             )));
         }
 
-        // --- Validate reference sequence ---
-        match &self.var_c.posedit.edit {
-            NaEdit::RefAlt { ref_: Some(r), .. }
-            | NaEdit::Del { ref_: Some(r), .. }
-            | NaEdit::Dup { ref_: Some(r), .. } => {
-                if !r.is_empty() && !r.chars().all(|c| c.is_ascii_digit()) {
-                    let actual_ref = window(self.transcript_sequence, start_idx, end_idx);
-                    if actual_ref != r {
-                        return Err(HgvsError::TranscriptMismatch {
-                            expected: r.to_string(),
-                            found: actual_ref.to_string(),
-                            start: start_idx,
-                            end: end_idx,
-                        });
-                    }
-                }
+        let seq = self.transcript_sequence;
+        let edit = &self.var_c.posedit.edit;
+
+        // The bases the variant says are there must be there.
+        if let Some(stated) = edit.stated_ref() {
+            let actual = window(seq, start_idx, end_idx);
+            if actual != stated {
+                return Err(HgvsError::TranscriptMismatch {
+                    expected: stated.to_string(),
+                    found: actual.to_string(),
+                    start: start_idx,
+                    end: end_idx,
+                });
             }
-            _ => {}
         }
-        // --- End validation ---
 
         let cds_start_idx = self.cds_start_index.0 as usize;
         let variant_start_aa = if start_idx >= cds_start_idx {
@@ -88,95 +83,16 @@ impl<'a> AltSeqBuilder<'a> {
             Some(ProteinPos(0)) // 5' UTR variant
         };
 
-        let (is_substitution, is_frameshift, alt_transcript) = match &self.var_c.posedit.edit {
-            NaEdit::RefAlt { ref_, alt, .. } => {
-                let is_identity = ref_.is_none() && alt.is_none();
-                let is_ins = ref_.is_none()
-                    && !is_identity
-                    && self
-                        .var_c
-                        .posedit
-                        .pos
-                        .as_ref()
-                        .is_some_and(|p| p.end.is_some());
-                let alt_str = alt.as_deref().unwrap_or("");
-
-                let (is_subst, is_fs, res) = if is_identity {
-                    (false, false, self.transcript_sequence.to_string())
-                } else if is_ins {
-                    let ins_pos = start_idx + 1;
-                    (
-                        false,
-                        alt_str.len() % 3 != 0,
-                        splice(self.transcript_sequence, ins_pos, ins_pos, alt_str),
-                    )
-                } else {
-                    let r_len = if let Some(r) = ref_ {
-                        if r.chars().all(|c| c.is_ascii_digit()) {
-                            end_idx - start_idx
-                        } else {
-                            r.len()
-                        }
-                    } else {
-                        end_idx - start_idx
-                    };
-
-                    let is_subst =
-                        ref_.is_some() && alt.is_some() && r_len == 1 && alt_str.len() == 1;
-                    let is_fs = (alt_str.len() as i32 - r_len as i32) % 3 != 0;
-                    (
-                        is_subst,
-                        is_fs,
-                        splice(self.transcript_sequence, start_idx, end_idx, alt_str),
-                    )
-                };
-
-                (is_subst, is_fs, res)
-            }
-            NaEdit::Del { ref_, .. } => {
-                let r_len = if let Some(r) = ref_ {
-                    if r.chars().all(|c| c.is_ascii_digit()) {
-                        end_idx - start_idx
-                    } else {
-                        r.len()
-                    }
-                } else {
-                    end_idx - start_idx
-                };
-
-                let res = splice(self.transcript_sequence, start_idx, end_idx, "");
-                (false, (r_len as i32) % 3 != 0, res)
-            }
-            NaEdit::Ins { alt: Some(alt), .. } => {
-                let ins_pos = start_idx + 1;
-                let res = splice(self.transcript_sequence, ins_pos, ins_pos, alt);
-                (false, (alt.len() as i32) % 3 != 0, res)
-            }
-            NaEdit::Dup { ref_, .. } => {
-                let dup_str = match ref_ {
-                    Some(r) if !r.chars().all(|c| c.is_ascii_digit()) => r.clone(),
-                    _ => window(self.transcript_sequence, start_idx, end_idx).to_string(),
-                };
-                let res = splice(self.transcript_sequence, end_idx, end_idx, &dup_str);
-                (false, (dup_str.len() as i32) % 3 != 0, res)
-            }
-            NaEdit::Inv { .. } => {
-                let inv_str = crate::utils::reverse_complement(window(
-                    self.transcript_sequence,
-                    start_idx,
-                    end_idx,
-                ));
-                let res = splice(self.transcript_sequence, start_idx, end_idx, &inv_str);
-                (false, false, res)
-            }
+        let (is_substitution, is_frameshift, alt_transcript) = match edit {
             NaEdit::Repeat { max, ref_, .. } => {
+                // Protein consequence of a repeat: every existing copy of the
+                // unit is replaced by `max` copies, not just the stated range.
+                // This is the one edit whose protein reading differs from its
+                // resolved (SPDI) reading; see NaEdit::resolve.
                 let unit = match ref_ {
                     Some(r) => r.clone(),
-                    None => window(self.transcript_sequence, start_idx, end_idx).to_string(),
+                    None => window(seq, start_idx, end_idx).to_string(),
                 };
-
-                // Extend over every existing copy of the unit.
-                let seq = self.transcript_sequence;
                 let mut current_idx = start_idx;
                 while !unit.is_empty()
                     && current_idx + unit.len() <= seq.len()
@@ -184,19 +100,31 @@ impl<'a> AltSeqBuilder<'a> {
                 {
                     current_idx += unit.len();
                 }
-
                 let total_str = unit.repeat(*max as usize);
-                let res = splice(self.transcript_sequence, start_idx, current_idx, &total_str);
-
+                let res = splice(seq, start_idx, current_idx, &total_str);
                 let net_change =
                     (unit.len() as i32 * (*max as i32)) - (current_idx as i32 - start_idx as i32);
                 (false, net_change % 3 != 0, res)
             }
-            NaEdit::None => (false, false, self.transcript_sequence.to_string()),
-            _ => {
+            NaEdit::Con { .. } | NaEdit::NACopy { .. } => {
                 return Err(HgvsError::UnsupportedOperation(
                     "Unsupported edit for altseq".into(),
                 ))
+            }
+            _ => {
+                let resolved = edit
+                    .resolve_with(start_idx, end_idx, |s, e| Ok(window(seq, s, e).to_string()))?;
+                let is_subst = matches!(
+                    edit,
+                    NaEdit::RefAlt {
+                        ref_: Some(_),
+                        alt: Some(_),
+                        ..
+                    }
+                ) && resolved.ref_.len() == 1
+                    && resolved.alt.len() == 1;
+                let res = splice(seq, resolved.start, resolved.end, &resolved.alt);
+                (is_subst, resolved.is_frameshift(), res)
             }
         };
 

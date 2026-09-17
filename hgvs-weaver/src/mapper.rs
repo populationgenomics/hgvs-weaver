@@ -63,9 +63,7 @@ fn apply_strand_complement(
 /// True unless the edit states literal reference bases that differ from `actual`.
 fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
     match edit {
-        crate::edits::NaEdit::RefAlt { ref_: Some(r), .. } => {
-            r.is_empty() || r.chars().all(|c| c.is_ascii_digit()) || r == actual
-        }
+        crate::edits::NaEdit::RefAlt { .. } => edit.stated_ref().is_none_or(|r| r == actual),
         _ => true,
     }
 }
@@ -1047,30 +1045,13 @@ impl<'a> VariantMapper<'a> {
             let rel_start = start_idx - u_start;
             let rel_end = end_idx - u_start;
 
-            let alt_storage;
             let alt_str = match &g_norm.posedit.edit {
-                crate::edits::NaEdit::RefAlt { alt, .. } => alt.as_deref().unwrap_or(""),
-                crate::edits::NaEdit::Ins { alt: Some(s), .. } => s.as_str(),
-                crate::edits::NaEdit::Del { .. } => "",
-                crate::edits::NaEdit::Dup { ref_: Some(s), .. } => {
-                    alt_storage = format!("{}{}", s, s);
-                    &alt_storage
+                crate::edits::NaEdit::None
+                | crate::edits::NaEdit::Con { .. }
+                | crate::edits::NaEdit::NACopy { .. } => {
+                    return g_norm.posedit.to_spdi(ac, &self.refs)
                 }
-                crate::edits::NaEdit::Repeat { ref_, max, .. } => {
-                    let unit = if let Some(u) = ref_ {
-                        u.clone()
-                    } else {
-                        reference.slice(start_idx, end_idx)?
-                    };
-                    alt_storage = unit.repeat(*max as usize);
-                    &alt_storage
-                }
-                crate::edits::NaEdit::Inv { .. } => {
-                    let s = reference.slice(start_idx, end_idx)?;
-                    alt_storage = crate::utils::reverse_complement(&s);
-                    &alt_storage
-                }
-                _ => return g_norm.posedit.to_spdi(ac, &self.refs),
+                edit => edit.resolve(&reference, start_idx, end_idx)?.alt,
             };
 
             let a_seq = format!("{}{}{}", &r_seq[..rel_start], alt_str, &r_seq[rel_end..]);

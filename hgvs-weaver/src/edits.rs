@@ -1,5 +1,6 @@
 use crate::coords::SequenceVariant;
 use crate::error::HgvsError;
+use crate::reference::Reference;
 use serde::{Deserialize, Serialize};
 
 /// Nucleic acid edits (substitutions, deletions, insertions, etc.).
@@ -122,59 +123,138 @@ impl AaEdit {
     }
 }
 
+/// True for the strings HGVS allows in place of bases: a length (`del3`) or nothing.
+fn is_length(s: &str) -> bool {
+    s.is_empty() || s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// A nucleotide edit resolved against a reference: concrete bases over a
+/// concrete 0-based half-open range.
+///
+/// An insertion has an empty range: `start == end` is the index of the base
+/// the new bases go in front of. Every other edit replaces `ref_`, the bases
+/// actually at `[start, end)`, with `alt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEdit {
+    pub start: usize,
+    pub end: usize,
+    pub ref_: String,
+    pub alt: String,
+}
+
+impl ResolvedEdit {
+    /// Change in sequence length the edit causes.
+    pub fn length_change(&self) -> i64 {
+        self.alt.len() as i64 - self.ref_.len() as i64
+    }
+
+    /// Whether the edit shifts the reading frame.
+    pub fn is_frameshift(&self) -> bool {
+        self.length_change() % 3 != 0
+    }
+}
+
 impl NaEdit {
-    /// Calculates deletion and insertion lengths for the edit.
-    pub fn del_ins_lengths(&self, ilen: i32) -> Result<(i32, i32), HgvsError> {
+    /// The reference bases the edit spells out, if it spells any.
+    ///
+    /// A length (`del3`), an empty string, or an edit whose `ref_` is not the
+    /// bases of its own range (a repeat's unit) all count as unstated.
+    pub fn stated_ref(&self) -> Option<&str> {
         match self {
-            NaEdit::RefAlt { ref_, alt, .. } => {
-                let del_len = if let Some(r) = ref_ {
-                    if r.is_empty() {
-                        0
-                    } else if r.chars().all(|c| c.is_ascii_digit()) {
-                        r.parse::<i32>().unwrap_or(ilen)
-                    } else {
-                        r.len() as i32
-                    }
-                } else {
-                    0
-                };
-                let ins_len = alt.as_ref().map_or(0, |a| {
-                    if a.chars().all(|c| c.is_ascii_digit()) {
-                        a.parse::<i32>().unwrap_or(0)
-                    } else {
-                        a.len() as i32
-                    }
-                });
-                Ok((del_len, ins_len))
+            NaEdit::RefAlt { ref_: Some(r), .. }
+            | NaEdit::Del { ref_: Some(r), .. }
+            | NaEdit::Dup { ref_: Some(r), .. }
+                if !is_length(r) =>
+            {
+                Some(r)
             }
-            NaEdit::Del { ref_, .. } => {
-                let del_len = if let Some(r) = ref_ {
-                    if r.chars().all(|c| c.is_ascii_digit()) {
-                        r.parse::<i32>().unwrap_or(ilen)
-                    } else {
-                        r.len() as i32
-                    }
-                } else {
-                    ilen
-                };
-                Ok((del_len, 0))
-            }
-            NaEdit::Ins { alt, .. } => {
-                let ins_len = alt.as_ref().map_or(0, |a| {
-                    if a.chars().all(|c| c.is_ascii_digit()) {
-                        a.parse::<i32>().unwrap_or(0)
-                    } else {
-                        a.len() as i32
-                    }
-                });
-                Ok((0, ins_len))
-            }
-            NaEdit::Dup { .. } => Ok((0, ilen)),
-            NaEdit::Inv { .. } => Ok((ilen, ilen)),
-            _ => Err(HgvsError::UnsupportedOperation(
-                "Not implemented for this edit type".into(),
-            )),
+            _ => None,
         }
+    }
+
+    /// Resolves the edit over `[start, end)` of `reference`.
+    ///
+    /// `[start, end)` is the range HGVS writes: the two flanking bases for an
+    /// insertion, the edited bases for everything else. Implied bases (an
+    /// unstated deletion, a duplication, an inversion) are read from the
+    /// reference here, once.
+    pub fn resolve(
+        &self,
+        reference: &Reference<'_, '_>,
+        start: usize,
+        end: usize,
+    ) -> Result<ResolvedEdit, HgvsError> {
+        self.resolve_with(start, end, |s, e| reference.slice(s, e))
+    }
+
+    /// As [`resolve`](Self::resolve), reading reference bases through `fetch`.
+    pub fn resolve_with(
+        &self,
+        start: usize,
+        end: usize,
+        fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+    ) -> Result<ResolvedEdit, HgvsError> {
+        let stated_or_fetched = |stated: &Option<String>| -> Result<String, HgvsError> {
+            match stated {
+                Some(r) if !is_length(r) => Ok(r.clone()),
+                _ => fetch(start, end),
+            }
+        };
+        let (ref_, alt) = match self {
+            NaEdit::RefAlt { ref_, alt, .. } => {
+                let r = stated_or_fetched(ref_)?;
+                let a = if ref_.is_none() && alt.is_none() {
+                    r.clone()
+                } else {
+                    alt.clone().unwrap_or_default()
+                };
+                (r, a)
+            }
+            NaEdit::Del { ref_, .. } => (stated_or_fetched(ref_)?, String::new()),
+            NaEdit::Ins { alt, .. } => {
+                let anchor = if end > start { end - 1 } else { start };
+                return Ok(ResolvedEdit {
+                    start: anchor,
+                    end: anchor,
+                    ref_: String::new(),
+                    alt: alt.clone().unwrap_or_default(),
+                });
+            }
+            NaEdit::Dup { ref_, .. } => {
+                let r = stated_or_fetched(ref_)?;
+                let a = format!("{r}{r}");
+                (r, a)
+            }
+            NaEdit::Inv { .. } => {
+                let r = fetch(start, end)?;
+                let a = crate::utils::reverse_complement(&r);
+                (r, a)
+            }
+            NaEdit::Repeat { ref_, max, .. } => {
+                let r = fetch(start, end)?;
+                let unit = match ref_ {
+                    Some(u) if !is_length(u) => u.clone(),
+                    _ => r.clone(),
+                };
+                (r, unit.repeat((*max).max(0) as usize))
+            }
+            NaEdit::None => {
+                let r = fetch(start, end)?;
+                (r.clone(), r)
+            }
+            NaEdit::Con { .. } | NaEdit::NACopy { .. } => {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "Edit type {:?} cannot be resolved to reference and alternate bases",
+                    self
+                )))
+            }
+        };
+        Ok(ResolvedEdit {
+            start,
+            end,
+            ref_,
+            alt,
+        })
     }
 
     /// Returns the reverse complement of the edit (used for minus-strand mapping).
@@ -186,14 +266,14 @@ impl NaEdit {
                 uncertain,
             } => {
                 let r = ref_.as_ref().map(|s| {
-                    if s.chars().all(|c| c.is_ascii_digit()) {
+                    if is_length(s) {
                         s.clone()
                     } else {
                         crate::utils::reverse_complement(s)
                     }
                 });
                 let a = alt.as_ref().map(|s| {
-                    if s.chars().all(|c| c.is_ascii_digit()) {
+                    if is_length(s) {
                         s.clone()
                     } else {
                         crate::utils::reverse_complement(s)
@@ -207,7 +287,7 @@ impl NaEdit {
             }
             NaEdit::Del { ref_, uncertain } => {
                 let r = ref_.as_ref().map(|s| {
-                    if s.chars().all(|c| c.is_ascii_digit()) {
+                    if is_length(s) {
                         s.clone()
                     } else {
                         crate::utils::reverse_complement(s)
@@ -220,7 +300,7 @@ impl NaEdit {
             }
             NaEdit::Ins { alt, uncertain } => {
                 let a = alt.as_ref().map(|s| {
-                    if s.chars().all(|c| c.is_ascii_digit()) {
+                    if is_length(s) {
                         s.clone()
                     } else {
                         crate::utils::reverse_complement(s)
@@ -307,5 +387,175 @@ impl NaEdit {
             },
             _ => self,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resolve(edit: NaEdit, start: usize, end: usize) -> ResolvedEdit {
+        //          0123456789
+        let seq = "TTCAGCAGTT";
+        edit.resolve_with(start, end, |s, e| {
+            Ok(seq[s.min(seq.len())..e.min(seq.len())].to_string())
+        })
+        .unwrap()
+    }
+    fn r(start: usize, end: usize, ref_: &str, alt: &str) -> ResolvedEdit {
+        ResolvedEdit {
+            start,
+            end,
+            ref_: ref_.into(),
+            alt: alt.into(),
+        }
+    }
+
+    #[test]
+    fn implied_bases_are_read_from_the_reference_once() {
+        assert_eq!(
+            resolve(
+                NaEdit::Del {
+                    ref_: None,
+                    uncertain: false
+                },
+                2,
+                5
+            ),
+            r(2, 5, "CAG", "")
+        );
+        assert_eq!(
+            resolve(
+                NaEdit::Del {
+                    ref_: Some("3".into()),
+                    uncertain: false
+                },
+                2,
+                5
+            ),
+            r(2, 5, "CAG", "")
+        );
+        assert_eq!(
+            resolve(
+                NaEdit::Del {
+                    ref_: Some("CAG".into()),
+                    uncertain: false
+                },
+                2,
+                5
+            ),
+            r(2, 5, "CAG", "")
+        );
+        assert_eq!(
+            resolve(
+                NaEdit::Dup {
+                    ref_: None,
+                    uncertain: false
+                },
+                2,
+                5
+            ),
+            r(2, 5, "CAG", "CAGCAG")
+        );
+        assert_eq!(
+            resolve(
+                NaEdit::Inv {
+                    ref_: None,
+                    uncertain: false
+                },
+                2,
+                5
+            ),
+            r(2, 5, "CAG", "CTG")
+        );
+        assert_eq!(
+            resolve(
+                NaEdit::Repeat {
+                    ref_: Some("CAG".into()),
+                    min: 4,
+                    max: 4,
+                    uncertain: false
+                },
+                2,
+                5
+            ),
+            r(2, 5, "CAG", "CAGCAGCAGCAG")
+        );
+        assert_eq!(resolve(NaEdit::None, 2, 5), r(2, 5, "CAG", "CAG"));
+    }
+
+    #[test]
+    fn substitutions_and_delins_keep_their_stated_bases() {
+        let sub = NaEdit::RefAlt {
+            ref_: Some("C".into()),
+            alt: Some("T".into()),
+            uncertain: false,
+        };
+        assert_eq!(resolve(sub, 2, 3), r(2, 3, "C", "T"));
+        // An unstated delins reference ("" from the parser) is fetched.
+        let delins = NaEdit::RefAlt {
+            ref_: Some("".into()),
+            alt: Some("A".into()),
+            uncertain: false,
+        };
+        assert_eq!(resolve(delins, 2, 5), r(2, 5, "CAG", "A"));
+        let identity = NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain: false,
+        };
+        assert_eq!(resolve(identity, 2, 5), r(2, 5, "CAG", "CAG"));
+    }
+
+    #[test]
+    fn insertion_resolves_to_the_empty_range_at_its_second_flank() {
+        let ins = NaEdit::Ins {
+            alt: Some("GG".into()),
+            uncertain: false,
+        };
+        assert_eq!(resolve(ins.clone(), 4, 6), r(5, 5, "", "GG"));
+        // Already-placed (empty) ranges are left where they are.
+        assert_eq!(resolve(ins, 5, 5), r(5, 5, "", "GG"));
+        assert!(r(5, 5, "", "GG").is_frameshift());
+        assert!(!r(2, 5, "CAG", "").is_frameshift());
+    }
+
+    #[test]
+    fn stated_ref_ignores_lengths_units_and_empties() {
+        assert_eq!(
+            NaEdit::Del {
+                ref_: Some("CAG".into()),
+                uncertain: false
+            }
+            .stated_ref(),
+            Some("CAG")
+        );
+        assert_eq!(
+            NaEdit::Del {
+                ref_: Some("3".into()),
+                uncertain: false
+            }
+            .stated_ref(),
+            None
+        );
+        assert_eq!(
+            NaEdit::RefAlt {
+                ref_: Some("".into()),
+                alt: Some("A".into()),
+                uncertain: false
+            }
+            .stated_ref(),
+            None
+        );
+        assert_eq!(
+            NaEdit::Repeat {
+                ref_: Some("CAG".into()),
+                min: 1,
+                max: 1,
+                uncertain: false
+            }
+            .stated_ref(),
+            None
+        );
     }
 }

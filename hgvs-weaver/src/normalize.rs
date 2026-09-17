@@ -137,10 +137,14 @@ fn shift_pattern(
     end: usize,
     edit: &NaEdit,
 ) -> Result<Option<String>, HgvsError> {
-    let (ref_str, alt_str) = match edit_sequences(reference, start, end, edit)? {
-        None => return Ok(None),
-        Some(seqs) => seqs,
-    };
+    if matches!(
+        edit,
+        NaEdit::None | NaEdit::Con { .. } | NaEdit::NACopy { .. }
+    ) {
+        return Ok(None);
+    }
+    let resolved = edit.resolve(reference, start, end)?;
+    let (ref_str, alt_str) = (resolved.ref_, resolved.alt);
     if ref_str == alt_str && matches!(edit, NaEdit::RefAlt { .. }) {
         return Ok(None);
     }
@@ -160,43 +164,6 @@ fn shift_pattern(
     } else {
         Ok(None)
     }
-}
-
-/// The (reference, alternate) bases an edit denotes over `[start, end)`, or
-/// `None` for edit kinds that cannot be shifted.
-fn edit_sequences(
-    reference: &Reference<'_, '_>,
-    start: usize,
-    end: usize,
-    edit: &NaEdit,
-) -> Result<Option<(String, String)>, HgvsError> {
-    let result = match edit {
-        NaEdit::RefAlt { ref_, alt, .. } => Some((
-            ref_.clone().unwrap_or_default(),
-            alt.clone().unwrap_or_default(),
-        )),
-        NaEdit::Del { ref_: Some(s), .. } => Some((s.clone(), String::new())),
-        NaEdit::Del { ref_: None, .. } => Some((String::new(), String::new())),
-        NaEdit::Ins { alt: Some(s), .. } => Some((String::new(), s.clone())),
-        NaEdit::Ins { alt: None, .. } => Some((String::new(), String::new())),
-        NaEdit::Dup { ref_: Some(s), .. } => Some((s.clone(), String::new())),
-        NaEdit::Dup { ref_: None, .. } => Some((String::new(), String::new())),
-        NaEdit::Repeat { ref_, max, .. } => {
-            let r = match ref_ {
-                Some(r) => r.clone(),
-                None => reference.slice(start, end)?,
-            };
-            let a = r.repeat(*max as usize);
-            Some((r, a))
-        }
-        NaEdit::Inv { .. } => {
-            let r = reference.slice(start, end)?;
-            let a = crate::utils::reverse_complement(&r);
-            Some((r, a))
-        }
-        _ => None,
-    };
-    Ok(result)
 }
 
 #[cfg(test)]
@@ -313,9 +280,9 @@ mod tests {
     fn delins_is_not_shifted() {
         // Deleting CAG at [2,5) and inserting TT: the base after the range (C)
         // equals the first deleted base, but sliding would put TT after that C,
-        // which is a different sequence.
+        // which is a different sequence. Only the reference gets resolved.
         let delins = NaEdit::RefAlt {
-            ref_: Some("CAG".into()),
+            ref_: Some("3".into()),
             alt: Some("TT".into()),
             uncertain: false,
         };

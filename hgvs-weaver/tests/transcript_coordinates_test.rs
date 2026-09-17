@@ -253,3 +253,20 @@ fn normalize_converts_genomic_and_noncoding_insertions_to_duplications() {
         "NC_TEST.1:g.1012_1013insCC"
     );
 }
+
+#[test]
+fn plain_spdi_places_an_insertion_at_its_second_flank() {
+    // SPDI counts the bases before the change, so an insertion between
+    // g.1012 and g.1013 sits at 0-based position 1012, like a duplication of
+    // g.1012 does. Reference here: index 1011 is T, 1012 is A.
+    let mapper = VariantMapper::new(&Provider);
+    let spdi = |hgvs: &str| {
+        mapper
+            .to_spdi(&parse_hgvs_variant(hgvs).unwrap(), false)
+            .unwrap()
+    };
+    assert_eq!(spdi("NC_TEST.1:g.1012_1013insCC"), "NC_TEST.1:1012::CC");
+    assert_eq!(spdi("NC_TEST.1:g.1012dupT"), "NC_TEST.1:1012::T");
+    assert_eq!(spdi("NC_TEST.1:g.1011_1012del"), "NC_TEST.1:1010:GT:");
+    assert_eq!(spdi("NC_TEST.1:g.1013A>G"), "NC_TEST.1:1012:A:G");
+}
