@@ -1,3 +1,4 @@
+use crate::structs::{LinearVariant, TranscriptVariant};
 use pest::Parser;
 use pest_derive::Parser as PestParser;
 
@@ -18,121 +19,68 @@ pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> 
         .next()
         .ok_or_else(|| HgvsError::PestError("Missing inner variant".into()))?;
 
-    match inner.as_rule() {
-        Rule::g_variant => {
-            let mut inner = inner.into_inner();
-            let ac = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
-                .as_str()
-                .to_string();
-            let gene_expr_pair = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?;
-            let gene = parse_gene_expr(gene_expr_pair);
-            let posedit = parser::parse_g_posedit(
-                inner
-                    .next()
-                    .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?,
-            )?;
-            Ok(SequenceVariant::Genomic(GVariant { ac, gene, posedit }))
+    let system = inner.as_rule();
+    let (ac, gene, posedit) = variant_parts(inner)?;
+    Ok(match system {
+        Rule::g_variant => SequenceVariant::Genomic(GVariant::from_parts(
+            ac,
+            gene,
+            parser::parse_g_posedit(posedit)?,
+        )),
+        Rule::m_variant => SequenceVariant::Mitochondrial(MVariant::from_parts(
+            ac,
+            gene,
+            parser::parse_g_posedit(posedit)?,
+        )),
+        Rule::c_variant => SequenceVariant::Coding(CVariant::from_parts(
+            ac,
+            gene,
+            parser::parse_tx_posedit(posedit, CVariant::DEFAULT_ANCHOR)?,
+        )),
+        Rule::n_variant => SequenceVariant::NonCoding(NVariant::from_parts(
+            ac,
+            gene,
+            parser::parse_tx_posedit(posedit, NVariant::DEFAULT_ANCHOR)?,
+        )),
+        Rule::r_variant => SequenceVariant::Rna(RVariant {
+            ac,
+            gene,
+            posedit: parser::parse_tx_posedit(posedit, coords::Anchor::TranscriptStart)?,
+        }),
+        Rule::p_variant => SequenceVariant::Protein(PVariant {
+            ac,
+            gene,
+            posedit: parser::parse_p_posedit(posedit)?,
+        }),
+        other => {
+            return Err(HgvsError::PestError(format!(
+                "Unsupported variant type: {:?}",
+                other
+            )))
         }
-        Rule::c_variant => {
-            let mut inner = inner.into_inner();
-            let ac = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
-                .as_str()
-                .to_string();
-            let gene_expr_pair = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?;
-            let gene = parse_gene_expr(gene_expr_pair);
-            let posedit = parser::parse_c_posedit(
-                inner
-                    .next()
-                    .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?,
-            )?;
-            Ok(SequenceVariant::Coding(CVariant { ac, gene, posedit }))
-        }
-        Rule::p_variant => {
-            let mut inner = inner.into_inner();
-            let ac = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
-                .as_str()
-                .to_string();
-            let gene_expr_pair = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?;
-            let gene = parse_gene_expr(gene_expr_pair);
-            let posedit = parser::parse_p_posedit(
-                inner
-                    .next()
-                    .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?,
-            )?;
-            Ok(SequenceVariant::Protein(PVariant { ac, gene, posedit }))
-        }
-        Rule::m_variant => {
-            let mut inner = inner.into_inner();
-            let ac = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
-                .as_str()
-                .to_string();
-            let gene_expr_pair = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?;
-            let gene = parse_gene_expr(gene_expr_pair);
-            let posedit = parser::parse_g_posedit(
-                inner
-                    .next()
-                    .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?,
-            )?;
-            Ok(SequenceVariant::Mitochondrial(MVariant {
-                ac,
-                gene,
-                posedit,
-            }))
-        }
-        Rule::n_variant => {
-            let mut inner = inner.into_inner();
-            let ac = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
-                .as_str()
-                .to_string();
-            let gene_expr_pair = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?;
-            let gene = parse_gene_expr(gene_expr_pair);
-            let posedit = parser::parse_n_posedit(
-                inner
-                    .next()
-                    .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?,
-            )?;
-            Ok(SequenceVariant::NonCoding(NVariant { ac, gene, posedit }))
-        }
-        Rule::r_variant => {
-            let mut inner = inner.into_inner();
-            let ac = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
-                .as_str()
-                .to_string();
-            let gene_expr_pair = inner
-                .next()
-                .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?;
-            let gene = parse_gene_expr(gene_expr_pair);
-            let posedit = parser::parse_n_posedit(
-                inner
-                    .next()
-                    .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?,
-            )?;
-            Ok(SequenceVariant::Rna(RVariant { ac, gene, posedit }))
-        }
-        _ => Err(HgvsError::PestError("Unsupported variant type".into())),
-    }
+    })
+}
+
+/// Splits a `<x>_variant` pair into accession, optional gene symbol and the
+/// posedit pair; every coordinate system is written the same way up to there.
+fn variant_parts(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<(String, Option<String>, pest::iterators::Pair<Rule>), HgvsError> {
+    let mut inner = pair.into_inner();
+    let ac = inner
+        .next()
+        .ok_or_else(|| HgvsError::PestError("Missing accession".into()))?
+        .as_str()
+        .to_string();
+    let gene = parse_gene_expr(
+        inner
+            .next()
+            .ok_or_else(|| HgvsError::PestError("Missing gene expr".into()))?,
+    );
+    let posedit = inner
+        .next()
+        .ok_or_else(|| HgvsError::PestError("Missing posedit".into()))?;
+    Ok((ac, gene, posedit))
 }
 
 fn parse_gene_expr(pair: pest::iterators::Pair<Rule>) -> Option<String> {

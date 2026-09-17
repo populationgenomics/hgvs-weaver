@@ -15,6 +15,8 @@ pub trait Variant {
     fn gene(&self) -> Option<&str>;
     /// Returns the coordinate type code ("g", "c", "p", etc.).
     fn coordinate_type(&self) -> &str;
+    /// Replaces the accession (used when a gene symbol resolves to accessions).
+    fn set_ac(&mut self, ac: String);
 }
 
 macro_rules! impl_variant {
@@ -29,8 +31,134 @@ macro_rules! impl_variant {
             fn coordinate_type(&self) -> &str {
                 $type_code
             }
+            fn set_ac(&mut self, ac: String) {
+                self.ac = ac;
+            }
         }
     };
+}
+
+/// A variant on a linear reference (`g.`, `m.`): positions are plain indices
+/// on the accession itself. Everything that maps, normalises or renders a
+/// genomic variant works on any implementor.
+pub trait LinearVariant: Variant + Clone {
+    fn posedit(&self) -> &PosEdit<SimpleInterval, NaEdit>;
+    fn posedit_mut(&mut self) -> &mut PosEdit<SimpleInterval, NaEdit>;
+    fn from_parts(
+        ac: String,
+        gene: Option<String>,
+        posedit: PosEdit<SimpleInterval, NaEdit>,
+    ) -> Self;
+
+    /// The same variant as a `g.` variant. Mitochondrial and genomic variants
+    /// differ only in the letter they are written with.
+    fn to_genomic(&self) -> GVariant {
+        GVariant {
+            ac: self.ac().to_string(),
+            gene: self.gene().map(str::to_string),
+            posedit: self.posedit().clone(),
+        }
+    }
+}
+
+macro_rules! impl_linear_variant {
+    ($struct_name:ident) => {
+        impl LinearVariant for $struct_name {
+            fn posedit(&self) -> &PosEdit<SimpleInterval, NaEdit> {
+                &self.posedit
+            }
+            fn posedit_mut(&mut self) -> &mut PosEdit<SimpleInterval, NaEdit> {
+                &mut self.posedit
+            }
+            fn from_parts(
+                ac: String,
+                gene: Option<String>,
+                posedit: PosEdit<SimpleInterval, NaEdit>,
+            ) -> Self {
+                $struct_name { ac, gene, posedit }
+            }
+        }
+    };
+}
+
+/// A variant in transcript space (`c.`, `n.`): positions carry an anchor and
+/// may carry an intronic offset, and resolve through a `TranscriptMapper`.
+/// The two systems differ only in how an index is written back as a position.
+pub trait TranscriptVariant: Variant + Clone {
+    /// The anchor a position has when it states none.
+    const DEFAULT_ANCHOR: Anchor;
+
+    fn posedit(&self) -> &PosEdit<BaseOffsetInterval, NaEdit>;
+    fn posedit_mut(&mut self) -> &mut PosEdit<BaseOffsetInterval, NaEdit>;
+    fn from_parts(
+        ac: String,
+        gene: Option<String>,
+        posedit: PosEdit<BaseOffsetInterval, NaEdit>,
+    ) -> Self;
+
+    /// The position, in this system's numbering, of a 0-based transcript index.
+    fn position_from_index(
+        am: &crate::transcript_mapper::TranscriptMapper,
+        index: i32,
+    ) -> Result<BaseOffsetPosition, HgvsError>;
+}
+
+macro_rules! impl_transcript_variant {
+    ($struct_name:ident, $anchor:expr, $position_from_index:expr) => {
+        impl TranscriptVariant for $struct_name {
+            const DEFAULT_ANCHOR: Anchor = $anchor;
+            fn posedit(&self) -> &PosEdit<BaseOffsetInterval, NaEdit> {
+                &self.posedit
+            }
+            fn posedit_mut(&mut self) -> &mut PosEdit<BaseOffsetInterval, NaEdit> {
+                &mut self.posedit
+            }
+            fn from_parts(
+                ac: String,
+                gene: Option<String>,
+                posedit: PosEdit<BaseOffsetInterval, NaEdit>,
+            ) -> Self {
+                $struct_name { ac, gene, posedit }
+            }
+            fn position_from_index(
+                am: &crate::transcript_mapper::TranscriptMapper,
+                index: i32,
+            ) -> Result<BaseOffsetPosition, HgvsError> {
+                let f: fn(
+                    &crate::transcript_mapper::TranscriptMapper,
+                    i32,
+                ) -> Result<BaseOffsetPosition, HgvsError> = $position_from_index;
+                f(am, index)
+            }
+        }
+    };
+}
+
+/// c. numbering: the CDS anchors (`c.-5`, `c.*3`) come from the transcript model.
+fn coding_position_from_index(
+    am: &crate::transcript_mapper::TranscriptMapper,
+    index: i32,
+) -> Result<BaseOffsetPosition, HgvsError> {
+    let (c_pos, offset, anchor) = am.n_to_c(TranscriptPos(index))?;
+    Ok(BaseOffsetPosition {
+        base: c_pos.to_hgvs(),
+        offset: (offset.0 != 0).then_some(offset),
+        anchor,
+        uncertain: false,
+    })
+}
+
+/// n. numbering: index plus one, always from the transcript start.
+fn noncoding_position_from_index(
+    _am: &crate::transcript_mapper::TranscriptMapper,
+    index: i32,
+) -> Result<BaseOffsetPosition, HgvsError> {
+    Ok(BaseOffsetPosition {
+        base: TranscriptPos(index).to_hgvs(),
+        offset: None,
+        anchor: Anchor::TranscriptStart,
+        uncertain: false,
+    })
 }
 
 /// Represents a genomic variant (g.).
@@ -41,6 +169,7 @@ pub struct GVariant {
     pub posedit: PosEdit<SimpleInterval, NaEdit>,
 }
 impl_variant!(GVariant, "g");
+impl_linear_variant!(GVariant);
 
 /// Represents a coding cDNA variant (c.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -50,6 +179,7 @@ pub struct CVariant {
     pub posedit: PosEdit<BaseOffsetInterval, NaEdit>,
 }
 impl_variant!(CVariant, "c");
+impl_transcript_variant!(CVariant, Anchor::CdsStart, coding_position_from_index);
 
 /// Represents a protein variant (p.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -68,6 +198,7 @@ pub struct MVariant {
     pub posedit: PosEdit<SimpleInterval, NaEdit>,
 }
 impl_variant!(MVariant, "m");
+impl_linear_variant!(MVariant);
 
 /// Represents a non-coding transcript variant (n.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -77,6 +208,11 @@ pub struct NVariant {
     pub posedit: PosEdit<BaseOffsetInterval, NaEdit>,
 }
 impl_variant!(NVariant, "n");
+impl_transcript_variant!(
+    NVariant,
+    Anchor::TranscriptStart,
+    noncoding_position_from_index
+);
 
 /// Represents an RNA variant (r.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

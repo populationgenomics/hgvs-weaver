@@ -301,6 +301,45 @@ fn parse(input: &str) -> PyResult<PyVariant> {
     }
 }
 
+/// The typed variants a mapper method accepts, or the ValueError Python callers expect.
+macro_rules! expect_variant {
+    ($name:ident, $variant:ident, $ty:ty, $what:literal) => {
+        fn $name(var: &SequenceVariant) -> PyResult<&$ty> {
+            match var {
+                SequenceVariant::$variant(v) => Ok(v),
+                _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
+                    "Expected a ",
+                    $what
+                ))),
+            }
+        }
+    };
+}
+expect_variant!(
+    expect_genomic,
+    Genomic,
+    ::hgvs_weaver::GVariant,
+    "genomic variant (g.)"
+);
+expect_variant!(
+    expect_coding,
+    Coding,
+    ::hgvs_weaver::CVariant,
+    "coding variant (c.)"
+);
+expect_variant!(
+    expect_noncoding,
+    NonCoding,
+    ::hgvs_weaver::structs::NVariant,
+    "non-coding variant (n.)"
+);
+expect_variant!(
+    expect_protein,
+    Protein,
+    ::hgvs_weaver::PVariant,
+    "protein variant (p.)"
+);
+
 // --- Mapper and DataProvider Bridge ---
 
 pub struct PyDataProviderBridge {
@@ -487,17 +526,12 @@ impl PyVariantMapper {
     #[pyo3(signature = (var_g, transcript_ac))]
     #[doc = "Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.\n\nArgs:\n    var_g: The genomic Variant to map.\n    transcript_ac: The accession of the target transcript.\n\nReturns:\n    A new Variant object in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn g_to_c(&self, _py: Python, var_g: &PyVariant, transcript_ac: String) -> PyResult<PyVariant> {
-        if let SequenceVariant::Genomic(v) = &var_g.inner {
-            let mapper = VariantMapper::new(self.bridge.as_ref());
-            let res = mapper.g_to_c(v, &transcript_ac).map_err(map_hgvs_error)?;
-            Ok(PyVariant {
-                inner: SequenceVariant::Coding(res),
-            })
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(
-                "Expected a genomic variant (g.)",
-            ))
-        }
+        let v = expect_genomic(&var_g.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper.g_to_c(v, &transcript_ac).map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Coding(res),
+        })
     }
 
     #[pyo3(signature = (var_g, searcher))]
@@ -508,23 +542,18 @@ impl PyVariantMapper {
         var_g: &PyVariant,
         searcher: Py<PyAny>,
     ) -> PyResult<Vec<PyVariant>> {
-        if let SequenceVariant::Genomic(v) = &var_g.inner {
-            let mapper = VariantMapper::new(self.bridge.as_ref());
-            let bridge_searcher = PyTranscriptSearchBridge { searcher };
-            let res = mapper
-                .g_to_c_all(v, &bridge_searcher)
-                .map_err(map_hgvs_error)?;
-            Ok(res
-                .into_iter()
-                .map(|v| PyVariant {
-                    inner: SequenceVariant::Coding(v),
-                })
-                .collect())
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(
-                "Expected a genomic variant (g.)",
-            ))
-        }
+        let v = expect_genomic(&var_g.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let bridge_searcher = PyTranscriptSearchBridge { searcher };
+        let res = mapper
+            .g_to_c_all(v, &bridge_searcher)
+            .map_err(map_hgvs_error)?;
+        Ok(res
+            .into_iter()
+            .map(|v| PyVariant {
+                inner: SequenceVariant::Coding(v),
+            })
+            .collect())
     }
 
     #[pyo3(signature = (var_c, reference_ac = None))]
@@ -535,19 +564,14 @@ impl PyVariantMapper {
         var_c: &PyVariant,
         reference_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        if let SequenceVariant::Coding(v) = &var_c.inner {
-            let mapper = VariantMapper::new(self.bridge.as_ref());
-            let res = mapper
-                .c_to_g(v, reference_ac.as_deref())
-                .map_err(map_hgvs_error)?;
-            Ok(PyVariant {
-                inner: SequenceVariant::Genomic(res),
-            })
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(
-                "Expected a coding variant (c.)",
-            ))
-        }
+        let v = expect_coding(&var_c.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper
+            .c_to_g(v, reference_ac.as_deref())
+            .map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Genomic(res),
+        })
     }
 
     #[pyo3(signature = (var_n, reference_ac = None))]
@@ -558,19 +582,14 @@ impl PyVariantMapper {
         var_n: &PyVariant,
         reference_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        if let SequenceVariant::NonCoding(v) = &var_n.inner {
-            let mapper = VariantMapper::new(self.bridge.as_ref());
-            let res = mapper
-                .n_to_g(v, reference_ac.as_deref())
-                .map_err(map_hgvs_error)?;
-            Ok(PyVariant {
-                inner: SequenceVariant::Genomic(res),
-            })
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(
-                "Expected a non-coding variant (n.)",
-            ))
-        }
+        let v = expect_noncoding(&var_n.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper
+            .n_to_g(v, reference_ac.as_deref())
+            .map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Genomic(res),
+        })
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
@@ -581,19 +600,14 @@ impl PyVariantMapper {
         var_c: &PyVariant,
         protein_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        if let SequenceVariant::Coding(v) = &var_c.inner {
-            let mapper = VariantMapper::new(self.bridge.as_ref());
-            let res = mapper
-                .c_to_p(v, protein_ac.as_deref())
-                .map_err(map_hgvs_error)?;
-            Ok(PyVariant {
-                inner: SequenceVariant::Protein(res),
-            })
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(
-                "Expected a coding variant (c.)",
-            ))
-        }
+        let v = expect_coding(&var_c.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper
+            .c_to_p(v, protein_ac.as_deref())
+            .map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Protein(res),
+        })
     }
 
     #[pyo3(signature = (var_p, transcript_ac=None))]
@@ -604,22 +618,17 @@ impl PyVariantMapper {
         var_p: &PyVariant,
         transcript_ac: Option<String>,
     ) -> PyResult<(PyVariant, bool)> {
-        if let SequenceVariant::Protein(v) = &var_p.inner {
-            let mapper = VariantMapper::new(self.bridge.as_ref());
-            let (res, is_unique) = mapper
-                .p_to_c(v, transcript_ac.as_deref())
-                .map_err(map_hgvs_error)?;
-            Ok((
-                PyVariant {
-                    inner: SequenceVariant::Coding(res),
-                },
-                is_unique,
-            ))
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(
-                "Expected a protein variant (p.)",
-            ))
-        }
+        let v = expect_protein(&var_p.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let (res, is_unique) = mapper
+            .p_to_c(v, transcript_ac.as_deref())
+            .map_err(map_hgvs_error)?;
+        Ok((
+            PyVariant {
+                inner: SequenceVariant::Coding(res),
+            },
+            is_unique,
+        ))
     }
 
     #[pyo3(signature = (var))]

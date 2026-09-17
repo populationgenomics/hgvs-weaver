@@ -270,3 +270,40 @@ fn plain_spdi_places_an_insertion_at_its_second_flank() {
     assert_eq!(spdi("NC_TEST.1:g.1011_1012del"), "NC_TEST.1:1010:GT:");
     assert_eq!(spdi("NC_TEST.1:g.1013A>G"), "NC_TEST.1:1012:A:G");
 }
+
+#[test]
+fn mitochondrial_variants_share_the_genomic_implementation() {
+    // m. is g. on the mitochondrial reference: same normalisation, SPDI,
+    // validation and equivalence, written back with the m. letter.
+    let mapper = VariantMapper::new(&Provider);
+    let norm = |hgvs: &str| {
+        mapper
+            .normalize_variant(parse_hgvs_variant(hgvs).unwrap())
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(norm("NC_TEST.1:m.1012_1013insT"), "NC_TEST.1:m.1012dupT");
+    assert_eq!(
+        norm("NC_TEST.1:m.1008_1010del"),
+        "NC_TEST.1:m.1008_1010delTAC"
+    );
+
+    let spdi = |hgvs: &str| {
+        mapper
+            .to_spdi(&parse_hgvs_variant(hgvs).unwrap(), true)
+            .unwrap()
+    };
+    assert_eq!(spdi("NC_TEST.1:m.1013A>G"), spdi("NC_TEST.1:g.1013A>G"));
+
+    let valid = |hgvs: &str| mapper.validate(&parse_hgvs_variant(hgvs).unwrap()).unwrap();
+    assert!(valid("NC_TEST.1:m.1013A>G"));
+    assert!(!valid("NC_TEST.1:m.1013C>G"));
+
+    let eq = VariantEquivalence::new(&Provider, &Provider);
+    let m = parse_hgvs_variant("NC_TEST.1:m.1013A>G").unwrap();
+    let g = parse_hgvs_variant("NC_TEST.1:g.1013A>G").unwrap();
+    assert_eq!(
+        eq.equivalent_level(&m, &g).unwrap(),
+        EquivalenceLevel::Identity
+    );
+}

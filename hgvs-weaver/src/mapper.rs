@@ -5,24 +5,10 @@ use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
 use crate::reference::ReferenceStore;
 use crate::structs::{
-    BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, GenomicPos, NVariant, PVariant,
-    SimpleInterval, SimplePosition,
+    BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, GenomicPos, LinearVariant,
+    NVariant, PVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
-
-/// Converts a 0-based transcript index to a fresh `BaseOffsetPosition` via `n_to_c`.
-///
-/// The returned position has `uncertain = false`; callers that need to propagate
-/// an existing uncertainty flag should overwrite that field after calling this.
-fn n_to_c_position(am: &TranscriptMapper, n: i32) -> Result<BaseOffsetPosition, HgvsError> {
-    let (c_pos, offset, anchor) = am.n_to_c(crate::coords::TranscriptPos(n))?;
-    Ok(BaseOffsetPosition {
-        base: c_pos.to_hgvs(),
-        offset: if offset.0 != 0 { Some(offset) } else { None },
-        anchor,
-        uncertain: false,
-    })
-}
 
 fn make_base_offset_position(
     base: crate::coords::HgvsTranscriptPos,
@@ -242,11 +228,29 @@ impl<'a> VariantMapper<'a> {
         var_c: &CVariant,
         reference_ac: Option<&str>,
     ) -> Result<GVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(&var_c.ac, reference_ac)?;
+        self.tx_to_g(var_c, reference_ac)
+    }
+
+    /// Transforms a non-coding cDNA variant (`n.`) to a genomic variant (`g.`).
+    pub fn n_to_g(
+        &self,
+        var_n: &NVariant,
+        reference_ac: Option<&str>,
+    ) -> Result<GVariant, HgvsError> {
+        self.tx_to_g(var_n, reference_ac)
+    }
+
+    /// Transforms any transcript-space variant (`c.` or `n.`) to a genomic variant (`g.`).
+    pub fn tx_to_g<V: TranscriptVariant>(
+        &self,
+        var_c: &V,
+        reference_ac: Option<&str>,
+    ) -> Result<GVariant, HgvsError> {
+        let transcript = self.hdp.get_transcript(var_c.ac(), reference_ac)?;
         let am = TranscriptMapper::new(transcript)?;
 
         let pos = var_c
-            .posedit
+            .posedit()
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
@@ -271,13 +275,13 @@ impl<'a> VariantMapper<'a> {
                 std::mem::swap(&mut pos_g, &mut pos_g_e);
             }
 
-            let edit = apply_strand_complement(var_c.posedit.edit.clone(), am.transcript.strand);
+            let edit = apply_strand_complement(var_c.posedit().edit.clone(), am.transcript.strand);
 
             return Ok(GVariant {
                 ac: reference_ac
-                    .unwrap_or_else(|| am.transcript.reference_accession.as_str())
+                    .unwrap_or(am.transcript.reference_accession.as_str())
                     .to_string(),
-                gene: var_c.gene.clone(),
+                gene: var_c.gene().map(str::to_string),
                 posedit: crate::structs::PosEdit {
                     pos: Some(crate::structs::SimpleInterval {
                         start: pos_g,
@@ -285,20 +289,20 @@ impl<'a> VariantMapper<'a> {
                         uncertain: false,
                     }),
                     edit,
-                    uncertain: var_c.posedit.uncertain,
-                    predicted: var_c.posedit.predicted,
+                    uncertain: var_c.posedit().uncertain,
+                    predicted: var_c.posedit().predicted,
                 },
             });
         }
 
         let pos_g = make_simple_position(g_pos.to_hgvs());
-        let edit = apply_strand_complement(var_c.posedit.edit.clone(), am.transcript.strand);
+        let edit = apply_strand_complement(var_c.posedit().edit.clone(), am.transcript.strand);
 
         Ok(GVariant {
             ac: reference_ac
-                .unwrap_or_else(|| am.transcript.reference_accession.as_str())
+                .unwrap_or(am.transcript.reference_accession.as_str())
                 .to_string(),
-            gene: var_c.gene.clone(),
+            gene: var_c.gene().map(str::to_string),
             posedit: crate::structs::PosEdit {
                 pos: Some(crate::structs::SimpleInterval {
                     start: pos_g,
@@ -306,84 +310,8 @@ impl<'a> VariantMapper<'a> {
                     uncertain: false,
                 }),
                 edit,
-                uncertain: var_c.posedit.uncertain,
-                predicted: var_c.posedit.predicted,
-            },
-        })
-    }
-
-    /// Transforms a non-coding cDNA variant (`n.`) to a genomic variant (`g.`).
-    pub fn n_to_g(
-        &self,
-        var_n: &crate::structs::NVariant,
-        reference_ac: Option<&str>,
-    ) -> Result<GVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(&var_n.ac, reference_ac)?;
-        let am = TranscriptMapper::new(transcript)?;
-
-        let pos = var_n
-            .posedit
-            .pos
-            .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
-        let n_pos = am.c_to_n(pos.start.base.to_index(), pos.start.anchor)?;
-        let g_pos = am.n_to_g(
-            n_pos,
-            pos.start
-                .offset
-                .unwrap_or(crate::structs::IntronicOffset(0)),
-        )?;
-
-        if let Some(end_n) = &pos.end {
-            let n_pos_e = am.c_to_n(end_n.base.to_index(), end_n.anchor)?;
-            let g_pos_e = am.n_to_g(
-                n_pos_e,
-                end_n.offset.unwrap_or(crate::structs::IntronicOffset(0)),
-            )?;
-            let mut pos_g = make_simple_position(g_pos.to_hgvs());
-            let mut pos_g_e = make_simple_position(g_pos_e.to_hgvs());
-
-            if pos_g.base.0 > pos_g_e.base.0 {
-                std::mem::swap(&mut pos_g, &mut pos_g_e);
-            }
-
-            let edit = apply_strand_complement(var_n.posedit.edit.clone(), am.transcript.strand);
-
-            return Ok(GVariant {
-                ac: reference_ac
-                    .unwrap_or_else(|| am.transcript.reference_accession.as_str())
-                    .to_string(),
-                gene: var_n.gene.clone(),
-                posedit: crate::structs::PosEdit {
-                    pos: Some(crate::structs::SimpleInterval {
-                        start: pos_g,
-                        end: Some(pos_g_e),
-                        uncertain: false,
-                    }),
-                    edit,
-                    uncertain: var_n.posedit.uncertain,
-                    predicted: var_n.posedit.predicted,
-                },
-            });
-        }
-
-        let pos_g = make_simple_position(g_pos.to_hgvs());
-        let edit = apply_strand_complement(var_n.posedit.edit.clone(), am.transcript.strand);
-
-        Ok(GVariant {
-            ac: reference_ac
-                .unwrap_or_else(|| am.transcript.reference_accession.as_str())
-                .to_string(),
-            gene: var_n.gene.clone(),
-            posedit: crate::structs::PosEdit {
-                pos: Some(crate::structs::SimpleInterval {
-                    start: pos_g,
-                    end: None,
-                    uncertain: false,
-                }),
-                edit,
-                uncertain: var_n.posedit.uncertain,
-                predicted: var_n.posedit.predicted,
+                uncertain: var_c.posedit().uncertain,
+                predicted: var_c.posedit().predicted,
             },
         })
     }
@@ -765,89 +693,85 @@ impl<'a> VariantMapper<'a> {
     /// are supported.
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
         match var {
-            crate::SequenceVariant::Genomic(v) => {
-                let pos = v
-                    .posedit
-                    .pos
-                    .as_ref()
-                    .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-                let start_0 = pos.start.base.to_index();
-                let end_0 = pos
-                    .end
-                    .as_ref()
-                    .map_or(start_0 + 1, |e| e.base.to_index() + 1);
-                let ref_seq = self
-                    .refs
-                    .reference(&v.ac, IdentifierType::GenomicAccession)
-                    .slice(
-                        checked_usize(start_0.0, "genomic start index")?,
-                        checked_usize(end_0.0, "genomic end index")?,
-                    )?;
-                Ok(stated_ref_matches(&v.posedit.edit, &ref_seq))
-            }
-            crate::SequenceVariant::Coding(v) => {
-                let transcript = self.hdp.get_transcript(&v.ac, None)?;
-                let pos = v
-                    .posedit
-                    .pos
-                    .as_ref()
-                    .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-                if pos.start.offset.is_some() || pos.end.as_ref().and_then(|e| e.offset).is_some() {
-                    return Ok(true);
-                }
-                let am = TranscriptMapper::new(transcript)?;
-                let (n_start, n_end) = am.interval_to_n(pos)?;
-                let start_idx = checked_usize(n_start.0, "transcript start index")?;
-                let end_idx = checked_usize(n_end.0, "transcript end index")?;
-
-                let ref_seq = self
-                    .refs
-                    .reference(&v.ac, IdentifierType::TranscriptAccession)
-                    .whole()?;
-                if start_idx >= ref_seq.len() || end_idx > ref_seq.len() {
-                    return Err(HgvsError::ValidationError(
-                        "Transcript sequence too short".into(),
-                    ));
-                }
-                Ok(stated_ref_matches(
-                    &v.posedit.edit,
-                    &ref_seq[start_idx..end_idx],
-                ))
-            }
+            crate::SequenceVariant::Genomic(v) => self.validate_linear(v),
+            crate::SequenceVariant::Mitochondrial(v) => self.validate_linear(v),
+            crate::SequenceVariant::Coding(v) => self.validate_transcript(v),
+            crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
             _ => Err(HgvsError::UnsupportedOperation(
                 "Validation not implemented for this variant type".into(),
             )),
         }
     }
 
+    fn validate_linear<L: LinearVariant>(&self, v: &L) -> Result<bool, HgvsError> {
+        let pos = v
+            .posedit()
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (start, end) = simple_interval_range(pos)?;
+        let ref_seq = self
+            .refs
+            .reference(v.ac(), IdentifierType::GenomicAccession)
+            .slice(start, end)?;
+        Ok(stated_ref_matches(&v.posedit().edit, &ref_seq))
+    }
+
+    fn validate_transcript<V: TranscriptVariant>(&self, v: &V) -> Result<bool, HgvsError> {
+        let transcript = self.hdp.get_transcript(v.ac(), None)?;
+        let pos = v
+            .posedit()
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        if has_intronic_offset(pos) {
+            return Ok(true);
+        }
+        let am = TranscriptMapper::new(transcript)?;
+        let (n_start, n_end) = am.interval_to_n(pos)?;
+        let start_idx = checked_usize(n_start.0, "transcript start index")?;
+        let end_idx = checked_usize(n_end.0, "transcript end index")?;
+
+        let ref_seq = self
+            .refs
+            .reference(v.ac(), IdentifierType::TranscriptAccession)
+            .whole()?;
+        if start_idx >= ref_seq.len() || end_idx > ref_seq.len() {
+            return Err(HgvsError::ValidationError(
+                "Transcript sequence too short".into(),
+            ));
+        }
+        Ok(stated_ref_matches(
+            &v.posedit().edit,
+            &ref_seq[start_idx..end_idx],
+        ))
+    }
+
     pub fn normalize_variant(
         &self,
         var: crate::SequenceVariant,
     ) -> Result<crate::SequenceVariant, HgvsError> {
-        match var {
-            crate::SequenceVariant::Coding(v_c) => Ok(crate::SequenceVariant::Coding(
-                self.normalize_coding_variant(v_c)?,
-            )),
-            crate::SequenceVariant::Genomic(v_g) => Ok(crate::SequenceVariant::Genomic(
-                self.normalize_genomic_variant(v_g)?,
-            )),
-            crate::SequenceVariant::NonCoding(v_n) => Ok(crate::SequenceVariant::NonCoding(
-                self.normalize_noncoding_variant(v_n)?,
-            )),
-            _ => Ok(var),
-        }
+        use crate::SequenceVariant as SV;
+        Ok(match var {
+            SV::Genomic(v) => SV::Genomic(self.normalize_linear(v)?),
+            SV::Mitochondrial(v) => SV::Mitochondrial(self.normalize_linear(v)?),
+            SV::Coding(v) => SV::Coding(self.normalize_transcript(v)?),
+            SV::NonCoding(v) => SV::NonCoding(self.normalize_transcript(v)?),
+            other => other,
+        })
     }
 
-    fn normalize_genomic_variant(&self, mut v_g: GVariant) -> Result<GVariant, HgvsError> {
-        let Some(pos) = &mut v_g.posedit.pos else {
-            return Ok(v_g);
+    fn normalize_linear<L: LinearVariant>(&self, mut v: L) -> Result<L, HgvsError> {
+        let ac = v.ac().to_string();
+        let Some(pos) = &mut v.posedit_mut().pos else {
+            return Ok(v);
         };
         let (start, end) = simple_interval_range(pos)?;
-        let before = PlacedEdit::from_hgvs_range(start, end, v_g.posedit.edit.clone());
-        let reference = self
-            .refs
-            .reference(&v_g.ac, IdentifierType::GenomicAccession);
+        let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
+        let reference = self.refs.reference(&ac, IdentifierType::GenomicAccession);
         let after = normalize::normalize(&reference, before.clone())?;
+        let posedit = v.posedit_mut();
+        let pos = posedit.pos.as_mut().expect("checked above");
         if placement_changed(&before, &after) {
             let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
             pos.start.base = GenomicPos(s as i32).to_hgvs();
@@ -857,66 +781,41 @@ impl<'a> VariantMapper<'a> {
                 uncertain: false,
             });
         }
-        v_g.posedit.edit = after.edit;
-        Ok(v_g)
+        posedit.edit = after.edit;
+        Ok(v)
     }
 
-    fn normalize_coding_variant(&self, mut v_c: CVariant) -> Result<CVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(&v_c.ac, None)?;
-        let Some(pos) = &mut v_c.posedit.pos else {
-            return Ok(v_c);
+    fn normalize_transcript<V: TranscriptVariant>(&self, mut v: V) -> Result<V, HgvsError> {
+        let ac = v.ac().to_string();
+        let transcript = self.hdp.get_transcript(&ac, None)?;
+        let Some(pos) = &v.posedit().pos else {
+            return Ok(v);
         };
         if has_intronic_offset(pos) {
             // An intronic base has no transcript index; there is nothing to
-            // normalise against in c. space. Leave the variant as written.
-            return Ok(v_c);
+            // normalise against in transcript space. Leave the variant as written.
+            return Ok(v);
         }
         let (start, end) = self.get_c_indices(pos, &transcript)?;
-        let before = PlacedEdit::from_hgvs_range(start, end, v_c.posedit.edit.clone());
+        let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self
             .refs
-            .reference(&v_c.ac, IdentifierType::TranscriptAccession);
+            .reference(&ac, IdentifierType::TranscriptAccession);
         let after = normalize::normalize(&reference, before.clone())?;
+        let posedit = v.posedit_mut();
+        let pos = posedit.pos.as_mut().expect("checked above");
         if placement_changed(&before, &after) {
-            // Re-derive positions via n_to_c so the c.0 gap and the CDS anchors
-            // come out right when a shift crosses the CDS start or end.
+            // Re-derive positions from indices so that, for c., the c.0 gap and
+            // the CDS anchors come out right when a shift crosses the CDS bounds.
             let am = TranscriptMapper::new(transcript)?;
             let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
-            pos.start = n_to_c_position(&am, s as i32)?;
+            pos.start = V::position_from_index(&am, s as i32)?;
             pos.end = e
-                .map(|last| n_to_c_position(&am, last as i32))
+                .map(|last| V::position_from_index(&am, last as i32))
                 .transpose()?;
         }
-        v_c.posedit.edit = after.edit;
-        Ok(v_c)
-    }
-
-    fn normalize_noncoding_variant(&self, mut v_n: NVariant) -> Result<NVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(&v_n.ac, None)?;
-        let Some(pos) = &mut v_n.posedit.pos else {
-            return Ok(v_n);
-        };
-        if has_intronic_offset(pos) {
-            return Ok(v_n);
-        }
-        let (start, end) = self.get_c_indices(pos, &transcript)?;
-        let before = PlacedEdit::from_hgvs_range(start, end, v_n.posedit.edit.clone());
-        let reference = self
-            .refs
-            .reference(&v_n.ac, IdentifierType::TranscriptAccession);
-        let after = normalize::normalize(&reference, before.clone())?;
-        if placement_changed(&before, &after) {
-            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
-            pos.start.base = crate::coords::TranscriptPos(s as i32).to_hgvs();
-            pos.end = e.map(|last| BaseOffsetPosition {
-                base: crate::coords::TranscriptPos(last as i32).to_hgvs(),
-                offset: None,
-                anchor: crate::coords::Anchor::TranscriptStart,
-                uncertain: false,
-            });
-        }
-        v_n.posedit.edit = after.edit;
-        Ok(v_n)
+        posedit.edit = after.edit;
+        Ok(v)
     }
 
     pub fn get_c_indices(
@@ -981,16 +880,9 @@ impl<'a> VariantMapper<'a> {
             self.to_spdi_unambiguous(var)
         } else {
             // 1. Resolve to genomic if possible.
-            let g_var_obj = match var {
-                crate::SequenceVariant::Genomic(v) => v.clone(),
-                crate::SequenceVariant::Coding(v) => self.c_to_g(v, None)?,
-                crate::SequenceVariant::NonCoding(v) => self.n_to_g(v, None)?,
-                _ => {
-                    return Err(HgvsError::UnsupportedOperation(
-                        "SPDI only for genomic/coding/non-coding".into(),
-                    ))
-                }
-            };
+            let g_var_obj = self.as_genomic(var).ok_or_else(|| {
+                HgvsError::UnsupportedOperation("SPDI only for genomic/coding/non-coding".into())
+            })??;
 
             // 2. Normalize (3' shift, minimal delins)
             let g_norm_var = self.normalize_variant(crate::SequenceVariant::Genomic(g_var_obj))?;
@@ -1002,18 +894,27 @@ impl<'a> VariantMapper<'a> {
         }
     }
 
+    /// The variant as a `g.` variant on its reference: genomic and mitochondrial
+    /// as written, transcript-space variants mapped through their transcript.
+    /// `None` for protein and RNA variants.
+    pub fn as_genomic(&self, var: &crate::SequenceVariant) -> Option<Result<GVariant, HgvsError>> {
+        use crate::SequenceVariant as SV;
+        Some(match var {
+            SV::Genomic(v) => Ok(v.clone()),
+            SV::Mitochondrial(v) => Ok(v.to_genomic()),
+            SV::Coding(v) => self.tx_to_g(v, None),
+            SV::NonCoding(v) => self.tx_to_g(v, None),
+            SV::Protein(_) | SV::Rna(_) => return None,
+        })
+    }
+
     pub fn to_spdi_unambiguous(&self, var: &crate::SequenceVariant) -> Result<String, HgvsError> {
         // 1. Resolve to genomic if possible. Unambiguous SPDI is ideally on chromosomal coordinates.
-        let g_var_obj = match var {
-            crate::SequenceVariant::Genomic(v) => v.clone(),
-            crate::SequenceVariant::Coding(v) => self.c_to_g(v, None)?,
-            crate::SequenceVariant::NonCoding(v) => self.n_to_g(v, None)?,
-            _ => {
-                return Err(HgvsError::UnsupportedOperation(
-                    "SPDI expansion only for genomic/coding/non-coding".into(),
-                ))
-            }
-        };
+        let g_var_obj = self.as_genomic(var).ok_or_else(|| {
+            HgvsError::UnsupportedOperation(
+                "SPDI expansion only for genomic/coding/non-coding".into(),
+            )
+        })??;
 
         // 2. Normalize (3' shift, minimal delins)
         let g_norm_var = self.normalize_variant(crate::SequenceVariant::Genomic(g_var_obj))?;

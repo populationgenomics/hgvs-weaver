@@ -23,12 +23,18 @@ pub fn parse_g_posedit(pair: Pair<Rule>) -> Result<PosEdit<SimpleInterval, NaEdi
     })
 }
 
-pub fn parse_c_posedit(pair: Pair<Rule>) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
+/// Parses a transcript-space posedit (`c.` or `n.`); positions without an
+/// explicit anchor get `default_anchor`.
+pub fn parse_tx_posedit(
+    pair: Pair<Rule>,
+    default_anchor: Anchor,
+) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
     let mut inner = pair.into_inner();
     let pos = parse_base_offset_interval(
         inner
             .next()
             .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?,
+        default_anchor,
     )?;
     let edit = parse_na_edit(
         inner
@@ -173,27 +179,18 @@ pub fn parse_simple_pos(pair: Pair<Rule>) -> Result<SimplePosition, HgvsError> {
     })
 }
 
-pub fn parse_n_posedit(pair: Pair<Rule>) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
-    let mut inner = pair.into_inner();
-    let pos = parse_base_offset_interval_n(
-        inner
-            .next()
-            .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?,
-    )?;
-    let edit = parse_na_edit(
-        inner
-            .next()
-            .ok_or_else(|| HgvsError::PestError("Missing edit".into()))?,
-    )?;
-    Ok(PosEdit {
-        pos: Some(pos),
-        edit,
-        uncertain: false,
-        predicted: false,
-    })
+pub fn parse_c_posedit(pair: Pair<Rule>) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
+    parse_tx_posedit(pair, Anchor::CdsStart)
 }
 
-pub fn parse_base_offset_interval_n(pair: Pair<Rule>) -> Result<BaseOffsetInterval, HgvsError> {
+pub fn parse_n_posedit(pair: Pair<Rule>) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
+    parse_tx_posedit(pair, Anchor::TranscriptStart)
+}
+
+pub fn parse_base_offset_interval(
+    pair: Pair<Rule>,
+    default_anchor: Anchor,
+) -> Result<BaseOffsetInterval, HgvsError> {
     let mut uncertain = false;
     let s = pair.as_str();
     if s.starts_with('(') && s.ends_with(')') {
@@ -210,38 +207,12 @@ pub fn parse_base_offset_interval_n(pair: Pair<Rule>) -> Result<BaseOffsetInterv
         p_inner
             .next()
             .ok_or_else(|| HgvsError::PestError("Missing start position".into()))?,
-        Anchor::TranscriptStart,
+        default_anchor,
     )?;
     let end = p_inner
         .next()
-        .map(|p| parse_base_offset_pos_with_default(p, Anchor::TranscriptStart))
+        .map(|p| parse_base_offset_pos_with_default(p, default_anchor))
         .transpose()?;
-    Ok(BaseOffsetInterval {
-        start,
-        end,
-        uncertain,
-    })
-}
-
-pub fn parse_base_offset_interval(pair: Pair<Rule>) -> Result<BaseOffsetInterval, HgvsError> {
-    let mut uncertain = false;
-    let s = pair.as_str();
-    if s.starts_with('(') && s.ends_with(')') {
-        uncertain = true;
-    }
-
-    let mut inner = pair.into_inner();
-    let p = inner
-        .next()
-        .ok_or_else(|| HgvsError::PestError("Empty base offset interval".into()))?;
-    let mut p_inner = p.into_inner();
-
-    let start = parse_base_offset_pos(
-        p_inner
-            .next()
-            .ok_or_else(|| HgvsError::PestError("Missing start position".into()))?,
-    )?;
-    let end = p_inner.next().map(parse_base_offset_pos).transpose()?;
     Ok(BaseOffsetInterval {
         start,
         end,

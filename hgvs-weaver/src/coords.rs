@@ -231,6 +231,16 @@ impl Variant for SequenceVariant {
             SequenceVariant::Rna(v) => v.coordinate_type(),
         }
     }
+    fn set_ac(&mut self, ac: String) {
+        match self {
+            SequenceVariant::Genomic(v) => v.set_ac(ac),
+            SequenceVariant::Coding(v) => v.set_ac(ac),
+            SequenceVariant::Protein(v) => v.set_ac(ac),
+            SequenceVariant::Mitochondrial(v) => v.set_ac(ac),
+            SequenceVariant::NonCoding(v) => v.set_ac(ac),
+            SequenceVariant::Rna(v) => v.set_ac(ac),
+        }
+    }
 }
 
 impl From<TranscriptPos> for HgvsTranscriptPos {
