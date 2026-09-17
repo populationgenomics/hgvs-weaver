@@ -1,11 +1,11 @@
-use crate::data::{ExonData, Transcript};
+use crate::data::{ExonData, TranscriptData};
 use crate::error::HgvsError;
 use crate::structs::{Anchor, GenomicPos, IntronicOffset, TranscriptPos};
 
 /// Handles coordinate transformations within a single transcript.
 pub struct TranscriptMapper {
     /// The transcript model providing exon and CDS information.
-    pub transcript: Box<dyn Transcript>,
+    pub transcript: TranscriptData,
     /// Sorted exons (transcript order).
     pub exons: Vec<ExonData>,
     /// CIGAR mappers for exons with non-trivial alignments.
@@ -14,9 +14,9 @@ pub struct TranscriptMapper {
 
 impl TranscriptMapper {
     /// Creates a new `TranscriptMapper` for the given transcript.
-    pub fn new(transcript: Box<dyn Transcript>) -> Result<Self, HgvsError> {
-        let mut exons = transcript.exons().to_vec();
-        if transcript.strand() == crate::data::Strand::Plus {
+    pub fn new(transcript: TranscriptData) -> Result<Self, HgvsError> {
+        let mut exons = transcript.exons.to_vec();
+        if transcript.strand == crate::data::Strand::Plus {
             exons.sort_by_key(|e| e.reference_start.0);
         } else {
             exons.sort_by_key(|e| std::cmp::Reverse(e.reference_start.0));
@@ -121,8 +121,8 @@ impl TranscriptMapper {
         n_pos: TranscriptPos,
     ) -> Result<(TranscriptPos, IntronicOffset, Anchor), HgvsError> {
         if let (Some(cds_start), Some(cds_end)) = (
-            self.transcript.cds_start_index(),
-            self.transcript.cds_end_index(),
+            self.transcript.cds_start_index,
+            self.transcript.cds_end_index,
         ) {
             if n_pos < cds_start {
                 Ok((
@@ -155,14 +155,14 @@ impl TranscriptMapper {
             Anchor::CdsStart => {
                 let cds_start = self
                     .transcript
-                    .cds_start_index()
+                    .cds_start_index
                     .ok_or_else(|| HgvsError::ValidationError("Missing CDS start".into()))?;
                 Ok(TranscriptPos(cds_start.0 + c_pos.0))
             }
             Anchor::CdsEnd => {
                 let cds_end = self
                     .transcript
-                    .cds_end_index()
+                    .cds_end_index
                     .ok_or_else(|| HgvsError::ValidationError("Missing CDS end".into()))?;
                 Ok(TranscriptPos(cds_end.0 + 1 + c_pos.0))
             }
@@ -219,11 +219,8 @@ mod tests {
     use super::*;
     use crate::data::{ExonData, TranscriptData};
 
-    fn create_mock_transcript(
-        strand: crate::data::Strand,
-        exons: Vec<ExonData>,
-    ) -> Box<dyn Transcript> {
-        Box::new(TranscriptData {
+    fn create_mock_transcript(strand: crate::data::Strand, exons: Vec<ExonData>) -> TranscriptData {
+        TranscriptData {
             ac: "NM_0001.1".to_string(),
             gene: "TEST".to_string(),
             cds_start_index: None,
@@ -231,7 +228,7 @@ mod tests {
             strand,
             reference_accession: "NC_000001.1".to_string(),
             exons,
-        })
+        }
     }
 
     #[test]

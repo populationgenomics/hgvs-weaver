@@ -32,7 +32,7 @@ impl DataProvider for MockDataProvider {
         &self,
         transcript_ac: &str,
         _reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         if transcript_ac == "NM_0001.3" {
             let exons = vec![ExonData {
                 transcript_start: TranscriptPos(0),
@@ -51,7 +51,7 @@ impl DataProvider for MockDataProvider {
                 reference_accession: "NC_0001.10".to_string(),
                 exons,
             };
-            return Ok(Box::new(td));
+            return Ok(td);
         }
         Err(HgvsError::DataProviderError(
             "Transcript not found".to_string(),
@@ -91,7 +91,7 @@ impl DataProvider for MockDataProvider {
     ) -> Result<(String, GenomicPos), HgvsError> {
         let tx = self.get_transcript(transcript_ac, None)?;
         Ok((
-            tx.reference_accession().to_string(),
+            tx.reference_accession.to_string(),
             GenomicPos(pos.0 + offset.0),
         ))
     }

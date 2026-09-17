@@ -1,6 +1,6 @@
 use ::hgvs_weaver::transform::{transform_variant, StartCodonConvention, VariantTransformSettings};
 use ::hgvs_weaver::{
-    DataProvider, HgvsError, IdentifierKind, SequenceVariant, Transcript, TranscriptSearch,
+    DataProvider, HgvsError, IdentifierKind, SequenceVariant, TranscriptData, TranscriptSearch,
     Variant as VariantTrait, VariantMapper,
 };
 use pyo3::prelude::*;
@@ -252,9 +252,7 @@ impl PyVariant {
     #[doc = "Constructs a Variant from a dictionary produced by to_dict.\n\nArgs:\n    d: A dict with the same structure as returned by to_dict.\n\nReturns:\n    A Variant object.\n\nRaises:\n    ValueError: If the dict cannot be deserialised into a valid variant."]
     fn from_dict(py: Python, d: Py<PyAny>) -> PyResult<PyVariant> {
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod
-            .call_method1("dumps", (d,))?
-            .extract::<String>()?;
+        let json_str: String = json_mod.call_method1("dumps", (d,))?.extract::<String>()?;
         let inner: SequenceVariant = serde_json::from_str(&json_str)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(PyVariant { inner })
@@ -410,7 +408,7 @@ impl DataProvider for PyDataProviderBridge {
         &self,
         transcript_ac: &str,
         reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         Python::attach(|py| {
             let res = self
                 .provider
@@ -430,7 +428,7 @@ impl DataProvider for PyDataProviderBridge {
                 .map_err(|e| HgvsError::DataProviderError(e.to_string()))?;
             let data: ::hgvs_weaver::data::TranscriptData = serde_json::from_str(&json_str)
                 .map_err(|e| HgvsError::DataProviderError(e.to_string()))?;
-            Ok(Box::new(data) as Box<dyn Transcript>)
+            Ok(data)
         })
     }
 

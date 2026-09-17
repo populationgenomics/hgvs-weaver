@@ -1,5 +1,5 @@
 use crate::analogous_edit::{project_aa_variant, project_na_variant, SparseReference};
-use crate::data::{DataProvider, IdentifierKind, Transcript, TranscriptSearch};
+use crate::data::{DataProvider, IdentifierKind, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{
@@ -153,10 +153,10 @@ impl<'a> VariantEquivalence<'a> {
                     let mut i2 = pos2.spdi_interval(&c2.ac, self.hdp)?;
 
                     let t1 = self.hdp.get_transcript(&c1.ac, None)?;
-                    let edit1 = strand_aware_edit(&c1.posedit.edit, t1.strand());
+                    let edit1 = strand_aware_edit(&c1.posedit.edit, t1.strand);
 
                     let t2 = self.hdp.get_transcript(&c2.ac, None)?;
-                    let edit2 = strand_aware_edit(&c2.posedit.edit, t2.strand());
+                    let edit2 = strand_aware_edit(&c2.posedit.edit, t2.strand);
 
                     if matches!(c1.posedit.edit, NaEdit::Ins { .. }) {
                         if let Some(e) = &pos1.end {
@@ -213,10 +213,10 @@ impl<'a> VariantEquivalence<'a> {
                     let mut i2 = pos2.spdi_interval(&n2.ac, self.hdp)?;
 
                     let t1 = self.hdp.get_transcript(&n1.ac, None)?;
-                    let edit1 = strand_aware_edit(&n1.posedit.edit, t1.strand());
+                    let edit1 = strand_aware_edit(&n1.posedit.edit, t1.strand);
 
                     let t2 = self.hdp.get_transcript(&n2.ac, None)?;
-                    let edit2 = strand_aware_edit(&n2.posedit.edit, t2.strand());
+                    let edit2 = strand_aware_edit(&n2.posedit.edit, t2.strand);
 
                     if matches!(n1.posedit.edit, NaEdit::Ins { .. }) {
                         if let Some(e) = &pos1.end {
@@ -294,7 +294,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::Genomic(vg), SequenceVariant::Coding(vc))
             | (SequenceVariant::Coding(vc), SequenceVariant::Genomic(vg)) => {
                 if let Ok(tx) = self.hdp.get_transcript(&vc.ac, None) {
-                    if let Ok(vg_generated) = self.mapper.c_to_g(vc, Some(tx.reference_accession()))
+                    if let Ok(vg_generated) = self
+                        .mapper
+                        .c_to_g(vc, Some(tx.reference_accession.as_str()))
                     {
                         vg_generated.to_string() == vg.to_string()
                     } else {
@@ -307,7 +309,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::Genomic(vg), SequenceVariant::NonCoding(vn))
             | (SequenceVariant::NonCoding(vn), SequenceVariant::Genomic(vg)) => {
                 if let Ok(tx) = self.hdp.get_transcript(&vn.ac, None) {
-                    if let Ok(vg_generated) = self.mapper.n_to_g(vn, Some(tx.reference_accession()))
+                    if let Ok(vg_generated) = self
+                        .mapper
+                        .n_to_g(vn, Some(tx.reference_accession.as_str()))
                     {
                         vg_generated.to_string() == vg.to_string()
                     } else {
@@ -320,7 +324,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::NonCoding(vn), SequenceVariant::Protein(vp))
             | (SequenceVariant::Protein(vp), SequenceVariant::NonCoding(vn)) => {
                 if let Ok(tx) = self.hdp.get_transcript(&vn.ac, None) {
-                    if let Ok(vg_generated) = self.mapper.n_to_g(vn, Some(tx.reference_accession()))
+                    if let Ok(vg_generated) = self
+                        .mapper
+                        .n_to_g(vn, Some(tx.reference_accession.as_str()))
                     {
                         if let Ok(c_variants) = self.mapper.g_to_c_all(&vg_generated, self.searcher)
                         {
@@ -822,7 +828,7 @@ impl<'a> VariantEquivalence<'a> {
         pos: &BaseOffsetInterval,
         seq: &str,
         uncertain: bool,
-        transcript: Box<dyn Transcript>,
+        transcript: TranscriptData,
     ) -> Result<Option<(BaseOffsetInterval, NaEdit)>, HgvsError> {
         if pos.start.offset.is_some() || pos.end.as_ref().map_or(false, |e| e.offset.is_some()) {
             return Ok(None);
@@ -898,8 +904,12 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<bool, HgvsError> {
         let tx1 = self.hdp.get_transcript(&v1.ac, None)?;
         let tx2 = self.hdp.get_transcript(&v2.ac, None)?;
-        let g1 = self.mapper.c_to_g(v1, Some(tx1.reference_accession()))?;
-        let g2 = self.mapper.c_to_g(v2, Some(tx2.reference_accession()))?;
+        let g1 = self
+            .mapper
+            .c_to_g(v1, Some(tx1.reference_accession.as_str()))?;
+        let g2 = self
+            .mapper
+            .c_to_g(v2, Some(tx2.reference_accession.as_str()))?;
         self.n_vs_n_equivalent(&g1, &g2)
     }
 
@@ -910,8 +920,12 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<bool, HgvsError> {
         let tx1 = self.hdp.get_transcript(&v1.ac, None)?;
         let tx2 = self.hdp.get_transcript(&v2.ac, None)?;
-        let g1 = self.mapper.n_to_g(v1, Some(tx1.reference_accession()))?;
-        let g2 = self.mapper.n_to_g(v2, Some(tx2.reference_accession()))?;
+        let g1 = self
+            .mapper
+            .n_to_g(v1, Some(tx1.reference_accession.as_str()))?;
+        let g2 = self
+            .mapper
+            .n_to_g(v2, Some(tx2.reference_accession.as_str()))?;
         self.n_vs_n_equivalent(&g1, &g2)
     }
 
@@ -939,9 +953,9 @@ impl<'a> VariantEquivalence<'a> {
         vn: &crate::structs::NVariant,
     ) -> Result<bool, HgvsError> {
         let tx = self.hdp.get_transcript(&vc.ac, None)?;
-        let ref_ac = tx.reference_accession();
-        let g1 = self.mapper.c_to_g(vc, Some(ref_ac))?;
-        let g2 = self.mapper.n_to_g(vn, Some(ref_ac))?;
+        let ref_ac = tx.reference_accession;
+        let g1 = self.mapper.c_to_g(vc, Some(ref_ac.as_str()))?;
+        let g2 = self.mapper.n_to_g(vn, Some(ref_ac.as_str()))?;
         self.n_vs_n_equivalent(&g1, &g2)
     }
 
@@ -951,8 +965,8 @@ impl<'a> VariantEquivalence<'a> {
         vp: &crate::structs::PVariant,
     ) -> Result<bool, HgvsError> {
         let tx = self.hdp.get_transcript(&vn.ac, None)?;
-        let ref_ac = tx.reference_accession();
-        let vg = self.mapper.n_to_g(vn, Some(ref_ac))?;
+        let ref_ac = tx.reference_accession;
+        let vg = self.mapper.n_to_g(vn, Some(ref_ac.as_str()))?;
         self.g_vs_p_equivalent(&vg, vp)
     }
 
@@ -1028,7 +1042,7 @@ impl<'a> VariantEquivalence<'a> {
 mod tests {
     use super::*;
     use crate::coords::{GenomicPos, IntronicOffset, TranscriptPos};
-    use crate::data::{ExonData, IdentifierKind, IdentifierType, Transcript, TranscriptData};
+    use crate::data::{ExonData, IdentifierKind, IdentifierType, TranscriptData};
 
     struct MockDataProvider;
     impl DataProvider for MockDataProvider {
@@ -1036,9 +1050,9 @@ mod tests {
             &self,
             ac: &str,
             _ref_ac: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, HgvsError> {
+        ) -> Result<TranscriptData, HgvsError> {
             if ac == "NM_000123.4" {
-                Ok(Box::new(TranscriptData {
+                Ok(TranscriptData {
                     ac: "NM_000123.4".to_string(),
                     gene: "ABC".to_string(),
                     cds_start_index: Some(TranscriptPos(0)),
@@ -1053,7 +1067,7 @@ mod tests {
                         alt_strand: crate::data::Strand::Plus,
                         cigar: "20M".to_string(),
                     }],
-                }))
+                })
             } else {
                 Err(HgvsError::ValidationError("Not found".into()))
             }

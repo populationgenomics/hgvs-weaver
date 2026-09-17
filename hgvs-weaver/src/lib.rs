@@ -163,9 +163,9 @@ pub mod utils;
 
 // Re-exports for public usage
 pub use coords::SequenceVariant;
-pub use data::{DataProvider, IdentifierKind, Transcript, TranscriptSearch};
+pub use data::{DataProvider, IdentifierKind, TranscriptData, TranscriptSearch};
 pub use equivalence::VariantEquivalence;
 pub use error::HgvsError;
 pub use mapper::VariantMapper;
 pub use structs::{CVariant, GVariant, MVariant, NVariant, PVariant, RVariant, Variant};
-pub use transform::{StartCodonConvention, VariantTransformSettings, transform_variant};
+pub use transform::{transform_variant, StartCodonConvention, VariantTransformSettings};

@@ -1,6 +1,6 @@
 use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
 use hgvs_weaver::data::{
-    DataProvider, IdentifierKind, IdentifierType, Transcript, TranscriptData, TranscriptSearch,
+    DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
@@ -8,9 +8,9 @@ use hgvs_weaver::parse_hgvs_variant;
 
 struct MockDataProvider;
 impl DataProvider for MockDataProvider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<Box<dyn Transcript>, HgvsError> {
+    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
         if ac == "NM_001166478.1" || ac == "NM_005813.3" {
-            Ok(Box::new(TranscriptData {
+            Ok(TranscriptData {
                 ac: ac.to_string(),
                 gene: "TEST".to_string(),
                 cds_start_index: Some(TranscriptPos(0)),
@@ -18,9 +18,9 @@ impl DataProvider for MockDataProvider {
                 strand: hgvs_weaver::data::Strand::Minus,
                 reference_accession: "NC_000001.1".to_string(),
                 exons: vec![],
-            }))
+            })
         } else if ac == "NM_BRAF" {
-            Ok(Box::new(TranscriptData {
+            Ok(TranscriptData {
                 ac: ac.to_string(),
                 gene: "BRAF".to_string(),
                 cds_start_index: Some(TranscriptPos(0)),
@@ -28,7 +28,7 @@ impl DataProvider for MockDataProvider {
                 strand: hgvs_weaver::data::Strand::Plus, // Plus strand
                 reference_accession: "NC_BRAF".to_string(),
                 exons: vec![],
-            }))
+            })
         } else {
             Err(HgvsError::ValidationError("Not found".into()))
         }

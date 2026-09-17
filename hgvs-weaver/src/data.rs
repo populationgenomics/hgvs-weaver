@@ -1,6 +1,5 @@
 use crate::error::HgvsError;
 use crate::structs::{GenomicPos, IntronicOffset, TranscriptPos};
-use dyn_clone::DynClone;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 
@@ -50,16 +49,6 @@ impl<'de> Deserialize<'de> for Strand {
     }
 }
 
-pub trait Exon: DynClone {
-    fn transcript_start(&self) -> TranscriptPos;
-    fn transcript_end(&self) -> TranscriptPos;
-    fn reference_start(&self) -> GenomicPos;
-    fn reference_end(&self) -> GenomicPos;
-    fn alt_strand(&self) -> Strand;
-    fn cigar(&self) -> &str;
-}
-dyn_clone::clone_trait_object!(Exon);
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExonData {
     pub transcript_start: TranscriptPos,
@@ -69,38 +58,6 @@ pub struct ExonData {
     pub alt_strand: Strand,
     pub cigar: String,
 }
-
-impl Exon for ExonData {
-    fn transcript_start(&self) -> TranscriptPos {
-        self.transcript_start
-    }
-    fn transcript_end(&self) -> TranscriptPos {
-        self.transcript_end
-    }
-    fn reference_start(&self) -> GenomicPos {
-        self.reference_start
-    }
-    fn reference_end(&self) -> GenomicPos {
-        self.reference_end
-    }
-    fn alt_strand(&self) -> Strand {
-        self.alt_strand
-    }
-    fn cigar(&self) -> &str {
-        &self.cigar
-    }
-}
-
-pub trait Transcript: DynClone {
-    fn ac(&self) -> &str;
-    fn gene(&self) -> &str;
-    fn cds_start_index(&self) -> Option<TranscriptPos>;
-    fn cds_end_index(&self) -> Option<TranscriptPos>;
-    fn strand(&self) -> Strand;
-    fn reference_accession(&self) -> &str;
-    fn exons(&self) -> &[ExonData];
-}
-dyn_clone::clone_trait_object!(Transcript);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptData {
@@ -113,37 +70,13 @@ pub struct TranscriptData {
     pub exons: Vec<ExonData>,
 }
 
-impl Transcript for TranscriptData {
-    fn ac(&self) -> &str {
-        &self.ac
-    }
-    fn gene(&self) -> &str {
-        &self.gene
-    }
-    fn cds_start_index(&self) -> Option<TranscriptPos> {
-        self.cds_start_index
-    }
-    fn cds_end_index(&self) -> Option<TranscriptPos> {
-        self.cds_end_index
-    }
-    fn strand(&self) -> Strand {
-        self.strand
-    }
-    fn reference_accession(&self) -> &str {
-        &self.reference_accession
-    }
-    fn exons(&self) -> &[ExonData] {
-        &self.exons
-    }
-}
-
 /// Interface for retrieving transcript and sequence data.
 pub trait DataProvider {
     fn get_transcript(
         &self,
         transcript_ac: &str,
         reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError>;
+    ) -> Result<TranscriptData, HgvsError>;
     fn get_seq(
         &self,
         ac: &str,

@@ -1,19 +1,14 @@
 use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
 use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Transcript, TranscriptData,
-    TranscriptSearch,
+    DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 
 struct SimpleProvider;
 impl DataProvider for SimpleProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        Ok(Box::new(TranscriptData {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Ok(TranscriptData {
             ac: ac.to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(0)),
@@ -28,7 +23,7 @@ impl DataProvider for SimpleProvider {
                 alt_strand: hgvs_weaver::data::Strand::Plus,
                 cigar: "100M".to_string(),
             }],
-        }))
+        })
     }
     fn get_seq(
         &self,
@@ -66,7 +61,7 @@ impl DataProvider for SimpleProvider {
     ) -> Result<(String, GenomicPos), HgvsError> {
         let tx = self.get_transcript(transcript_ac, None)?;
         Ok((
-            tx.reference_accession().to_string(),
+            tx.reference_accession.to_string(),
             GenomicPos(pos.0 + offset.0),
         ))
     }
@@ -111,12 +106,8 @@ fn test_equivalence_levels() -> Result<(), HgvsError> {
 fn test_parity_match_unification() -> Result<(), HgvsError> {
     struct MissingSeqProvider;
     impl DataProvider for MissingSeqProvider {
-        fn get_transcript(
-            &self,
-            ac: &str,
-            _: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, HgvsError> {
-            Ok(Box::new(TranscriptData {
+        fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
+            Ok(TranscriptData {
                 ac: ac.to_string(),
                 gene: "TEST".to_string(),
                 cds_start_index: Some(TranscriptPos(0)),
@@ -124,7 +115,7 @@ fn test_parity_match_unification() -> Result<(), HgvsError> {
                 strand: hgvs_weaver::data::Strand::Plus,
                 reference_accession: "NC_TEST.1".to_string(),
                 exons: vec![],
-            }))
+            })
         }
         fn get_seq(&self, _: &str, _: i32, _: i32, _: IdentifierType) -> Result<String, HgvsError> {
             Err(HgvsError::Other("Missing sequence".into()))

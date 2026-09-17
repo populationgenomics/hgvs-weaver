@@ -1,6 +1,6 @@
 use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
 use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
-use hgvs_weaver::{parse_hgvs_variant, HgvsError, SequenceVariant, Transcript, VariantMapper};
+use hgvs_weaver::{parse_hgvs_variant, HgvsError, SequenceVariant, VariantMapper};
 
 struct MockDataProvider {
     transcripts: std::collections::HashMap<String, TranscriptData>,
@@ -8,15 +8,10 @@ struct MockDataProvider {
 }
 
 impl DataProvider for MockDataProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
         self.transcripts
             .get(ac)
             .cloned()
-            .map(|tx| Box::new(tx) as Box<dyn Transcript>)
             .ok_or_else(|| HgvsError::ValidationError(format!("Transcript {} not found", ac)))
     }
 

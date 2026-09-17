@@ -51,7 +51,7 @@ impl DataProvider for NormMockDataProvider {
         &self,
         transcript_ac: &str,
         _reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         let exons = vec![ExonData {
             transcript_start: TranscriptPos(0),
             transcript_end: TranscriptPos(100),
@@ -85,7 +85,7 @@ impl DataProvider for NormMockDataProvider {
             reference_accession: "NC_0001.10".to_string(),
             exons,
         };
-        Ok(Box::new(td))
+        Ok(td)
     }
 
     fn get_symbol_accessions(
@@ -121,7 +121,7 @@ impl DataProvider for NormMockDataProvider {
     ) -> Result<(String, GenomicPos), HgvsError> {
         let tx = self.get_transcript(transcript_ac, None)?;
         Ok((
-            tx.reference_accession().to_string(),
+            tx.reference_accession.to_string(),
             GenomicPos(pos.0 + offset.0),
         ))
     }

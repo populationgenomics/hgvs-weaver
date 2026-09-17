@@ -190,7 +190,7 @@ fn test_cascading_unification() {
 
 #[test]
 fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, Transcript};
+    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
     use hgvs_weaver::structs::TranscriptPos;
 
@@ -205,7 +205,7 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _ref: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
             Err(hgvs_weaver::error::HgvsError::ValidationError(
                 "Not implemented".into(),
             ))
@@ -283,7 +283,7 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsErr
 
 #[test]
 fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, Transcript};
+    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
     use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
 
@@ -298,7 +298,7 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _ref: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
             Err(hgvs_weaver::error::HgvsError::UnsupportedOperation(
                 "Not needed".into(),
             ))
@@ -371,7 +371,7 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
 
 #[test]
 fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, Transcript};
+    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
     use hgvs_weaver::structs::TranscriptPos;
 
@@ -381,7 +381,7 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error:
             &self,
             _ac: &str,
             _ref: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
             Err(hgvs_weaver::error::HgvsError::ValidationError(
                 "Not implemented".into(),
             ))
@@ -458,7 +458,7 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error:
 
 #[test]
 fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::Transcript;
+    use hgvs_weaver::data::TranscriptData;
     use hgvs_weaver::equivalence::VariantEquivalence;
     use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
     use hgvs_weaver::{parse_hgvs_variant, DataProvider, IdentifierKind};
@@ -478,7 +478,7 @@ fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _gene: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
             panic!("Not implemented")
         }
         fn get_identifier_type(
@@ -536,7 +536,7 @@ fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsErr
 
 #[test]
 fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::Transcript;
+    use hgvs_weaver::data::TranscriptData;
     use hgvs_weaver::equivalence::VariantEquivalence;
     use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
     use hgvs_weaver::{parse_hgvs_variant, DataProvider, IdentifierKind};
@@ -556,7 +556,7 @@ fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::Hg
             &self,
             _ac: &str,
             _gene: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
             panic!("Not implemented")
         }
         fn get_identifier_type(
@@ -621,7 +621,7 @@ fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::Hg
 
 #[test]
 fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::Transcript;
+    use hgvs_weaver::data::TranscriptData;
     use hgvs_weaver::equivalence::VariantEquivalence;
     use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
     use hgvs_weaver::{parse_hgvs_variant, DataProvider, IdentifierKind};
@@ -653,7 +653,7 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsEr
             &self,
             _ac: &str,
             _gene: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
             panic!("Not implemented")
         }
         fn get_identifier_type(
@@ -731,9 +731,9 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsEr
 
 #[test]
 fn test_immediate_stop_normalization() -> Result<(), hgvs_weaver::error::HgvsError> {
-    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, Transcript};
+    use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::mapper::VariantMapper;
-    use hgvs_weaver::structs::{CVariant, TranscriptPos};
+    use hgvs_weaver::structs::TranscriptPos;
 
     struct MockFsProvider;
     impl DataProvider for MockFsProvider {
@@ -741,34 +741,16 @@ fn test_immediate_stop_normalization() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _ref: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, hgvs_weaver::error::HgvsError> {
-            use hgvs_weaver::data::ExonData;
-            #[derive(Clone)]
-            struct MockTranscript;
-            impl Transcript for MockTranscript {
-                fn ac(&self) -> &str {
-                    "NM_1.1"
-                }
-                fn gene(&self) -> &str {
-                    "TEST"
-                }
-                fn cds_start_index(&self) -> Option<TranscriptPos> {
-                    Some(TranscriptPos(0))
-                }
-                fn cds_end_index(&self) -> Option<TranscriptPos> {
-                    Some(TranscriptPos(6))
-                }
-                fn strand(&self) -> hgvs_weaver::data::Strand {
-                    hgvs_weaver::data::Strand::Plus
-                }
-                fn reference_accession(&self) -> &str {
-                    "NC_1.1"
-                }
-                fn exons(&self) -> &[ExonData] {
-                    &[]
-                }
-            }
-            Ok(Box::new(MockTranscript))
+        ) -> Result<TranscriptData, hgvs_weaver::error::HgvsError> {
+            Ok(TranscriptData {
+                ac: "NM_1.1".to_string(),
+                gene: "TEST".to_string(),
+                cds_start_index: Some(TranscriptPos(0)),
+                cds_end_index: Some(TranscriptPos(6)),
+                strand: hgvs_weaver::data::Strand::Plus,
+                reference_accession: "NC_1.1".to_string(),
+                exons: vec![],
+            })
         }
         fn get_seq(
             &self,

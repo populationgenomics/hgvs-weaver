@@ -1,6 +1,6 @@
 use crate::altseq::AltSeqBuilder;
 use crate::altseq_to_hgvsp::AltSeqToHgvsp;
-use crate::data::{DataProvider, IdentifierKind, IdentifierType, Transcript, TranscriptSearch};
+use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::sequence::{MemSequence, RevCompSequence, Sequence, TranslatedSequence};
 use crate::structs::{
@@ -171,7 +171,7 @@ impl<'a> VariantMapper<'a> {
                 anchor_e,
             );
 
-            let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand());
+            let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
 
             return Ok(CVariant {
                 ac: transcript_ac.to_string(),
@@ -192,7 +192,7 @@ impl<'a> VariantMapper<'a> {
         let (c_pos_index, c_offset, anchor) = am.n_to_c(n_pos)?;
         let pos_c = make_base_offset_position(c_pos_index.to_hgvs(), c_offset.0 + offset.0, anchor);
 
-        let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand());
+        let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
 
         Ok(CVariant {
             ac: transcript_ac.to_string(),
@@ -245,11 +245,11 @@ impl<'a> VariantMapper<'a> {
                 std::mem::swap(&mut pos_g, &mut pos_g_e);
             }
 
-            let edit = apply_strand_complement(var_c.posedit.edit.clone(), am.transcript.strand());
+            let edit = apply_strand_complement(var_c.posedit.edit.clone(), am.transcript.strand);
 
             return Ok(GVariant {
                 ac: reference_ac
-                    .unwrap_or_else(|| am.transcript.reference_accession())
+                    .unwrap_or_else(|| am.transcript.reference_accession.as_str())
                     .to_string(),
                 gene: var_c.gene.clone(),
                 posedit: crate::structs::PosEdit {
@@ -266,11 +266,11 @@ impl<'a> VariantMapper<'a> {
         }
 
         let pos_g = make_simple_position(g_pos.to_hgvs());
-        let edit = apply_strand_complement(var_c.posedit.edit.clone(), am.transcript.strand());
+        let edit = apply_strand_complement(var_c.posedit.edit.clone(), am.transcript.strand);
 
         Ok(GVariant {
             ac: reference_ac
-                .unwrap_or_else(|| am.transcript.reference_accession())
+                .unwrap_or_else(|| am.transcript.reference_accession.as_str())
                 .to_string(),
             gene: var_c.gene.clone(),
             posedit: crate::structs::PosEdit {
@@ -321,11 +321,11 @@ impl<'a> VariantMapper<'a> {
                 std::mem::swap(&mut pos_g, &mut pos_g_e);
             }
 
-            let edit = apply_strand_complement(var_n.posedit.edit.clone(), am.transcript.strand());
+            let edit = apply_strand_complement(var_n.posedit.edit.clone(), am.transcript.strand);
 
             return Ok(GVariant {
                 ac: reference_ac
-                    .unwrap_or_else(|| am.transcript.reference_accession())
+                    .unwrap_or_else(|| am.transcript.reference_accession.as_str())
                     .to_string(),
                 gene: var_n.gene.clone(),
                 posedit: crate::structs::PosEdit {
@@ -342,11 +342,11 @@ impl<'a> VariantMapper<'a> {
         }
 
         let pos_g = make_simple_position(g_pos.to_hgvs());
-        let edit = apply_strand_complement(var_n.posedit.edit.clone(), am.transcript.strand());
+        let edit = apply_strand_complement(var_n.posedit.edit.clone(), am.transcript.strand);
 
         Ok(GVariant {
             ac: reference_ac
-                .unwrap_or_else(|| am.transcript.reference_accession())
+                .unwrap_or_else(|| am.transcript.reference_accession.as_str())
                 .to_string(),
             gene: var_n.gene.clone(),
             posedit: crate::structs::PosEdit {
@@ -486,10 +486,10 @@ impl<'a> VariantMapper<'a> {
         )?;
 
         let cds_start_tx = transcript
-            .cds_start_index()
+            .cds_start_index
             .ok_or_else(|| HgvsError::ValidationError("Missing CDS start".into()))?;
         let cds_end_tx = transcript
-            .cds_end_index()
+            .cds_end_index
             .ok_or_else(|| HgvsError::ValidationError("Missing CDS end".into()))?;
         let cds_start_idx = checked_usize(cds_start_tx.0, "CDS start")?;
         let cds_end_idx = checked_usize(cds_end_tx.0, "CDS end")?;
@@ -608,7 +608,7 @@ impl<'a> VariantMapper<'a> {
         // Get transcript
         let transcript = self.hdp.get_transcript(&tx_ac, None)?;
         let cds_start = transcript
-            .cds_start_index()
+            .cds_start_index
             .ok_or_else(|| HgvsError::ValidationError("No CDS start for transcript".into()))?
             .0 as usize;
 
@@ -772,7 +772,7 @@ impl<'a> VariantMapper<'a> {
                 // Re-derive HGVS positions via n_to_c so the c.0 gap is handled
                 // correctly (shifting past the 5'UTR/CDS boundary must not produce
                 // the invalid HgvsTranscriptPos(0)).
-                let am = TranscriptMapper::new(dyn_clone::clone_box(&*transcript))?;
+                let am = TranscriptMapper::new(transcript.clone())?;
                 if is_ins {
                     // Insertion anchor is the "after" base. HGVS spans [before, after].
                     pos.start = n_to_c_position(&am, (new_start as i32) - 1)?;
@@ -820,9 +820,7 @@ impl<'a> VariantMapper<'a> {
                                     IdentifierKind::Transcript.into_identifier_type(),
                                 ) {
                                     if ref_seq == ins_seq {
-                                        let am2 = TranscriptMapper::new(dyn_clone::clone_box(
-                                            &*transcript,
-                                        ))?;
+                                        let am2 = TranscriptMapper::new(transcript.clone())?;
                                         if let Some(pos_mut) = &mut v_c.posedit.pos {
                                             pos_mut.start = n_to_c_position(&am2, check_start)?;
                                             pos_mut.end = if check_start != cur_n_start as i32 {
@@ -963,9 +961,9 @@ impl<'a> VariantMapper<'a> {
     pub fn get_c_indices(
         &self,
         pos: &BaseOffsetInterval,
-        transcript: &Box<dyn Transcript>,
+        transcript: &TranscriptData,
     ) -> Result<(usize, usize), HgvsError> {
-        let am = TranscriptMapper::new(dyn_clone::clone_box(&**transcript))?;
+        let am = TranscriptMapper::new(transcript.clone())?;
         let n_start = am.c_to_n(pos.start.base.to_index(), pos.start.anchor)?;
         let n_end = if let Some(e) = &pos.end {
             am.c_to_n(e.base.to_index(), e.anchor)?

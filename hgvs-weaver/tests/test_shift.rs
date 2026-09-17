@@ -1,18 +1,12 @@
 use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Transcript, TranscriptData,
-};
+use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 
 struct HomopolymerProvider;
 impl DataProvider for HomopolymerProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        Ok(Box::new(TranscriptData {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Ok(TranscriptData {
             ac: ac.to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(0)),
@@ -27,7 +21,7 @@ impl DataProvider for HomopolymerProvider {
                 alt_strand: hgvs_weaver::data::Strand::Plus,
                 cigar: "100M".to_string(),
             }],
-        }))
+        })
     }
     fn get_seq(
         &self,
@@ -66,7 +60,7 @@ impl DataProvider for HomopolymerProvider {
     ) -> Result<(String, GenomicPos), HgvsError> {
         let tx = self.get_transcript(transcript_ac, None)?;
         Ok((
-            tx.reference_accession().to_string(),
+            tx.reference_accession.to_string(),
             GenomicPos(pos.0 + offset.0),
         ))
     }
@@ -97,12 +91,8 @@ fn test_ins_3_prime_shifting() -> Result<(), HgvsError> {
 
 struct RepeatProvider;
 impl DataProvider for RepeatProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        Ok(Box::new(TranscriptData {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Ok(TranscriptData {
             ac: ac.to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(0)),
@@ -117,7 +107,7 @@ impl DataProvider for RepeatProvider {
                 alt_strand: hgvs_weaver::data::Strand::Minus,
                 cigar: "100M".to_string(),
             }],
-        }))
+        })
     }
     fn get_seq(
         &self,
@@ -157,7 +147,7 @@ impl DataProvider for RepeatProvider {
     ) -> Result<(String, GenomicPos), HgvsError> {
         let tx = self.get_transcript(transcript_ac, None)?;
         Ok((
-            tx.reference_accession().to_string(),
+            tx.reference_accession.to_string(),
             GenomicPos(pos.0 + offset.0),
         ))
     }

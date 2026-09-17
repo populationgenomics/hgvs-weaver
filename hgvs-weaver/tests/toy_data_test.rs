@@ -51,11 +51,11 @@ impl DataProvider for JsonDataProvider {
         &self,
         transcript_ac: &str,
         _reference_accession: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         let td = self.data.transcripts.get(transcript_ac).ok_or_else(|| {
             HgvsError::DataProviderError(format!("Transcript {} not found", transcript_ac))
         })?;
-        Ok(Box::new(td.clone()))
+        Ok(td.clone())
     }
 
     fn get_symbol_accessions(
@@ -99,7 +99,7 @@ impl DataProvider for JsonDataProvider {
     ) -> Result<(String, GenomicPos), HgvsError> {
         let tx = self.get_transcript(transcript_ac, None)?;
         Ok((
-            tx.reference_accession().to_string(),
+            tx.reference_accession.to_string(),
             GenomicPos(pos.0 + offset.0),
         ))
     }
