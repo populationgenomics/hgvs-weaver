@@ -154,6 +154,7 @@ pub mod equivalence;
 pub mod error;
 pub mod fmt;
 pub mod mapper;
+pub mod normalize;
 pub mod parser;
 pub mod reference;
 pub mod structs;

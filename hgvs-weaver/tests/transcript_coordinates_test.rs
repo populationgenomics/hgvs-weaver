@@ -206,3 +206,50 @@ fn validate_checks_stated_reference_through_transcript_coordinates() {
     assert!(ok("NC_TEST.1:g.1011G>A"));
     assert!(!ok("NC_TEST.1:g.1011A>G"));
 }
+
+#[test]
+fn normalize_leaves_intronic_coding_variants_as_written() {
+    // An insertion straddling an exon boundary has no transcript-space
+    // normalisation. It must come back unchanged, not as an error, so that
+    // c_to_p (p.?) and to_spdi (via g.) still run on it.
+    let mapper = VariantMapper::new(&Provider);
+    for hgvs in [
+        "NM_PLUS10.1:c.30_30+1insA",
+        "NM_MINUS10.1:c.1+5del",
+        "NM_PLUS10.1:n.5-2_5del",
+    ] {
+        let v = parse_hgvs_variant(hgvs).unwrap();
+        assert_eq!(mapper.normalize_variant(v).unwrap().to_string(), hgvs);
+    }
+}
+
+#[test]
+fn normalize_converts_genomic_and_noncoding_insertions_to_duplications() {
+    // Reference is ACGT repeated: genomic index 1010 is G, 1011 is T.
+    let mapper = VariantMapper::new(&Provider);
+    let norm = |hgvs: &str| {
+        mapper
+            .normalize_variant(parse_hgvs_variant(hgvs).unwrap())
+            .unwrap()
+            .to_string()
+    };
+    // Inserting T after g.1012 (index 1011, a T): the run of one T ends there, so it is a dup.
+    assert_eq!(norm("NC_TEST.1:g.1012_1013insT"), "NC_TEST.1:g.1012dupT");
+    // Inserting ACGT into the repeat shifts to the end of the reference and duplicates.
+    assert_eq!(
+        norm("NC_TEST.1:g.1012_1013insACGT"),
+        "NC_TEST.1:g.1997_2000dupACGT"
+    );
+    // Non-coding on the plus strand: transcript index 11 is genomic 1011 (T).
+    assert_eq!(norm("NM_PLUS0.1:n.12_13insT"), "NM_PLUS0.1:n.12dupT");
+    // An insertion that repeats nothing stays an insertion; here it slides one
+    // base 3' because inserting AA before an A equals inserting it after.
+    assert_eq!(
+        norm("NC_TEST.1:g.1012_1013insAA"),
+        "NC_TEST.1:g.1013_1014insAA"
+    );
+    assert_eq!(
+        norm("NC_TEST.1:g.1012_1013insCC"),
+        "NC_TEST.1:g.1012_1013insCC"
+    );
+}

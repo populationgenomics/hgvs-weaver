@@ -2,9 +2,11 @@ use crate::altseq::AltSeqBuilder;
 use crate::altseq_to_hgvsp::AltSeqToHgvsp;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
-use crate::reference::{Reference, ReferenceStore};
+use crate::normalize::{self, PlacedEdit};
+use crate::reference::ReferenceStore;
 use crate::structs::{
-    BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, NVariant, PVariant,
+    BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, GenomicPos, NVariant, PVariant,
+    SimpleInterval, SimplePosition,
 };
 use crate::transcript_mapper::TranscriptMapper;
 
@@ -20,12 +22,6 @@ fn n_to_c_position(am: &TranscriptMapper, n: i32) -> Result<BaseOffsetPosition, 
         anchor,
         uncertain: false,
     })
-}
-
-fn ins_anchor_and_end(start: usize, end: usize, is_ins: bool) -> (usize, usize) {
-    let actual_end = if is_ins { end - 1 } else { end };
-    let anchor = if is_ins { actual_end } else { start };
-    (anchor, actual_end)
 }
 
 fn make_base_offset_position(
@@ -64,44 +60,6 @@ fn apply_strand_complement(
     }
 }
 
-/// The (reference, alternate) bases an edit denotes over `[start, end)` of
-/// `reference`, or `None` for edit kinds that cannot be shifted.
-fn extract_edit_sequences(
-    reference: &Reference<'_, '_>,
-    start: usize,
-    end: usize,
-    edit: &crate::edits::NaEdit,
-) -> Result<Option<(String, String)>, HgvsError> {
-    let result = match edit {
-        crate::edits::NaEdit::RefAlt { ref_, alt, .. } => Some((
-            ref_.clone().unwrap_or_default(),
-            alt.clone().unwrap_or_default(),
-        )),
-        crate::edits::NaEdit::Del { ref_: Some(s), .. } => Some((s.clone(), String::new())),
-        crate::edits::NaEdit::Del { ref_: None, .. } => Some((String::new(), String::new())),
-        crate::edits::NaEdit::Ins { alt: Some(s), .. } => Some((String::new(), s.clone())),
-        crate::edits::NaEdit::Ins { alt: None, .. } => Some((String::new(), String::new())),
-        crate::edits::NaEdit::Dup { ref_: Some(s), .. } => Some((s.clone(), String::new())),
-        crate::edits::NaEdit::Dup { ref_: None, .. } => Some((String::new(), String::new())),
-        crate::edits::NaEdit::Repeat { ref_, max, .. } => {
-            let r = if let Some(r) = ref_ {
-                r.clone()
-            } else {
-                reference.slice(start, end)?
-            };
-            let a = r.repeat(*max as usize);
-            Some((r, a))
-        }
-        crate::edits::NaEdit::Inv { .. } => {
-            let r = reference.slice(start, end)?;
-            let a = crate::utils::reverse_complement(&r);
-            Some((r, a))
-        }
-        _ => None,
-    };
-    Ok(result)
-}
-
 /// True unless the edit states literal reference bases that differ from `actual`.
 fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
     match edit {
@@ -112,44 +70,71 @@ fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
     }
 }
 
-/// The bases whose repetition lets an edit over `[start, end)` slide along the
-/// reference, or `None` when the edit cannot be shifted at all.
-///
-/// Deletions, duplications and length-changing delins slide while the bases
-/// beyond the edit repeat its reference bases; pure insertions slide while
-/// they repeat the inserted bases.
-fn shift_pattern(
-    reference: &Reference<'_, '_>,
-    start: usize,
-    end: usize,
-    edit: &crate::edits::NaEdit,
-) -> Result<Option<String>, HgvsError> {
-    let (ref_str, alt_str) = match extract_edit_sequences(reference, start, end, edit)? {
-        None => return Ok(None),
-        Some(seqs) => seqs,
+/// The 0-based half-open index range a g. interval names.
+fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsError> {
+    let start_i = pos.start.base.to_index().0;
+    if start_i < 0 {
+        return Err(HgvsError::ValidationError(format!(
+            "Genomic start position {} is negative or uncertain",
+            start_i
+        )));
+    }
+    let start = start_i as usize;
+    let last = match &pos.end {
+        Some(e) => {
+            let end_i = e.base.to_index().0;
+            if end_i < 0 {
+                return Err(HgvsError::ValidationError(format!(
+                    "Genomic end position {} is negative or uncertain",
+                    end_i
+                )));
+            }
+            end_i as usize
+        }
+        None => start,
     };
-    if ref_str == alt_str && matches!(edit, crate::edits::NaEdit::RefAlt { .. }) {
-        return Ok(None);
-    }
-    let is_del_or_dup = matches!(
-        edit,
-        crate::edits::NaEdit::Del { .. } | crate::edits::NaEdit::Dup { .. }
-    );
-    if is_del_or_dup
-        || (!ref_str.is_empty() && alt_str.is_empty())
-        || (matches!(edit, crate::edits::NaEdit::RefAlt { .. }) && (end - start) != alt_str.len())
-    {
-        let pattern = if ref_str.is_empty() {
-            reference.slice(start, end)?
-        } else {
-            ref_str
-        };
-        Ok((!pattern.is_empty()).then_some(pattern))
-    } else if start == end && !alt_str.is_empty() {
-        Ok(Some(alt_str))
+    let end = last
+        .checked_add(1)
+        .ok_or_else(|| HgvsError::ValidationError("Genomic end position overflow".into()))?;
+    Ok((start, end))
+}
+
+/// Whether `after` names different bases than `before`, so HGVS positions must
+/// be rewritten. A filled-in deletion or duplication reference alone does not.
+fn placement_changed(before: &PlacedEdit, after: &PlacedEdit) -> bool {
+    (before.start, before.end) != (after.start, after.end)
+        || before.is_insertion() != after.is_insertion()
+}
+
+/// The HGVS start index and optional end index to write for `after`.
+///
+/// An insertion that became a duplication names the duplicated bases, with an
+/// end only when there is more than one. Anything else keeps an end position
+/// exactly when the input had one.
+fn hgvs_positions(
+    before: &PlacedEdit,
+    after: &PlacedEdit,
+    had_end: bool,
+) -> (usize, Option<usize>) {
+    let (s, e) = after.hgvs_range();
+    let last = e - 1;
+    let converted = before.is_insertion() && !after.is_insertion();
+    let end = if converted {
+        (last > s).then_some(last)
+    } else if had_end {
+        Some(last)
     } else {
-        Ok(None)
-    }
+        None
+    };
+    (s, end)
+}
+
+fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
+    pos.start.offset.is_some_and(|o| o.0 != 0)
+        || pos
+            .end
+            .as_ref()
+            .is_some_and(|e| e.offset.is_some_and(|o| o.0 != 0))
 }
 
 fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
@@ -855,206 +840,85 @@ impl<'a> VariantMapper<'a> {
         }
     }
 
-    fn normalize_coding_variant(&self, mut v_c: CVariant) -> Result<CVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(&v_c.ac, None)?;
-        if let Some(pos) = &mut v_c.posedit.pos {
-            let (start_idx, end_idx) = self.get_c_indices(pos, &transcript)?;
-            let is_ins = matches!(&v_c.posedit.edit, crate::edits::NaEdit::Ins { .. });
-            let (ins_anchor, actual_end) = ins_anchor_and_end(start_idx, end_idx, is_ins);
-            let (new_start, _new_end) = self.shift_3_prime(
-                &v_c.ac,
-                IdentifierKind::Transcript,
-                ins_anchor,
-                actual_end,
-                &v_c.posedit.edit,
-            )?;
-
-            if new_start != ins_anchor {
-                // Re-derive HGVS positions via n_to_c so the c.0 gap is handled
-                // correctly (shifting past the 5'UTR/CDS boundary must not produce
-                // the invalid HgvsTranscriptPos(0)).
-                let am = TranscriptMapper::new(transcript.clone())?;
-                if is_ins {
-                    // Insertion anchor is the "after" base. HGVS spans [before, after].
-                    pos.start = n_to_c_position(&am, (new_start as i32) - 1)?;
-                    if pos.end.is_some() {
-                        pos.end = Some(n_to_c_position(&am, new_start as i32)?);
-                    }
-                } else {
-                    let width = end_idx - start_idx;
-                    pos.start = n_to_c_position(&am, new_start as i32)?;
-                    if let Some(e) = &mut pos.end {
-                        *e = n_to_c_position(&am, (new_start + width - 1) as i32)?;
-                    }
-                }
-            }
-
-            self.update_del_dup_ref(
-                &mut v_c.posedit.edit,
-                &v_c.ac,
-                IdentifierKind::Transcript,
-                new_start,
-                end_idx - start_idx,
-            )?;
-
-            // After 3'-shifting, convert Ins → Dup when the inserted sequence
-            // exactly matches the reference at the insertion point.
-            if is_ins {
-                if let crate::edits::NaEdit::Ins {
-                    alt: Some(ins_seq),
-                    uncertain,
-                } = v_c.posedit.edit.clone()
-                {
-                    let pos_after = v_c.posedit.pos.as_ref().unwrap();
-                    // Only attempt for exonic positions (no intronic offsets).
-                    if pos_after.start.offset.is_none()
-                        && pos_after.end.as_ref().map_or(true, |e| e.offset.is_none())
-                    {
-                        if let Ok((cur_n_start, _)) = self.get_c_indices(pos_after, &transcript) {
-                            let n = ins_seq.len() as i32;
-                            let check_start = cur_n_start as i32 - n + 1;
-                            if check_start >= 0 {
-                                if let Ok(ref_seq) = self
-                                    .refs
-                                    .reference(&v_c.ac, IdentifierType::TranscriptAccession)
-                                    .slice(check_start as usize, cur_n_start + 1)
-                                {
-                                    if ref_seq == ins_seq {
-                                        let am2 = TranscriptMapper::new(transcript.clone())?;
-                                        if let Some(pos_mut) = &mut v_c.posedit.pos {
-                                            pos_mut.start = n_to_c_position(&am2, check_start)?;
-                                            pos_mut.end = if check_start != cur_n_start as i32 {
-                                                Some(n_to_c_position(&am2, cur_n_start as i32)?)
-                                            } else {
-                                                None
-                                            };
-                                        }
-                                        v_c.posedit.edit = crate::edits::NaEdit::Dup {
-                                            ref_: Some(ins_seq),
-                                            uncertain,
-                                        };
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    fn normalize_genomic_variant(&self, mut v_g: GVariant) -> Result<GVariant, HgvsError> {
+        let Some(pos) = &mut v_g.posedit.pos else {
+            return Ok(v_g);
+        };
+        let (start, end) = simple_interval_range(pos)?;
+        let before = PlacedEdit::from_hgvs_range(start, end, v_g.posedit.edit.clone());
+        let reference = self
+            .refs
+            .reference(&v_g.ac, IdentifierType::GenomicAccession);
+        let after = normalize::normalize(&reference, before.clone())?;
+        if placement_changed(&before, &after) {
+            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
+            pos.start.base = GenomicPos(s as i32).to_hgvs();
+            pos.end = e.map(|last| SimplePosition {
+                base: GenomicPos(last as i32).to_hgvs(),
+                end: None,
+                uncertain: false,
+            });
         }
-        Ok(v_c)
+        v_g.posedit.edit = after.edit;
+        Ok(v_g)
     }
 
-    fn normalize_genomic_variant(&self, mut v_g: GVariant) -> Result<GVariant, HgvsError> {
-        if let Some(pos) = &mut v_g.posedit.pos {
-            let start_i = pos.start.base.to_index().0;
-            if start_i < 0 {
-                return Err(HgvsError::ValidationError(format!(
-                    "Genomic start position {} is negative or uncertain",
-                    start_i
-                )));
-            }
-            let mut start_idx = checked_usize(start_i, "genomic start index")?;
-            let is_ins = matches!(&v_g.posedit.edit, crate::edits::NaEdit::Ins { .. });
-            let end_idx = if let Some(e) = &pos.end {
-                let end_i = e.base.to_index().0;
-                if end_i < 0 {
-                    return Err(HgvsError::ValidationError(format!(
-                        "Genomic end position {} is negative or uncertain",
-                        end_i
-                    )));
-                }
-                let idx = checked_usize(end_i, "genomic end index")?;
-                if is_ins {
-                    start_idx = idx;
-                    idx
-                } else {
-                    idx.checked_add(1).ok_or_else(|| {
-                        HgvsError::ValidationError("Genomic end position overflow".into())
-                    })?
-                }
-            } else {
-                start_idx.checked_add(1).ok_or_else(|| {
-                    HgvsError::ValidationError("Genomic start position overflow".into())
-                })?
-            };
-
-            let (new_start, new_end) = self.shift_3_prime(
-                &v_g.ac,
-                IdentifierKind::Genomic,
-                start_idx,
-                end_idx,
-                &v_g.posedit.edit,
-            )?;
-            if new_start != start_idx {
-                let shift = (new_start as i32) - (start_idx as i32);
-                pos.start.base.0 += shift;
-                if let Some(e) = &mut pos.end {
-                    e.base.0 += shift;
-                }
-            }
-
-            self.update_del_dup_ref(
-                &mut v_g.posedit.edit,
-                &v_g.ac,
-                IdentifierKind::Genomic,
-                new_start,
-                new_end - new_start,
-            )?;
+    fn normalize_coding_variant(&self, mut v_c: CVariant) -> Result<CVariant, HgvsError> {
+        let transcript = self.hdp.get_transcript(&v_c.ac, None)?;
+        let Some(pos) = &mut v_c.posedit.pos else {
+            return Ok(v_c);
+        };
+        if has_intronic_offset(pos) {
+            // An intronic base has no transcript index; there is nothing to
+            // normalise against in c. space. Leave the variant as written.
+            return Ok(v_c);
         }
-        Ok(v_g)
+        let (start, end) = self.get_c_indices(pos, &transcript)?;
+        let before = PlacedEdit::from_hgvs_range(start, end, v_c.posedit.edit.clone());
+        let reference = self
+            .refs
+            .reference(&v_c.ac, IdentifierType::TranscriptAccession);
+        let after = normalize::normalize(&reference, before.clone())?;
+        if placement_changed(&before, &after) {
+            // Re-derive positions via n_to_c so the c.0 gap and the CDS anchors
+            // come out right when a shift crosses the CDS start or end.
+            let am = TranscriptMapper::new(transcript)?;
+            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
+            pos.start = n_to_c_position(&am, s as i32)?;
+            pos.end = e
+                .map(|last| n_to_c_position(&am, last as i32))
+                .transpose()?;
+        }
+        v_c.posedit.edit = after.edit;
+        Ok(v_c)
     }
 
     fn normalize_noncoding_variant(&self, mut v_n: NVariant) -> Result<NVariant, HgvsError> {
         let transcript = self.hdp.get_transcript(&v_n.ac, None)?;
-        if let Some(pos) = &mut v_n.posedit.pos {
-            let (start_idx, end_idx) = self.get_c_indices(pos, &transcript)?;
-            let is_ins = matches!(&v_n.posedit.edit, crate::edits::NaEdit::Ins { .. });
-            let (ins_anchor, actual_end) = ins_anchor_and_end(start_idx, end_idx, is_ins);
-            let (new_start, new_end) = self.shift_3_prime(
-                &v_n.ac,
-                IdentifierKind::Transcript,
-                ins_anchor,
-                actual_end,
-                &v_n.posedit.edit,
-            )?;
-
-            if new_start != ins_anchor {
-                let shift = (new_start as i32) - (ins_anchor as i32);
-                pos.start.base.0 += shift;
-                if let Some(e) = &mut pos.end {
-                    e.base.0 += shift;
-                }
-            }
-
-            self.update_del_dup_ref(
-                &mut v_n.posedit.edit,
-                &v_n.ac,
-                IdentifierKind::Transcript,
-                new_start,
-                new_end - new_start,
-            )?;
+        let Some(pos) = &mut v_n.posedit.pos else {
+            return Ok(v_n);
+        };
+        if has_intronic_offset(pos) {
+            return Ok(v_n);
         }
+        let (start, end) = self.get_c_indices(pos, &transcript)?;
+        let before = PlacedEdit::from_hgvs_range(start, end, v_n.posedit.edit.clone());
+        let reference = self
+            .refs
+            .reference(&v_n.ac, IdentifierType::TranscriptAccession);
+        let after = normalize::normalize(&reference, before.clone())?;
+        if placement_changed(&before, &after) {
+            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
+            pos.start.base = crate::coords::TranscriptPos(s as i32).to_hgvs();
+            pos.end = e.map(|last| BaseOffsetPosition {
+                base: crate::coords::TranscriptPos(last as i32).to_hgvs(),
+                offset: None,
+                anchor: crate::coords::Anchor::TranscriptStart,
+                uncertain: false,
+            });
+        }
+        v_n.posedit.edit = after.edit;
         Ok(v_n)
-    }
-
-    fn update_del_dup_ref(
-        &self,
-        edit: &mut crate::edits::NaEdit,
-        ac: &str,
-        kind: IdentifierKind,
-        new_start: usize,
-        span: usize,
-    ) -> Result<(), HgvsError> {
-        if let crate::edits::NaEdit::Del { ref_: r, .. }
-        | crate::edits::NaEdit::Dup { ref_: r, .. } = edit
-        {
-            *r = Some(
-                self.refs
-                    .reference(ac, kind.into_identifier_type())
-                    .slice(new_start, new_start + span)?,
-            );
-        }
-        Ok(())
     }
 
     pub fn get_c_indices(
@@ -1075,40 +939,6 @@ impl<'a> VariantMapper<'a> {
             checked_usize(n_start.0, "transcript start index")?,
             checked_usize(n_end.0, "transcript end index")?,
         ))
-    }
-
-    /// Slides an edit over `[start, end)` as far 3' as the reference allows.
-    fn shift_3_prime(
-        &self,
-        ac: &str,
-        kind: IdentifierKind,
-        start: usize,
-        end: usize,
-        edit: &crate::edits::NaEdit,
-    ) -> Result<(usize, usize), HgvsError> {
-        let reference = self.refs.reference(ac, kind.into_identifier_type());
-        let Some(pattern) = shift_pattern(&reference, start, end, edit)? else {
-            return Ok((start, end));
-        };
-        let k = reference.run_right(end, pattern.as_bytes())?;
-        Ok((start + k, end + k))
-    }
-
-    /// Slides an edit over `[start, end)` as far 5' as the reference allows.
-    fn shift_5_prime(
-        &self,
-        ac: &str,
-        kind: IdentifierKind,
-        start: usize,
-        end: usize,
-        edit: &crate::edits::NaEdit,
-    ) -> Result<(usize, usize), HgvsError> {
-        let reference = self.refs.reference(ac, kind.into_identifier_type());
-        let Some(pattern) = shift_pattern(&reference, start, end, edit)? else {
-            return Ok((start, end));
-        };
-        let k = reference.run_left(start, pattern.as_bytes())?;
-        Ok((start - k, end - k))
     }
 
     pub fn expand_unambiguous_range(
@@ -1138,9 +968,10 @@ impl<'a> VariantMapper<'a> {
             return Ok((start, end));
         }
 
-        let (s_5, _) = self.shift_5_prime(ac, kind, start, end, edit)?;
-        let (_, e_3) = self.shift_3_prime(ac, kind, start, end, edit)?;
-        Ok((s_5, e_3))
+        let reference = self.refs.reference(ac, kind.into_identifier_type());
+        let k5 = normalize::shift_5(&reference, start, end, edit)?;
+        let k3 = normalize::shift_3(&reference, start, end, edit)?;
+        Ok((start - k5, end + k3))
     }
 
     pub fn to_spdi(
@@ -1195,41 +1026,10 @@ impl<'a> VariantMapper<'a> {
 
         let ac = &g_norm.ac;
         if let Some(pos) = &g_norm.posedit.pos {
-            let start_i = pos.start.base.to_index().0;
-            if start_i < 0 {
-                return Err(HgvsError::ValidationError(format!(
-                    "Genomic start position {} is negative or uncertain",
-                    start_i
-                )));
-            }
-            let mut start_idx = checked_usize(start_i, "genomic start index")?;
-            let is_ins = matches!(&g_norm.posedit.edit, crate::edits::NaEdit::Ins { .. });
-            let end_idx = if let Some(e) = &pos.end {
-                let end_i = e.base.to_index().0;
-                if end_i < 0 {
-                    return Err(HgvsError::ValidationError(format!(
-                        "Genomic end position {} is negative or uncertain",
-                        end_i
-                    )));
-                }
-                let idx = checked_usize(end_i, "genomic end index")?;
-
-                if is_ins {
-                    // Mirror normalize_variant: use the end position as the insertion
-                    // anchor so that expand_unambiguous_range sees start == end and
-                    // correctly expands the ambiguous run.
-                    start_idx = idx;
-                    idx
-                } else {
-                    idx.checked_add(1).ok_or_else(|| {
-                        HgvsError::ValidationError("Genomic end position overflow".into())
-                    })?
-                }
-            } else {
-                start_idx.checked_add(1).ok_or_else(|| {
-                    HgvsError::ValidationError("Genomic start position overflow".into())
-                })?
-            };
+            let (hgvs_start, hgvs_end) = simple_interval_range(pos)?;
+            let placed =
+                PlacedEdit::from_hgvs_range(hgvs_start, hgvs_end, g_norm.posedit.edit.clone());
+            let (start_idx, end_idx) = (placed.start, placed.end);
 
             // 3. Expand range to cover ambiguity
             let (u_start, u_end) = self.expand_unambiguous_range(
