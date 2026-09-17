@@ -1,5 +1,5 @@
 use hgvs_weaver::data::{ExonData, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
 use hgvs_weaver::*;
 
 struct NormMockDataProvider;
@@ -111,19 +111,6 @@ impl DataProvider for NormMockDataProvider {
         _identifier: &str,
     ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
         Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
-
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession.to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 

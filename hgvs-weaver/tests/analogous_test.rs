@@ -192,7 +192,6 @@ fn test_cascading_unification() {
 fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsError> {
     use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
-    use hgvs_weaver::structs::TranscriptPos;
 
     // Regression test for NM_001350334.2:c.495_498del (Frameshift at codon 165)
     // Weaver: p.(Tyr165Ter) -> p.Tyr165Ter
@@ -244,17 +243,6 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsErr
         ) -> Result<IdentifierType, hgvs_weaver::error::HgvsError> {
             Ok(IdentifierType::ProteinAccession)
         }
-        fn c_to_g(
-            &self,
-            _: &str,
-            _: TranscriptPos,
-            _: hgvs_weaver::structs::IntronicOffset,
-        ) -> Result<(String, hgvs_weaver::structs::GenomicPos), hgvs_weaver::error::HgvsError>
-        {
-            Err(hgvs_weaver::error::HgvsError::ValidationError(
-                "Not implemented".into(),
-            ))
-        }
     }
 
     struct LocalMockSearch;
@@ -285,7 +273,6 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsErr
 fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsError> {
     use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
-    use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
 
     // User Case: p.Tyr1433_Lys1434delinsTer vs p.(Tyr1433_Val3056del)
     // Both result in truncation at 1433.
@@ -330,14 +317,6 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
         ) -> Result<IdentifierType, hgvs_weaver::error::HgvsError> {
             Ok(IdentifierType::ProteinAccession)
         }
-        fn c_to_g(
-            &self,
-            _: &str,
-            _: TranscriptPos,
-            _: IntronicOffset,
-        ) -> Result<(String, GenomicPos), hgvs_weaver::error::HgvsError> {
-            Ok(("".into(), GenomicPos(0)))
-        }
     }
 
     struct TruncationMockSearch;
@@ -373,7 +352,6 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
 fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error::HgvsError> {
     use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
     use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
-    use hgvs_weaver::structs::TranscriptPos;
 
     struct MockReproProvider;
     impl DataProvider for MockReproProvider {
@@ -419,17 +397,6 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error:
         ) -> Result<IdentifierType, hgvs_weaver::error::HgvsError> {
             Ok(IdentifierType::ProteinAccession)
         }
-        fn c_to_g(
-            &self,
-            _: &str,
-            _: TranscriptPos,
-            _: hgvs_weaver::structs::IntronicOffset,
-        ) -> Result<(String, hgvs_weaver::structs::GenomicPos), hgvs_weaver::error::HgvsError>
-        {
-            Err(hgvs_weaver::error::HgvsError::ValidationError(
-                "Not implemented".into(),
-            ))
-        }
     }
 
     struct MockSearch;
@@ -460,7 +427,7 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error:
 fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsError> {
     use hgvs_weaver::data::TranscriptData;
     use hgvs_weaver::equivalence::VariantEquivalence;
-    use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+
     use hgvs_weaver::{parse_hgvs_variant, DataProvider, IdentifierKind};
 
     struct MockRepeatEqProvider;
@@ -496,14 +463,6 @@ fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsErr
         {
             Ok(vec![])
         }
-        fn c_to_g(
-            &self,
-            _ac: &str,
-            _c_pos: TranscriptPos,
-            _offset: IntronicOffset,
-        ) -> Result<(String, GenomicPos), hgvs_weaver::error::HgvsError> {
-            panic!("Not implemented")
-        }
     }
 
     struct MockSearcher;
@@ -538,7 +497,7 @@ fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsErr
 fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::HgvsError> {
     use hgvs_weaver::data::TranscriptData;
     use hgvs_weaver::equivalence::VariantEquivalence;
-    use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+
     use hgvs_weaver::{parse_hgvs_variant, DataProvider, IdentifierKind};
 
     struct MockWildcardProvider;
@@ -573,14 +532,6 @@ fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::Hg
         ) -> Result<Vec<(hgvs_weaver::data::IdentifierType, String)>, hgvs_weaver::error::HgvsError>
         {
             Ok(vec![])
-        }
-        fn c_to_g(
-            &self,
-            _ac: &str,
-            _c_pos: TranscriptPos,
-            _offset: IntronicOffset,
-        ) -> Result<(String, GenomicPos), hgvs_weaver::error::HgvsError> {
-            panic!("Not implemented")
         }
     }
 
@@ -623,7 +574,7 @@ fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::Hg
 fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsError> {
     use hgvs_weaver::data::TranscriptData;
     use hgvs_weaver::equivalence::VariantEquivalence;
-    use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+
     use hgvs_weaver::{parse_hgvs_variant, DataProvider, IdentifierKind};
 
     struct MockMultiRepeatProvider;
@@ -670,14 +621,6 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsEr
         ) -> Result<Vec<(hgvs_weaver::data::IdentifierType, String)>, hgvs_weaver::error::HgvsError>
         {
             Ok(vec![])
-        }
-        fn c_to_g(
-            &self,
-            _ac: &str,
-            _c_pos: TranscriptPos,
-            _offset: IntronicOffset,
-        ) -> Result<(String, GenomicPos), hgvs_weaver::error::HgvsError> {
-            panic!("Not implemented")
         }
     }
 
@@ -778,15 +721,6 @@ fn test_immediate_stop_normalization() -> Result<(), hgvs_weaver::error::HgvsErr
             _ac: &str,
         ) -> Result<IdentifierType, hgvs_weaver::error::HgvsError> {
             Ok(IdentifierType::TranscriptAccession)
-        }
-        fn c_to_g(
-            &self,
-            _: &str,
-            _: TranscriptPos,
-            _: hgvs_weaver::structs::IntronicOffset,
-        ) -> Result<(String, hgvs_weaver::structs::GenomicPos), hgvs_weaver::error::HgvsError>
-        {
-            Ok(("NC_1.1".into(), hgvs_weaver::structs::GenomicPos(0)))
         }
     }
 

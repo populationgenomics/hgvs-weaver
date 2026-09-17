@@ -114,19 +114,6 @@ impl DataProvider for Provider {
             IdentifierType::TranscriptAccession
         })
     }
-
-    // TEMPORARY: the trait still demands this; it is the same naive stub every
-    // other test adapter carries, and it is what the deepened TranscriptMapper
-    // makes unnecessary.
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: hgvs_weaver::coords::IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((tx.reference_accession, GenomicPos(pos.0 + offset.0)))
-    }
 }
 
 impl TranscriptSearch for Provider {

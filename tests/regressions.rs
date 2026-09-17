@@ -1,5 +1,5 @@
 use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
 use hgvs_weaver::{parse_hgvs_variant, HgvsError, SequenceVariant, VariantMapper};
 
 struct MockDataProvider {
@@ -49,14 +49,6 @@ impl DataProvider for MockDataProvider {
     }
     fn get_identifier_type(&self, _identifier: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        _ac: &str,
-        _pos: TranscriptPos,
-        _offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        Ok(("NC_000001.1".to_string(), GenomicPos(0)))
     }
 }
 

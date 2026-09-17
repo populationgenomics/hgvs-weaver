@@ -9,22 +9,19 @@
 
 | # | Severity | File | Description |
 |---|----------|------|-------------|
-| 5 | Major | `structs.rs` / `equivalence.rs` | `DataProvider::c_to_g` contract mismatch (CDS-relative vs transcript-relative) |
 | 12 | Minor | `structs.rs` | `SimplePosition.end` for uncertain positions not yet parsed/formatted |
 
 ---
 
 ## Detailed findings
 
-### 5. `DataProvider::c_to_g` interface contract mismatch (Major)
+### 5. `DataProvider::c_to_g` interface contract mismatch (Major) — resolved
 
-**File:** `hgvs-weaver/src/structs.rs` (impl `IntervalSpdi for BaseOffsetInterval`), `equivalence.rs`
-
-`DataProvider::c_to_g` takes a `TranscriptPos` documented as "CDS-relative, 0-based", but the callers in `structs.rs` (line 162) and `equivalence.rs` pass the result of `HgvsTranscriptPos::to_index()` which is a CDS-relative index adjusted for the ±1 offset, but not shifted by `cds_start`.
-
-This means the SPDI coordinates produced by `BaseOffsetInterval::spdi_interval` for c. variants will be wrong for any transcript where `cds_start ≠ 0`. The `equivalence.rs` comment at line 173 already hints at this: `"keep consistent with spdi_interval which is currently 1-based"`.
-
-**Recommended fix:** Clarify the contract of `DataProvider::c_to_g`. If it expects transcript-relative coords, callers must add `cds_start_index()` before calling. If it expects CDS-relative coords, the doc comment and type should reflect that. The `TranscriptMapper` already has `c_to_n` which correctly handles the offset — consider routing through it.
+`DataProvider::c_to_g` has been removed. `TranscriptMapper` now owns c./n. position
+resolution (`position_to_n`, `position_to_g`, `interval_to_n`, `interval_to_g`), and
+`BaseOffsetInterval::spdi_interval`, `VariantEquivalence`, `AltSeqBuilder` and
+`VariantMapper::get_c_indices` all route through it. Regression coverage lives in
+`hgvs-weaver/tests/transcript_coordinates_test.rs`.
 
 ---
 

@@ -1,4 +1,4 @@
-use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{
     DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
 };
@@ -52,18 +52,6 @@ impl DataProvider for SimpleProvider {
     }
     fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::GenomicAccession)
-    }
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession.to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 
@@ -130,14 +118,6 @@ fn test_parity_match_unification() -> Result<(), HgvsError> {
         }
         fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
             Ok(IdentifierType::TranscriptAccession)
-        }
-        fn c_to_g(
-            &self,
-            _: &str,
-            p: TranscriptPos,
-            _: IntronicOffset,
-        ) -> Result<(String, GenomicPos), HgvsError> {
-            Ok(("NC_TEST.1".to_string(), GenomicPos(p.0)))
         }
     }
     impl TranscriptSearch for MissingSeqProvider {

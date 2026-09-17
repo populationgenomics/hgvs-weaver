@@ -1,5 +1,5 @@
 use crate::error::HgvsError;
-use crate::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+use crate::structs::{GenomicPos, TranscriptPos};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 
@@ -91,16 +91,6 @@ pub trait DataProvider {
         target_kind: IdentifierKind,
     ) -> Result<Vec<(IdentifierType, String)>, HgvsError>;
     fn get_identifier_type(&self, identifier: &str) -> Result<IdentifierType, HgvsError>;
-    /// Resolves a CDS-relative position and offset to a genomic accession and position.
-    ///
-    /// For c. variants, the position is 0-based relative to the start codon.
-    /// For n. variants, it is 0-based relative to the transcript start.
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError>;
 }
 
 /// Interface for discovering transcripts by region.

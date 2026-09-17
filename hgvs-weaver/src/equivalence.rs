@@ -1001,7 +1001,7 @@ impl<'a> VariantEquivalence<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coords::{GenomicPos, IntronicOffset, TranscriptPos};
+    use crate::coords::{GenomicPos, TranscriptPos};
     use crate::data::{ExonData, IdentifierKind, IdentifierType, TranscriptData};
 
     struct MockDataProvider;
@@ -1058,14 +1058,6 @@ mod tests {
         }
         fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
             Ok(IdentifierType::GenomicAccession)
-        }
-        fn c_to_g(
-            &self,
-            _transcript_ac: &str,
-            pos: TranscriptPos,
-            offset: IntronicOffset,
-        ) -> Result<(String, GenomicPos), HgvsError> {
-            Ok(("NC_000001.11".to_string(), GenomicPos(pos.0 + offset.0)))
         }
     }
 

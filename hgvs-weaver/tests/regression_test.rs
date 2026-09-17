@@ -1,4 +1,4 @@
-use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{
     DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
 };
@@ -82,18 +82,6 @@ impl DataProvider for MockDataProvider {
     }
     fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        _t: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        // Reverse mapping for minus strand
-        Ok((
-            "NC_000001.1".to_string(),
-            GenomicPos(4000 - pos.0 - offset.0),
-        ))
     }
 }
 
