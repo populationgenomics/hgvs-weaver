@@ -91,8 +91,6 @@ fn parse_gene_expr(pair: pest::iterators::Pair<Rule>) -> Option<String> {
     Some(s.replace(['(', ')'], ""))
 }
 
-pub mod altseq;
-pub mod altseq_to_hgvsp;
 pub mod analogous_edit;
 pub mod cigar;
 pub mod coords;
@@ -104,6 +102,7 @@ pub mod fmt;
 pub mod mapper;
 pub mod normalize;
 pub mod parser;
+pub mod protein;
 pub mod reference;
 pub mod structs;
 pub mod transcript_mapper;

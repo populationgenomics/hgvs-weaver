@@ -1,5 +1,3 @@
-use crate::altseq::AltSeqBuilder;
-use crate::altseq_to_hgvsp::AltSeqToHgvsp;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
@@ -462,27 +460,70 @@ impl<'a> VariantMapper<'a> {
             )));
         }
 
-        // Translate from the already-fetched transcript sequence (avoids a second provider call).
-        let ref_aa = crate::utils::translate(&ref_seq[cds_start_idx..]);
-
+        let pos = var_c
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
         let am = TranscriptMapper::new(transcript)?;
-        let builder = AltSeqBuilder {
-            var_c,
-            mapper: &am,
-            transcript_sequence: &ref_seq,
-            cds_start_index: cds_start_tx,
-            cds_end_index: cds_end_tx,
-            protein_accession: pro_ac_str,
-        };
-        let alt_data = builder.build_altseq()?;
+        let (n_start, n_end) = am.interval_to_n(pos)?;
+        if n_start.0 < 0 {
+            return Err(HgvsError::ValidationError(format!(
+                "Position {} before transcript start",
+                n_start.0
+            )));
+        }
+        let (start_idx, end_idx) = (n_start.0 as usize, n_end.0 as usize);
+        if end_idx > ref_seq.len() {
+            let first_bad = if start_idx >= ref_seq.len() {
+                start_idx
+            } else {
+                end_idx
+            };
+            return Err(HgvsError::ValidationError(format!(
+                "Coordinate out of bounds: index {} is beyond transcript length {}",
+                first_bad,
+                ref_seq.len()
+            )));
+        }
 
-        let hgvsp_builder = AltSeqToHgvsp {
-            ref_aa,
-            ref_cds_start_idx: cds_start_idx,
-            ref_cds_end_idx: cds_end_idx,
-            alt_data: &alt_data,
+        let window = |s: usize, e: usize| -> &str {
+            let s = s.min(ref_seq.len());
+            &ref_seq[s..e.min(ref_seq.len()).max(s)]
         };
-        let mut var_p = hgvsp_builder.build_hgvsp()?;
+        // The bases the variant says are there must be there.
+        if let Some(stated) = var_c.posedit.edit.stated_ref() {
+            let actual = window(start_idx, end_idx);
+            if actual != stated {
+                return Err(HgvsError::TranscriptMismatch {
+                    expected: stated.to_string(),
+                    found: actual.to_string(),
+                    start: start_idx,
+                    end: end_idx,
+                });
+            }
+        }
+        let resolved = var_c
+            .posedit
+            .edit
+            .resolve_with(start_idx, end_idx, |s, e| Ok(window(s, e).to_string()))?;
+        let rel = |i: usize| {
+            i.checked_sub(cds_start_idx).ok_or_else(|| {
+                HgvsError::ValidationError(format!("Position {} before the CDS start", i))
+            })
+        };
+        let change = crate::protein::CodingChange {
+            coding: &ref_seq[cds_start_idx..],
+            cds_len: cds_end_idx + 1 - cds_start_idx,
+            edit: crate::edits::ResolvedEdit {
+                start: rel(resolved.start)?,
+                end: rel(resolved.end)?,
+                ref_: resolved.ref_,
+                alt: resolved.alt,
+            },
+            protein_ac: pro_ac_str,
+        };
+        let mut var_p = crate::protein::describe(&change)?;
         var_p.posedit.predicted = true;
         Ok(var_p)
     }
@@ -839,7 +880,8 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// The widest range over which `resolved` is ambiguous: the reference
-    /// positions it could equally well be written at, 5' and 3'.
+    /// positions it could equally well be written at, 5' and 3'. Only a
+    /// length-changing edit is ambiguous; substitutions are not expanded.
     pub fn expand_unambiguous_range(
         &self,
         ac: &str,
