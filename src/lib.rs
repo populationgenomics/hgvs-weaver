@@ -340,7 +340,7 @@ impl DataProvider for PyDataProviderBridge {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         kind: ::hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         Python::attach(|py| {

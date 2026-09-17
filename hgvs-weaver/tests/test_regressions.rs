@@ -33,7 +33,7 @@ impl DataProvider for RegressionProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let mut seq = "ACGC".repeat(1000).into_bytes();
@@ -44,7 +44,7 @@ impl DataProvider for RegressionProvider {
             seq[690] = b'T';
         }
         let s = start as usize;
-        let e = if end < 0 { seq.len() } else { end as usize };
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s > seq.len() {
             return Ok("".to_string());
         }
@@ -147,16 +147,12 @@ impl DataProvider for RepeatProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let full_seq = "ATGCAGCAGCAGTAG";
         let s = start as usize;
-        let e = if end == -1 {
-            full_seq.len()
-        } else {
-            end as usize
-        };
+        let e = end.map_or(full_seq.len(), |e| e as usize);
         if s < full_seq.len() && e <= full_seq.len() {
             Ok(full_seq[s..e].to_string())
         } else {
@@ -240,10 +236,10 @@ impl DataProvider for DelinsMismatchProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
-        let effective_end = if end == -1 { 5000 } else { end };
+        let effective_end = end.unwrap_or(5000);
         let mut seq = String::with_capacity((effective_end - start) as usize);
         for i in start..effective_end {
             if i >= 4497 && i <= 4499 {

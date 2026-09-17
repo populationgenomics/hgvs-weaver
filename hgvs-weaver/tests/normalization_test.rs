@@ -9,7 +9,7 @@ impl DataProvider for NormMockDataProvider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         let base_seq = if ac == "NM_SHIFT_BUG" {
@@ -35,11 +35,7 @@ impl DataProvider for NormMockDataProvider {
         };
 
         let s = start as usize;
-        let e = if end == -1 {
-            base_seq.len()
-        } else {
-            end as usize
-        };
+        let e = end.map_or(base_seq.len(), |e| e as usize);
         if s > base_seq.len() {
             return Ok("".into());
         }

@@ -1046,16 +1046,12 @@ mod tests {
             &self,
             _ac: &str,
             start: i32,
-            end: i32,
+            end: Option<i32>,
             _kind: IdentifierType,
         ) -> Result<String, HgvsError> {
             let seq = "ACGTACGTACGTACGTACGT"; // A=0, C=1, G=2, T=3, A=4, ...
             let s = (start.max(0) as usize).min(seq.len());
-            let e = if end < 0 {
-                seq.len()
-            } else {
-                (end as usize).min(seq.len())
-            };
+            let e = end.map_or(seq.len(), |e| (e as usize).min(seq.len()));
             Ok(seq[s..e.max(s)].to_string())
         }
         fn get_symbol_accessions(

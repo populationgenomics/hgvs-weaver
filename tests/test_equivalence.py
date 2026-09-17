@@ -30,7 +30,7 @@ class MockProvider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int, _kind: str | weaver.IdentifierType) -> str:
+    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str | weaver.IdentifierType) -> str:
         """Returns a mock sequence."""
         # Index 10 is c.1.
         full_seq = "A" * 10 + "ATGGGGCCCAAA" + "A" * 2000

@@ -27,13 +27,13 @@ impl DataProvider for HomopolymerProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         // Return 100 'A's
         let seq = "A".repeat(2000);
         let s = start as usize;
-        let e = end as usize;
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s < seq.len() {
             let actual_e = e.min(seq.len());
             Ok(seq[s..actual_e].to_string())
@@ -101,14 +101,14 @@ impl DataProvider for RepeatProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         // Return repeating "CAG"
         let unit = "CAG";
         let seq = unit.repeat(1000);
         let s = start as usize;
-        let e = end as usize;
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s < seq.len() {
             let actual_e = e.min(seq.len());
             Ok(seq[s..actual_e].to_string())

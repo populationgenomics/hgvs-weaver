@@ -77,17 +77,18 @@ pub trait DataProvider {
         transcript_ac: &str,
         reference_ac: Option<&str>,
     ) -> Result<TranscriptData, HgvsError>;
-    /// Returns the bases of `ac` in the 0-based half-open range `[start, end)`.
+    /// Returns the bases of `ac` in the 0-based half-open range `[start, end)`,
+    /// or from `start` to the end of the sequence when `end` is `None`.
     ///
-    /// `end == -1` means "to the end of the sequence". A range that extends past
-    /// the end must return the bases that exist, not an error or an empty string:
-    /// the core pages through sequences in fixed-size blocks and relies on a short
-    /// final block to learn where the sequence ends.
+    /// A range that extends past the end must return the bases that exist, not
+    /// an error or an empty string: the core pages through sequences in
+    /// fixed-size blocks and relies on a short final block to learn where the
+    /// sequence ends.
     fn get_seq(
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         kind: IdentifierType,
     ) -> Result<String, HgvsError>;
     fn get_symbol_accessions(

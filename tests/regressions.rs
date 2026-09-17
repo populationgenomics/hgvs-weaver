@@ -19,7 +19,7 @@ impl DataProvider for MockDataProvider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let seq = self
@@ -27,7 +27,7 @@ impl DataProvider for MockDataProvider {
             .get(ac)
             .ok_or_else(|| HgvsError::ValidationError(format!("Sequence {} not found", ac)))?;
         let start = start as usize;
-        let end = if end == -1 { seq.len() } else { end as usize };
+        let end = end.map_or(seq.len(), |e| e as usize);
         if start > seq.len() || end > seq.len() || start > end {
             return Err(HgvsError::ValidationError(format!(
                 "Invalid seq range: {}-{} for len {}",

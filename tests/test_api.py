@@ -30,7 +30,7 @@ class MockProvider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int, _kind: str) -> str:
+    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str) -> str:
         """Returns a mock sequence."""
         # Mock sequence: just enough to handle translation or normalization
         # Index 10 is c.1.
@@ -125,7 +125,7 @@ class MockMinusProvider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int, _kind: str) -> str:
+    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str) -> str:
         """Returns a mock sequence."""
         return ("A" * 1000)[start:end]
 

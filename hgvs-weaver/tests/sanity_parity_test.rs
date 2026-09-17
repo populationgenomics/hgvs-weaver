@@ -29,7 +29,7 @@ impl DataProvider for JsonDataProvider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         let seq =
@@ -37,7 +37,7 @@ impl DataProvider for JsonDataProvider {
                 HgvsError::DataProviderError(format!("Sequence {} not found", ac))
             })?;
         let len = seq.len() as i32;
-        let actual_end = if end == -1 { len } else { end };
+        let actual_end = end.unwrap_or(len);
         if start < 0 || actual_end > len || start > actual_end {
             return Err(HgvsError::DataProviderError(
                 "Sequence range out of bounds".into(),

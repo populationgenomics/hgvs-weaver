@@ -29,12 +29,12 @@ impl DataProvider for SimpleProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let seq = "ACGT".repeat(1000);
         let s = start as usize;
-        let e = end as usize;
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s < seq.len() {
             let actual_e = e.min(seq.len());
             Ok(seq[s..actual_e].to_string())
@@ -105,7 +105,13 @@ fn test_parity_match_unification() -> Result<(), HgvsError> {
                 exons: vec![],
             })
         }
-        fn get_seq(&self, _: &str, _: i32, _: i32, _: IdentifierType) -> Result<String, HgvsError> {
+        fn get_seq(
+            &self,
+            _: &str,
+            _: i32,
+            _: Option<i32>,
+            _: IdentifierType,
+        ) -> Result<String, HgvsError> {
             Err(HgvsError::Other("Missing sequence".into()))
         }
         fn get_symbol_accessions(

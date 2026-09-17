@@ -71,12 +71,13 @@ impl<'a> ReferenceStore<'a> {
         start: usize,
         end: Option<usize>,
     ) -> Result<String, HgvsError> {
-        let end_i32 = match end {
-            Some(e) => i32::try_from(e).map_err(|_| {
-                HgvsError::ValidationError(format!("Sequence end {} out of range", e))
-            })?,
-            None => -1,
-        };
+        let end_i32 = end
+            .map(|e| {
+                i32::try_from(e).map_err(|_| {
+                    HgvsError::ValidationError(format!("Sequence end {} out of range", e))
+                })
+            })
+            .transpose()?;
         let start_i32 = i32::try_from(start).map_err(|_| {
             HgvsError::ValidationError(format!("Sequence start {} out of range", start))
         })?;
@@ -257,16 +258,12 @@ mod tests {
             &self,
             _: &str,
             start: i32,
-            end: i32,
+            end: Option<i32>,
             _: IdentifierType,
         ) -> Result<String, HgvsError> {
             self.calls.set(self.calls.get() + 1);
             let s = (start.max(0) as usize).min(self.seq.len());
-            let e = if end < 0 {
-                self.seq.len()
-            } else {
-                (end as usize).min(self.seq.len())
-            };
+            let e = end.map_or(self.seq.len(), |e| (e as usize).min(self.seq.len()));
             Ok(self.seq[s..e.max(s)].to_string())
         }
         fn get_symbol_accessions(

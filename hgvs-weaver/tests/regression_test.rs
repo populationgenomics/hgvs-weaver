@@ -41,7 +41,13 @@ impl DataProvider for MockDataProvider {
             Err(HgvsError::ValidationError("Not found".into()))
         }
     }
-    fn get_seq(&self, ac: &str, s: i32, e: i32, _k: IdentifierType) -> Result<String, HgvsError> {
+    fn get_seq(
+        &self,
+        ac: &str,
+        s: i32,
+        e: Option<i32>,
+        _k: IdentifierType,
+    ) -> Result<String, HgvsError> {
         // 4000 N's with the few bases the cases below depend on.
         let mut seq = vec![b'N'; 4000];
         if ac == "NM_BRAF" || ac == "NC_BRAF" {
@@ -59,11 +65,7 @@ impl DataProvider for MockDataProvider {
             seq[2672] = b'T';
         }
         let start = (s.max(0) as usize).min(seq.len());
-        let end = if e < 0 {
-            seq.len()
-        } else {
-            (e as usize).min(seq.len())
-        };
+        let end = e.map_or(seq.len(), |e| (e as usize).min(seq.len()));
         Ok(String::from_utf8(seq[start..end.max(start)].to_vec()).unwrap())
     }
     fn get_symbol_accessions(

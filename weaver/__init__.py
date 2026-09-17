@@ -92,8 +92,14 @@ class DataProvider(Protocol):
         """
         ...
 
-    def get_seq(self, ac: str, start: int, end: int, kind: str | IdentifierType) -> str:
-        """Fetch sequence for an accession. kind should be an IdentifierType."""
+    def get_seq(self, ac: str, start: int, end: int | None, kind: str | IdentifierType) -> str:
+        """Fetch the bases of ``ac`` in the 0-based half-open range ``[start, end)``.
+
+        ``end`` is ``None`` when the whole sequence from ``start`` is wanted; a plain
+        ``seq[start:end]`` already does the right thing in that case. A range that
+        extends past the end of the sequence must return the bases that exist rather
+        than raising or returning an empty string. ``kind`` should be an IdentifierType.
+        """
         ...
 
     def get_symbol_accessions(

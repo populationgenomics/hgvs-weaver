@@ -9,7 +9,7 @@ impl DataProvider for MockDataProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         let mut s = String::new();
@@ -20,7 +20,7 @@ impl DataProvider for MockDataProvider {
         }
 
         let start = start as usize;
-        let end = if end == -1 { s.len() } else { end as usize };
+        let end = end.map_or(s.len(), |e| e as usize);
         if start > s.len() {
             return Ok("".into());
         }

@@ -373,7 +373,7 @@ class RefSeqDataProvider:
                 return exon["transcript_start"] + (exon["reference_end"] - g_0)
         return None
 
-    def get_seq(self, ac: str, start: int, end: int, kind: str, force_plus: bool = False) -> str:
+    def get_seq(self, ac: str, start: int, end: int | None, kind: str, force_plus: bool = False) -> str:
         """Retrieves a sequence from the provider.
         ...
         """
@@ -383,7 +383,7 @@ class RefSeqDataProvider:
             if not res:
                 return ""
             tx_ac, chrom = res
-            tx_seq = self._get_tx_seq(tx_ac, chrom, 0, -1, force_plus=force_plus).upper()
+            tx_seq = self._get_tx_seq(tx_ac, chrom, 0, None, force_plus=force_plus).upper()
 
             tx_info = self.transcripts.get((tx_ac, chrom))
             if not tx_info or tx_info.get("cds_start_index") is None:
@@ -457,7 +457,7 @@ class RefSeqDataProvider:
             self._transcript_cache[(tx_ac, ref_ac)] = self._get_full_tx_seq(tx_ac, ref_ac)
             return self._transcript_cache[(tx_ac, ref_ac)]
 
-    def _get_tx_seq(self, tx_ac: str, ref_ac: str, start: int, end: int, force_plus: bool = False) -> str:
+    def _get_tx_seq(self, tx_ac: str, ref_ac: str, start: int, end: int | None, force_plus: bool = False) -> str:
         """Builds a transcript sequence from genomic exons with optional transformations."""
         tx = self.transcripts.get((tx_ac, ref_ac))
         if not tx:
@@ -650,7 +650,7 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
         kind = "g" if ac.startswith("NC_") else "c"
         if ac.startswith("NP_"):
             kind = "p"
-        return self.rp.get_seq(ac, start or 0, end or -1, kind)
+        return self.rp.get_seq(ac, start or 0, end, kind)
 
     def get_tx_info(
         self,

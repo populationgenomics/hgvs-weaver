@@ -213,12 +213,12 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             start: i32,
-            end: i32,
+            end: Option<i32>,
             _kind: IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             let mut seq = String::new();
             // 163: Leu, 164: Ala, 165: Tyr, 166: Arg
-            for i in start..end {
+            for i in start..end.unwrap_or(167) {
                 match i {
                     163 => seq.push('L'),
                     164 => seq.push('A'),
@@ -294,7 +294,7 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _start: i32,
-            _end: i32,
+            _end: Option<i32>,
             kind: IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             if kind == IdentifierType::ProteinAccession {
@@ -368,11 +368,11 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error:
             &self,
             _ac: &str,
             start: i32,
-            end: i32,
+            end: Option<i32>,
             _kind: IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             let mut seq = String::new();
-            for i in start..end {
+            for i in start..end.unwrap_or(167) {
                 match i {
                     163 => seq.push('L'),
                     164 => seq.push('A'),
@@ -436,7 +436,7 @@ fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _start: i32,
-            _end: i32,
+            _end: Option<i32>,
             _kind: hgvs_weaver::data::IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             Ok("X".repeat(489) + "PRS" + &"X".repeat(100))
@@ -506,7 +506,7 @@ fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::Hg
             &self,
             _ac: &str,
             _start: i32,
-            _end: i32,
+            _end: Option<i32>,
             _kind: hgvs_weaver::data::IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             Ok("X".repeat(96) + "R" + &"X".repeat(100))
@@ -583,7 +583,7 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsEr
             &self,
             ac: &str,
             _start: i32,
-            _end: i32,
+            _end: Option<i32>,
             _kind: hgvs_weaver::data::IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             if ac == "NP_001122316.1" {
@@ -699,7 +699,7 @@ fn test_immediate_stop_normalization() -> Result<(), hgvs_weaver::error::HgvsErr
             &self,
             _ac: &str,
             _start: i32,
-            _end: i32,
+            _end: Option<i32>,
             _kind: IdentifierType,
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             // AAA (Lys) GGG (Gly)

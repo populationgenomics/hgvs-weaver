@@ -66,7 +66,7 @@ impl DataProvider for Provider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let genome = Self::genome();
@@ -91,11 +91,7 @@ impl DataProvider for Provider {
             }
         };
         let s = start.max(0) as usize;
-        let e = if end < 0 {
-            seq.len()
-        } else {
-            (end as usize).min(seq.len())
-        };
+        let e = end.map_or(seq.len(), |e| (e as usize).min(seq.len()));
         Ok(seq[s.min(e)..e].to_string())
     }
 
