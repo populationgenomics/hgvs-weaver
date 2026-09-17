@@ -7,9 +7,10 @@
 //! c., n.) only convert their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
 
-use crate::edits::NaEdit;
+use crate::edits::{NaEdit, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::reference::Reference;
+use crate::structs::strip_common_prefix_suffix;
 
 /// An edit placed on a reference by a 0-based half-open range.
 ///
@@ -69,7 +70,17 @@ pub fn normalize(
         end,
         mut edit,
     } = placed;
-    let k = shift_3(reference, start, end, &edit)?;
+    // Only a deletion, duplication or insertion is slid: those are written
+    // without stating bases that would go stale, and a repeat is written
+    // against its run. A delins is left where it is.
+    let k = if matches!(
+        edit,
+        NaEdit::Del { .. } | NaEdit::Dup { .. } | NaEdit::Ins { .. }
+    ) {
+        shift_3(reference, &edit.resolve(reference, start, end)?)?
+    } else {
+        0
+    };
     let (start, end) = (start + k, end + k);
 
     if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
@@ -97,72 +108,62 @@ pub fn normalize(
     Ok(PlacedEdit { start, end, edit })
 }
 
-/// How many positions the edit over `[start, end)` can move 3' and still
-/// describe the same change to the sequence.
-pub fn shift_3(
-    reference: &Reference<'_, '_>,
-    start: usize,
-    end: usize,
-    edit: &NaEdit,
-) -> Result<usize, HgvsError> {
-    match shift_pattern(reference, start, end, edit)? {
-        Some(pattern) => reference.run_right(end, pattern.as_bytes()),
-        None => Ok(0),
+/// The part of a resolved edit that can slide: after dropping the bases the
+/// reference and alternate share, either a pure insertion (`[at, at)` plus the
+/// inserted bases) or a pure deletion (`[at, at + n)` plus the deleted bases).
+/// A substitution, an inversion or a delins with bases on both sides cannot
+/// slide and yields `None`.
+fn movable(resolved: &ResolvedEdit) -> Option<(usize, usize, String)> {
+    if resolved.ref_ == resolved.alt {
+        return None;
     }
-}
-
-/// How many positions the edit over `[start, end)` can move 5' and still
-/// describe the same change to the sequence.
-pub fn shift_5(
-    reference: &Reference<'_, '_>,
-    start: usize,
-    end: usize,
-    edit: &NaEdit,
-) -> Result<usize, HgvsError> {
-    match shift_pattern(reference, start, end, edit)? {
-        Some(pattern) => reference.run_left(start, pattern.as_bytes()),
-        None => Ok(0),
-    }
-}
-
-/// The bases whose repetition lets an edit over `[start, end)` slide along the
-/// reference, or `None` when the edit cannot be shifted at all.
-///
-/// Deletions, duplications and length-changing delins slide while the bases
-/// beyond the edit repeat its reference bases; pure insertions slide while
-/// they repeat the inserted bases.
-fn shift_pattern(
-    reference: &Reference<'_, '_>,
-    start: usize,
-    end: usize,
-    edit: &NaEdit,
-) -> Result<Option<String>, HgvsError> {
-    if matches!(
-        edit,
-        NaEdit::None | NaEdit::Con { .. } | NaEdit::NACopy { .. }
-    ) {
-        return Ok(None);
-    }
-    let resolved = edit.resolve(reference, start, end)?;
-    let (ref_str, alt_str) = (resolved.ref_, resolved.alt);
-    if ref_str == alt_str && matches!(edit, NaEdit::RefAlt { .. }) {
-        return Ok(None);
-    }
-    // A delins (bases out, different bases in) has no shift rule: sliding it
-    // by the deletion rule changes the resulting sequence unless the inserted
-    // bases happen to be a run of the repeated base.
-    let is_del_or_dup = matches!(edit, NaEdit::Del { .. } | NaEdit::Dup { .. });
-    if is_del_or_dup || (!ref_str.is_empty() && alt_str.is_empty()) {
-        let pattern = if ref_str.is_empty() {
-            reference.slice(start, end)?
-        } else {
-            ref_str
-        };
-        Ok((!pattern.is_empty()).then_some(pattern))
-    } else if start == end && !alt_str.is_empty() {
-        Ok(Some(alt_str))
+    let (at, r, a) =
+        strip_common_prefix_suffix(resolved.start as i32, &resolved.ref_, &resolved.alt);
+    let at = at as usize;
+    if r.is_empty() && !a.is_empty() {
+        Some((at, at, a))
+    } else if a.is_empty() && !r.is_empty() {
+        Some((at, at + r.len(), r))
     } else {
-        Ok(None)
+        None
+    }
+}
+
+/// The widest range over which `resolved` is ambiguous: every reference
+/// position the change could equally well be written at, 5' and 3'. This is
+/// what an unambiguous SPDI spells out. An edit that cannot slide is its own
+/// range.
+pub fn ambiguous_range(
+    reference: &Reference<'_, '_>,
+    resolved: &ResolvedEdit,
+) -> Result<(usize, usize), HgvsError> {
+    let Some((at_start, at_end, pattern)) = movable(resolved) else {
+        return Ok((resolved.start, resolved.end));
+    };
+    let k5 = reference.run_left(at_start, pattern.as_bytes())?;
+    let k3 = reference.run_right(at_end, pattern.as_bytes())?;
+    Ok((
+        resolved.start.min(at_start - k5),
+        resolved.end.max(at_end + k3),
+    ))
+}
+
+/// How many positions the edit can move 3' and still describe the same change,
+/// measured at its movable insertion or deletion point.
+pub fn shift_3(reference: &Reference<'_, '_>, resolved: &ResolvedEdit) -> Result<usize, HgvsError> {
+    match movable(resolved) {
+        Some((_, end, pattern)) => reference.run_right(end, pattern.as_bytes()),
+        None => Ok(0),
+    }
+}
+
+/// How many positions the edit can move 5' and still describe the same change,
+/// measured at its movable insertion or deletion point. For a duplication that
+/// point is the end of the duplicated bases, so the count includes them.
+pub fn shift_5(reference: &Reference<'_, '_>, resolved: &ResolvedEdit) -> Result<usize, HgvsError> {
+    match movable(resolved) {
+        Some((start, _, pattern)) => reference.run_left(start, pattern.as_bytes()),
+        None => Ok(0),
     }
 }
 
@@ -323,9 +324,37 @@ mod tests {
         let hdp = Fixed("TTCAGCAGTT");
         let store = ReferenceStore::with_block_size(&hdp, 4);
         let r = store.reference("X", IdentifierType::GenomicAccession);
-        assert_eq!(shift_3(&r, 2, 5, &del(None)).unwrap(), 3);
-        assert_eq!(shift_5(&r, 5, 8, &del(None)).unwrap(), 3);
-        assert_eq!(shift_3(&r, 5, 5, &ins("CAG")).unwrap(), 3);
-        assert_eq!(shift_5(&r, 5, 5, &ins("CAG")).unwrap(), 3);
+        let res = |e: NaEdit, s, t| e.resolve(&r, s, t).unwrap();
+        assert_eq!(shift_3(&r, &res(del(None), 2, 5)).unwrap(), 3);
+        assert_eq!(shift_5(&r, &res(del(None), 5, 8)).unwrap(), 3);
+        assert_eq!(shift_3(&r, &res(ins("CAG"), 5, 5)).unwrap(), 3);
+        assert_eq!(shift_5(&r, &res(ins("CAG"), 5, 5)).unwrap(), 3);
+        // A duplication slides like an insertion of its bases at its end, so
+        // its 5' count includes the duplicated bases themselves.
+        let dup = NaEdit::Dup {
+            ref_: None,
+            uncertain: false,
+        };
+        assert_eq!(shift_3(&r, &res(dup.clone(), 2, 5)).unwrap(), 3);
+        assert_eq!(shift_5(&r, &res(dup.clone(), 5, 8)).unwrap(), 6);
+        // The ambiguous range covers the whole CAG run either way.
+        assert_eq!(ambiguous_range(&r, &res(dup, 5, 8)).unwrap(), (2, 8));
+        assert_eq!(ambiguous_range(&r, &res(del(None), 2, 5)).unwrap(), (2, 8));
+        assert_eq!(ambiguous_range(&r, &res(ins("CAG"), 5, 5)).unwrap(), (2, 8));
+        // A substitution is not ambiguous.
+        let sub = NaEdit::RefAlt {
+            ref_: Some("C".into()),
+            alt: Some("T".into()),
+            uncertain: false,
+        };
+        assert_eq!(ambiguous_range(&r, &res(sub, 2, 3)).unwrap(), (2, 3));
+        // A delins that is really an insertion (delCinsCA at index 2, before A)
+        // slides like the insertion of A it is.
+        let delins = NaEdit::RefAlt {
+            ref_: Some("C".into()),
+            alt: Some("CA".into()),
+            uncertain: false,
+        };
+        assert_eq!(shift_3(&r, &res(delins, 2, 3)).unwrap(), 1);
     }
 }

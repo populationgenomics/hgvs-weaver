@@ -231,12 +231,28 @@ impl NaEdit {
                 (r, a)
             }
             NaEdit::Repeat { ref_, max, .. } => {
-                let r = fetch(start, end)?;
+                // `unit[n]`: every existing copy of the unit, starting at `start`,
+                // becomes n copies. The reference is the whole run.
                 let unit = match ref_ {
                     Some(u) if !is_length(u) => u.clone(),
-                    _ => r.clone(),
+                    _ => fetch(start, end)?,
                 };
-                (r, unit.repeat((*max).max(0) as usize))
+                let mut run_end = start;
+                if !unit.is_empty() {
+                    while fetch(run_end, run_end + unit.len())? == unit {
+                        run_end += unit.len();
+                    }
+                }
+                if run_end == start {
+                    // The unit is not there at all; read the stated range.
+                    run_end = end;
+                }
+                return Ok(ResolvedEdit {
+                    start,
+                    end: run_end,
+                    ref_: fetch(start, run_end)?,
+                    alt: unit.repeat((*max).max(0) as usize),
+                });
             }
             NaEdit::None => {
                 let r = fetch(start, end)?;
@@ -468,19 +484,21 @@ mod tests {
             ),
             r(2, 5, "CAG", "CTG")
         );
-        assert_eq!(
-            resolve(
-                NaEdit::Repeat {
-                    ref_: Some("CAG".into()),
-                    min: 4,
-                    max: 4,
-                    uncertain: false
-                },
-                2,
-                5
-            ),
-            r(2, 5, "CAG", "CAGCAGCAGCAG")
-        );
+        // A repeat covers every existing copy of its unit: CAG twice at 2..8.
+        let cag4 = NaEdit::Repeat {
+            ref_: Some("CAG".into()),
+            min: 4,
+            max: 4,
+            uncertain: false,
+        };
+        assert_eq!(resolve(cag4, 2, 3), r(2, 8, "CAGCAG", "CAGCAGCAGCAG"));
+        let unstated1 = NaEdit::Repeat {
+            ref_: None,
+            min: 1,
+            max: 1,
+            uncertain: false,
+        };
+        assert_eq!(resolve(unstated1, 2, 5), r(2, 8, "CAGCAG", "CAG"));
         assert_eq!(resolve(NaEdit::None, 2, 5), r(2, 5, "CAG", "CAG"));
     }
 

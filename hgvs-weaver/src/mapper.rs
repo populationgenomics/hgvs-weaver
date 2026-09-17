@@ -838,37 +838,16 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
+    /// The widest range over which `resolved` is ambiguous: the reference
+    /// positions it could equally well be written at, 5' and 3'.
     pub fn expand_unambiguous_range(
         &self,
         ac: &str,
         kind: IdentifierKind,
-        start: usize,
-        end: usize,
-        edit: &crate::edits::NaEdit,
+        resolved: &crate::edits::ResolvedEdit,
     ) -> Result<(usize, usize), HgvsError> {
-        // Substitutions in homopolymers are NOT expanded in ClinVar/SPDI standard.
-        // We only expand length-changing variants (Del, Ins, Dup, Repeat).
-        let is_length_changing = match edit {
-            crate::edits::NaEdit::RefAlt { alt, .. } => {
-                let r_len = end - start;
-                let a_len = alt.as_deref().unwrap_or("").len();
-                r_len != a_len
-            }
-            crate::edits::NaEdit::Del { .. }
-            | crate::edits::NaEdit::Ins { .. }
-            | crate::edits::NaEdit::Dup { .. }
-            | crate::edits::NaEdit::Repeat { .. } => true,
-            _ => false,
-        };
-
-        if !is_length_changing {
-            return Ok((start, end));
-        }
-
         let reference = self.refs.reference(ac, kind.into_identifier_type());
-        let k5 = normalize::shift_5(&reference, start, end, edit)?;
-        let k3 = normalize::shift_3(&reference, start, end, edit)?;
-        Ok((start - k5, end + k3))
+        normalize::ambiguous_range(&reference, resolved)
     }
 
     pub fn to_spdi(
@@ -925,37 +904,33 @@ impl<'a> VariantMapper<'a> {
 
         let ac = &g_norm.ac;
         if let Some(pos) = &g_norm.posedit.pos {
+            let edit = &g_norm.posedit.edit;
+            if matches!(
+                edit,
+                crate::edits::NaEdit::None
+                    | crate::edits::NaEdit::Con { .. }
+                    | crate::edits::NaEdit::NACopy { .. }
+            ) {
+                return g_norm.posedit.to_spdi(ac, &self.refs);
+            }
             let (hgvs_start, hgvs_end) = simple_interval_range(pos)?;
-            let placed =
-                PlacedEdit::from_hgvs_range(hgvs_start, hgvs_end, g_norm.posedit.edit.clone());
-            let (start_idx, end_idx) = (placed.start, placed.end);
+            let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
+            let resolved = edit.resolve(&reference, hgvs_start, hgvs_end)?;
 
             // 3. Expand range to cover ambiguity
-            let (u_start, u_end) = self.expand_unambiguous_range(
-                ac,
-                IdentifierKind::Genomic,
-                start_idx,
-                end_idx,
-                &g_norm.posedit.edit,
-            )?;
+            let (u_start, u_end) =
+                self.expand_unambiguous_range(ac, IdentifierKind::Genomic, &resolved)?;
 
             // 4. Construct expanded sequences
-            let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
             let r_seq = reference.slice(u_start, u_end)?;
-
-            let rel_start = start_idx - u_start;
-            let rel_end = end_idx - u_start;
-
-            let alt_str = match &g_norm.posedit.edit {
-                crate::edits::NaEdit::None
-                | crate::edits::NaEdit::Con { .. }
-                | crate::edits::NaEdit::NACopy { .. } => {
-                    return g_norm.posedit.to_spdi(ac, &self.refs)
-                }
-                edit => edit.resolve(&reference, start_idx, end_idx)?.alt,
-            };
-
-            let a_seq = format!("{}{}{}", &r_seq[..rel_start], alt_str, &r_seq[rel_end..]);
+            let rel_start = resolved.start - u_start;
+            let rel_end = resolved.end - u_start;
+            let a_seq = format!(
+                "{}{}{}",
+                &r_seq[..rel_start],
+                resolved.alt,
+                &r_seq[rel_end..]
+            );
 
             Ok(format!("{}:{}:{}:{}", ac, u_start, r_seq, a_seq))
         } else {

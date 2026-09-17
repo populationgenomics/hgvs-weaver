@@ -84,28 +84,6 @@ impl<'a> AltSeqBuilder<'a> {
         };
 
         let (is_substitution, is_frameshift, alt_transcript) = match edit {
-            NaEdit::Repeat { max, ref_, .. } => {
-                // Protein consequence of a repeat: every existing copy of the
-                // unit is replaced by `max` copies, not just the stated range.
-                // This is the one edit whose protein reading differs from its
-                // resolved (SPDI) reading; see NaEdit::resolve.
-                let unit = match ref_ {
-                    Some(r) => r.clone(),
-                    None => window(seq, start_idx, end_idx).to_string(),
-                };
-                let mut current_idx = start_idx;
-                while !unit.is_empty()
-                    && current_idx + unit.len() <= seq.len()
-                    && seq[current_idx..current_idx + unit.len()] == *unit
-                {
-                    current_idx += unit.len();
-                }
-                let total_str = unit.repeat(*max as usize);
-                let res = splice(seq, start_idx, current_idx, &total_str);
-                let net_change =
-                    (unit.len() as i32 * (*max as i32)) - (current_idx as i32 - start_idx as i32);
-                (false, net_change % 3 != 0, res)
-            }
             NaEdit::Con { .. } | NaEdit::NACopy { .. } => {
                 return Err(HgvsError::UnsupportedOperation(
                     "Unsupported edit for altseq".into(),
