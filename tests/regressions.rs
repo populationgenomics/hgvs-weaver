@@ -1,6 +1,6 @@
 use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
-use hgvs_weaver::{parse_hgvs_variant, HgvsError, SequenceVariant, Transcript, VariantMapper};
+use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
+use hgvs_weaver::{parse_hgvs_variant, HgvsError, SequenceVariant, VariantMapper};
 
 struct MockDataProvider {
     transcripts: std::collections::HashMap<String, TranscriptData>,
@@ -8,15 +8,10 @@ struct MockDataProvider {
 }
 
 impl DataProvider for MockDataProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
         self.transcripts
             .get(ac)
             .cloned()
-            .map(|tx| Box::new(tx) as Box<dyn Transcript>)
             .ok_or_else(|| HgvsError::ValidationError(format!("Transcript {} not found", ac)))
     }
 
@@ -24,7 +19,7 @@ impl DataProvider for MockDataProvider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let seq = self
@@ -32,7 +27,7 @@ impl DataProvider for MockDataProvider {
             .get(ac)
             .ok_or_else(|| HgvsError::ValidationError(format!("Sequence {} not found", ac)))?;
         let start = start as usize;
-        let end = if end == -1 { seq.len() } else { end as usize };
+        let end = end.map_or(seq.len(), |e| e as usize);
         if start > seq.len() || end > seq.len() || start > end {
             return Err(HgvsError::ValidationError(format!(
                 "Invalid seq range: {}-{} for len {}",
@@ -54,14 +49,6 @@ impl DataProvider for MockDataProvider {
     }
     fn get_identifier_type(&self, _identifier: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        _ac: &str,
-        _pos: TranscriptPos,
-        _offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        Ok(("NC_000001.1".to_string(), GenomicPos(0)))
     }
 }
 

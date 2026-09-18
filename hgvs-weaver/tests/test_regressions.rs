@@ -1,24 +1,18 @@
-use hgvs_weaver::coords::{GenomicPos, IntronicOffset, SequenceVariant, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Transcript, TranscriptData,
-};
+use hgvs_weaver::coords::{GenomicPos, SequenceVariant, TranscriptPos};
+use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 
 struct RegressionProvider;
 impl DataProvider for RegressionProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
         let (cds_start, _protein_ac) = match ac {
             "NM_153046.3" => (0, "NP_694591.2"),
             "NM_058216.3" => (0, "NP_478123.1"),
             _ => (0, "NP_UNKNOWN"),
         };
 
-        Ok(Box::new(TranscriptData {
+        Ok(TranscriptData {
             ac: ac.to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(cds_start)),
@@ -33,13 +27,13 @@ impl DataProvider for RegressionProvider {
                 alt_strand: hgvs_weaver::data::Strand::Plus,
                 cigar: "2000M".to_string(),
             }],
-        }))
+        })
     }
     fn get_seq(
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let mut seq = "ACGC".repeat(1000).into_bytes();
@@ -50,7 +44,7 @@ impl DataProvider for RegressionProvider {
             seq[690] = b'T';
         }
         let s = start as usize;
-        let e = if end < 0 { seq.len() } else { end as usize };
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s > seq.len() {
             return Ok("".to_string());
         }
@@ -81,18 +75,6 @@ impl DataProvider for RegressionProvider {
     }
     fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession().to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 
@@ -150,12 +132,8 @@ struct RepeatProvider;
 // UTR... ATG (1-3) CAG (4-6) CAG (7-9) CAG (10-12) TAG (13-15)
 // M Q Q Q *
 impl DataProvider for RepeatProvider {
-    fn get_transcript(
-        &self,
-        _ac: &str,
-        _ref: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        Ok(Box::new(TranscriptData {
+    fn get_transcript(&self, _ac: &str, _ref: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Ok(TranscriptData {
             ac: "NM_001.1".to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(0)),
@@ -163,22 +141,18 @@ impl DataProvider for RepeatProvider {
             strand: hgvs_weaver::data::Strand::Plus,
             reference_accession: "NC_001.1".to_string(),
             exons: vec![],
-        }))
+        })
     }
     fn get_seq(
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         let full_seq = "ATGCAGCAGCAGTAG";
         let s = start as usize;
-        let e = if end == -1 {
-            full_seq.len()
-        } else {
-            end as usize
-        };
+        let e = end.map_or(full_seq.len(), |e| e as usize);
         if s < full_seq.len() && e <= full_seq.len() {
             Ok(full_seq[s..e].to_string())
         } else {
@@ -198,14 +172,6 @@ impl DataProvider for RepeatProvider {
     }
     fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        _: &str,
-        pos: TranscriptPos,
-        _: hgvs_weaver::structs::IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        Ok(("NC_001.1".to_string(), GenomicPos(pos.0)))
     }
 }
 
@@ -245,39 +211,7 @@ fn test_regression_gln4del_vs_ter() -> Result<(), HgvsError> {
 
 struct DelinsMismatchProvider;
 impl DataProvider for DelinsMismatchProvider {
-    fn get_transcript(
-        &self,
-        _ac: &str,
-        _ref: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        #[derive(Clone)]
-        struct MockTranscript {
-            exons: Vec<ExonData>,
-        }
-        impl Transcript for MockTranscript {
-            fn ac(&self) -> &str {
-                "NM_001008844.3"
-            }
-            fn gene(&self) -> &str {
-                "TEST"
-            }
-            fn strand(&self) -> hgvs_weaver::data::Strand {
-                hgvs_weaver::data::Strand::Plus
-            }
-            fn cds_start_index(&self) -> Option<TranscriptPos> {
-                Some(TranscriptPos(0))
-            }
-            fn cds_end_index(&self) -> Option<TranscriptPos> {
-                Some(TranscriptPos(4500))
-            }
-            fn reference_accession(&self) -> &str {
-                "NC_000001.11"
-            }
-            fn exons(&self) -> &[ExonData] {
-                &self.exons
-            }
-        }
-
+    fn get_transcript(&self, _ac: &str, _ref: Option<&str>) -> Result<TranscriptData, HgvsError> {
         let exons = vec![ExonData {
             transcript_start: TranscriptPos(0),
             transcript_end: TranscriptPos(5000),
@@ -287,17 +221,25 @@ impl DataProvider for DelinsMismatchProvider {
             cigar: "5000M".to_string(),
         }];
 
-        Ok(Box::new(MockTranscript { exons }))
+        Ok(TranscriptData {
+            ac: "NM_001008844.3".to_string(),
+            gene: "TEST".to_string(),
+            cds_start_index: Some(TranscriptPos(0)),
+            cds_end_index: Some(TranscriptPos(4500)),
+            strand: hgvs_weaver::data::Strand::Plus,
+            reference_accession: "NC_000001.11".to_string(),
+            exons,
+        })
     }
 
     fn get_seq(
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
-        let effective_end = if end == -1 { 5000 } else { end };
+        let effective_end = end.unwrap_or(5000);
         let mut seq = String::with_capacity((effective_end - start) as usize);
         for i in start..effective_end {
             if i >= 4497 && i <= 4499 {
@@ -336,14 +278,6 @@ impl DataProvider for DelinsMismatchProvider {
     }
     fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        _: &str,
-        _: TranscriptPos,
-        _: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        Ok(("".into(), GenomicPos(0)))
     }
 }
 

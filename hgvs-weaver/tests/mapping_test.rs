@@ -1,5 +1,5 @@
 use hgvs_weaver::data::{ExonData, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
 use hgvs_weaver::*;
 
 struct MockDataProvider;
@@ -9,7 +9,7 @@ impl DataProvider for MockDataProvider {
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         let mut s = String::new();
@@ -20,7 +20,7 @@ impl DataProvider for MockDataProvider {
         }
 
         let start = start as usize;
-        let end = if end == -1 { s.len() } else { end as usize };
+        let end = end.map_or(s.len(), |e| e as usize);
         if start > s.len() {
             return Ok("".into());
         }
@@ -32,7 +32,7 @@ impl DataProvider for MockDataProvider {
         &self,
         transcript_ac: &str,
         _reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         if transcript_ac == "NM_0001.3" {
             let exons = vec![ExonData {
                 transcript_start: TranscriptPos(0),
@@ -51,7 +51,7 @@ impl DataProvider for MockDataProvider {
                 reference_accession: "NC_0001.10".to_string(),
                 exons,
             };
-            return Ok(Box::new(td));
+            return Ok(td);
         }
         Err(HgvsError::DataProviderError(
             "Transcript not found".to_string(),
@@ -81,19 +81,6 @@ impl DataProvider for MockDataProvider {
         _identifier: &str,
     ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
         Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
-
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession().to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 

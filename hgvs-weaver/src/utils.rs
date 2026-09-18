@@ -134,9 +134,21 @@ pub fn translate_cds(cds: &str) -> String {
     aa
 }
 
-/// Translates a single 3-base codon to a 1-letter amino acid.
+/// Translates every complete codon of `seq`, without stopping at a stop codon.
+/// Unknown codons become `X`. Trailing bases that do not fill a codon are dropped.
+pub fn translate(seq: &str) -> String {
+    let bytes = seq.as_bytes();
+    let mut aa = String::with_capacity(bytes.len() / 3);
+    for codon in bytes.chunks_exact(3) {
+        let codon = std::str::from_utf8(codon).unwrap_or("NNN");
+        aa.push(translate_codon(codon).unwrap_or('X'));
+    }
+    aa
+}
+
+/// Translates a single 3-base codon (DNA or RNA, any case) to a 1-letter amino acid.
 pub fn translate_codon(codon: &str) -> Option<char> {
-    match codon.to_uppercase().as_str() {
+    match codon.to_uppercase().replace('U', "T").as_str() {
         "TTT" | "TTC" => Some('F'),
         "TTA" | "TTG" => Some('L'),
         "CTT" | "CTC" | "CTA" | "CTG" => Some('L'),

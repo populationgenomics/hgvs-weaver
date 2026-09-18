@@ -46,6 +46,9 @@ class SequenceProxy:
         self.cache_path = cache_path or os.environ.get("WEAVER_SEQ_CACHE")
         self.mode = mode or os.environ.get("WEAVER_SEQ_MODE", "live")
         self.cache: dict[str, str] = {}
+        # Replay only: every recorded base by accession and 0-based position, so
+        # that any requested range can be served, not just the ranges recorded.
+        self._known: dict[str, dict[int, str]] = {}
         self.fasta: typing.Any = None
         self.references: list[str] = []
 
@@ -54,6 +57,8 @@ class SequenceProxy:
                 try:
                     with open(self.cache_path) as f:
                         self.cache = json.load(f)
+
+                    self._known = self._index_recorded_bases(self.cache)
 
                     # Try to get references from manifest first
                     manifest_data = self.cache.get("_manifest")
@@ -92,8 +97,7 @@ class SequenceProxy:
         if self.mode == "replay":
             if key in self.cache:
                 return self.cache[key]
-            logger.error("Missing sequence in cache for %s", key)
-            return ""
+            return self._replay_range(ac, start, key_end)
 
         if not self.fasta:
             return ""
@@ -107,6 +111,40 @@ class SequenceProxy:
         except Exception as e:
             logger.error("Error fetching from FASTA for %s: %s", key, e)
             return ""
+
+    @staticmethod
+    def _index_recorded_bases(cache: dict[str, str]) -> dict[str, dict[int, str]]:
+        """Spreads recorded "AC:start-end" fragments into per-position bases."""
+        known: dict[str, dict[int, str]] = {}
+        for key, seq in cache.items():
+            if key.startswith("_") or ":" not in key or not isinstance(seq, str):
+                continue
+            ac, _, rng = key.rpartition(":")
+            start_s, _, _ = rng.partition("-")
+            try:
+                start = int(start_s)
+            except ValueError:
+                continue
+            bases = known.setdefault(ac, {})
+            for i, base in enumerate(seq):
+                bases[start + i] = base
+        return known
+
+    def _replay_range(self, ac: str, start: int, end: int | None) -> str:
+        """Serves a range from recorded bases, with N for positions never recorded.
+
+        A caller may page through a sequence in blocks far wider than any recorded
+        fragment; returning the full block keeps it from concluding the sequence
+        ends where the recording does. A base that was never recorded reads as N,
+        so a comparison that depends on it fails rather than silently passing.
+        """
+        bases = self._known.get(ac)
+        if not bases:
+            logger.error("No recorded sequence for %s in cache", ac)
+            return ""
+        if end is None:
+            end = max(bases) + 1
+        return "".join(bases.get(i, "N") for i in range(start, max(start, end)))
 
     def save_cache(self) -> None:
         if self.mode == "record" and self.cache_path:
@@ -335,7 +373,7 @@ class RefSeqDataProvider:
                 return exon["transcript_start"] + (exon["reference_end"] - g_0)
         return None
 
-    def get_seq(self, ac: str, start: int, end: int, kind: str, force_plus: bool = False) -> str:
+    def get_seq(self, ac: str, start: int, end: int | None, kind: str, force_plus: bool = False) -> str:
         """Retrieves a sequence from the provider.
         ...
         """
@@ -345,7 +383,7 @@ class RefSeqDataProvider:
             if not res:
                 return ""
             tx_ac, chrom = res
-            tx_seq = self._get_tx_seq(tx_ac, chrom, 0, -1, force_plus=force_plus).upper()
+            tx_seq = self._get_tx_seq(tx_ac, chrom, 0, None, force_plus=force_plus).upper()
 
             tx_info = self.transcripts.get((tx_ac, chrom))
             if not tx_info or tx_info.get("cds_start_index") is None:
@@ -419,7 +457,7 @@ class RefSeqDataProvider:
             self._transcript_cache[(tx_ac, ref_ac)] = self._get_full_tx_seq(tx_ac, ref_ac)
             return self._transcript_cache[(tx_ac, ref_ac)]
 
-    def _get_tx_seq(self, tx_ac: str, ref_ac: str, start: int, end: int, force_plus: bool = False) -> str:
+    def _get_tx_seq(self, tx_ac: str, ref_ac: str, start: int, end: int | None, force_plus: bool = False) -> str:
         """Builds a transcript sequence from genomic exons with optional transformations."""
         tx = self.transcripts.get((tx_ac, ref_ac))
         if not tx:
@@ -595,60 +633,6 @@ class RefSeqDataProvider:
             protein.append(codon_table.get(codon, "X"))
         return "".join(protein)
 
-    def c_to_g(self, transcript_ac: str, pos: int, offset: int) -> tuple[str, int]:
-        """Resolves a transcript position and offset to a genomic accession and position.
-
-        Args:
-          transcript_ac: The transcript accession.
-          pos: 0-based transcript index.
-          offset: intronic offset.
-
-        Returns:
-          A tuple of (genomic_accession, 0-based_genomic_position).
-        """
-        tx = self.get_transcript(transcript_ac, None)
-        chrom = tx["reference_accession"]
-        strand = tx["strand"]
-        exons = tx["exons"]
-
-        # This logic should match _genomic_to_tx but in reverse.
-        # Transcript position 'pos' is relative to the start of the transcript sequence.
-        # We need to find the exon containing this position.
-        for exon in exons:
-            exon["reference_end"] - exon["reference_start"] + 1
-            if exon["transcript_start"] <= pos < exon["transcript_end"]:
-                # Found the exon
-                offset_in_exon = pos - exon["transcript_start"]
-                if strand == 1:
-                    g_base = exon["reference_start"] + offset_in_exon
-                    g_pos = g_base + offset
-                else:
-                    g_base = exon["reference_end"] - offset_in_exon
-                    g_pos = g_base - offset
-                return chrom, g_pos
-
-        # If not in exons (should not happen for valid cDNA variants without offset,
-        # but for offset calculation we might be at exon boundary)
-        # Handle cases where pos might be exactly at boundary for intronic mapping
-        if pos < 0:
-            # Before first exon
-            exon = exons[0]
-            if strand == 1:
-                return chrom, exon["reference_start"] + pos + offset
-            return chrom, exon["reference_end"] - pos - offset
-
-        # After last exon or in intron
-        # Just use the last exon for default projection if not found
-        exon = exons[-1]
-        if pos >= exon["transcript_end"]:
-            delta = pos - (exon["transcript_end"] - 1)
-            if strand == 1:
-                return chrom, exon["reference_end"] + delta + offset
-            return chrom, exon["reference_start"] - delta - offset
-
-        # If it's a valid transcript position but 'exons' loop failed?
-        return chrom, 0  # Fallback
-
     def to_json(self) -> None:
         return None
 
@@ -666,7 +650,7 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
         kind = "g" if ac.startswith("NC_") else "c"
         if ac.startswith("NP_"):
             kind = "p"
-        return self.rp.get_seq(ac, start or 0, end or -1, kind)
+        return self.rp.get_seq(ac, start or 0, end, kind)
 
     def get_tx_info(
         self,

@@ -1,6 +1,6 @@
 [package]
 name = "hgvs-weaver"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 authors = ["The folded team"]
 description = "High-performance HGVS variant mapping and validation engine."
@@ -16,4 +16,5 @@ pest = "2.8.6"
 pest_derive = "2.8.6"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-dyn-clone = "1.0.20"
+sha2 = "0.10.9"
+base64 = "0.22.1"

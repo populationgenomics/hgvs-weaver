@@ -77,7 +77,7 @@ When implementing a `DataProvider`, you must provide coordinates in the followin
         - `reference_end`: 0-based inclusive end index on the genomic reference.
 
 - **Sequence Retrieval**:
-    - `get_seq(ac, start, end, kind)`: Should return the sequence for accession `ac`. `start` and `end` are 0-based half-open (interbase) coordinates.
+    - `get_seq(ac, start, end, kind)`: Should return the sequence for accession `ac`. `start` and `end` are 0-based half-open (interbase) coordinates. `end` is `None` when the whole sequence from `start` is wanted (`seq[start:end]` handles this). A range past the end of the sequence returns the bases that exist.
 
 ### Python Protocol
 
@@ -87,12 +87,16 @@ class DataProvider(Protocol):
         """Return a dictionary matching the TranscriptData structure."""
         ...
 
-    def get_seq(self, ac: str, start: int, end: int, kind: str | IdentifierType) -> str:
-        """Fetch sequence for an accession. kind is an IdentifierType."""
+    def get_seq(self, ac: str, start: int, end: int | None, kind: str | IdentifierType) -> str:
+        """Fetch sequence for an accession; end=None means to the end. kind is an IdentifierType."""
         ...
 
     def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]] | list[tuple[IdentifierType, str]]:
         """Map gene symbols to accessions (e.g., 'ATM' -> [('transcript_accession', 'NM_000051.3')])."""
+        ...
+
+    def get_refget_accession(self, ac: str) -> str | None:  # optional
+        """Refget accession ("SQ." + sha512t24u) for ac; None lets weaver compute it. Used by to_vrs."""
         ...
 
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:

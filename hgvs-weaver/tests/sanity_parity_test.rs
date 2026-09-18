@@ -1,5 +1,4 @@
 use hgvs_weaver::data::TranscriptData;
-use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
 use hgvs_weaver::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -30,7 +29,7 @@ impl DataProvider for JsonDataProvider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         let seq =
@@ -38,7 +37,7 @@ impl DataProvider for JsonDataProvider {
                 HgvsError::DataProviderError(format!("Sequence {} not found", ac))
             })?;
         let len = seq.len() as i32;
-        let actual_end = if end == -1 { len } else { end };
+        let actual_end = end.unwrap_or(len);
         if start < 0 || actual_end > len || start > actual_end {
             return Err(HgvsError::DataProviderError(
                 "Sequence range out of bounds".into(),
@@ -51,11 +50,11 @@ impl DataProvider for JsonDataProvider {
         &self,
         transcript_ac: &str,
         _reference_accession: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         let td = self.data.transcripts.get(transcript_ac).ok_or_else(|| {
             HgvsError::DataProviderError(format!("Transcript {} not found", transcript_ac))
         })?;
-        Ok(Box::new(td.clone()))
+        Ok(td.clone())
     }
 
     fn get_symbol_accessions(
@@ -81,19 +80,6 @@ impl DataProvider for JsonDataProvider {
         _identifier: &str,
     ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
         Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
-
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession().to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 

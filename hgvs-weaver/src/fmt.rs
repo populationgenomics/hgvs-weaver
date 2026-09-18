@@ -1,5 +1,6 @@
 use crate::edits::{AaEdit, NaEdit};
 use crate::structs::*;
+use crate::utils::aa1_to_aa3;
 use std::fmt;
 
 impl fmt::Display for SequenceVariant {
@@ -15,35 +16,31 @@ impl fmt::Display for SequenceVariant {
     }
 }
 
-impl fmt::Display for GVariant {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}:g.{}",
-            self.ac,
-            self.gene
-                .as_ref()
-                .map(|g| format!("({})", g))
-                .unwrap_or_default(),
-            self.posedit
-        )
-    }
+/// `ACCESSION(GENE):x.posedit` for the nucleotide systems, which differ only in the letter.
+macro_rules! impl_nucleotide_display {
+    ($struct_name:ident) => {
+        impl fmt::Display for $struct_name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(
+                    f,
+                    "{}{}:{}.{}",
+                    self.ac,
+                    self.gene
+                        .as_ref()
+                        .map(|g| format!("({})", g))
+                        .unwrap_or_default(),
+                    self.coordinate_type(),
+                    self.posedit
+                )
+            }
+        }
+    };
 }
-
-impl fmt::Display for CVariant {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}:c.{}",
-            self.ac,
-            self.gene
-                .as_ref()
-                .map(|g| format!("({})", g))
-                .unwrap_or_default(),
-            self.posedit
-        )
-    }
-}
+impl_nucleotide_display!(GVariant);
+impl_nucleotide_display!(MVariant);
+impl_nucleotide_display!(CVariant);
+impl_nucleotide_display!(NVariant);
+impl_nucleotide_display!(RVariant);
 
 impl AaEdit {
     pub fn format_simple(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -107,51 +104,6 @@ impl fmt::Display for PVariant {
                 .unwrap_or_default()
         )?;
         self.posedit.format_simple(f)
-    }
-}
-
-impl fmt::Display for MVariant {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}:m.{}",
-            self.ac,
-            self.gene
-                .as_ref()
-                .map(|g| format!("({})", g))
-                .unwrap_or_default(),
-            self.posedit
-        )
-    }
-}
-
-impl fmt::Display for NVariant {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}:n.{}",
-            self.ac,
-            self.gene
-                .as_ref()
-                .map(|g| format!("({})", g))
-                .unwrap_or_default(),
-            self.posedit
-        )
-    }
-}
-
-impl fmt::Display for RVariant {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}:r.{}",
-            self.ac,
-            self.gene
-                .as_ref()
-                .map(|g| format!("({})", g))
-                .unwrap_or_default(),
-            self.posedit
-        )
     }
 }
 
@@ -486,33 +438,6 @@ impl fmt::Display for AaEdit {
             AaEdit::Special { value, .. } => write!(f, "{}", value),
             _ => write!(f, "unknown_aa_edit"),
         }
-    }
-}
-
-pub fn aa1_to_aa3(c: char) -> &'static str {
-    match c {
-        'A' => "Ala",
-        'C' => "Cys",
-        'D' => "Asp",
-        'E' => "Glu",
-        'F' => "Phe",
-        'G' => "Gly",
-        'H' => "His",
-        'I' => "Ile",
-        'K' => "Lys",
-        'L' => "Leu",
-        'M' => "Met",
-        'N' => "Asn",
-        'P' => "Pro",
-        'Q' => "Gln",
-        'R' => "Arg",
-        'S' => "Ser",
-        'T' => "Thr",
-        'V' => "Val",
-        'W' => "Trp",
-        'Y' => "Tyr",
-        '*' => "Ter",
-        _ => "Xaa",
     }
 }
 

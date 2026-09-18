@@ -1,6 +1,5 @@
 use crate::error::HgvsError;
-use crate::structs::{GenomicPos, IntronicOffset, TranscriptPos};
-use dyn_clone::DynClone;
+use crate::structs::{GenomicPos, TranscriptPos};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 
@@ -50,16 +49,6 @@ impl<'de> Deserialize<'de> for Strand {
     }
 }
 
-pub trait Exon: DynClone {
-    fn transcript_start(&self) -> TranscriptPos;
-    fn transcript_end(&self) -> TranscriptPos;
-    fn reference_start(&self) -> GenomicPos;
-    fn reference_end(&self) -> GenomicPos;
-    fn alt_strand(&self) -> Strand;
-    fn cigar(&self) -> &str;
-}
-dyn_clone::clone_trait_object!(Exon);
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExonData {
     pub transcript_start: TranscriptPos,
@@ -69,38 +58,6 @@ pub struct ExonData {
     pub alt_strand: Strand,
     pub cigar: String,
 }
-
-impl Exon for ExonData {
-    fn transcript_start(&self) -> TranscriptPos {
-        self.transcript_start
-    }
-    fn transcript_end(&self) -> TranscriptPos {
-        self.transcript_end
-    }
-    fn reference_start(&self) -> GenomicPos {
-        self.reference_start
-    }
-    fn reference_end(&self) -> GenomicPos {
-        self.reference_end
-    }
-    fn alt_strand(&self) -> Strand {
-        self.alt_strand
-    }
-    fn cigar(&self) -> &str {
-        &self.cigar
-    }
-}
-
-pub trait Transcript: DynClone {
-    fn ac(&self) -> &str;
-    fn gene(&self) -> &str;
-    fn cds_start_index(&self) -> Option<TranscriptPos>;
-    fn cds_end_index(&self) -> Option<TranscriptPos>;
-    fn strand(&self) -> Strand;
-    fn reference_accession(&self) -> &str;
-    fn exons(&self) -> &[ExonData];
-}
-dyn_clone::clone_trait_object!(Transcript);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptData {
@@ -113,42 +70,25 @@ pub struct TranscriptData {
     pub exons: Vec<ExonData>,
 }
 
-impl Transcript for TranscriptData {
-    fn ac(&self) -> &str {
-        &self.ac
-    }
-    fn gene(&self) -> &str {
-        &self.gene
-    }
-    fn cds_start_index(&self) -> Option<TranscriptPos> {
-        self.cds_start_index
-    }
-    fn cds_end_index(&self) -> Option<TranscriptPos> {
-        self.cds_end_index
-    }
-    fn strand(&self) -> Strand {
-        self.strand
-    }
-    fn reference_accession(&self) -> &str {
-        &self.reference_accession
-    }
-    fn exons(&self) -> &[ExonData] {
-        &self.exons
-    }
-}
-
 /// Interface for retrieving transcript and sequence data.
 pub trait DataProvider {
     fn get_transcript(
         &self,
         transcript_ac: &str,
         reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError>;
+    ) -> Result<TranscriptData, HgvsError>;
+    /// Returns the bases of `ac` in the 0-based half-open range `[start, end)`,
+    /// or from `start` to the end of the sequence when `end` is `None`.
+    ///
+    /// A range that extends past the end must return the bases that exist, not
+    /// an error or an empty string: the core pages through sequences in
+    /// fixed-size blocks and relies on a short final block to learn where the
+    /// sequence ends.
     fn get_seq(
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         kind: IdentifierType,
     ) -> Result<String, HgvsError>;
     fn get_symbol_accessions(
@@ -158,16 +98,12 @@ pub trait DataProvider {
         target_kind: IdentifierKind,
     ) -> Result<Vec<(IdentifierType, String)>, HgvsError>;
     fn get_identifier_type(&self, identifier: &str) -> Result<IdentifierType, HgvsError>;
-    /// Resolves a CDS-relative position and offset to a genomic accession and position.
-    ///
-    /// For c. variants, the position is 0-based relative to the start codon.
-    /// For n. variants, it is 0-based relative to the transcript start.
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError>;
+    /// The refget accession (`SQ.` plus the sha512t24u digest of the sequence)
+    /// for `ac`, if the provider can look it up. `None` means the core will
+    /// fetch the whole sequence and compute it.
+    fn get_refget_accession(&self, _ac: &str) -> Result<Option<String>, HgvsError> {
+        Ok(None)
+    }
 }
 
 /// Interface for discovering transcripts by region.
@@ -197,7 +133,7 @@ impl IdentifierKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IdentifierType {
     GenomicAccession,
     TranscriptAccession,

@@ -1,5 +1,5 @@
 use hgvs_weaver::data::{ExonData, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
 use hgvs_weaver::*;
 
 struct NormMockDataProvider;
@@ -9,7 +9,7 @@ impl DataProvider for NormMockDataProvider {
         &self,
         ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: hgvs_weaver::data::IdentifierType,
     ) -> Result<String, HgvsError> {
         let base_seq = if ac == "NM_SHIFT_BUG" {
@@ -35,11 +35,7 @@ impl DataProvider for NormMockDataProvider {
         };
 
         let s = start as usize;
-        let e = if end == -1 {
-            base_seq.len()
-        } else {
-            end as usize
-        };
+        let e = end.map_or(base_seq.len(), |e| e as usize);
         if s > base_seq.len() {
             return Ok("".into());
         }
@@ -51,7 +47,7 @@ impl DataProvider for NormMockDataProvider {
         &self,
         transcript_ac: &str,
         _reference_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
+    ) -> Result<TranscriptData, HgvsError> {
         let exons = vec![ExonData {
             transcript_start: TranscriptPos(0),
             transcript_end: TranscriptPos(100),
@@ -85,7 +81,7 @@ impl DataProvider for NormMockDataProvider {
             reference_accession: "NC_0001.10".to_string(),
             exons,
         };
-        Ok(Box::new(td))
+        Ok(td)
     }
 
     fn get_symbol_accessions(
@@ -111,19 +107,6 @@ impl DataProvider for NormMockDataProvider {
         _identifier: &str,
     ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
         Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
-
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession().to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 

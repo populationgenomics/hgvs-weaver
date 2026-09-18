@@ -1,6 +1,6 @@
-use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{
-    DataProvider, IdentifierKind, IdentifierType, Transcript, TranscriptData, TranscriptSearch,
+    DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch,
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
@@ -8,19 +8,27 @@ use hgvs_weaver::parse_hgvs_variant;
 
 struct MockDataProvider;
 impl DataProvider for MockDataProvider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<Box<dyn Transcript>, HgvsError> {
+    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
         if ac == "NM_001166478.1" || ac == "NM_005813.3" {
-            Ok(Box::new(TranscriptData {
+            // One minus-strand exon: transcript index i is genomic index 4000 - i.
+            Ok(TranscriptData {
                 ac: ac.to_string(),
                 gene: "TEST".to_string(),
                 cds_start_index: Some(TranscriptPos(0)),
                 cds_end_index: Some(TranscriptPos(3000)),
                 strand: hgvs_weaver::data::Strand::Minus,
                 reference_accession: "NC_000001.1".to_string(),
-                exons: vec![],
-            }))
+                exons: vec![ExonData {
+                    transcript_start: TranscriptPos(0),
+                    transcript_end: TranscriptPos(3001),
+                    reference_start: GenomicPos(1000),
+                    reference_end: GenomicPos(4000),
+                    alt_strand: hgvs_weaver::data::Strand::Minus,
+                    cigar: "3001M".to_string(),
+                }],
+            })
         } else if ac == "NM_BRAF" {
-            Ok(Box::new(TranscriptData {
+            Ok(TranscriptData {
                 ac: ac.to_string(),
                 gene: "BRAF".to_string(),
                 cds_start_index: Some(TranscriptPos(0)),
@@ -28,41 +36,37 @@ impl DataProvider for MockDataProvider {
                 strand: hgvs_weaver::data::Strand::Plus, // Plus strand
                 reference_accession: "NC_BRAF".to_string(),
                 exons: vec![],
-            }))
+            })
         } else {
             Err(HgvsError::ValidationError("Not found".into()))
         }
     }
-    fn get_seq(&self, ac: &str, s: i32, e: i32, _k: IdentifierType) -> Result<String, HgvsError> {
-        let effective_e = if e == -1 { 4000 } else { e };
-        let len = (effective_e - s).max(0) as usize;
-        let mut seq = vec!['N'; len];
-
+    fn get_seq(
+        &self,
+        ac: &str,
+        s: i32,
+        e: Option<i32>,
+        _k: IdentifierType,
+    ) -> Result<String, HgvsError> {
+        // 4000 N's with the few bases the cases below depend on.
+        let mut seq = vec![b'N'; 4000];
         if ac == "NM_BRAF" || ac == "NC_BRAF" {
-            // BRAF Val600 is GTG (1798-1800)
-            // 1798 is 'G', 1799 is 'T', 1800 is 'G'
-            for pos in s..effective_e {
-                let char_idx = (pos - s) as usize;
-                if pos == 1797 {
-                    seq[char_idx] = 'G';
-                } else if pos == 1798 {
-                    seq[char_idx] = 'T';
-                } else if pos == 1799 {
-                    seq[char_idx] = 'G';
-                }
-            }
-            return Ok(seq.into_iter().collect());
-        }
-
-        if s == 3966 && len == 1 {
-            // Case 9: c.35 matches G3966.
-            Ok("A".to_string())
-        } else if s == 1328 && len == 1 {
-            // Case 15: c.2673 matches G1328.
-            Ok("T".to_string())
+            // BRAF Val600 is GTG at transcript indices 1797..=1799.
+            seq[1797] = b'G';
+            seq[1798] = b'T';
+            seq[1799] = b'G';
         } else {
-            Ok(seq.into_iter().collect())
+            // Case 9: c.35 is transcript index 34, genomic 3966 (A). The base
+            // after it must differ so the insertion cannot shift further.
+            seq[3966] = b'A';
+            seq[34] = b'A';
+            // Case 15: c.2673 is transcript index 2672, genomic 1328 (T).
+            seq[1328] = b'T';
+            seq[2672] = b'T';
         }
+        let start = (s.max(0) as usize).min(seq.len());
+        let end = e.map_or(seq.len(), |e| (e as usize).min(seq.len()));
+        Ok(String::from_utf8(seq[start..end.max(start)].to_vec()).unwrap())
     }
     fn get_symbol_accessions(
         &self,
@@ -74,18 +78,6 @@ impl DataProvider for MockDataProvider {
     }
     fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::TranscriptAccession)
-    }
-    fn c_to_g(
-        &self,
-        _t: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        // Reverse mapping for minus strand
-        Ok((
-            "NC_000001.1".to_string(),
-            GenomicPos(4000 - pos.0 - offset.0),
-        ))
     }
 }
 

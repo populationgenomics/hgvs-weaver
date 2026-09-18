@@ -92,8 +92,14 @@ class DataProvider(Protocol):
         """
         ...
 
-    def get_seq(self, ac: str, start: int, end: int, kind: str | IdentifierType) -> str:
-        """Fetch sequence for an accession. kind should be an IdentifierType."""
+    def get_seq(self, ac: str, start: int, end: int | None, kind: str | IdentifierType) -> str:
+        """Fetch the bases of ``ac`` in the 0-based half-open range ``[start, end)``.
+
+        ``end`` is ``None`` when the whole sequence from ``start`` is wanted; a plain
+        ``seq[start:end]`` already does the right thing in that case. A range that
+        extends past the end of the sequence must return the bases that exist rather
+        than raising or returning an empty string. ``kind`` should be an IdentifierType.
+        """
         ...
 
     def get_symbol_accessions(
@@ -107,6 +113,14 @@ class DataProvider(Protocol):
         Returns a list of tuples (identifier_type, accession).
         identifier_type should be one of 'genomic_accession', 'transcript_accession',
         'protein_accession', 'gene_symbol', or a member of the IdentifierType enum.
+        """
+        ...
+
+    def get_refget_accession(self, ac: str) -> str | None:  # optional
+        """Return the refget accession ("SQ." + sha512t24u of the sequence) for ``ac``.
+
+        Optional. When absent or returning None, weaver fetches the whole sequence and
+        computes it, which is slow for a chromosome. Used by ``VariantMapper.to_vrs``.
         """
         ...
 

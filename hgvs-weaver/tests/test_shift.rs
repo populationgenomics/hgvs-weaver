@@ -1,18 +1,12 @@
-use hgvs_weaver::coords::{GenomicPos, IntronicOffset, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Transcript, TranscriptData,
-};
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
+use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 
 struct HomopolymerProvider;
 impl DataProvider for HomopolymerProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        Ok(Box::new(TranscriptData {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Ok(TranscriptData {
             ac: ac.to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(0)),
@@ -27,19 +21,19 @@ impl DataProvider for HomopolymerProvider {
                 alt_strand: hgvs_weaver::data::Strand::Plus,
                 cigar: "100M".to_string(),
             }],
-        }))
+        })
     }
     fn get_seq(
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         // Return 100 'A's
         let seq = "A".repeat(2000);
         let s = start as usize;
-        let e = end as usize;
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s < seq.len() {
             let actual_e = e.min(seq.len());
             Ok(seq[s..actual_e].to_string())
@@ -57,18 +51,6 @@ impl DataProvider for HomopolymerProvider {
     }
     fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::GenomicAccession)
-    }
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession().to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 
@@ -97,12 +79,8 @@ fn test_ins_3_prime_shifting() -> Result<(), HgvsError> {
 
 struct RepeatProvider;
 impl DataProvider for RepeatProvider {
-    fn get_transcript(
-        &self,
-        ac: &str,
-        _ref_ac: Option<&str>,
-    ) -> Result<Box<dyn Transcript>, HgvsError> {
-        Ok(Box::new(TranscriptData {
+    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Ok(TranscriptData {
             ac: ac.to_string(),
             gene: "TEST".to_string(),
             cds_start_index: Some(TranscriptPos(0)),
@@ -117,20 +95,20 @@ impl DataProvider for RepeatProvider {
                 alt_strand: hgvs_weaver::data::Strand::Minus,
                 cigar: "100M".to_string(),
             }],
-        }))
+        })
     }
     fn get_seq(
         &self,
         _ac: &str,
         start: i32,
-        end: i32,
+        end: Option<i32>,
         _kind: IdentifierType,
     ) -> Result<String, HgvsError> {
         // Return repeating "CAG"
         let unit = "CAG";
         let seq = unit.repeat(1000);
         let s = start as usize;
-        let e = end as usize;
+        let e = end.map_or(seq.len(), |e| e as usize);
         if s < seq.len() {
             let actual_e = e.min(seq.len());
             Ok(seq[s..actual_e].to_string())
@@ -148,18 +126,6 @@ impl DataProvider for RepeatProvider {
     }
     fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
         Ok(IdentifierType::GenomicAccession)
-    }
-    fn c_to_g(
-        &self,
-        transcript_ac: &str,
-        pos: TranscriptPos,
-        offset: IntronicOffset,
-    ) -> Result<(String, GenomicPos), HgvsError> {
-        let tx = self.get_transcript(transcript_ac, None)?;
-        Ok((
-            tx.reference_accession().to_string(),
-            GenomicPos(pos.0 + offset.0),
-        ))
     }
 }
 

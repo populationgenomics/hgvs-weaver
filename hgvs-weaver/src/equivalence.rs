@@ -1,11 +1,9 @@
 use crate::analogous_edit::{project_aa_variant, project_na_variant, SparseReference};
-use crate::data::{DataProvider, IdentifierKind, Transcript, TranscriptSearch};
+use crate::data::{DataProvider, IdentifierKind, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
-use crate::structs::{
-    BaseOffsetInterval, BaseOffsetPosition, GVariant, GenomicPos, IntervalSpdi, IntronicOffset,
-    NaEdit, PVariant, SequenceVariant, SimpleInterval, SimplePosition, TranscriptPos, Variant,
-};
+use crate::structs::{GVariant, IntervalSpdi, NaEdit, PVariant, SequenceVariant, Variant};
+use crate::structs::{LinearVariant, TranscriptVariant};
 use crate::utils::decompose_aa;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +40,15 @@ pub struct VariantEquivalence<'a> {
     pub mapper: VariantMapper<'a>,
 }
 
+fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVariant> {
+    match var {
+        SequenceVariant::Mitochondrial(m) => {
+            std::borrow::Cow::Owned(SequenceVariant::Genomic(m.to_genomic()))
+        }
+        other => std::borrow::Cow::Borrowed(other),
+    }
+}
+
 impl<'a> VariantEquivalence<'a> {
     pub fn new(hdp: &'a dyn DataProvider, searcher: &'a dyn TranscriptSearch) -> Self {
         VariantEquivalence {
@@ -64,9 +71,13 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
+        // A mitochondrial variant is a genomic variant on the mitochondrial
+        // reference; compare it as one.
+        let var1 = mito_as_genomic(var1);
+        let var2 = mito_as_genomic(var2);
         // Expand gene symbols if present
-        let vars1 = self.expand_if_gene_symbol(var1)?;
-        let vars2 = self.expand_if_gene_symbol(var2)?;
+        let vars1 = self.expand_if_gene_symbol(&var1)?;
+        let vars2 = self.expand_if_gene_symbol(&var2)?;
 
         for v1 in &vars1 {
             for v2 in &vars2 {
@@ -148,123 +159,13 @@ impl<'a> VariantEquivalence<'a> {
                 }
             }
             (SequenceVariant::Coding(c1), SequenceVariant::Coding(c2)) => {
-                if let (Some(pos1), Some(pos2)) = (&c1.posedit.pos, &c2.posedit.pos) {
-                    let mut i1 = pos1.spdi_interval(&c1.ac, self.hdp)?;
-                    let mut i2 = pos2.spdi_interval(&c2.ac, self.hdp)?;
-
-                    let t1 = self.hdp.get_transcript(&c1.ac, None)?;
-                    let edit1 = strand_aware_edit(&c1.posedit.edit, t1.strand());
-
-                    let t2 = self.hdp.get_transcript(&c2.ac, None)?;
-                    let edit2 = strand_aware_edit(&c2.posedit.edit, t2.strand());
-
-                    if matches!(c1.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos1.end {
-                            let g1 = self.hdp.c_to_g(
-                                &c1.ac,
-                                pos1.start.base.to_index(),
-                                pos1.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &c1.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0); // keep consistent with spdi_interval which is currently 1-based
-                            i1 = (p, p + 1, g1.0);
-                        }
-                    }
-                    if matches!(c2.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos2.end {
-                            let g1 = self.hdp.c_to_g(
-                                &c2.ac,
-                                pos2.start.base.to_index(),
-                                pos2.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &c2.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0); // keep consistent with spdi_interval
-                            i2 = (p, p + 1, g1.0);
-                        }
-                    }
-
-                    let (start1, end1, _) = i1;
-                    let (start2, end2, _) = i2;
-
-                    let min_pos = start1.min(start2).saturating_sub(2);
-                    let max_pos = end1.max(end2) + 2;
-
-                    let res1 =
-                        project_na_variant(&edit1, start1, end1 - 1, min_pos, max_pos - 1, &merged);
-                    let res2 =
-                        project_na_variant(&edit2, start2, end2 - 1, min_pos, max_pos - 1, &merged);
-
-                    if res1.is_analogous_to(&res2) {
-                        return Ok(EquivalenceLevel::Analogous);
-                    }
+                if self.tx_projections_analogous(c1, c2, &merged)? {
+                    return Ok(EquivalenceLevel::Analogous);
                 }
             }
             (SequenceVariant::NonCoding(n1), SequenceVariant::NonCoding(n2)) => {
-                if let (Some(pos1), Some(pos2)) = (&n1.posedit.pos, &n2.posedit.pos) {
-                    let mut i1 = pos1.spdi_interval(&n1.ac, self.hdp)?;
-                    let mut i2 = pos2.spdi_interval(&n2.ac, self.hdp)?;
-
-                    let t1 = self.hdp.get_transcript(&n1.ac, None)?;
-                    let edit1 = strand_aware_edit(&n1.posedit.edit, t1.strand());
-
-                    let t2 = self.hdp.get_transcript(&n2.ac, None)?;
-                    let edit2 = strand_aware_edit(&n2.posedit.edit, t2.strand());
-
-                    if matches!(n1.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos1.end {
-                            let g1 = self.hdp.c_to_g(
-                                &n1.ac,
-                                pos1.start.base.to_index(),
-                                pos1.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &n1.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0);
-                            i1 = (p, p + 1, g1.0);
-                        }
-                    }
-                    if matches!(n2.posedit.edit, NaEdit::Ins { .. }) {
-                        if let Some(e) = &pos2.end {
-                            let g1 = self.hdp.c_to_g(
-                                &n2.ac,
-                                pos2.start.base.to_index(),
-                                pos2.start.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let g2 = self.hdp.c_to_g(
-                                &n2.ac,
-                                e.base.to_index(),
-                                e.offset.unwrap_or(IntronicOffset(0)),
-                            )?;
-                            let p = g1.1 .0.min(g2.1 .0);
-                            i2 = (p, p + 1, g1.0);
-                        }
-                    }
-
-                    let (start1, end1, _) = i1;
-                    let (start2, end2, _) = i2;
-
-                    let min_pos = start1.min(start2).saturating_sub(2);
-                    let max_pos = end1.max(end2) + 2;
-
-                    let res1 =
-                        project_na_variant(&edit1, start1, end1 - 1, min_pos, max_pos - 1, &merged);
-                    let res2 =
-                        project_na_variant(&edit2, start2, end2 - 1, min_pos, max_pos - 1, &merged);
-
-                    if res1.is_analogous_to(&res2) {
-                        return Ok(EquivalenceLevel::Analogous);
-                    }
+                if self.tx_projections_analogous(n1, n2, &merged)? {
+                    return Ok(EquivalenceLevel::Analogous);
                 }
             }
             _ => {
@@ -281,6 +182,45 @@ impl<'a> VariantEquivalence<'a> {
         Ok(EquivalenceLevel::Different)
     }
 
+    /// Projects two transcript-space variants onto the merged sparse reference
+    /// and asks whether the outcomes are analogous.
+    fn tx_projections_analogous<V: TranscriptVariant>(
+        &self,
+        v1: &V,
+        v2: &V,
+        merged: &SparseReference,
+    ) -> Result<bool, HgvsError> {
+        let (Some(pos1), Some(pos2)) = (&v1.posedit().pos, &v2.posedit().pos) else {
+            return Ok(false);
+        };
+        let mut i1 = pos1.spdi_interval(v1.ac(), self.hdp)?;
+        let mut i2 = pos2.spdi_interval(v2.ac(), self.hdp)?;
+
+        let t1 = self.hdp.get_transcript(v1.ac(), None)?;
+        let edit1 = strand_aware_edit(&v1.posedit().edit, t1.strand);
+        let t2 = self.hdp.get_transcript(v2.ac(), None)?;
+        let edit2 = strand_aware_edit(&v2.posedit().edit, t2.strand);
+
+        // An insertion between two flanking bases is anchored at the lower
+        // genomic index for projection.
+        if matches!(v1.posedit().edit, NaEdit::Ins { .. }) && pos1.end.is_some() {
+            let (p, _, ac) = i1;
+            i1 = (p, p + 1, ac);
+        }
+        if matches!(v2.posedit().edit, NaEdit::Ins { .. }) && pos2.end.is_some() {
+            let (p, _, ac) = i2;
+            i2 = (p, p + 1, ac);
+        }
+
+        let (start1, end1, _) = i1;
+        let (start2, end2, _) = i2;
+        let min_pos = start1.min(start2).saturating_sub(2);
+        let max_pos = end1.max(end2) + 2;
+        let res1 = project_na_variant(&edit1, start1, end1 - 1, min_pos, max_pos - 1, merged);
+        let res2 = project_na_variant(&edit2, start2, end2 - 1, min_pos, max_pos - 1, merged);
+        Ok(res1.is_analogous_to(&res2))
+    }
+
     fn is_cross_type_identity(&self, var1: &SequenceVariant, var2: &SequenceVariant) -> bool {
         match (var1, var2) {
             (SequenceVariant::Coding(vc), SequenceVariant::Protein(vp))
@@ -294,7 +234,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::Genomic(vg), SequenceVariant::Coding(vc))
             | (SequenceVariant::Coding(vc), SequenceVariant::Genomic(vg)) => {
                 if let Ok(tx) = self.hdp.get_transcript(&vc.ac, None) {
-                    if let Ok(vg_generated) = self.mapper.c_to_g(vc, Some(tx.reference_accession()))
+                    if let Ok(vg_generated) = self
+                        .mapper
+                        .c_to_g(vc, Some(tx.reference_accession.as_str()))
                     {
                         vg_generated.to_string() == vg.to_string()
                     } else {
@@ -307,7 +249,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::Genomic(vg), SequenceVariant::NonCoding(vn))
             | (SequenceVariant::NonCoding(vn), SequenceVariant::Genomic(vg)) => {
                 if let Ok(tx) = self.hdp.get_transcript(&vn.ac, None) {
-                    if let Ok(vg_generated) = self.mapper.n_to_g(vn, Some(tx.reference_accession()))
+                    if let Ok(vg_generated) = self
+                        .mapper
+                        .n_to_g(vn, Some(tx.reference_accession.as_str()))
                     {
                         vg_generated.to_string() == vg.to_string()
                     } else {
@@ -320,7 +264,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::NonCoding(vn), SequenceVariant::Protein(vp))
             | (SequenceVariant::Protein(vp), SequenceVariant::NonCoding(vn)) => {
                 if let Ok(tx) = self.hdp.get_transcript(&vn.ac, None) {
-                    if let Ok(vg_generated) = self.mapper.n_to_g(vn, Some(tx.reference_accession()))
+                    if let Ok(vg_generated) = self
+                        .mapper
+                        .n_to_g(vn, Some(tx.reference_accession.as_str()))
                     {
                         if let Ok(c_variants) = self.mapper.g_to_c_all(&vg_generated, self.searcher)
                         {
@@ -358,9 +304,11 @@ impl<'a> VariantEquivalence<'a> {
         let mut s = SparseReference::new();
         match var {
             SequenceVariant::Protein(vp) => {
-                if let Ok(seq) =
-                    self.hdp
-                        .get_seq(&vp.ac, 0, -1, crate::data::IdentifierType::ProteinAccession)
+                if let Ok(seq) = self
+                    .mapper
+                    .refs
+                    .reference(&vp.ac, crate::data::IdentifierType::ProteinAccession)
+                    .whole()
                 {
                     if let Ok(aas) = decompose_aa(&seq) {
                         for (i, aa) in aas.iter().enumerate() {
@@ -372,13 +320,15 @@ impl<'a> VariantEquivalence<'a> {
             SequenceVariant::Coding(vc) => {
                 if let Some(pos) = &vc.posedit.pos {
                     if let Ok((start, end, spdi_ac)) = pos.spdi_interval(&vc.ac, self.hdp) {
-                        if let Ok(seq) = self.hdp.get_seq(
-                            &spdi_ac,
-                            start,
-                            end,
-                            crate::data::IdentifierType::GenomicAccession,
-                        ) {
-                            let _ = s.set(start, seq);
+                        if let (Ok(s0), Ok(e0)) = (usize::try_from(start), usize::try_from(end)) {
+                            if let Ok(seq) = self
+                                .mapper
+                                .refs
+                                .reference(&spdi_ac, crate::data::IdentifierType::GenomicAccession)
+                                .slice(s0, e0)
+                            {
+                                let _ = s.set(start, seq);
+                            }
                         }
                     }
                 }
@@ -386,143 +336,6 @@ impl<'a> VariantEquivalence<'a> {
             _ => {}
         }
         s
-    }
-
-    /// Fills in missing sequence information for deletions and duplications.
-    fn fill_implicit_sequence(&self, var: &SequenceVariant) -> Result<SequenceVariant, HgvsError> {
-        match var {
-            SequenceVariant::Genomic(v) => {
-                if let Some(pos) = &v.posedit.pos {
-                    let start = pos.start.base.to_index().0 as usize;
-                    let end = pos
-                        .end
-                        .as_ref()
-                        .map_or(start + 1, |e| e.base.to_index().0 as usize + 1);
-
-                    let mut new_v = v.clone();
-                    new_v.posedit.edit = self.fill_na_edit(
-                        &v.ac,
-                        IdentifierKind::Genomic,
-                        start,
-                        end,
-                        v.posedit.edit.clone(),
-                    )?;
-                    Ok(SequenceVariant::Genomic(new_v))
-                } else {
-                    Ok(var.clone())
-                }
-            }
-            SequenceVariant::Coding(v) => {
-                let transcript = self.hdp.get_transcript(&v.ac, None)?;
-                if let Some(pos) = &v.posedit.pos {
-                    let (start, end) = self.mapper.get_c_indices(pos, &transcript)?;
-                    let mut new_v = v.clone();
-                    new_v.posedit.edit = self.fill_na_edit(
-                        &v.ac,
-                        IdentifierKind::Transcript,
-                        start,
-                        end,
-                        v.posedit.edit.clone(),
-                    )?;
-                    Ok(SequenceVariant::Coding(new_v))
-                } else {
-                    Ok(var.clone())
-                }
-            }
-            SequenceVariant::NonCoding(v) => {
-                let transcript = self.hdp.get_transcript(&v.ac, None)?;
-                if let Some(pos) = &v.posedit.pos {
-                    let (start, end) = self.mapper.get_c_indices(pos, &transcript)?;
-                    let mut new_v = v.clone();
-                    new_v.posedit.edit = self.fill_na_edit(
-                        &v.ac,
-                        IdentifierKind::Transcript,
-                        start,
-                        end,
-                        v.posedit.edit.clone(),
-                    )?;
-                    Ok(SequenceVariant::NonCoding(new_v))
-                } else {
-                    Ok(var.clone())
-                }
-            }
-            SequenceVariant::Rna(v) => {
-                let transcript = self.hdp.get_transcript(&v.ac, None)?;
-                if let Some(pos) = &v.posedit.pos {
-                    let (start, end) = self.mapper.get_c_indices(pos, &transcript)?;
-                    let mut new_v = v.clone();
-                    new_v.posedit.edit = self.fill_na_edit(
-                        &v.ac,
-                        IdentifierKind::Transcript,
-                        start,
-                        end,
-                        v.posedit.edit.clone(),
-                    )?;
-                    Ok(SequenceVariant::Rna(new_v))
-                } else {
-                    Ok(var.clone())
-                }
-            }
-            SequenceVariant::Mitochondrial(v) => {
-                if let Some(pos) = &v.posedit.pos {
-                    let start = pos.start.base.to_index().0 as usize;
-                    let end = pos
-                        .end
-                        .as_ref()
-                        .map_or(start + 1, |e| e.base.to_index().0 as usize + 1);
-
-                    let mut new_v = v.clone();
-                    new_v.posedit.edit = self.fill_na_edit(
-                        &v.ac,
-                        IdentifierKind::Genomic,
-                        start,
-                        end,
-                        v.posedit.edit.clone(),
-                    )?;
-                    Ok(SequenceVariant::Mitochondrial(new_v))
-                } else {
-                    Ok(var.clone())
-                }
-            }
-            _ => Ok(var.clone()),
-        }
-    }
-
-    fn fill_na_edit(
-        &self,
-        ac: &str,
-        kind: IdentifierKind,
-        start: usize,
-        end: usize,
-        edit: crate::edits::NaEdit,
-    ) -> Result<crate::edits::NaEdit, HgvsError> {
-        match edit {
-            crate::edits::NaEdit::Del {
-                ref_: None,
-                uncertain,
-            } => {
-                let seq =
-                    self.hdp
-                        .get_seq(ac, start as i32, end as i32, kind.into_identifier_type())?;
-                Ok(crate::edits::NaEdit::Del {
-                    ref_: Some(seq),
-                    uncertain,
-                })
-            }
-            crate::edits::NaEdit::Dup {
-                ref_: None,
-                uncertain,
-            } => {
-                let seq =
-                    self.hdp
-                        .get_seq(ac, start as i32, end as i32, kind.into_identifier_type())?;
-                Ok(crate::edits::NaEdit::Dup {
-                    ref_: Some(seq),
-                    uncertain,
-                })
-            }
-            _ => Ok(edit),
-        }
     }
 
     fn expand_if_gene_symbol(
@@ -577,14 +390,7 @@ impl<'a> VariantEquivalence<'a> {
 
                     if is_compatible {
                         let mut v = var.clone();
-                        match &mut v {
-                            SequenceVariant::Genomic(v_g) => v_g.ac = new_ac,
-                            SequenceVariant::Coding(v_c) => v_c.ac = new_ac,
-                            SequenceVariant::Protein(v_p) => v_p.ac = new_ac,
-                            SequenceVariant::Mitochondrial(v_m) => v_m.ac = new_ac,
-                            SequenceVariant::NonCoding(v_n) => v_n.ac = new_ac,
-                            SequenceVariant::Rna(v_r) => v_r.ac = new_ac,
-                        }
+                        v.set_ac(new_ac);
                         expanded.push(v);
                     }
                 }
@@ -609,31 +415,31 @@ impl<'a> VariantEquivalence<'a> {
                 self.n_vs_n_equivalent(v1, v2)
             }
             (SequenceVariant::Coding(v1), SequenceVariant::Coding(v2)) => {
-                self.n_vs_n_equivalent_c(v1, v2)
+                self.tx_vs_tx_equivalent(v1, v2)
             }
             (SequenceVariant::NonCoding(v1), SequenceVariant::NonCoding(v2)) => {
-                self.n_vs_n_equivalent_n(v1, v2)
+                self.tx_vs_tx_equivalent(v1, v2)
             }
 
             (SequenceVariant::Genomic(v1), SequenceVariant::Coding(v2)) => {
-                self.g_vs_c_equivalent(v1, v2)
+                self.g_vs_tx_equivalent(v1, v2)
             }
             (SequenceVariant::Coding(v1), SequenceVariant::Genomic(v2)) => {
-                self.g_vs_c_equivalent(v2, v1)
+                self.g_vs_tx_equivalent(v2, v1)
             }
 
             (SequenceVariant::Genomic(v1), SequenceVariant::NonCoding(v2)) => {
-                self.g_vs_n_equivalent(v1, v2)
+                self.g_vs_tx_equivalent(v1, v2)
             }
             (SequenceVariant::NonCoding(v1), SequenceVariant::Genomic(v2)) => {
-                self.g_vs_n_equivalent(v2, v1)
+                self.g_vs_tx_equivalent(v2, v1)
             }
 
             (SequenceVariant::Coding(v1), SequenceVariant::NonCoding(v2)) => {
-                self.c_vs_n_equivalent(v1, v2)
+                self.tx_vs_tx_equivalent(v1, v2)
             }
             (SequenceVariant::NonCoding(v1), SequenceVariant::Coding(v2)) => {
-                self.c_vs_n_equivalent(v2, v1)
+                self.tx_vs_tx_equivalent(v2, v1)
             }
 
             // Nucleotide vs Protein
@@ -708,241 +514,42 @@ impl<'a> VariantEquivalence<'a> {
         s
     }
 
+    /// Two genomic variants are the same change exactly when their canonical
+    /// alleles are equal.
     fn n_vs_n_equivalent(&self, v1: &GVariant, v2: &GVariant) -> Result<bool, HgvsError> {
-        let nv1 = self
+        let a1 = self
             .mapper
-            .normalize_variant(SequenceVariant::Genomic(v1.clone()))?;
-        let nv2 = self
+            .canonical_allele(&SequenceVariant::Genomic(v1.clone()))?;
+        let a2 = self
             .mapper
-            .normalize_variant(SequenceVariant::Genomic(v2.clone()))?;
-
-        // Fill implicit sequences
-        let nv1_filled = self.fill_implicit_sequence(&nv1)?;
-        let nv2_filled = self.fill_implicit_sequence(&nv2)?;
-
-        // Normalize Ins to Dup
-        let nv1_dup = self.normalize_ins_to_dup(&nv1_filled)?;
-        let nv2_dup = self.normalize_ins_to_dup(&nv2_filled)?;
-
-        let s1 = self.normalize_format(&nv1_dup.to_string());
-        let s2 = self.normalize_format(&nv2_dup.to_string());
-
-        Ok(s1 == s2)
+            .canonical_allele(&SequenceVariant::Genomic(v2.clone()))?;
+        Ok(a1 == a2)
     }
 
-    fn normalize_ins_to_dup(&self, var: &SequenceVariant) -> Result<SequenceVariant, HgvsError> {
-        match var {
-            SequenceVariant::Genomic(v) => {
-                if let Some(pos) = &v.posedit.pos {
-                    if let NaEdit::Ins {
-                        alt: Some(seq),
-                        uncertain,
-                    } = &v.posedit.edit
-                    {
-                        let start_0 = pos.start.base.to_index();
-                        if let Some((check_start, start_idx, edit)) = self.try_normalize_to_dup(
-                            &v.ac,
-                            IdentifierKind::Genomic,
-                            start_0.0,
-                            seq,
-                            *uncertain,
-                        )? {
-                            let mut new_v = v.clone();
-                            new_v.posedit.pos = Some(SimpleInterval {
-                                start: SimplePosition {
-                                    base: GenomicPos(check_start).to_hgvs(),
-                                    end: None,
-                                    uncertain: false,
-                                },
-                                end: if check_start != start_idx {
-                                    Some(SimplePosition {
-                                        base: GenomicPos(start_idx).to_hgvs(),
-                                        end: None,
-                                        uncertain: false,
-                                    })
-                                } else {
-                                    None
-                                },
-                                uncertain: false,
-                            });
-                            new_v.posedit.edit = edit;
-                            return Ok(SequenceVariant::Genomic(new_v));
-                        }
-                    }
-                }
-                Ok(var.clone())
-            }
-            SequenceVariant::Coding(v) => {
-                if let Some(pos) = &v.posedit.pos {
-                    if let NaEdit::Ins {
-                        alt: Some(seq),
-                        uncertain,
-                    } = &v.posedit.edit
-                    {
-                        let transcript = self.hdp.get_transcript(&v.ac, None)?;
-                        if let Some((new_pos, new_edit)) =
-                            self.normalize_ins_to_dup_boi(&v.ac, pos, seq, *uncertain, transcript)?
-                        {
-                            let mut new_v = v.clone();
-                            new_v.posedit.pos = Some(new_pos);
-                            new_v.posedit.edit = new_edit;
-                            return Ok(SequenceVariant::Coding(new_v));
-                        }
-                    }
-                }
-                Ok(var.clone())
-            }
-            SequenceVariant::NonCoding(v) => {
-                if let Some(pos) = &v.posedit.pos {
-                    if let NaEdit::Ins {
-                        alt: Some(seq),
-                        uncertain,
-                    } = &v.posedit.edit
-                    {
-                        let transcript = self.hdp.get_transcript(&v.ac, None)?;
-                        if let Some((new_pos, new_edit)) =
-                            self.normalize_ins_to_dup_boi(&v.ac, pos, seq, *uncertain, transcript)?
-                        {
-                            let mut new_v = v.clone();
-                            new_v.posedit.pos = Some(new_pos);
-                            new_v.posedit.edit = new_edit;
-                            return Ok(SequenceVariant::NonCoding(new_v));
-                        }
-                    }
-                }
-                Ok(var.clone())
-            }
-            _ => Ok(var.clone()),
-        }
-    }
-
-    fn normalize_ins_to_dup_boi(
+    /// Two transcript-space variants, compared on their references.
+    fn tx_vs_tx_equivalent<A: TranscriptVariant, B: TranscriptVariant>(
         &self,
-        ac: &str,
-        pos: &BaseOffsetInterval,
-        seq: &str,
-        uncertain: bool,
-        transcript: Box<dyn Transcript>,
-    ) -> Result<Option<(BaseOffsetInterval, NaEdit)>, HgvsError> {
-        if pos.start.offset.is_some() || pos.end.as_ref().map_or(false, |e| e.offset.is_some()) {
-            return Ok(None);
-        }
-        let (start_idx_usize, _) = self.mapper.get_c_indices(pos, &transcript)?;
-        let start_idx = start_idx_usize as i32;
-
-        if let Some((check_start, last_idx, edit)) =
-            self.try_normalize_to_dup(ac, IdentifierKind::Transcript, start_idx, seq, uncertain)?
-        {
-            let am = crate::transcript_mapper::TranscriptMapper::new(transcript)?;
-            let (c_pos_index, _, anchor) = am.n_to_c(TranscriptPos(check_start))?;
-            let new_pos = BaseOffsetInterval {
-                start: BaseOffsetPosition {
-                    base: c_pos_index.to_hgvs(),
-                    offset: None,
-                    anchor,
-                    uncertain: false,
-                },
-                end: if check_start != last_idx {
-                    let (c_pos_e_index, _, anchor_e) = am.n_to_c(TranscriptPos(last_idx))?;
-                    Some(BaseOffsetPosition {
-                        base: c_pos_e_index.to_hgvs(),
-                        offset: None,
-                        anchor: anchor_e,
-                        uncertain: false,
-                    })
-                } else {
-                    None
-                },
-                uncertain: false,
-            };
-            Ok(Some((new_pos, edit)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn try_normalize_to_dup(
-        &self,
-        ac: &str,
-        kind: IdentifierKind,
-        start_idx: i32,
-        seq: &str,
-        uncertain: bool,
-    ) -> Result<Option<(i32, i32, NaEdit)>, HgvsError> {
-        let len = seq.len() as i32;
-        let check_start = start_idx - len + 1;
-        if check_start < 0 {
-            return Ok(None);
-        }
-        let ref_seq =
-            self.hdp
-                .get_seq(ac, check_start, start_idx + 1, kind.into_identifier_type())?;
-        if ref_seq == *seq {
-            Ok(Some((
-                check_start,
-                start_idx,
-                NaEdit::Dup {
-                    ref_: Some(seq.to_string()),
-                    uncertain,
-                },
-            )))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn n_vs_n_equivalent_c(
-        &self,
-        v1: &crate::structs::CVariant,
-        v2: &crate::structs::CVariant,
+        v1: &A,
+        v2: &B,
     ) -> Result<bool, HgvsError> {
-        let tx1 = self.hdp.get_transcript(&v1.ac, None)?;
-        let tx2 = self.hdp.get_transcript(&v2.ac, None)?;
-        let g1 = self.mapper.c_to_g(v1, Some(tx1.reference_accession()))?;
-        let g2 = self.mapper.c_to_g(v2, Some(tx2.reference_accession()))?;
+        let tx1 = self.hdp.get_transcript(v1.ac(), None)?;
+        let tx2 = self.hdp.get_transcript(v2.ac(), None)?;
+        let g1 = self
+            .mapper
+            .tx_to_g(v1, Some(tx1.reference_accession.as_str()))?;
+        let g2 = self
+            .mapper
+            .tx_to_g(v2, Some(tx2.reference_accession.as_str()))?;
         self.n_vs_n_equivalent(&g1, &g2)
     }
 
-    fn n_vs_n_equivalent_n(
+    fn g_vs_tx_equivalent<V: TranscriptVariant>(
         &self,
-        v1: &crate::structs::NVariant,
-        v2: &crate::structs::NVariant,
+        vg: &GVariant,
+        v: &V,
     ) -> Result<bool, HgvsError> {
-        let tx1 = self.hdp.get_transcript(&v1.ac, None)?;
-        let tx2 = self.hdp.get_transcript(&v2.ac, None)?;
-        let g1 = self.mapper.n_to_g(v1, Some(tx1.reference_accession()))?;
-        let g2 = self.mapper.n_to_g(v2, Some(tx2.reference_accession()))?;
-        self.n_vs_n_equivalent(&g1, &g2)
-    }
-
-    fn g_vs_c_equivalent(
-        &self,
-        vg: &crate::structs::GVariant,
-        vc: &crate::structs::CVariant,
-    ) -> Result<bool, HgvsError> {
-        let g2 = self.mapper.c_to_g(vc, Some(&vg.ac))?;
+        let g2 = self.mapper.tx_to_g(v, Some(&vg.ac))?;
         self.n_vs_n_equivalent(vg, &g2)
-    }
-
-    fn g_vs_n_equivalent(
-        &self,
-        vg: &crate::structs::GVariant,
-        vn: &crate::structs::NVariant,
-    ) -> Result<bool, HgvsError> {
-        let g2 = self.mapper.n_to_g(vn, Some(&vg.ac))?;
-        self.n_vs_n_equivalent(vg, &g2)
-    }
-
-    fn c_vs_n_equivalent(
-        &self,
-        vc: &crate::structs::CVariant,
-        vn: &crate::structs::NVariant,
-    ) -> Result<bool, HgvsError> {
-        let tx = self.hdp.get_transcript(&vc.ac, None)?;
-        let ref_ac = tx.reference_accession();
-        let g1 = self.mapper.c_to_g(vc, Some(ref_ac))?;
-        let g2 = self.mapper.n_to_g(vn, Some(ref_ac))?;
-        self.n_vs_n_equivalent(&g1, &g2)
     }
 
     fn n_vs_p_equivalent(
@@ -951,8 +558,8 @@ impl<'a> VariantEquivalence<'a> {
         vp: &crate::structs::PVariant,
     ) -> Result<bool, HgvsError> {
         let tx = self.hdp.get_transcript(&vn.ac, None)?;
-        let ref_ac = tx.reference_accession();
-        let vg = self.mapper.n_to_g(vn, Some(ref_ac))?;
+        let ref_ac = tx.reference_accession;
+        let vg = self.mapper.tx_to_g(vn, Some(ref_ac.as_str()))?;
         self.g_vs_p_equivalent(&vg, vp)
     }
 
@@ -1027,8 +634,8 @@ impl<'a> VariantEquivalence<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coords::{GenomicPos, IntronicOffset, TranscriptPos};
-    use crate::data::{ExonData, IdentifierKind, IdentifierType, Transcript, TranscriptData};
+    use crate::coords::{GenomicPos, TranscriptPos};
+    use crate::data::{ExonData, IdentifierKind, IdentifierType, TranscriptData};
 
     struct MockDataProvider;
     impl DataProvider for MockDataProvider {
@@ -1036,9 +643,9 @@ mod tests {
             &self,
             ac: &str,
             _ref_ac: Option<&str>,
-        ) -> Result<Box<dyn Transcript>, HgvsError> {
+        ) -> Result<TranscriptData, HgvsError> {
             if ac == "NM_000123.4" {
-                Ok(Box::new(TranscriptData {
+                Ok(TranscriptData {
                     ac: "NM_000123.4".to_string(),
                     gene: "ABC".to_string(),
                     cds_start_index: Some(TranscriptPos(0)),
@@ -1053,7 +660,7 @@ mod tests {
                         alt_strand: crate::data::Strand::Plus,
                         cigar: "20M".to_string(),
                     }],
-                }))
+                })
             } else {
                 Err(HgvsError::ValidationError("Not found".into()))
             }
@@ -1062,17 +669,13 @@ mod tests {
             &self,
             _ac: &str,
             start: i32,
-            end: i32,
+            end: Option<i32>,
             _kind: IdentifierType,
         ) -> Result<String, HgvsError> {
             let seq = "ACGTACGTACGTACGTACGT"; // A=0, C=1, G=2, T=3, A=4, ...
-            let s = start as usize;
-            let e = end as usize;
-            if s < seq.len() && e <= seq.len() {
-                Ok(seq[s..e].to_string())
-            } else {
-                Ok("".to_string())
-            }
+            let s = (start.max(0) as usize).min(seq.len());
+            let e = end.map_or(seq.len(), |e| (e as usize).min(seq.len()));
+            Ok(seq[s..e.max(s)].to_string())
         }
         fn get_symbol_accessions(
             &self,
@@ -1084,14 +687,6 @@ mod tests {
         }
         fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
             Ok(IdentifierType::GenomicAccession)
-        }
-        fn c_to_g(
-            &self,
-            _transcript_ac: &str,
-            pos: TranscriptPos,
-            offset: IntronicOffset,
-        ) -> Result<(String, GenomicPos), HgvsError> {
-            Ok(("NC_000001.11".to_string(), GenomicPos(pos.0 + offset.0)))
         }
     }
 
@@ -1108,31 +703,29 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_ins_to_dup() -> Result<(), HgvsError> {
+    fn normalize_writes_a_repeated_insertion_as_a_duplication() -> Result<(), HgvsError> {
         let hdp = MockDataProvider;
-        let search = MockSearch;
-        let eq = VariantEquivalence::new(&hdp, &search);
+        let mapper = VariantMapper::new(&hdp);
+        let norm = |hgvs: &str| -> Result<String, HgvsError> {
+            Ok(mapper
+                .normalize_variant(crate::parse_hgvs_variant(hgvs)?)?
+                .to_string())
+        };
 
-        // Genomic: NC_000001.11:g.2_3insC (base 2 index 1 is C)
-        let var_g = crate::parse_hgvs_variant("NC_000001.11:g.2_3insC")?;
-        let norm_g = eq.normalize_ins_to_dup(&var_g)?;
-        assert_eq!(norm_g.to_string(), "NC_000001.11:g.2dupC");
+        // Reference is ACGT repeated; base 2 (index 1) is C.
+        assert_eq!(norm("NC_000001.11:g.2_3insC")?, "NC_000001.11:g.2dupC");
+        assert_eq!(norm("NM_000123.4:c.2_3insC")?, "NM_000123.4:c.2dupC");
+        assert_eq!(norm("NM_000123.4:n.2_3insC")?, "NM_000123.4:n.2dupC");
 
-        // Coding: NM_000123.4:c.2_3insC
-        let var_c = crate::parse_hgvs_variant("NM_000123.4:c.2_3insC")?;
-        let norm_c = eq.normalize_ins_to_dup(&var_c)?;
-        assert_eq!(norm_c.to_string(), "NM_000123.4:c.2dupC");
+        // A whole-unit insertion into a repeat shifts to the 3' end of the run
+        // first, then duplicates the last copy.
+        assert_eq!(
+            norm("NC_000001.11:g.4_5insACGT")?,
+            "NC_000001.11:g.17_20dupACGT"
+        );
 
-        // NonCoding: NM_000123.4:n.2_3insC
-        let var_n = crate::parse_hgvs_variant("NM_000123.4:n.2_3insC")?;
-        let norm_n = eq.normalize_ins_to_dup(&var_n)?;
-        assert_eq!(norm_n.to_string(), "NM_000123.4:n.2dupC");
-
-        // Multi-base Genomic: NC_000001.11:g.4_5insACGT (bases 1-4 are ACGT)
-        let var_gm = crate::parse_hgvs_variant("NC_000001.11:g.4_5insACGT")?;
-        let norm_gm = eq.normalize_ins_to_dup(&var_gm)?;
-        assert_eq!(norm_gm.to_string(), "NC_000001.11:g.1_4dupACGT");
-
+        // An insertion that does not repeat its neighbours stays an insertion.
+        assert_eq!(norm("NC_000001.11:g.2_3insTT")?, "NC_000001.11:g.2_3insTT");
         Ok(())
     }
 

@@ -1,11 +1,13 @@
-use crate::data::{ExonData, Transcript};
+use crate::data::{ExonData, TranscriptData};
 use crate::error::HgvsError;
-use crate::structs::{Anchor, GenomicPos, IntronicOffset, TranscriptPos};
+use crate::structs::{
+    Anchor, BaseOffsetInterval, BaseOffsetPosition, GenomicPos, IntronicOffset, TranscriptPos,
+};
 
 /// Handles coordinate transformations within a single transcript.
 pub struct TranscriptMapper {
     /// The transcript model providing exon and CDS information.
-    pub transcript: Box<dyn Transcript>,
+    pub transcript: TranscriptData,
     /// Sorted exons (transcript order).
     pub exons: Vec<ExonData>,
     /// CIGAR mappers for exons with non-trivial alignments.
@@ -14,9 +16,9 @@ pub struct TranscriptMapper {
 
 impl TranscriptMapper {
     /// Creates a new `TranscriptMapper` for the given transcript.
-    pub fn new(transcript: Box<dyn Transcript>) -> Result<Self, HgvsError> {
-        let mut exons = transcript.exons().to_vec();
-        if transcript.strand() == crate::data::Strand::Plus {
+    pub fn new(transcript: TranscriptData) -> Result<Self, HgvsError> {
+        let mut exons = transcript.exons.to_vec();
+        if transcript.strand == crate::data::Strand::Plus {
             exons.sort_by_key(|e| e.reference_start.0);
         } else {
             exons.sort_by_key(|e| std::cmp::Reverse(e.reference_start.0));
@@ -115,14 +117,71 @@ impl TranscriptMapper {
         Ok((best_n, IntronicOffset(best_offset)))
     }
 
+    /// Resolves a c./n. position to a 0-based transcript index.
+    ///
+    /// The anchor (transcript start, CDS start, CDS end) is applied here, so callers
+    /// never do CDS arithmetic themselves. An intronic offset is rejected: an
+    /// intronic base has no transcript index.
+    pub fn position_to_n(&self, pos: &BaseOffsetPosition) -> Result<TranscriptPos, HgvsError> {
+        if pos.offset.is_some_and(|o| o.0 != 0) {
+            return Err(HgvsError::UnsupportedOperation(
+                "Intronic position has no transcript index".into(),
+            ));
+        }
+        self.c_to_n(pos.base.to_index(), pos.anchor)
+    }
+
+    /// Resolves a c./n. position, including any intronic offset, to a 0-based
+    /// genomic position on the transcript's reference. Strand is handled here.
+    pub fn position_to_g(&self, pos: &BaseOffsetPosition) -> Result<GenomicPos, HgvsError> {
+        let n = self.c_to_n(pos.base.to_index(), pos.anchor)?;
+        self.n_to_g(n, pos.offset.unwrap_or(IntronicOffset(0)))
+    }
+
+    /// Resolves a c./n. interval to a half-open 0-based transcript index range
+    /// `[start, end)`. A single position yields a range of length one.
+    pub fn interval_to_n(
+        &self,
+        interval: &BaseOffsetInterval,
+    ) -> Result<(TranscriptPos, TranscriptPos), HgvsError> {
+        let start = self.position_to_n(&interval.start)?;
+        let last = match &interval.end {
+            Some(e) => self.position_to_n(e)?,
+            None => start,
+        };
+        let end = last
+            .0
+            .checked_add(1)
+            .ok_or_else(|| HgvsError::ValidationError("Transcript end position overflow".into()))?;
+        Ok((start, TranscriptPos(end)))
+    }
+
+    /// Resolves a c./n. interval to a half-open 0-based genomic range `[start, end)`
+    /// on the transcript's reference, ordered low-to-high regardless of strand.
+    pub fn interval_to_g(
+        &self,
+        interval: &BaseOffsetInterval,
+    ) -> Result<(GenomicPos, GenomicPos), HgvsError> {
+        let a = self.position_to_g(&interval.start)?;
+        let b = match &interval.end {
+            Some(e) => self.position_to_g(e)?,
+            None => a,
+        };
+        let (lo, hi) = (a.0.min(b.0), a.0.max(b.0));
+        let end = hi
+            .checked_add(1)
+            .ok_or_else(|| HgvsError::ValidationError("Genomic end position overflow".into()))?;
+        Ok((GenomicPos(lo), GenomicPos(end)))
+    }
+
     /// Maps a 0-based transcript position to a 0-based cDNA position and anchor.
     pub fn n_to_c(
         &self,
         n_pos: TranscriptPos,
     ) -> Result<(TranscriptPos, IntronicOffset, Anchor), HgvsError> {
         if let (Some(cds_start), Some(cds_end)) = (
-            self.transcript.cds_start_index(),
-            self.transcript.cds_end_index(),
+            self.transcript.cds_start_index,
+            self.transcript.cds_end_index,
         ) {
             if n_pos < cds_start {
                 Ok((
@@ -155,14 +214,14 @@ impl TranscriptMapper {
             Anchor::CdsStart => {
                 let cds_start = self
                     .transcript
-                    .cds_start_index()
+                    .cds_start_index
                     .ok_or_else(|| HgvsError::ValidationError("Missing CDS start".into()))?;
                 Ok(TranscriptPos(cds_start.0 + c_pos.0))
             }
             Anchor::CdsEnd => {
                 let cds_end = self
                     .transcript
-                    .cds_end_index()
+                    .cds_end_index
                     .ok_or_else(|| HgvsError::ValidationError("Missing CDS end".into()))?;
                 Ok(TranscriptPos(cds_end.0 + 1 + c_pos.0))
             }
@@ -219,11 +278,8 @@ mod tests {
     use super::*;
     use crate::data::{ExonData, TranscriptData};
 
-    fn create_mock_transcript(
-        strand: crate::data::Strand,
-        exons: Vec<ExonData>,
-    ) -> Box<dyn Transcript> {
-        Box::new(TranscriptData {
+    fn create_mock_transcript(strand: crate::data::Strand, exons: Vec<ExonData>) -> TranscriptData {
+        TranscriptData {
             ac: "NM_0001.1".to_string(),
             gene: "TEST".to_string(),
             cds_start_index: None,
@@ -231,7 +287,7 @@ mod tests {
             strand,
             reference_accession: "NC_000001.1".to_string(),
             exons,
-        })
+        }
     }
 
     #[test]
