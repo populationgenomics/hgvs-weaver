@@ -317,7 +317,7 @@ proptest! {
         pick in 0usize..10_000,
         codons in 1usize..=3,
         insert in prop::collection::vec(prop::sample::select(BASES.to_vec()), 3..=9),
-        deletion in prop::bool::ANY,
+        kind in 0u8..3,
     ) {
         let n_codons = (g.cds_end + 1 - g.cds_start) / 3;
         prop_assume!(n_codons > codons + 2);
@@ -328,10 +328,15 @@ proptest! {
         let hdp = g.provider();
         let mapper = VariantMapper::new(&hdp);
 
-        let (vc, alt_tx) = if deletion {
+        let (vc, alt_tx) = if kind == 0 {
             let end = start + 3 * codons;
             (coding_variant(&g, &am, start, end, NaEdit::Del { ref_: None, uncertain: false }),
              format!("{}{}", &g.transcript_seq[..start], &g.transcript_seq[end..]))
+        } else if kind == 1 {
+            // duplication of whole codons
+            let end = start + 3 * codons;
+            (coding_variant(&g, &am, start, end, NaEdit::Dup { ref_: None, uncertain: false }),
+             format!("{}{}{}", &g.transcript_seq[..end], &g.transcript_seq[start..end], &g.transcript_seq[end..]))
         } else {
             let ins: String = insert.iter().take(insert.len() / 3 * 3).collect();
             prop_assume!(!ins.is_empty());
@@ -350,6 +355,63 @@ proptest! {
             unreachable!()
         };
         prop_assert_eq!(up_to_stop(&applied), up_to_stop(&alt_aa), "{} does not describe the translated protein", described);
+    }
+}
+
+proptest! {
+    /// HGVS writes an in-frame insertion or duplication at its 3'-most
+    /// equivalent residues: moving the described residues one position further
+    /// towards the C terminus must give a different protein, or the
+    /// description was not fully shifted.
+    #[test]
+    fn protein_insertions_are_written_3_prime_most(
+        g in gene(),
+        pick in 0usize..10_000,
+        codons in 1usize..=3,
+        insert in prop::collection::vec(prop::sample::select(BASES.to_vec()), 3..=9),
+        dup in prop::bool::ANY,
+    ) {
+        let n_codons = (g.cds_end + 1 - g.cds_start) / 3;
+        prop_assume!(n_codons > codons + 2);
+        let ci = 1 + pick % (n_codons - 1 - codons);
+        let start = g.cds_start + 3 * ci;
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = if dup {
+            coding_variant(&g, &am, start, start + 3 * codons, NaEdit::Dup { ref_: None, uncertain: false })
+        } else {
+            let ins: String = insert.iter().take(insert.len() / 3 * 3).collect();
+            prop_assume!(!ins.is_empty());
+            coding_variant(&g, &am, start - 1, start + 1, NaEdit::Ins { alt: Some(ins), uncertain: false })
+        };
+        let vp = mapper.c_to_p(&vc, Some("NP_PROP.1")).unwrap();
+        let ref_aa = translate(&g.transcript_seq[g.cds_start..]);
+        let Some(pos) = &vp.posedit.pos else { return Ok(()) };
+        let s = pos.start.base.to_index().0 as usize;
+        let e = pos.end.as_ref().map_or(s, |p| p.base.to_index().0 as usize);
+        let shifted = match &vp.posedit.edit {
+            // insertion between s and s+1 -> between s+1 and s+2
+            AaEdit::Ins { alt, uncertain } => Some((s + 1, s + 2, AaEdit::Ins { alt: alt.clone(), uncertain: *uncertain })),
+            // duplication of s..=e -> of s+1..=e+1
+            AaEdit::Dup { ref_, uncertain } => Some((s + 1, e + 1, AaEdit::Dup { ref_: ref_.clone(), uncertain: *uncertain })),
+            _ => None,
+        };
+        let Some((ns, ne, edit)) = shifted else { return Ok(()) };
+        if ne >= ref_aa.len() { return Ok(()); }
+        let mut moved = vp.clone();
+        let p = moved.posedit.pos.as_mut().unwrap();
+        p.start.base = hgvs_weaver::coords::ProteinPos(ns as i32).to_hgvs();
+        if let Some(end) = p.end.as_mut() { end.base = hgvs_weaver::coords::ProteinPos(ne as i32).to_hgvs(); }
+        moved.posedit.edit = edit;
+        let (here, there) = (apply_protein(&ref_aa, &vp), apply_protein(&ref_aa, &moved));
+        prop_assert!(here.is_some());
+        prop_assert_ne!(
+            here.clone().map(|x| up_to_stop(&x)),
+            there.map(|x| up_to_stop(&x)),
+            "{} is not 3'-most: the same protein results one residue further on",
+            vp
+        );
     }
 }
 
