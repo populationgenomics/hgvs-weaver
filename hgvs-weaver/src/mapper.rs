@@ -9,7 +9,7 @@ use crate::structs::{
     NVariant, PVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
-use crate::vrs::{VrsAllele, VrsMolecule};
+use crate::vrs::{VrsAllele, VrsBound, VrsMolecule};
 
 fn make_base_offset_position(
     base: crate::coords::HgvsTranscriptPos,
@@ -67,6 +67,26 @@ fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize),
         )));
     }
     Ok((start as usize, last as usize + 1))
+}
+
+/// The VRS bounds of a g. interval whose breakpoints are uncertain, HGVS
+/// `(a_b)_(c_d)` with `?` for an unknown side; `None` when every position is
+/// exact. A deletion `(a_b)_(c_d)` starts at an interbase coordinate in
+/// `[a-1, b-1]` and ends at one in `[c, d]`; a single `(a_b)` removes one
+/// base somewhere in `a..=b`.
+fn uncertain_bounds(pos: &SimpleInterval) -> Option<(VrsBound, VrsBound)> {
+    let ranged = |p: &SimplePosition| p.end.is_some() || p.base.is_unknown();
+    let last = pos.end.as_ref().unwrap_or(&pos.start);
+    if !ranged(&pos.start) && !ranged(last) {
+        return None;
+    }
+    let known = |b: crate::coords::HgvsGenomicPos| (b.0 > 0).then_some(b.0 as usize);
+    let bound = |p: &SimplePosition, interbase: fn(usize) -> usize| match (p.end, known(p.base)) {
+        (Some(e), lo) => VrsBound::Range(lo.map(interbase), known(e).map(interbase)),
+        (None, Some(b)) => VrsBound::Exact(interbase(b)),
+        (None, None) => VrsBound::Range(None, None),
+    };
+    Some((bound(&pos.start, |b| b - 1), bound(last, |b| b)))
 }
 
 /// The 0-based half-open index range a g. interval names.
@@ -1093,6 +1113,36 @@ impl<'a> VariantMapper<'a> {
     /// The GA4GH VRS 2.0 Allele of a variant, with computed identifiers. The
     /// input HGVS is carried as an expression.
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
+        let syntax = format!("hgvs.{}", var.coordinate_type());
+        let hgvs = var.to_string();
+        // Breakpoints known only to ranges cannot be normalised; VRS carries
+        // them as Range bounds, for deletions.
+        let linear = match var {
+            crate::SequenceVariant::Genomic(v) => Some(v.clone()),
+            crate::SequenceVariant::Mitochondrial(v) => Some(v.to_genomic()),
+            _ => None,
+        };
+        if let Some(g) = linear {
+            if let Some((start, end)) = g.posedit.pos.as_ref().and_then(uncertain_bounds) {
+                if !matches!(g.posedit.edit, crate::edits::NaEdit::Del { .. }) {
+                    return Err(HgvsError::UnsupportedOperation(format!(
+                        "Only a deletion can have uncertain breakpoints in VRS, not {:?}",
+                        g.posedit.edit
+                    )));
+                }
+                let refget = self
+                    .refs
+                    .reference(&g.ac, IdentifierType::GenomicAccession)
+                    .refget_accession()?;
+                return Ok(VrsAllele::imprecise_deletion(
+                    &refget,
+                    start,
+                    end,
+                    VrsMolecule::Genomic,
+                    Some((&syntax, &hgvs)),
+                ));
+            }
+        }
         let allele = self.canonical_allele(var)?;
         let (kind, molecule) = match var {
             crate::SequenceVariant::Protein(_) => {
@@ -1104,12 +1154,11 @@ impl<'a> VariantMapper<'a> {
             .refs
             .reference(&allele.accession, kind)
             .refget_accession()?;
-        let syntax = format!("hgvs.{}", var.coordinate_type());
         Ok(VrsAllele::new(
             &allele,
             &refget,
             molecule,
-            Some((&syntax, &var.to_string())),
+            Some((&syntax, &hgvs)),
         ))
     }
 

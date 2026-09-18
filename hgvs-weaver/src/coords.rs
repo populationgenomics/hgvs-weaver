@@ -137,6 +137,14 @@ impl Sub<IntronicOffset> for IntronicOffset {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct HgvsGenomicPos(pub i32);
 impl HgvsGenomicPos {
+    /// A bound that is not given, HGVS `?`. Position 0 does not exist in
+    /// 1-based coordinates, so it can stand for "unknown".
+    pub const UNKNOWN: Self = Self(0);
+
+    pub fn is_unknown(&self) -> bool {
+        self.0 == 0
+    }
+
     /// Converts a 1-based HGVS genomic coordinate to an internal 0-based `GenomicPos`.
     pub fn to_index(&self) -> GenomicPos {
         (*self).into()

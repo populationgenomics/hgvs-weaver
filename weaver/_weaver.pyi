@@ -310,7 +310,10 @@ class VariantMapper:
 
         Args:
             var: A g., m., c., n. or p. Variant. Protein variants must describe a
-                sequence: frameshifts, extensions and p.? have no allele.
+                sequence: frameshifts, extensions and p.? have no allele. A g. or
+                m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is
+                rendered as given, with Range bounds ([min, max], null when
+                unbounded) and an empty literal state; it is not normalised.
 
         Returns:
             A dict in the VRS 2.0 Allele schema.

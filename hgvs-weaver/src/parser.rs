@@ -123,8 +123,14 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
         Rule::uncertain_g_interval => {
             let mut start = None;
             let mut end = None;
+            // A bound is uncertain when it is parenthesised, `(a_b)` or `(a)`;
+            // the grammar does not keep the parentheses, so look at the text.
+            let text = p.as_str();
+            let base = p.as_span().start();
             for sub in p.into_inner() {
                 if sub.as_rule() == Rule::def_g_interval {
+                    let at = sub.as_span().start() - base;
+                    let parenthesised = at > 0 && text.as_bytes()[at - 1] == b'(';
                     let mut parts = sub.into_inner();
                     let s =
                         parse_simple_pos(parts.next().ok_or_else(|| {
@@ -135,7 +141,7 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
                     let pos = SimplePosition {
                         base: s.base,
                         end: e.map(|x| x.base),
-                        uncertain: true,
+                        uncertain: parenthesised,
                     };
 
                     if start.is_none() {
@@ -163,10 +169,11 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
 pub fn parse_simple_pos(pair: Pair<Rule>) -> Result<SimplePosition, HgvsError> {
     let s = pair.as_str();
     if s == "?" {
+        // Unknown is carried by the base itself; `?` is not parenthesised.
         return Ok(SimplePosition {
-            base: HgvsGenomicPos(0),
+            base: HgvsGenomicPos::UNKNOWN,
             end: None,
-            uncertain: true,
+            uncertain: false,
         });
     }
     let hgvs_base = s

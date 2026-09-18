@@ -8,7 +8,7 @@
 
 use crate::allele::CanonicalAllele;
 use base64::Engine;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha512};
 
@@ -65,6 +65,25 @@ pub struct VrsSequenceReference {
     pub molecule_type: String,
 }
 
+/// One end of a `SequenceLocation`: an exact interbase coordinate, or a
+/// `Range` `[min, max]` when the breakpoint is only known to lie within it
+/// (`None` for an unbounded side). Serialises as a number or a two-element
+/// array with `null`s, which is also its form in computed identifiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VrsBound {
+    Exact(usize),
+    Range(Option<usize>, Option<usize>),
+}
+
+impl Serialize for VrsBound {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            VrsBound::Exact(n) => serializer.serialize_u64(*n as u64),
+            VrsBound::Range(min, max) => (min, max).serialize(serializer),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct VrsSequenceLocation {
     pub id: String,
@@ -73,8 +92,8 @@ pub struct VrsSequenceLocation {
     pub digest: String,
     #[serde(rename = "sequenceReference")]
     pub sequence_reference: VrsSequenceReference,
-    pub start: usize,
-    pub end: usize,
+    pub start: VrsBound,
+    pub end: VrsBound,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -123,15 +142,6 @@ impl VrsAllele {
         molecule: VrsMolecule,
         hgvs: Option<(&str, &str)>,
     ) -> Self {
-        let location_digest = sha512t24u(
-            canonical_json(&json!({
-                "type": "SequenceLocation",
-                "sequenceReference": {"type": "SequenceReference", "refgetAccession": refget},
-                "start": allele.start,
-                "end": allele.end,
-            }))
-            .as_bytes(),
-        );
         let state = match allele.repeat_subunit {
             Some(unit) => VrsState::ReferenceLength {
                 type_: "ReferenceLengthExpression".into(),
@@ -144,6 +154,51 @@ impl VrsAllele {
                 sequence: allele.alternate.clone(),
             },
         };
+        Self::build(
+            refget,
+            VrsBound::Exact(allele.start),
+            VrsBound::Exact(allele.end),
+            state,
+            molecule,
+            hgvs,
+        )
+    }
+
+    /// A deletion whose breakpoints are only known to lie within ranges, HGVS
+    /// `g.(a_b)_(c_d)del`. The location carries the ranges and the state is
+    /// the empty literal sequence. Such an allele cannot be normalised, so it
+    /// is rendered as given.
+    pub fn imprecise_deletion(
+        refget: &str,
+        start: VrsBound,
+        end: VrsBound,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let state = VrsState::Literal {
+            type_: "LiteralSequenceExpression".into(),
+            sequence: String::new(),
+        };
+        Self::build(refget, start, end, state, molecule, hgvs)
+    }
+
+    fn build(
+        refget: &str,
+        start: VrsBound,
+        end: VrsBound,
+        state: VrsState,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let location_digest = sha512t24u(
+            canonical_json(&json!({
+                "type": "SequenceLocation",
+                "sequenceReference": {"type": "SequenceReference", "refgetAccession": refget},
+                "start": start,
+                "end": end,
+            }))
+            .as_bytes(),
+        );
         let state_inherent = match &state {
             VrsState::Literal { sequence, .. } => {
                 json!({"type": "LiteralSequenceExpression", "sequence": sequence})
@@ -180,8 +235,8 @@ impl VrsAllele {
                     residue_alphabet: molecule.residue_alphabet().into(),
                     molecule_type: molecule.molecule_type().into(),
                 },
-                start: allele.start,
-                end: allele.end,
+                start,
+                end,
             },
             state,
             expressions: hgvs

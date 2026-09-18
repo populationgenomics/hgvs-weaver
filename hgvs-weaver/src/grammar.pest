@@ -65,7 +65,7 @@ pro_ext    = { aat13? ~ ext }
 // Intervals
 c_interval = { def_c_interval | ("(" ~ def_c_interval ~ ")") }
 g_interval = { uncertain_g_interval | def_g_interval }
-m_interval = { def_m_interval | ("(" ~ def_m_interval ~ ")") }
+m_interval = { uncertain_g_interval | def_m_interval }
 n_interval = { def_n_interval | ("(" ~ def_n_interval ~ ")") }
 p_interval = { def_p_interval | ("(" ~ def_p_interval ~ ")") }
 r_interval = { def_r_interval | ("(" ~ def_r_interval ~ ")") }

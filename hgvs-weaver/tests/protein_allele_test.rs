@@ -5,7 +5,7 @@ use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, Transcript
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
-use hgvs_weaver::vrs::refget_accession;
+use hgvs_weaver::vrs::{refget_accession, VrsBound};
 
 /// M K L A A A Y R Q
 const PROTEIN: &str = "MKLAAAYRQ";
@@ -115,7 +115,10 @@ fn the_vrs_allele_is_on_the_protein() {
     assert_eq!(reference.residue_alphabet, "aa");
     assert_eq!(reference.molecule_type, "protein");
     assert_eq!(reference.refget_accession, refget_accession(PROTEIN));
-    assert_eq!((vrs.location.start, vrs.location.end), (1, 2));
+    assert_eq!(
+        (vrs.location.start, vrs.location.end),
+        (VrsBound::Exact(1), VrsBound::Exact(2))
+    );
     assert!(vrs.id.starts_with("ga4gh:VA."), "{}", vrs.id);
     assert_eq!(vrs.expressions[0].syntax, "hgvs.p");
     assert_eq!(vrs.expressions[0].value, "NP_TEST.1:p.Lys2Leu");
