@@ -3,10 +3,11 @@ use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, 
 use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
 use crate::reference::ReferenceStore;
+use crate::structs::Anchor;
 use crate::structs::Variant;
 use crate::structs::{
     BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, GenomicPos, LinearVariant,
-    NVariant, PVariant, SimpleInterval, SimplePosition, TranscriptVariant,
+    NVariant, PVariant, RVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
 use crate::vrs::{VrsAllele, VrsBound, VrsMolecule, VrsState};
@@ -219,6 +220,95 @@ fn protein_variant(
             predicted: false,
         },
     })
+}
+
+/// The alphabet a transcript edit is written in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Letters {
+    /// Uppercase, T.
+    Dna,
+    /// Lowercase, u.
+    Rna,
+}
+
+/// `edit` with its bases written in `letters`; stated lengths are untouched.
+fn relettered(edit: &crate::edits::NaEdit, letters: Letters) -> crate::edits::NaEdit {
+    use crate::edits::NaEdit;
+    let word = |s: &String| -> String {
+        if crate::edits::is_length(s) {
+            s.clone()
+        } else {
+            match letters {
+                Letters::Dna => s.to_uppercase().replace('U', "T"),
+                Letters::Rna => s.to_lowercase().replace('t', "u"),
+            }
+        }
+    };
+    let opt = |o: &Option<String>| o.as_ref().map(word);
+    match edit {
+        NaEdit::RefAlt {
+            ref_,
+            alt,
+            uncertain,
+        } => NaEdit::RefAlt {
+            ref_: opt(ref_),
+            alt: opt(alt),
+            uncertain: *uncertain,
+        },
+        NaEdit::Del { ref_, uncertain } => NaEdit::Del {
+            ref_: opt(ref_),
+            uncertain: *uncertain,
+        },
+        NaEdit::Ins { alt, uncertain } => NaEdit::Ins {
+            alt: opt(alt),
+            uncertain: *uncertain,
+        },
+        NaEdit::Dup { ref_, uncertain } => NaEdit::Dup {
+            ref_: opt(ref_),
+            uncertain: *uncertain,
+        },
+        NaEdit::Inv { ref_, uncertain } => NaEdit::Inv {
+            ref_: opt(ref_),
+            uncertain: *uncertain,
+        },
+        NaEdit::Repeat {
+            ref_,
+            min,
+            max,
+            uncertain,
+        } => NaEdit::Repeat {
+            ref_: opt(ref_),
+            min: *min,
+            max: *max,
+            uncertain: *uncertain,
+        },
+        other => other.clone(),
+    }
+}
+
+/// `posedit` re-anchored through `anchor` and re-lettered, for moving between
+/// r. and c./n. Statements about the transcript (r.0, r.spl) have no other
+/// spelling.
+fn relettered_posedit(
+    var: &dyn std::fmt::Display,
+    posedit: &crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>,
+    letters: Letters,
+    anchor: impl Fn(Anchor) -> Anchor,
+) -> Result<crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>, HgvsError> {
+    if matches!(posedit.edit, crate::edits::NaEdit::Special { .. }) {
+        return Err(HgvsError::UnsupportedOperation(format!(
+            "{var} describes the transcript as a whole and has no other spelling"
+        )));
+    }
+    let mut out = posedit.clone();
+    if let Some(pos) = &mut out.pos {
+        pos.start.anchor = anchor(pos.start.anchor);
+        if let Some(end) = &mut pos.end {
+            end.anchor = anchor(end.anchor);
+        }
+    }
+    out.edit = relettered(&posedit.edit, letters);
+    Ok(out)
 }
 
 /// The 0-based half-open index range a g. interval names.
@@ -607,6 +697,61 @@ impl<'a> VariantMapper<'a> {
         Ok(results)
     }
 
+    /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to.
+    fn protein_accession(
+        &self,
+        transcript_ac: &str,
+        protein_ac: Option<&str>,
+    ) -> Result<String, HgvsError> {
+        if let Some(ac) = protein_ac {
+            return Ok(ac.to_string());
+        }
+        Ok(self
+            .hdp
+            .get_symbol_accessions(
+                transcript_ac,
+                IdentifierKind::Transcript,
+                IdentifierKind::Protein,
+            )?
+            .first()
+            .ok_or_else(|| {
+                HgvsError::ValidationError(format!(
+                    "No protein accession found for {}",
+                    transcript_ac
+                ))
+            })?
+            .1
+            .clone())
+    }
+
+    /// The protein consequence of an r. variant: a statement about the
+    /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching statement
+    /// about the protein; anything else is predicted from its c. spelling.
+    pub fn r_to_p(&self, r: &RVariant, protein_ac: Option<&str>) -> Result<PVariant, HgvsError> {
+        if let crate::edits::NaEdit::Special { value, .. } = &r.posedit.edit {
+            let (p, predicted) = match value.as_str() {
+                "0" => ("0", false),
+                "0?" => ("0?", false),
+                "=" => ("=", true),
+                _ => ("?", false), // r.?, r.spl, r.spl?
+            };
+            return Ok(PVariant {
+                ac: self.protein_accession(&r.ac, protein_ac)?,
+                gene: r.gene.clone(),
+                posedit: crate::structs::PosEdit {
+                    pos: None,
+                    edit: crate::edits::AaEdit::Special {
+                        value: p.to_string(),
+                        uncertain: false,
+                    },
+                    uncertain: false,
+                    predicted,
+                },
+            });
+        }
+        self.c_to_p(&self.r_to_c(r)?, protein_ac)
+    }
+
     /// Transforms a coding cDNA variant (`c.`) to a protein variant (`p.`).
     pub fn c_to_p(
         &self,
@@ -614,25 +759,7 @@ impl<'a> VariantMapper<'a> {
         protein_ac: Option<&str>,
     ) -> Result<PVariant, HgvsError> {
         let transcript_ac = &var_c.ac;
-        let pro_ac_str = if let Some(ac) = protein_ac {
-            ac.to_string()
-        } else {
-            self.hdp
-                .get_symbol_accessions(
-                    transcript_ac,
-                    IdentifierKind::Transcript,
-                    IdentifierKind::Protein,
-                )?
-                .first()
-                .ok_or_else(|| {
-                    HgvsError::ValidationError(format!(
-                        "No protein accession found for {}",
-                        transcript_ac
-                    ))
-                })?
-                .1
-                .clone()
-        };
+        let pro_ac_str = self.protein_accession(transcript_ac, protein_ac)?;
 
         let transcript = self.hdp.get_transcript(transcript_ac, None)?;
         let unknown = |pos: Option<crate::structs::AaInterval>, value: &str| PVariant {
@@ -1003,9 +1130,7 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::Coding(v) => self.validate_transcript(v),
             crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
             crate::SequenceVariant::Protein(v) => self.validate_protein(v),
-            _ => Err(HgvsError::UnsupportedOperation(
-                "Validation not implemented for this variant type".into(),
-            )),
+            crate::SequenceVariant::Rna(r) => self.validate(&self.r_as_transcript(r)?),
         }
     }
 
@@ -1108,6 +1233,16 @@ impl<'a> VariantMapper<'a> {
             SV::Mitochondrial(v) => SV::Mitochondrial(self.normalize_linear(v)?),
             SV::Coding(v) => SV::Coding(self.normalize_transcript(v)?),
             SV::NonCoding(v) => SV::NonCoding(self.normalize_transcript(v)?),
+            // r. normalises as the c. or n. variant it is spelled from, and
+            // comes back in RNA letters. A statement about the transcript
+            // (r.0, r.spl) has nothing to normalise.
+            SV::Rna(r) if matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) => {
+                SV::Rna(r)
+            }
+            SV::Rna(r) => {
+                let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
+                SV::Rna(self.tx_to_r(&normalised)?)
+            }
             other => other,
         })
     }
@@ -1211,7 +1346,7 @@ impl<'a> VariantMapper<'a> {
         }
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
-                "Canonical alleles exist for genomic, mitochondrial, coding, non-coding and protein variants only".into(),
+                "Canonical alleles exist for genomic, mitochondrial, coding, non-coding, RNA and protein variants only".into(),
             )
         })??;
         let pos = g
@@ -1225,6 +1360,7 @@ impl<'a> VariantMapper<'a> {
             crate::edits::NaEdit::None
                 | crate::edits::NaEdit::Con { .. }
                 | crate::edits::NaEdit::NACopy { .. }
+                | crate::edits::NaEdit::Special { .. }
         ) {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "Edit type {:?} has no canonical allele",
@@ -1574,7 +1710,131 @@ impl<'a> VariantMapper<'a> {
             SV::Mitochondrial(v) => Ok(v.to_genomic()),
             SV::Coding(v) => self.tx_to_g(v, None),
             SV::NonCoding(v) => self.tx_to_g(v, None),
-            SV::Protein(_) | SV::Rna(_) => return None,
+            SV::Rna(r) => self.r_to_g(r, None),
+            SV::Protein(_) => return None,
         })
+    }
+
+    // --- r.: the transcript in RNA letters ---
+    //
+    // HGVS numbers r. positions like c. on a coding transcript and like n. on
+    // a non-coding one, and writes bases in lowercase with u for T. Every r.
+    // operation is therefore a conversion to the c. or n. spelling and back.
+
+    /// Whether `ac` has a CDS, which decides whether r. is numbered like c. or n.
+    fn has_cds(&self, ac: &str) -> Result<bool, HgvsError> {
+        let t = self.hdp.get_transcript(ac, None)?;
+        Ok(t.cds_start_index.is_some() && t.cds_end_index.is_some())
+    }
+
+    /// An r. variant as the c. or n. variant it is spelled from.
+    pub fn r_as_transcript(&self, r: &RVariant) -> Result<crate::SequenceVariant, HgvsError> {
+        Ok(if self.has_cds(&r.ac)? {
+            crate::SequenceVariant::Coding(self.r_to_c(r)?)
+        } else {
+            crate::SequenceVariant::NonCoding(self.r_to_n(r)?)
+        })
+    }
+
+    /// A c. or n. variant in its r. spelling.
+    pub fn tx_to_r(&self, var: &crate::SequenceVariant) -> Result<RVariant, HgvsError> {
+        match var {
+            crate::SequenceVariant::Coding(c) => self.c_to_r(c),
+            crate::SequenceVariant::NonCoding(n) => self.n_to_r(n),
+            other => Err(HgvsError::UnsupportedOperation(format!(
+                "Only c. and n. variants have an r. spelling, not {other}"
+            ))),
+        }
+    }
+
+    /// r. to c.: the same positions, numbered from the CDS start, in DNA letters.
+    pub fn r_to_c(&self, r: &RVariant) -> Result<CVariant, HgvsError> {
+        if !self.has_cds(&r.ac)? {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{} has no CDS, so its r. positions are n. positions; use r_to_n",
+                r.ac
+            )));
+        }
+        let posedit = relettered_posedit(r, &r.posedit, Letters::Dna, |anchor| match anchor {
+            Anchor::TranscriptStart => Anchor::CdsStart,
+            other => other,
+        })?;
+        Ok(CVariant::from_parts(r.ac.clone(), r.gene.clone(), posedit))
+    }
+
+    /// r. to n. on a non-coding transcript: the same positions in DNA letters.
+    pub fn r_to_n(&self, r: &RVariant) -> Result<NVariant, HgvsError> {
+        if self.has_cds(&r.ac)? {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{} has a CDS, so its r. positions are c. positions; use r_to_c",
+                r.ac
+            )));
+        }
+        let posedit = relettered_posedit(r, &r.posedit, Letters::Dna, |anchor| anchor)?;
+        if let Some(pos) = &posedit.pos {
+            let cds_anchored = |p: &BaseOffsetPosition| p.anchor == Anchor::CdsEnd || p.base.0 < 1;
+            if cds_anchored(&pos.start) || pos.end.as_ref().is_some_and(cds_anchored) {
+                return Err(HgvsError::ValidationError(format!(
+                    "{r} uses CDS-relative positions on a transcript without a CDS"
+                )));
+            }
+        }
+        Ok(NVariant::from_parts(r.ac.clone(), r.gene.clone(), posedit))
+    }
+
+    /// c. to r.: the same positions in RNA letters (lowercase, u for T).
+    pub fn c_to_r(&self, c: &CVariant) -> Result<RVariant, HgvsError> {
+        let posedit = relettered_posedit(c, &c.posedit, Letters::Rna, |anchor| match anchor {
+            Anchor::CdsStart => Anchor::TranscriptStart,
+            other => other,
+        })?;
+        Ok(RVariant {
+            ac: c.ac.clone(),
+            gene: c.gene.clone(),
+            posedit,
+        })
+    }
+
+    /// n. to r.: the same positions in RNA letters.
+    pub fn n_to_r(&self, n: &NVariant) -> Result<RVariant, HgvsError> {
+        let posedit = relettered_posedit(n, &n.posedit, Letters::Rna, |anchor| anchor)?;
+        Ok(RVariant {
+            ac: n.ac.clone(),
+            gene: n.gene.clone(),
+            posedit,
+        })
+    }
+
+    /// r. to g., for a change within one exon. A change spanning a splice
+    /// junction describes the spliced RNA and has no single genomic form.
+    pub fn r_to_g(&self, r: &RVariant, reference_ac: Option<&str>) -> Result<GVariant, HgvsError> {
+        let tx = self.r_as_transcript(r)?;
+        let posedit = match &tx {
+            crate::SequenceVariant::Coding(c) => &c.posedit,
+            crate::SequenceVariant::NonCoding(n) => &n.posedit,
+            _ => unreachable!("r_as_transcript gives c. or n."),
+        };
+        if let Some(pos) = &posedit.pos {
+            let transcript = self.hdp.get_transcript(&r.ac, None)?;
+            let exons = transcript.exons.clone();
+            let am = TranscriptMapper::new(transcript)?;
+            // Intronic positions do not resolve to a transcript range; they
+            // name the genome directly and need no guard.
+            if let Ok((start, end)) = am.interval_to_n(pos) {
+                let within_one_exon = exons
+                    .iter()
+                    .any(|x| x.transcript_start.0 <= start.0 && end.0 <= x.transcript_end.0);
+                if !within_one_exon {
+                    return Err(HgvsError::UnsupportedOperation(format!(
+                        "{r} spans a splice junction: the spliced RNA has no single genomic equivalent"
+                    )));
+                }
+            }
+        }
+        match tx {
+            crate::SequenceVariant::Coding(c) => self.tx_to_g(&c, reference_ac),
+            crate::SequenceVariant::NonCoding(n) => self.tx_to_g(&n, reference_ac),
+            _ => unreachable!("r_as_transcript gives c. or n."),
+        }
     }
 }

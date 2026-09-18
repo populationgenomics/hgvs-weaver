@@ -339,6 +339,7 @@ expect_variant!(
     ::hgvs_weaver::PVariant,
     "protein variant (p.)"
 );
+expect_variant!(expect_rna, Rna, ::hgvs_weaver::RVariant, "RNA variant (r.)");
 
 // --- Mapper and DataProvider Bridge ---
 
@@ -618,20 +619,88 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Projects a coding cDNA variant (c.) to its protein consequence (p.).\n\nArgs:\n    var_c: The coding Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
+    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0, p.?, p.(=)).\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
     fn c_to_p(
         &self,
         _py: Python,
         var_c: &PyVariant,
         protein_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        let v = expect_coding(&var_c.inner)?;
         let mapper = VariantMapper::new(self.bridge.as_ref());
-        let res = mapper
-            .c_to_p(v, protein_ac.as_deref())
-            .map_err(map_hgvs_error)?;
+        let res = match &var_c.inner {
+            SequenceVariant::Coding(v) => mapper.c_to_p(v, protein_ac.as_deref()),
+            SequenceVariant::Rna(r) => mapper.r_to_p(r, protein_ac.as_deref()),
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Expected a coding variant (c.) or an RNA variant (r.)",
+                ))
+            }
+        }
+        .map_err(map_hgvs_error)?;
         Ok(PyVariant {
             inner: SequenceVariant::Protein(res),
+        })
+    }
+
+    #[pyo3(signature = (var_r, reference_ac = None))]
+    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If mapping fails."]
+    fn r_to_g(
+        &self,
+        _py: Python,
+        var_r: &PyVariant,
+        reference_ac: Option<String>,
+    ) -> PyResult<PyVariant> {
+        let v = expect_rna(&var_r.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper
+            .r_to_g(v, reference_ac.as_deref())
+            .map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Genomic(res),
+        })
+    }
+
+    #[pyo3(signature = (var_r))]
+    #[doc = "Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.\n\nr. positions on a coding transcript are c. positions; the bases become\nuppercase DNA letters (u to T).\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has no CDS, or the variant is a statement about the transcript (r.0, r.spl)."]
+    fn r_to_c(&self, _py: Python, var_r: &PyVariant) -> PyResult<PyVariant> {
+        let v = expect_rna(&var_r.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper.r_to_c(v).map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Coding(res),
+        })
+    }
+
+    #[pyo3(signature = (var_r))]
+    #[doc = "Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a statement about the transcript."]
+    fn r_to_n(&self, _py: Python, var_r: &PyVariant) -> PyResult<PyVariant> {
+        let v = expect_rna(&var_r.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper.r_to_n(v).map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::NonCoding(res),
+        })
+    }
+
+    #[pyo3(signature = (var_c))]
+    #[doc = "Respells a coding variant (c.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to u).\n\nRaises:\n    ValueError: If var_c is not a coding variant."]
+    fn c_to_r(&self, _py: Python, var_c: &PyVariant) -> PyResult<PyVariant> {
+        let v = expect_coding(&var_c.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper.c_to_r(v).map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Rna(res),
+        })
+    }
+
+    #[pyo3(signature = (var_n))]
+    #[doc = "Respells a non-coding variant (n.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to u).\n\nRaises:\n    ValueError: If var_n is not a non-coding variant."]
+    fn n_to_r(&self, _py: Python, var_n: &PyVariant) -> PyResult<PyVariant> {
+        let v = expect_noncoding(&var_n.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let res = mapper.n_to_r(v).map_err(map_hgvs_error)?;
+        Ok(PyVariant {
+            inner: SequenceVariant::Rna(res),
         })
     }
 

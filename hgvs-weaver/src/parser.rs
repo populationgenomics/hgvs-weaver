@@ -29,13 +29,23 @@ pub fn parse_tx_posedit(
     pair: Pair<Rule>,
     default_anchor: Anchor,
 ) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
+    let text = pair.as_str();
     let mut inner = pair.into_inner();
-    let pos = parse_base_offset_interval(
-        inner
-            .next()
-            .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?,
-        default_anchor,
-    )?;
+    let first = inner
+        .next()
+        .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?;
+    if first.as_rule() == Rule::r_posedit_special {
+        return Ok(PosEdit {
+            pos: None,
+            edit: NaEdit::Special {
+                value: first.as_str().replace(['(', ')'], ""),
+                uncertain: false,
+            },
+            uncertain: false,
+            predicted: text.starts_with('('),
+        });
+    }
+    let pos = parse_base_offset_interval(first, default_anchor)?;
     let edit = parse_na_edit(
         inner
             .next()

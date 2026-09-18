@@ -530,6 +530,71 @@ proptest! {
         let _ = parse_hgvs_variant(&s);
     }
 
+    /// r. is the c. (or n.) spelling in RNA letters: converting there and back
+    /// is the identity, the letters are lowercase with u, and a change inside
+    /// one exon has the same allele and the same protein either way.
+    #[test]
+    fn rna_is_the_transcript_in_other_letters(g in gene(), pick in 0usize..10_000, alt in prop::sample::select(BASES.to_vec()), del in prop::bool::ANY) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let pos = g.cds_start + pick % (g.cds_end + 1 - g.cds_start);
+        let ref_base = g.transcript_seq.as_bytes()[pos] as char;
+        let edit = if del {
+            NaEdit::Del { ref_: None, uncertain: false }
+        } else {
+            prop_assume!(alt != ref_base);
+            NaEdit::RefAlt { ref_: Some(ref_base.to_string()), alt: Some(alt.to_string()), uncertain: false }
+        };
+        let vc = coding_variant(&g, &am, pos, pos + 1, edit);
+        let vr = mapper.c_to_r(&vc).unwrap();
+        prop_assert_eq!(&mapper.r_to_c(&vr).unwrap(), &vc, "{} did not come back from {}", vc, vr);
+        let r_text = vr.to_string();
+        let edit_text = r_text.split(":r.").nth(1).unwrap();
+        prop_assert!(!edit_text.contains(|ch: char| ch.is_ascii_uppercase() || ch == 't'), "{} is not in RNA letters", vr);
+
+        let sr = SequenceVariant::Rna(vr.clone());
+        let sc = SequenceVariant::Coding(vc.clone());
+        prop_assert_eq!(mapper.canonical_allele(&sr).unwrap(), mapper.canonical_allele(&sc).unwrap());
+        prop_assert_eq!(mapper.to_vrs(&sr).unwrap().id, mapper.to_vrs(&sc).unwrap().id);
+        prop_assert_eq!(
+            mapper.r_to_p(&vr, Some("NP_PROP.1")).unwrap().to_string(),
+            mapper.c_to_p(&vc, Some("NP_PROP.1")).unwrap().to_string()
+        );
+        prop_assert_eq!(mapper.validate(&sr).unwrap(), mapper.validate(&sc).unwrap());
+        let nr = mapper.normalize_variant(sr).unwrap();
+        let nc = mapper.normalize_variant(sc).unwrap();
+        prop_assert_eq!(nr.to_string(), mapper.tx_to_r(&nc).unwrap().to_string(), "normalising r. differs from normalising c.");
+    }
+
+    /// A deletion spanning a splice junction is an RNA finding: it has a
+    /// protein prediction but no genomic projection, while its c. spelling
+    /// projects to a deletion that includes the intron.
+    #[test]
+    fn rna_across_a_junction_has_a_protein_but_no_genomic_form(g in gene(), pick in 0usize..10_000) {
+        if g.tx_exons.len() < 2 {
+            return Ok(());
+        }
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let k = pick % (g.tx_exons.len() - 1);
+        let last = g.tx_exons[k].1 - 1; // last base of exon k; the next is exon k + 1's first
+        let vc = coding_variant(&g, &am, last, last + 2, NaEdit::Del { ref_: None, uncertain: false });
+        let vr = mapper.c_to_r(&vc).unwrap();
+        prop_assert!(
+            matches!(mapper.r_to_g(&vr, None), Err(hgvs_weaver::error::HgvsError::UnsupportedOperation(_))),
+            "{} projected to the genome", vr
+        );
+        prop_assert!(mapper.tx_to_g(&vc, None).is_ok(), "{} did not project", vc);
+        if g.cds_start <= last && last + 2 <= g.cds_end + 1 {
+            prop_assert_eq!(
+                mapper.r_to_p(&vr, Some("NP_PROP.1")).unwrap().to_string(),
+                mapper.c_to_p(&vc, Some("NP_PROP.1")).unwrap().to_string()
+            );
+        }
+    }
+
     /// A coding variant and its genomic projection are the same variant, and
     /// the mitochondrial spelling of a genomic variant is the same allele.
     #[test]

@@ -16,7 +16,18 @@ c_posedit = { c_interval ~ dna_edit }
 g_posedit = { g_interval ~ dna_edit }
 m_posedit = { m_interval ~ dna_edit }
 n_posedit = { n_interval ~ dna_edit }
-r_posedit = { (r_interval ~ rna_edit) | ("(" ~ r_interval ~ rna_edit ~ ")") }
+r_posedit = { (r_interval ~ rna_edit) | ("(" ~ r_interval ~ rna_edit ~ ")") | r_posedit_special }
+// Statements about the transcript as a whole: no RNA (r.0), unknown effect
+// (r.?), splicing affected (r.spl), no change (r.=).
+r_posedit_special = {
+      "(" ~ "=" ~ ")"
+    | "="
+    | "0" ~ "?"
+    | "0"
+    | "spl" ~ "?"
+    | "spl"
+    | "?"
+}
 p_posedit = { (p_interval ~ pro_edit) | ("(" ~ p_interval ~ pro_edit ~ ")") | p_posedit_special }
 
 p_posedit_special = {
@@ -90,7 +101,8 @@ g_pos = { num | "?" }
 m_pos = { num | "?" }
 n_pos = { base ~ offset }
 p_pos = { ((term13 | aa13) ~ num) | num }
-r_pos = { base ~ offset }
+// r. is numbered like c. on a coding transcript, so it takes * positions too.
+r_pos = { ("*" ~ num ~ offset) | (base ~ offset) }
 
 // Primitives and Basics
 // A separator must be followed by an alphanumeric: "NM_" is not an accession.
