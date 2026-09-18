@@ -389,9 +389,7 @@ def main() -> None:
             fh_err_str = f"**{fh_err_str}**"
         fh_rows = [f"| ferro-hgvs     |  N/A  | N/A | N/A | N/A | {fh_err_str} |"]
 
-    impl_description = (
-        "`weaver`, `ref-hgvs`, and `ferro-hgvs`" if fh_total > 0 else "`weaver` and `ref-hgvs`"
-    )
+    impl_description = "`weaver`, `ref-hgvs`, and `ferro-hgvs`" if fh_total > 0 else "`weaver` and `ref-hgvs`"
     report = [
         f"### Validation Results ({total:,} variants)",
         "",

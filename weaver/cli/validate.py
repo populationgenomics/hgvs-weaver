@@ -54,6 +54,7 @@ def init_worker(gff: str, fasta: str, fh_results_path: str | None = None) -> Non
     _ref_hp = hgvs.parser.Parser()
     if fh_results_path:
         import json  # noqa: PLC0415
+
         with open(fh_results_path) as f:
             _fh_results = json.load(f)
 
@@ -213,6 +214,7 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
     results: dict[str, str] = {}
     try:
         import json  # noqa: PLC0415
+
         proc = subprocess.run(  # noqa: S603
             [ferro_bin, "normalize", "--reference", reference_dir, "-i", tmp_in_path, "-f", "json"],
             capture_output=True,
@@ -220,8 +222,8 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
             check=False,
         )
         # JSON mode: one JSON object per line with {input, success, output?, error?}
-        for line in proc.stdout.splitlines():
-            line = line.strip()
+        for raw_line in proc.stdout.splitlines():
+            line = raw_line.strip()
             if not line:
                 continue
             try:
@@ -244,6 +246,7 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
         print(f"Warning: ferro normalize failed: {e}")
     finally:
         import os  # noqa: PLC0415
+
         os.unlink(tmp_in_path)
 
     ok_count = sum(1 for v in results.values() if not v.startswith("ERR:"))
@@ -264,7 +267,7 @@ def main() -> None:
         "--ferro-reference",
         default=None,
         help="Path to ferro reference directory (produced by 'ferro prepare'). "
-             "When provided, ferro normalize is run in batch before validation.",
+        "When provided, ferro normalize is run in batch before validation.",
     )
     parser.add_argument(
         "--no-ferro",
@@ -278,7 +281,8 @@ def main() -> None:
         base_fields = [
             f
             for f in (reader.fieldnames or [])
-            if f not in {"rs_p", "rs_spdi", "ref_p", "ref_spdi", "rs_equiv", "ref_equiv", "equivalence_level", "fh_parse"}
+            if f
+            not in {"rs_p", "rs_spdi", "ref_p", "ref_spdi", "rs_equiv", "ref_equiv", "equivalence_level", "fh_parse"}
         ]
         fieldnames = [*base_fields, "rs_p", "rs_spdi", "ref_p", "ref_spdi", "rs_equiv", "ref_equiv", "fh_parse"]
         rows: list[dict[str, str]] = (
@@ -292,6 +296,7 @@ def main() -> None:
     if not args.no_ferro and args.ferro_reference:
         import json  # noqa: PLC0415
         import tempfile  # noqa: PLC0415
+
         all_nuc = [row["variant_nuc"] for row in rows]
         fh_results = run_ferro_normalize(all_nuc, args.ferro_reference)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
@@ -325,6 +330,7 @@ def main() -> None:
 
     if fh_results_path:
         import os  # noqa: PLC0415
+
         os.unlink(fh_results_path)
 
 
