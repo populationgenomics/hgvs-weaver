@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 88c73c054a916fb8b973fdee0b519229e262619dba6988c4effeb09536d07367 # shrinks to seq = "A", block = 1, ranges = [(2, 2)], pattern = "A"
+cc 872bf4c9699a30414e314ead1f4f0024244dd594c112f5f1081651ff32bcdb7a # shrinks to seq = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAA", p = PlacedHgvs { start: 1, end: 3, edit: Ins { alt: Some("A"), uncertain: false } }
+cc 9649a671bd1380eb8d22b97fb31e4049256330bcaab69418dbbd4a70816c38a0 # shrinks to seq = "GGGGGGGGG", block = 1, p = PlacedHgvs { start: 1, end: 3, edit: Ins { alt: Some("GA"), uncertain: false } }
+cc 8409c2e7875d77476400dd12e85f21a9c63266299f302c7356a2ae17a3c5830c # shrinks to seq = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC", p = PlacedHgvs { start: 1, end: 3, edit: Ins { alt: Some("A"), uncertain: false } }
+cc 7d06a317784067b22876de66c29df514114b3445cefe6a43e1aa1f1a0dcb895d # shrinks to g = Gene { ac: "NM_PROP.1", reference_ac: "NC_PROP.1", strand: Plus, transcript_seq: "ATGCTGTTTGTATTGTGTCGTCTTTAAAGTGCTTTAAG", genome: "GACACCGTCAATGCTGTTTGTATTGTGTCGTCTTTAAAGTGCTTTAAGGACACCGTCA", exons: [ExonData { transcript_start: TranscriptPos(0), transcript_end: TranscriptPos(38), reference_start: GenomicPos(10), reference_end: GenomicPos(47), alt_strand: Plus, cigar: "38M" }], cds_start: 0, cds_end: 26, tx_exons: [(0, 38)], introns: [] }, pick = 4682, codons = 1, insert = ['T', 'T', 'G', 'T', 'C', 'T', 'A', 'A'], deletion = false

@@ -82,6 +82,17 @@ pub fn normalize(
         0
     };
     let (start, end) = (start + k, end + k);
+    // Sliding an insertion 3' by k rotates what is inserted: the k bases it
+    // passed over now precede it, and the same k bases of the insert follow.
+    if k > 0 {
+        if let NaEdit::Ins { alt: Some(seq), .. } = &mut edit {
+            let n = seq.len();
+            if n > 0 {
+                let r = k % n;
+                *seq = format!("{}{}", &seq[r..], &seq[..r]);
+            }
+        }
+    }
 
     if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
         *ref_ = Some(reference.slice(start, end)?);
@@ -297,6 +308,33 @@ mod tests {
                 start: 2,
                 end: 5,
                 edit: delins
+            }
+        );
+    }
+
+    #[test]
+    fn a_slid_insertion_is_rotated() {
+        // Inserting GA before index 2 of GGGGGGGGG slides one base (the next
+        // base is G) and becomes an insertion of AG before index 3: the same
+        // molecule, GGGAGGGGGGG.
+        let out = run("GGGGGGGGG", PlacedEdit::from_hgvs_range(1, 3, ins("GA")));
+        assert_eq!(
+            out,
+            PlacedEdit {
+                start: 3,
+                end: 3,
+                edit: ins("AG")
+            }
+        );
+        // Sliding a whole number of periods leaves the insert as written; here
+        // it then reads as a duplication of the last CAG copy, at [5, 8).
+        let out = run("TTCAGCAGTT", PlacedEdit::from_hgvs_range(1, 3, ins("CAG")));
+        assert_eq!((out.start, out.end), (5, 8));
+        assert_eq!(
+            out.edit,
+            NaEdit::Dup {
+                ref_: Some("CAG".into()),
+                uncertain: false
             }
         );
     }

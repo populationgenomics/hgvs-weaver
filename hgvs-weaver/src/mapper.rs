@@ -468,50 +468,66 @@ impl<'a> VariantMapper<'a> {
                 .clone()
         };
 
-        // Handle intronic variants by returning p.?
+        let transcript = self.hdp.get_transcript(transcript_ac, None)?;
+        let unknown = |pos: Option<crate::structs::AaInterval>, value: &str| PVariant {
+            ac: pro_ac_str.clone(),
+            gene: var_c.gene.clone(),
+            posedit: crate::structs::PosEdit {
+                pos,
+                edit: crate::edits::AaEdit::Special {
+                    value: value.to_string(),
+                    uncertain: false,
+                },
+                uncertain: false,
+                predicted: false,
+            },
+        };
         if let Some(pos) = &var_c.posedit.pos {
+            // Intronic: the protein consequence cannot be predicted.
             let has_offset = pos.start.offset.is_some_and(|o| o.0 != 0)
                 || pos
                     .end
                     .as_ref()
                     .is_some_and(|e| e.offset.is_some_and(|o| o.0 != 0));
-
             if has_offset {
-                return Ok(PVariant {
-                    ac: pro_ac_str,
-                    gene: var_c.gene.clone(),
-                    posedit: crate::structs::PosEdit {
-                        pos: None,
-                        edit: crate::edits::AaEdit::Special {
-                            value: "?".to_string(),
-                            uncertain: false,
-                        },
-                        uncertain: false,
-                        predicted: false,
-                    },
-                });
+                return Ok(unknown(None, "?"));
             }
 
-            // 5'UTR variants (negative c. position) → p.?
-            let start_base = pos.start.base.0;
-            if pos.start.anchor == crate::coords::Anchor::CdsStart && start_base < 0 {
-                return Ok(PVariant {
-                    ac: pro_ac_str,
-                    gene: var_c.gene.clone(),
-                    posedit: crate::structs::PosEdit {
-                        pos: None,
-                        edit: crate::edits::AaEdit::Special {
-                            value: "?".to_string(),
+            // An edit that starts in the 5'UTR. Deleting the whole CDS predicts
+            // no protein (p.0?); reaching into the CDS disrupts the start codon
+            // (p.Met1?); staying upstream says nothing about the protein (p.?).
+            use crate::coords::Anchor;
+            if pos.start.anchor == Anchor::CdsStart && pos.start.base.0 < 0 {
+                let cds_len = transcript
+                    .cds_start_index
+                    .zip(transcript.cds_end_index)
+                    .map(|(s, e)| e.0 - s.0 + 1);
+                let end = pos.end.as_ref();
+                let reaches_cds = end.is_some_and(|e| e.anchor == Anchor::CdsEnd || e.base.0 > 0);
+                let covers_cds = end.is_some_and(|e| {
+                    e.anchor == Anchor::CdsEnd
+                        || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
+                });
+                let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
+                return Ok(if covers_cds && deletes {
+                    unknown(None, "0?")
+                } else if reaches_cds {
+                    let met1 = crate::structs::AaInterval {
+                        start: crate::structs::AAPosition {
+                            base: crate::structs::ProteinPos(0).to_hgvs(),
+                            aa: "Met".to_string(),
                             uncertain: false,
                         },
+                        end: None,
                         uncertain: false,
-                        predicted: false,
-                    },
+                    };
+                    unknown(Some(met1), "?")
+                } else {
+                    unknown(None, "?")
                 });
             }
         }
 
-        let transcript = self.hdp.get_transcript(transcript_ac, None)?;
         let ref_seq = self
             .refs
             .reference(transcript_ac, IdentifierType::TranscriptAccession)
