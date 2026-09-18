@@ -360,8 +360,9 @@ class VariantMapper:
 
         A nucleotide variant is projected to its genomic reference; a protein
         variant stays on its protein. Either is canonicalised (fully justified
-        over its region of ambiguity) and rendered with computed identifiers. The sequence is identified by its refget accession, taken from
-        the DataProvider's optional get_refget_accession or computed from the whole
+        over its region of ambiguity) and rendered with computed identifiers. The
+        sequence is identified by its refget accession, taken from the
+        DataProvider's optional get_refget_accession or computed from the whole
         sequence.
 
         Args:
@@ -391,17 +392,7 @@ class VariantMapper:
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
         """
-    def __new__(cls, start_codon: StartCodonConvention = ...) -> VariantTransformSettings:
-        """
-        Creates a new VariantTransformSettings.
-
-        Args:
-            start_codon: Convention for start-codon protein variants. Defaults to Specific.
-        """
-    @property
-    def start_codon(self) -> StartCodonConvention: ...
-
-    def from_vrs(self, allele: dict[str, Any] | str, accession: str | None = None) -> Variant:
+    def from_vrs(self, allele: dict[str, Any] | str, accession: str | None = ...) -> Variant:
         """Returns the Variant a GA4GH VRS 2.0 Allele names.
 
         The variant is written in HGVS on the allele's own sequence, trimmed to the
@@ -448,6 +439,16 @@ class VariantTransformSettings:
     Create with keyword arguments:
         settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
     """
+    def __new__(cls, start_codon: StartCodonConvention = ...) -> VariantTransformSettings:
+        """
+        Creates a new VariantTransformSettings.
+
+        Args:
+            start_codon: Convention for start-codon protein variants. Defaults to Specific.
+        """
+    @property
+    def start_codon(self) -> StartCodonConvention: ...
+
 def parse(input: str) -> Variant:
     """
     Parses an HGVS string into a Variant object.
