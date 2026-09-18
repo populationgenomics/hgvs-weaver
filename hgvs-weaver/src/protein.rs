@@ -115,8 +115,11 @@ pub fn describe(change: &CodingChange<'_>) -> Result<PVariant, HgvsError> {
     // the edit left it intact.
     let original_stop_in_alt = (end <= stop * 3).then(|| (stop as i64 + net / 3).max(0) as usize);
 
-    // Stop lost: the first differing residue is the reference stop itself.
-    if ref_aa.get(i) == Some(&'*') {
+    // Stop lost: the edit reaches into the stop codon and the residue there
+    // is no longer a stop. An in-frame insertion just before the stop can also
+    // make the stop position the first differing residue, but then the stop
+    // is intact further along, and the change is an insertion, not a loss.
+    if original_stop_in_alt.is_none() && ref_aa.get(i) == Some(&'*') {
         return out.extension(i);
     }
 
@@ -464,6 +467,16 @@ mod tests {
         assert_eq!(p(sec, UTR, sub("A", "C"), 3, 4), "NP:p.Lys2Gln");
         assert_eq!(p(sec, UTR, sub("C", "G"), 9, 10), "NP:p.Leu4Val");
         assert_eq!(p(sec, UTR, del(), 9, 12), "NP:p.Leu4del");
+    }
+
+    #[test]
+    fn an_insertion_before_the_stop_that_repeats_the_last_residue_is_not_an_extension() {
+        // M L F V L C R L *  ; insert TTG TCT (Leu Ser) before the last CTT (Leu).
+        // The first differing residue is at the stop's index (Leu == Leu), but
+        // the stop itself is intact two codons on.
+        let cds = "ATGCTGTTTGTATTGTGTCGTCTTTAA";
+        let out = p(cds, "AGTGCTTTAAG", ins("TTGTCT"), 20, 22);
+        assert_eq!(out, "NP:p.Leu8_Ter9insSerLeu");
     }
 
     #[test]
