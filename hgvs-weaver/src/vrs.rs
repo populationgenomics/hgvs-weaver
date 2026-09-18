@@ -7,8 +7,9 @@
 //! properties, nested identifiable objects replaced by their digests.
 
 use crate::allele::CanonicalAllele;
+use crate::error::HgvsError;
 use base64::Engine;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha512};
 
@@ -53,15 +54,15 @@ impl VrsMolecule {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsSequenceReference {
     #[serde(rename = "type")]
     pub type_: String,
     #[serde(rename = "refgetAccession")]
     pub refget_accession: String,
-    #[serde(rename = "residueAlphabet")]
+    #[serde(rename = "residueAlphabet", default)]
     pub residue_alphabet: String,
-    #[serde(rename = "moleculeType")]
+    #[serde(rename = "moleculeType", default)]
     pub molecule_type: String,
 }
 
@@ -75,6 +76,21 @@ pub enum VrsBound {
     Range(Option<usize>, Option<usize>),
 }
 
+impl<'de> Deserialize<'de> for VrsBound {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Exact(usize),
+            Range(Option<usize>, Option<usize>),
+        }
+        Ok(match Raw::deserialize(deserializer)? {
+            Raw::Exact(n) => VrsBound::Exact(n),
+            Raw::Range(min, max) => VrsBound::Range(min, max),
+        })
+    }
+}
+
 impl Serialize for VrsBound {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -84,11 +100,13 @@ impl Serialize for VrsBound {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsSequenceLocation {
+    #[serde(default)]
     pub id: String,
     #[serde(rename = "type")]
     pub type_: String,
+    #[serde(default)]
     pub digest: String,
     #[serde(rename = "sequenceReference")]
     pub sequence_reference: VrsSequenceReference,
@@ -96,39 +114,42 @@ pub struct VrsSequenceLocation {
     pub end: VrsBound,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum VrsState {
-    Literal {
-        #[serde(rename = "type")]
-        type_: String,
-        sequence: String,
-    },
     ReferenceLength {
         #[serde(rename = "type")]
         type_: String,
         length: usize,
         #[serde(rename = "repeatSubunitLength")]
         repeat_subunit_length: usize,
+        #[serde(default)]
+        sequence: String,
+    },
+    Literal {
+        #[serde(rename = "type")]
+        type_: String,
         sequence: String,
     },
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsExpression {
     pub syntax: String,
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsAllele {
+    #[serde(default)]
     pub id: String,
     #[serde(rename = "type")]
     pub type_: String,
+    #[serde(default)]
     pub digest: String,
     pub location: VrsSequenceLocation,
     pub state: VrsState,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub expressions: Vec<VrsExpression>,
 }
 
@@ -248,6 +269,20 @@ impl VrsAllele {
                 })
                 .unwrap_or_default(),
         }
+    }
+
+    /// Parses a VRS 2.0 Allele from JSON. Properties this module does not
+    /// model are ignored; the `type` must be `Allele`.
+    pub fn from_json(json: &str) -> Result<VrsAllele, HgvsError> {
+        let allele: VrsAllele = serde_json::from_str(json)
+            .map_err(|e| HgvsError::ValidationError(format!("Not a VRS Allele: {e}")))?;
+        if allele.type_ != "Allele" {
+            return Err(HgvsError::ValidationError(format!(
+                "Expected a VRS Allele, got a {}",
+                allele.type_
+            )));
+        }
+        Ok(allele)
     }
 
     pub fn to_json(&self) -> String {

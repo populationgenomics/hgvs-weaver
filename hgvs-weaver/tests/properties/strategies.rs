@@ -67,10 +67,6 @@ pub fn seq_and_edit(del_ins_only: bool) -> impl Strategy<Value = (String, Placed
     })
 }
 
-pub fn edit_on(len: usize) -> impl Strategy<Value = PlacedHgvs> {
-    edit_on_kinds(len, false)
-}
-
 pub fn edit_on_kinds(len: usize, del_ins_only: bool) -> impl Strategy<Value = PlacedHgvs> {
     let span = (1usize..=len.saturating_sub(2).max(1)).prop_flat_map(move |l| {
         (0..=len.saturating_sub(l + 1).max(0)).prop_map(move |s| (s, s + l))
