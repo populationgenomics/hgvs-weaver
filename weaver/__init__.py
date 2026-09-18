@@ -124,6 +124,14 @@ class DataProvider(Protocol):
         """
         ...
 
+    def get_accession_for_refget(self, refget: str) -> str | None:  # optional
+        """Return the accession of the sequence whose refget accession is ``refget``.
+
+        Optional. When absent or returning None, ``VariantMapper.from_vrs`` needs the
+        accession passed by the caller.
+        """
+        ...
+
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
         """Identify what type of identifier a string is.
 

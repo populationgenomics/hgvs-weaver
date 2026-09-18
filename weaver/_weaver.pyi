@@ -345,6 +345,45 @@ class VariantMapper:
     @property
     def start_codon(self) -> StartCodonConvention: ...
 
+    def from_vrs(self, allele: dict[str, Any] | str, accession: str | None = None) -> Variant:
+        """Returns the Variant a GA4GH VRS 2.0 Allele names.
+
+        The variant is written in HGVS on the allele's own sequence, trimmed to the
+        change and normalised (3'-shifted): g. for a nucleotide sequence, p. for a
+        protein. Literal and ReferenceLengthExpression states are read; Range bounds
+        are accepted for a deletion, which comes back as g.(a_b)_(c_d)del.
+
+        The sequence behind the allele's refget accession is named by ``accession``
+        when given, else looked up through the DataProvider's optional
+        get_accession_for_refget; the digest is checked against the sequence either
+        way.
+
+        Args:
+            allele: The Allele as a dict (as to_vrs returns) or a JSON string.
+            accession: The accession of the sequence, when the provider cannot look
+                it up from the refget accession.
+
+        Raises:
+            HGVSError: If the allele is malformed, unsupported, or does not match the
+                sequence.
+        """
+
+    def from_spdi(self, spdi: str) -> Variant:
+        """Returns the Variant an SPDI string names.
+
+        ``accession:position:deletion:insertion`` with an interbase position and the
+        deletion given as bases or as a length. The variant is written in HGVS on
+        the accession's own sequence, trimmed to the change and normalised
+        (3'-shifted): g. for a nucleotide sequence, p. for a protein.
+
+        Args:
+            spdi: The SPDI string.
+
+        Raises:
+            HGVSError: If the string is malformed or the deletion does not match the
+                sequence.
+        """
+
 @final
 class VariantTransformSettings:
     """
