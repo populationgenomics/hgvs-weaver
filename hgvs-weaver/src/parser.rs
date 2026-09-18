@@ -527,9 +527,18 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
                     Rule::ext => {
                         let mut ext_inner = p.into_inner();
                         if let Some(aa_ext) = ext_inner.next() {
-                            let mut p_inner = aa_ext.into_inner();
-                            aaterm = p_inner.next().map(|t| t.as_str().to_string());
-                            length = p_inner.next().map(|l| l.as_str().to_string());
+                            // aa13_ext is either `term13 fsext_offset` or `aa13? snum`.
+                            for q in aa_ext.into_inner() {
+                                match q.as_rule() {
+                                    Rule::term13 | Rule::aa13 => {
+                                        aaterm = Some(q.as_str().to_string())
+                                    }
+                                    Rule::fsext_offset | Rule::snum => {
+                                        length = Some(q.as_str().to_string())
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
                     }
                     _ => {}

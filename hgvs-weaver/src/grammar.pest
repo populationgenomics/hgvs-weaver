@@ -41,7 +41,7 @@ dna_copy   = { "copy" ~ num }
 dna_repeat = { dna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
 
 rna_edit = { rna_subst | rna_delins | rna_del | rna_ins | rna_dup | rna_inv | rna_con | rna_repeat | rna_ident }
-rna_ident  = { rna ~ "=" }
+rna_ident  = { rna? ~ "=" }
 rna_subst  = { rna ~ ">" ~ rna }
 rna_delins = { "del" ~ (num | rna)? ~ "ins" ~ rna }
 rna_del    = { "del" ~ (num | rna)? }
@@ -93,7 +93,8 @@ p_pos = { ((term13 | aa13) ~ num) | num }
 r_pos = { base ~ offset }
 
 // Primitives and Basics
-accn = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "-")* ~ ("." ~ ASCII_DIGIT+)? }
+// A separator must be followed by an alphanumeric: "NM_" is not an accession.
+accn = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | (("_" | "-") ~ &ASCII_ALPHANUMERIC))* ~ ("." ~ ASCII_DIGIT+)? }
 opt_gene_expr = { ("(" ~ gene_symbol ~ ")")? }
 gene_symbol = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | (("-" | "_" | ".") ~ &ASCII_ALPHANUMERIC))* }
 
@@ -124,13 +125,17 @@ aat3 = { term3 | aa3 }
 aat13 = { aat3 | aat1 }
 
 
+// Deliberately lenient: a terminator may appear mid-sequence because ClinVar
+// writes insertions such as p.Glu26_Glu27insTerGlu (biocommons rejects these).
 aat13_seq = @{ aat3+ | aat1+ }
 
 fs = { "fs" ~ (aa13_fs | "") }
-ext = { "ext" ~ aa13_ext }
+ext = { "ext" ~ aa13_ext? }
 aa13_fs = { term13 ~ fsext_offset }
-aa13_ext = { (term13 | aa13)? ~ fsext_offset }
-fsext_offset = { snum | "?" | "" }
+// ext* / extTer8 / ext*? / extLeu-5 / ext-12: a terminator takes an optional
+// count, a residue (or nothing) needs a signed offset.
+aa13_ext = { term13 ~ fsext_offset | aa13? ~ snum }
+fsext_offset = { num | "?" | "" }
 
 base = { snum }
 
