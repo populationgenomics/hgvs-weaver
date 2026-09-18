@@ -106,6 +106,11 @@ pub fn describe(change: &CodingChange<'_>) -> Result<PVariant, HgvsError> {
                 return out.delins(i, ref_end - 1, &alt_aa[i..=j]);
             }
         }
+        // A frameshift whose first changed residue is the stop itself reads
+        // through it: HGVS writes that as an extension, not a frameshift.
+        if i == stop && alt_aa.get(i).is_some_and(|&c| c != '*') {
+            return out.extension(i);
+        }
         return out.frameshift(i);
     }
 
@@ -458,6 +463,16 @@ mod tests {
     fn stop_loss_is_an_extension_to_the_next_stop() {
         // TAA -> CAA (Gln), read through P then the UTR stop: ext*2.
         assert_eq!(p(CDS, UTR, sub("T", "C"), 18, 19), "NP:p.Ter7GlnextTer2");
+    }
+
+    #[test]
+    fn a_frameshift_in_the_stop_codon_is_an_extension() {
+        // Deleting the AA of TAA: the new frame reads TCC GTA TAA (Ser Val *),
+        // so the stop becomes Ser and a new stop follows two codons on.
+        assert_eq!(p(CDS, "CCGTATAA", del(), 19, 21), "NP:p.Ter7SerextTer2");
+        // Two bases earlier the first changed residue is Arg6, so it is a
+        // frameshift: CTA ACC GTA TAA.
+        assert_eq!(p(CDS, "CCGTATAA", del(), 16, 18), "NP:p.Arg6LeufsTer4");
     }
 
     #[test]
