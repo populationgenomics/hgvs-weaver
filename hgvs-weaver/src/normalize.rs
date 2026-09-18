@@ -58,9 +58,13 @@ impl PlacedEdit {
 }
 
 /// Normalises `placed` against `reference`: shifts it as far 3' as the
-/// sequence allows, fills in the reference bases of a deletion or duplication,
-/// and rewrites an insertion as a duplication when the inserted bases repeat
-/// the bases immediately before it.
+/// sequence allows and rewrites an insertion as a duplication when the
+/// inserted bases repeat the bases immediately before it.
+///
+/// Bases a deletion or duplication states are kept where the edit did not
+/// move and dropped where it did, since they would then be stale. Nothing is
+/// filled in: the bases are the reference's to give, and HGVS writes `del`
+/// and `dup` bare.
 pub fn normalize(
     reference: &Reference<'_, '_>,
     placed: PlacedEdit,
@@ -94,8 +98,10 @@ pub fn normalize(
         }
     }
 
-    if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
-        *ref_ = Some(reference.slice(start, end)?);
+    if k > 0 {
+        if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
+            *ref_ = None;
+        }
     }
 
     if let NaEdit::Ins {
@@ -109,7 +115,7 @@ pub fn normalize(
                 start: start - n,
                 end: start,
                 edit: NaEdit::Dup {
-                    ref_: Some(seq.clone()),
+                    ref_: None,
                     uncertain: *uncertain,
                 },
             });
@@ -247,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn deletion_shifts_3_prime_and_fills_reference() {
+    fn deletion_shifts_3_prime_and_states_no_bases() {
         //             0123456789
         let out = run("TTCAGCAGTT", PlacedEdit::from_hgvs_range(2, 5, del(None)));
         assert_eq!(
@@ -255,9 +261,21 @@ mod tests {
             PlacedEdit {
                 start: 5,
                 end: 8,
-                edit: del(Some("CAG"))
+                edit: del(None)
             }
         );
+        // Stated bases survive when the edit does not move, and go when it
+        // does: they would be stale, and the reference has them anyway.
+        let out = run(
+            "TTCAGCAGTT",
+            PlacedEdit::from_hgvs_range(5, 8, del(Some("CAG"))),
+        );
+        assert_eq!(out.edit, del(Some("CAG")));
+        let out = run(
+            "TTCAGCAGTT",
+            PlacedEdit::from_hgvs_range(2, 5, del(Some("CAG"))),
+        );
+        assert_eq!((out.start, out.end, out.edit), (5, 8, del(None)));
     }
 
     #[test]
@@ -271,7 +289,7 @@ mod tests {
                 start: 5,
                 end: 8,
                 edit: NaEdit::Dup {
-                    ref_: Some("CAG".into()),
+                    ref_: None,
                     uncertain: false
                 }
             }
@@ -333,7 +351,7 @@ mod tests {
         assert_eq!(
             out.edit,
             NaEdit::Dup {
-                ref_: Some("CAG".into()),
+                ref_: None,
                 uncertain: false
             }
         );

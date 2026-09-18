@@ -730,15 +730,15 @@ mod tests {
         };
 
         // Reference is ACGT repeated; base 2 (index 1) is C.
-        assert_eq!(norm("NC_000001.11:g.2_3insC")?, "NC_000001.11:g.2dupC");
-        assert_eq!(norm("NM_000123.4:c.2_3insC")?, "NM_000123.4:c.2dupC");
-        assert_eq!(norm("NM_000123.4:n.2_3insC")?, "NM_000123.4:n.2dupC");
+        assert_eq!(norm("NC_000001.11:g.2_3insC")?, "NC_000001.11:g.2dup");
+        assert_eq!(norm("NM_000123.4:c.2_3insC")?, "NM_000123.4:c.2dup");
+        assert_eq!(norm("NM_000123.4:n.2_3insC")?, "NM_000123.4:n.2dup");
 
         // A whole-unit insertion into a repeat shifts to the 3' end of the run
         // first, then duplicates the last copy.
         assert_eq!(
             norm("NC_000001.11:g.4_5insACGT")?,
-            "NC_000001.11:g.17_20dupACGT"
+            "NC_000001.11:g.17_20dup"
         );
 
         // An insertion that does not repeat its neighbours stays an insertion.

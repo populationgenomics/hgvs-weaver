@@ -341,7 +341,7 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
 }
 
 /// Whether `after` names different bases than `before`, so HGVS positions must
-/// be rewritten. A filled-in deletion or duplication reference alone does not.
+/// be rewritten.
 fn placement_changed(before: &PlacedEdit, after: &PlacedEdit) -> bool {
     (before.start, before.end) != (after.start, after.end)
         || before.is_insertion() != after.is_insertion()
@@ -1646,19 +1646,7 @@ impl<'a> VariantMapper<'a> {
         };
         let placed = normalize::normalize(&reference, PlacedEdit::from_hgvs_range(s, e, edit))?;
         let (s, e) = placed.hgvs_range();
-        // Normalisation fills in the deleted or duplicated bases; the minimal
-        // spelling leaves them out.
-        let edit = match placed.edit {
-            NaEdit::Del { uncertain, .. } => NaEdit::Del {
-                ref_: None,
-                uncertain,
-            },
-            NaEdit::Dup { uncertain, .. } => NaEdit::Dup {
-                ref_: None,
-                uncertain,
-            },
-            other => other,
-        };
+        let edit = placed.edit;
         Ok(match kind {
             IdentifierType::ProteinAccession => {
                 crate::SequenceVariant::Protein(protein_variant(ac, &reference, s, e, edit)?)
