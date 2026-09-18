@@ -346,6 +346,23 @@ pub struct PyDataProviderBridge {
     provider: Py<PyAny>,
 }
 
+impl PyDataProviderBridge {
+    /// Calls an optional provider method that returns `str | None`; a provider
+    /// without it answers `None`.
+    fn optional_lookup(&self, method: &str, arg: &str) -> Result<Option<String>, HgvsError> {
+        Python::attach(|py| {
+            let provider = self.provider.bind(py);
+            if !provider.hasattr(method).unwrap_or(false) {
+                return Ok(None);
+            }
+            provider
+                .call_method1(method, (arg,))
+                .and_then(|r| r.extract::<Option<String>>())
+                .map_err(|e: PyErr| HgvsError::DataProviderError(e.to_string()))
+        })
+    }
+}
+
 impl DataProvider for PyDataProviderBridge {
     fn get_transcript(
         &self,
@@ -376,16 +393,11 @@ impl DataProvider for PyDataProviderBridge {
     }
 
     fn get_refget_accession(&self, ac: &str) -> Result<Option<String>, HgvsError> {
-        Python::attach(|py| {
-            let provider = self.provider.bind(py);
-            if !provider.hasattr("get_refget_accession").unwrap_or(false) {
-                return Ok(None);
-            }
-            provider
-                .call_method1("get_refget_accession", (ac,))
-                .and_then(|r| r.extract::<Option<String>>())
-                .map_err(|e: PyErr| HgvsError::DataProviderError(e.to_string()))
-        })
+        self.optional_lookup("get_refget_accession", ac)
+    }
+
+    fn get_accession_for_refget(&self, refget: &str) -> Result<Option<String>, HgvsError> {
+        self.optional_lookup("get_accession_for_refget", refget)
     }
 
     fn get_seq(
@@ -645,7 +657,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var))]
-    #[doc = "Returns the GA4GH VRS 2.0 Allele for a nucleotide variant as a dict.\n\nThe variant is projected to its genomic reference, canonicalised (fully\njustified over its region of ambiguity) and rendered with computed\nidentifiers. The sequence is identified by its refget accession, taken from\nthe DataProvider's optional get_refget_accession or computed from the whole\nsequence.\n\nArgs:\n    var: A g., m., c. or n. Variant.\n\nReturns:\n    A dict in the VRS 2.0 Allele schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    #[doc = "Returns the GA4GH VRS 2.0 Allele for a variant as a dict.\n\nA nucleotide variant is projected to its genomic reference; a protein\nvariant stays on its protein. Either is canonicalised (fully justified\nover its region of ambiguity) and rendered with computed identifiers. The\nsequence is identified by its refget accession, taken from the\nDataProvider's optional get_refget_accession or computed from the whole\nsequence.\n\nArgs:\n    var: A g., m., c., n. or p. Variant. Protein variants must describe a\n        sequence: frameshifts, extensions and p.? have no allele. A g. or\n        m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is\n        rendered as given, with Range bounds ([min, max], null when\n        unbounded) and an empty literal state; it is not normalised.\n\nReturns:\n    A dict in the VRS 2.0 Allele schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
     fn to_vrs(&self, py: Python, var: &PyVariant) -> PyResult<Py<PyAny>> {
         let mapper = VariantMapper::new(self.bridge.as_ref());
         let json_str = mapper.to_vrs(&var.inner).map_err(map_hgvs_error)?.to_json();
@@ -654,10 +666,40 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var))]
-    #[doc = "Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a nucleotide variant.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier.\n\nArgs:\n    var: A g., m., c. or n. Variant.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    #[doc = "Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a variant.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier.\n\nArgs:\n    var: A g., m., c., n. or p. Variant, as for to_vrs.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
     fn vrs_id(&self, _py: Python, var: &PyVariant) -> PyResult<String> {
         let mapper = VariantMapper::new(self.bridge.as_ref());
         Ok(mapper.to_vrs(&var.inner).map_err(map_hgvs_error)?.id)
+    }
+
+    #[pyo3(signature = (allele, accession=None))]
+    #[doc = "Returns the Variant a GA4GH VRS 2.0 Allele names.\n\nThe variant is written in HGVS on the allele's own sequence, trimmed to the\nchange and normalised (3'-shifted): g. for a nucleotide sequence, p. for a\nprotein. Literal and ReferenceLengthExpression states are read; Range bounds\nare accepted for a deletion, which comes back as g.(a_b)_(c_d)del.\n\nThe sequence behind the allele's refget accession is named by ``accession``\nwhen given, else looked up through the DataProvider's optional\nget_accession_for_refget; the digest is checked against the sequence either\nway.\n\nArgs:\n    allele: The Allele as a dict (as to_vrs returns) or a JSON string.\n    accession: The accession of the sequence, when the provider cannot look\n        it up from the refget accession.\n\nRaises:\n    HGVSError: If the allele is malformed, unsupported, or does not match the\n        sequence."]
+    fn from_vrs(
+        &self,
+        py: Python,
+        allele: &Bound<'_, PyAny>,
+        accession: Option<String>,
+    ) -> PyResult<PyVariant> {
+        let json: String = if let Ok(s) = allele.extract::<String>() {
+            s
+        } else {
+            py.import("json")?
+                .call_method1("dumps", (allele,))?
+                .extract()?
+        };
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let inner = mapper
+            .from_vrs(&json, accession.as_deref())
+            .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
+    }
+
+    #[pyo3(signature = (spdi))]
+    #[doc = "Returns the Variant an SPDI string names.\n\n``accession:position:deletion:insertion`` with an interbase position and the\ndeletion given as bases or as a length. The variant is written in HGVS on\nthe accession's own sequence, trimmed to the change and normalised\n(3'-shifted): g. for a nucleotide sequence, p. for a protein.\n\nArgs:\n    spdi: The SPDI string.\n\nRaises:\n    HGVSError: If the string is malformed or the deletion does not match the\n        sequence."]
+    fn from_spdi(&self, _py: Python, spdi: &str) -> PyResult<PyVariant> {
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let inner = mapper.from_spdi(spdi).map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var))]

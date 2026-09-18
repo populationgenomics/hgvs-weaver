@@ -9,7 +9,7 @@ use crate::structs::{
     NVariant, PVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
-use crate::vrs::VrsAllele;
+use crate::vrs::{VrsAllele, VrsBound, VrsMolecule, VrsState};
 
 fn make_base_offset_position(
     base: crate::coords::HgvsTranscriptPos,
@@ -53,6 +53,172 @@ fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
         crate::edits::NaEdit::RefAlt { .. } => edit.stated_ref().is_none_or(|r| r == actual),
         _ => true,
     }
+}
+
+/// The 0-based half-open residue range a p. interval names.
+fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize), HgvsError> {
+    let start = pos.start.base.to_index().0;
+    let last = pos.end.as_ref().map_or(start, |e| e.base.to_index().0);
+    if start < 0 || last < start {
+        return Err(HgvsError::ValidationError(format!(
+            "Protein interval {}..{} is not a valid range",
+            start + 1,
+            last + 1
+        )));
+    }
+    Ok((start as usize, last as usize + 1))
+}
+
+/// The VRS bounds of a g. interval whose breakpoints are uncertain, HGVS
+/// `(a_b)_(c_d)` with `?` for an unknown side; `None` when every position is
+/// exact. A deletion `(a_b)_(c_d)` starts at an interbase coordinate in
+/// `[a-1, b-1]` and ends at one in `[c, d]`; a single `(a_b)` removes one
+/// base somewhere in `a..=b`.
+fn uncertain_bounds(pos: &SimpleInterval) -> Option<(VrsBound, VrsBound)> {
+    let ranged = |p: &SimplePosition| p.end.is_some() || p.base.is_unknown();
+    let last = pos.end.as_ref().unwrap_or(&pos.start);
+    if !ranged(&pos.start) && !ranged(last) {
+        return None;
+    }
+    let known = |b: crate::coords::HgvsGenomicPos| (b.0 > 0).then_some(b.0 as usize);
+    let bound = |p: &SimplePosition, interbase: fn(usize) -> usize| match (p.end, known(p.base)) {
+        (Some(e), lo) => VrsBound::Range(lo.map(interbase), known(e).map(interbase)),
+        (None, Some(b)) => VrsBound::Exact(interbase(b)),
+        (None, None) => VrsBound::Range(None, None),
+    };
+    Some((bound(&pos.start, |b| b - 1), bound(last, |b| b)))
+}
+
+/// The g. interval over the 0-based half-open range `[s, e)`.
+fn interval(s: usize, e: usize) -> SimpleInterval {
+    let position = |i: usize| SimplePosition {
+        base: GenomicPos(i as i32).to_hgvs(),
+        end: None,
+        uncertain: false,
+    };
+    SimpleInterval {
+        start: position(s),
+        end: (e > s + 1).then(|| position(e - 1)),
+        uncertain: false,
+    }
+}
+
+/// `g.(a_b)_(c_d)del` from VRS bounds: the inverse of `uncertain_bounds`.
+fn imprecise_deletion(ac: &str, start: VrsBound, end: VrsBound) -> GVariant {
+    use crate::coords::HgvsGenomicPos;
+    let position = |b: VrsBound, to_hgvs: fn(usize) -> i32| {
+        let known =
+            |v: Option<usize>| v.map_or(HgvsGenomicPos::UNKNOWN, |n| HgvsGenomicPos(to_hgvs(n)));
+        match b {
+            VrsBound::Exact(n) => SimplePosition {
+                base: HgvsGenomicPos(to_hgvs(n)),
+                end: None,
+                uncertain: false,
+            },
+            VrsBound::Range(lo, hi) => SimplePosition {
+                base: known(lo),
+                end: Some(known(hi)),
+                uncertain: true,
+            },
+        }
+    };
+    // A single base somewhere in `a..=b` came out as `[a-1, b-1]`, `[a, b]`.
+    let single = matches!((start, end), (VrsBound::Range(lo, hi), VrsBound::Range(lo2, hi2))
+        if lo.map(|n| n + 1) == lo2 && hi.map(|n| n + 1) == hi2);
+    let pos = SimpleInterval {
+        start: position(start, |n| n as i32 + 1),
+        end: (!single).then(|| position(end, |n| n as i32)),
+        uncertain: false,
+    };
+    GVariant::from_parts(
+        ac.to_string(),
+        None,
+        crate::structs::PosEdit {
+            pos: Some(pos),
+            edit: crate::edits::NaEdit::Del {
+                ref_: None,
+                uncertain: false,
+            },
+            uncertain: false,
+            predicted: false,
+        },
+    )
+}
+
+/// The p. variant for a normalised edit over residues `[s, e)` of a protein.
+fn protein_variant(
+    ac: &str,
+    reference: &crate::reference::Reference<'_, '_>,
+    s: usize,
+    e: usize,
+    edit: crate::edits::NaEdit,
+) -> Result<PVariant, HgvsError> {
+    use crate::edits::{AaEdit, NaEdit};
+    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
+    use crate::utils::seq1_to_aa3;
+    let residue = |i: usize| -> Result<AAPosition, HgvsError> {
+        Ok(AAPosition {
+            base: ProteinPos(i as i32).to_hgvs(),
+            aa: seq1_to_aa3(&reference.slice(i, i + 1)?),
+            uncertain: false,
+        })
+    };
+    let aa_edit = match edit {
+        NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            ..
+        } => AaEdit::Identity { uncertain: false },
+        NaEdit::RefAlt {
+            ref_: Some(r),
+            alt: Some(a),
+            ..
+        } if r.len() == 1 && a.len() == 1 => AaEdit::Subst {
+            ref_: seq1_to_aa3(&r),
+            alt: seq1_to_aa3(&a),
+            uncertain: false,
+        },
+        NaEdit::RefAlt { alt: Some(a), .. } => AaEdit::DelIns {
+            ref_: String::new(),
+            alt: seq1_to_aa3(&a),
+            uncertain: false,
+        },
+        NaEdit::Del { .. } => AaEdit::Del {
+            ref_: String::new(),
+            uncertain: false,
+        },
+        NaEdit::Ins { alt: Some(a), .. } => AaEdit::Ins {
+            alt: seq1_to_aa3(&a),
+            uncertain: false,
+        },
+        NaEdit::Dup { .. } => AaEdit::Dup {
+            ref_: None,
+            uncertain: false,
+        },
+        other => {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{other:?} has no protein form"
+            )))
+        }
+    };
+    Ok(PVariant {
+        ac: ac.to_string(),
+        gene: None,
+        posedit: PosEdit {
+            pos: Some(AaInterval {
+                start: residue(s)?,
+                end: if e > s + 1 {
+                    Some(residue(e - 1)?)
+                } else {
+                    None
+                },
+                uncertain: false,
+            }),
+            edit: aa_edit,
+            uncertain: false,
+            predicted: false,
+        },
+    })
 }
 
 /// The 0-based half-open index range a g. interval names.
@@ -836,9 +1002,55 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::Mitochondrial(v) => self.validate_linear(v),
             crate::SequenceVariant::Coding(v) => self.validate_transcript(v),
             crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
+            crate::SequenceVariant::Protein(v) => self.validate_protein(v),
             _ => Err(HgvsError::UnsupportedOperation(
                 "Validation not implemented for this variant type".into(),
             )),
+        }
+    }
+
+    /// Whether the residues a p. variant names at its positions, and any it
+    /// states as reference, are what the protein sequence holds.
+    fn validate_protein(&self, v: &PVariant) -> Result<bool, HgvsError> {
+        let pos = v
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (start, end) = aa_interval_range(pos)?;
+        let actual = self
+            .refs
+            .reference(&v.ac, IdentifierType::ProteinAccession)
+            .slice(start, end)?;
+        if actual.len() != end - start {
+            return Ok(false); // the range runs past the end of the protein
+        }
+        let named = |aa: &str, at: usize| -> Result<bool, HgvsError> {
+            Ok(aa.is_empty() || crate::utils::residues_1(aa)? == actual[at..=at])
+        };
+        if !named(&pos.start.aa, 0)? {
+            return Ok(false);
+        }
+        if let Some(e) = &pos.end {
+            if !named(&e.aa, actual.len() - 1)? {
+                return Ok(false);
+            }
+        }
+        use crate::edits::AaEdit;
+        let stated = match &v.posedit.edit {
+            AaEdit::Subst { ref_, .. } | AaEdit::DelIns { ref_, .. } | AaEdit::Del { ref_, .. } => {
+                Some(ref_.as_str())
+            }
+            AaEdit::Dup { ref_, .. } | AaEdit::RefAlt { ref_, .. } => ref_.as_deref(),
+            AaEdit::Repeat { ref_, .. } => ref_
+                .as_deref()
+                .filter(|u| !u.chars().all(|c| c.is_ascii_digit())),
+            _ => None,
+        }
+        .filter(|r| !r.is_empty());
+        match stated {
+            Some(r) => Ok(crate::utils::residues_1(r)? == actual),
+            None => Ok(true),
         }
     }
 
@@ -984,9 +1196,22 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        if let crate::SequenceVariant::Protein(vp) = var {
+            let pos = vp
+                .posedit
+                .pos
+                .as_ref()
+                .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+            let (start, end) = aa_interval_range(pos)?;
+            let reference = self
+                .refs
+                .reference(&vp.ac, IdentifierType::ProteinAccession);
+            let resolved = vp.posedit.edit.resolve(&reference, start, end)?;
+            return CanonicalAllele::canonicalize(&reference, &vp.ac, &resolved);
+        }
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
-                "Canonical alleles exist for genomic, mitochondrial, coding and non-coding variants only".into(),
+                "Canonical alleles exist for genomic, mitochondrial, coding, non-coding and protein variants only".into(),
             )
         })??;
         let pos = g
@@ -1020,17 +1245,299 @@ impl<'a> VariantMapper<'a> {
     /// The GA4GH VRS 2.0 Allele of a variant, with computed identifiers. The
     /// input HGVS is carried as an expression.
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
+        let syntax = format!("hgvs.{}", var.coordinate_type());
+        let hgvs = var.to_string();
+        // Breakpoints known only to ranges cannot be normalised; VRS carries
+        // them as Range bounds, for deletions.
+        let linear = match var {
+            crate::SequenceVariant::Genomic(v) => Some(v.clone()),
+            crate::SequenceVariant::Mitochondrial(v) => Some(v.to_genomic()),
+            _ => None,
+        };
+        if let Some(g) = linear {
+            if let Some((start, end)) = g.posedit.pos.as_ref().and_then(uncertain_bounds) {
+                if !matches!(g.posedit.edit, crate::edits::NaEdit::Del { .. }) {
+                    return Err(HgvsError::UnsupportedOperation(format!(
+                        "Only a deletion can have uncertain breakpoints in VRS, not {:?}",
+                        g.posedit.edit
+                    )));
+                }
+                let refget = self
+                    .refs
+                    .reference(&g.ac, IdentifierType::GenomicAccession)
+                    .refget_accession()?;
+                return Ok(VrsAllele::imprecise_deletion(
+                    &refget,
+                    start,
+                    end,
+                    VrsMolecule::Genomic,
+                    Some((&syntax, &hgvs)),
+                ));
+            }
+        }
         let allele = self.canonical_allele(var)?;
+        let (kind, molecule) = match var {
+            crate::SequenceVariant::Protein(_) => {
+                (IdentifierType::ProteinAccession, VrsMolecule::Protein)
+            }
+            _ => (IdentifierType::GenomicAccession, VrsMolecule::Genomic),
+        };
         let refget = self
             .refs
-            .reference(&allele.accession, IdentifierType::GenomicAccession)
+            .reference(&allele.accession, kind)
             .refget_accession()?;
-        let syntax = format!("hgvs.{}", var.coordinate_type());
         Ok(VrsAllele::new(
             &allele,
             &refget,
-            Some((&syntax, &var.to_string())),
+            molecule,
+            Some((&syntax, &hgvs)),
         ))
+    }
+
+    /// The variant an SPDI string names (`accession:position:deletion:insertion`,
+    /// interbase position, the deletion as bases or as a length), written in
+    /// HGVS on its own sequence and 3'-normalised: `g.` for a nucleotide
+    /// accession, `p.` for a protein.
+    pub fn from_spdi(&self, spdi: &str) -> Result<crate::SequenceVariant, HgvsError> {
+        let parts: Vec<&str> = spdi.trim().split(':').collect();
+        let [ac, pos, del, ins] = parts[..] else {
+            return Err(HgvsError::ValidationError(format!(
+                "SPDI is accession:position:deletion:insertion, not {spdi:?}"
+            )));
+        };
+        let start: usize = pos.parse().map_err(|_| {
+            HgvsError::ValidationError(format!("SPDI position {pos:?} is not a number"))
+        })?;
+        let kind = self.sequence_kind(ac)?;
+        let end = if !del.is_empty() && del.chars().all(|c| c.is_ascii_digit()) {
+            start + del.parse::<usize>().unwrap_or(0)
+        } else {
+            let actual = self
+                .refs
+                .reference(ac, kind)
+                .slice(start, start + del.len())?;
+            if actual != del {
+                return Err(HgvsError::ValidationError(format!(
+                    "SPDI deletion {del:?} is not what {ac} holds at {start}: {actual:?}"
+                )));
+            }
+            start + del.len()
+        };
+        self.allele_to_variant(ac, kind, start, end, ins.to_string())
+    }
+
+    /// The variant a GA4GH VRS 2.0 Allele (as JSON) names, written in HGVS on
+    /// its own sequence and 3'-normalised. The sequence is identified by its
+    /// refget accession: `accession` names it when given, else the provider's
+    /// `get_accession_for_refget` must; the digest is checked against the
+    /// sequence either way. Range bounds are accepted for a deletion, which
+    /// comes back as `g.(a_b)_(c_d)del`.
+    pub fn from_vrs(
+        &self,
+        json: &str,
+        accession: Option<&str>,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        let allele = VrsAllele::from_json(json)?;
+        let refget = allele.location.sequence_reference.refget_accession.as_str();
+        let ac = match accession {
+            Some(a) => a.to_string(),
+            None => self.hdp.get_accession_for_refget(refget)?.ok_or_else(|| {
+                HgvsError::DataProviderError(format!(
+                    "No accession is known for {refget}; pass one, or implement DataProvider::get_accession_for_refget"
+                ))
+            })?,
+        };
+        let sr = &allele.location.sequence_reference;
+        let kind = if sr.residue_alphabet == "aa" || sr.molecule_type == "protein" {
+            IdentifierType::ProteinAccession
+        } else if sr.residue_alphabet == "na" {
+            IdentifierType::GenomicAccession
+        } else {
+            self.sequence_kind(&ac)?
+        };
+        let reference = self.refs.reference(&ac, kind);
+        let actual = reference.refget_accession()?;
+        if actual != refget {
+            return Err(HgvsError::ValidationError(format!(
+                "{refget} is not the refget accession of {ac}, which is {actual}"
+            )));
+        }
+        match (allele.location.start, allele.location.end) {
+            (VrsBound::Exact(start), VrsBound::Exact(end)) => {
+                if end < start {
+                    return Err(HgvsError::ValidationError(format!(
+                        "Location end {end} is before start {start}"
+                    )));
+                }
+                let alt = match &allele.state {
+                    VrsState::Literal { sequence, .. } => sequence.clone(),
+                    VrsState::ReferenceLength {
+                        length,
+                        repeat_subunit_length,
+                        ..
+                    } => {
+                        let r = reference.slice(start, end)?;
+                        let unit = *repeat_subunit_length;
+                        if unit == 0 || unit > r.len() {
+                            return Err(HgvsError::ValidationError(format!(
+                                "repeatSubunitLength {unit} does not fit a location of {} bases",
+                                r.len()
+                            )));
+                        }
+                        r[..unit].chars().cycle().take(*length).collect()
+                    }
+                };
+                self.allele_to_variant(&ac, kind, start, end, alt)
+            }
+            (start, end) => {
+                let empty = matches!(&allele.state, VrsState::Literal { sequence, .. } if sequence.is_empty());
+                if kind == IdentifierType::ProteinAccession || !empty {
+                    return Err(HgvsError::UnsupportedOperation(
+                        "Range bounds are supported for a deletion on a nucleotide sequence only"
+                            .into(),
+                    ));
+                }
+                Ok(crate::SequenceVariant::Genomic(imprecise_deletion(
+                    &ac, start, end,
+                )))
+            }
+        }
+    }
+
+    /// Whether `ac` names a protein or a nucleotide sequence.
+    fn sequence_kind(&self, ac: &str) -> Result<IdentifierType, HgvsError> {
+        Ok(match self.hdp.get_identifier_type(ac)? {
+            IdentifierType::ProteinAccession => IdentifierType::ProteinAccession,
+            _ => IdentifierType::GenomicAccession,
+        })
+    }
+
+    /// The HGVS variant for "the bases over `[start, end)` of `ac` become
+    /// `alt`": trimmed to the change, 3'-normalised, written as `g.` or `p.`.
+    fn allele_to_variant(
+        &self,
+        ac: &str,
+        kind: IdentifierType,
+        start: usize,
+        end: usize,
+        alt: String,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        use crate::edits::NaEdit;
+        let reference = self.refs.reference(ac, kind);
+        let ref_ = reference.slice(start, end)?;
+        if ref_.len() != end - start {
+            return Err(HgvsError::ValidationError(format!(
+                "{ac} is shorter than position {end}"
+            )));
+        }
+        // Trim what the allele leaves unchanged, prefix first: a fully
+        // justified insertion or deletion then sits at the 3' end of its run,
+        // which is where HGVS writes it.
+        let prefix = ref_
+            .bytes()
+            .zip(alt.bytes())
+            .take_while(|(x, y)| x == y)
+            .count();
+        let (r, a) = (&ref_[prefix..], &alt[prefix..]);
+        let suffix = r
+            .bytes()
+            .rev()
+            .zip(a.bytes().rev())
+            .take_while(|(x, y)| x == y)
+            .count();
+        let r = r[..r.len() - suffix].to_string();
+        let a = a[..a.len() - suffix].to_string();
+        let at = start + prefix;
+        let (edit, s, e) = if r.is_empty() && a.is_empty() {
+            let edit = NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                uncertain: false,
+            };
+            if end > start {
+                (edit, start, end)
+            } else {
+                // Nothing over an empty range: say so of the base before it.
+                let s = start.saturating_sub(1);
+                (edit, s, s + 1)
+            }
+        } else if r.is_empty() && at == 0 {
+            // HGVS has no insertion before the first base; it is written as a
+            // delins of that base.
+            let first = reference.slice(0, 1)?;
+            let edit = NaEdit::RefAlt {
+                ref_: Some(String::new()),
+                alt: Some(format!("{a}{first}")),
+                uncertain: false,
+            };
+            (edit, 0, 1)
+        } else if r.is_empty() {
+            let edit = NaEdit::Ins {
+                alt: Some(a),
+                uncertain: false,
+            };
+            (edit, at - 1, at + 1)
+        } else if a.is_empty() {
+            let edit = NaEdit::Del {
+                ref_: None,
+                uncertain: false,
+            };
+            (edit, at, at + r.len())
+        } else if r.len() == 1 && a.len() == 1 {
+            let edit = NaEdit::RefAlt {
+                ref_: Some(r),
+                alt: Some(a),
+                uncertain: false,
+            };
+            (edit, at, at + 1)
+        } else if kind != IdentifierType::ProteinAccession
+            && r.len() > 1
+            && a == crate::utils::reverse_complement(&r)
+        {
+            let edit = NaEdit::Inv {
+                ref_: None,
+                uncertain: false,
+            };
+            (edit, at, at + r.len())
+        } else {
+            // A delins, written without the deleted bases.
+            let edit = NaEdit::RefAlt {
+                ref_: Some(String::new()),
+                alt: Some(a),
+                uncertain: false,
+            };
+            (edit, at, at + r.len())
+        };
+        let placed = normalize::normalize(&reference, PlacedEdit::from_hgvs_range(s, e, edit))?;
+        let (s, e) = placed.hgvs_range();
+        // Normalisation fills in the deleted or duplicated bases; the minimal
+        // spelling leaves them out.
+        let edit = match placed.edit {
+            NaEdit::Del { uncertain, .. } => NaEdit::Del {
+                ref_: None,
+                uncertain,
+            },
+            NaEdit::Dup { uncertain, .. } => NaEdit::Dup {
+                ref_: None,
+                uncertain,
+            },
+            other => other,
+        };
+        Ok(match kind {
+            IdentifierType::ProteinAccession => {
+                crate::SequenceVariant::Protein(protein_variant(ac, &reference, s, e, edit)?)
+            }
+            _ => crate::SequenceVariant::Genomic(GVariant::from_parts(
+                ac.to_string(),
+                None,
+                crate::structs::PosEdit {
+                    pos: Some(interval(s, e)),
+                    edit,
+                    uncertain: false,
+                    predicted: false,
+                },
+            )),
+        })
     }
 
     pub fn to_spdi(
@@ -1038,7 +1545,8 @@ impl<'a> VariantMapper<'a> {
         var: &crate::SequenceVariant,
         unambiguous: bool,
     ) -> Result<String, HgvsError> {
-        if unambiguous {
+        // A protein has only the canonical form.
+        if unambiguous || matches!(var, crate::SequenceVariant::Protein(_)) {
             self.to_spdi_unambiguous(var)
         } else {
             // 1. Resolve to genomic if possible.

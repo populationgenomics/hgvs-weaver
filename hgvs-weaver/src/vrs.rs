@@ -7,8 +7,9 @@
 //! properties, nested identifiable objects replaced by their digests.
 
 use crate::allele::CanonicalAllele;
+use crate::error::HgvsError;
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha512};
 
@@ -29,63 +30,126 @@ fn canonical_json(value: &Value) -> String {
     serde_json::to_string(value).expect("serialising a JSON value cannot fail")
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+/// What the sequence an allele sits on is, for VRS's `SequenceReference`.
+/// Not part of any computed identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VrsMolecule {
+    Genomic,
+    Protein,
+}
+
+impl VrsMolecule {
+    pub fn residue_alphabet(self) -> &'static str {
+        match self {
+            VrsMolecule::Genomic => "na",
+            VrsMolecule::Protein => "aa",
+        }
+    }
+
+    pub fn molecule_type(self) -> &'static str {
+        match self {
+            VrsMolecule::Genomic => "genomic",
+            VrsMolecule::Protein => "protein",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsSequenceReference {
     #[serde(rename = "type")]
     pub type_: String,
     #[serde(rename = "refgetAccession")]
     pub refget_accession: String,
-    #[serde(rename = "residueAlphabet")]
+    #[serde(rename = "residueAlphabet", default)]
     pub residue_alphabet: String,
-    #[serde(rename = "moleculeType")]
+    #[serde(rename = "moleculeType", default)]
     pub molecule_type: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+/// One end of a `SequenceLocation`: an exact interbase coordinate, or a
+/// `Range` `[min, max]` when the breakpoint is only known to lie within it
+/// (`None` for an unbounded side). Serialises as a number or a two-element
+/// array with `null`s, which is also its form in computed identifiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VrsBound {
+    Exact(usize),
+    Range(Option<usize>, Option<usize>),
+}
+
+impl<'de> Deserialize<'de> for VrsBound {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Exact(usize),
+            Range(Option<usize>, Option<usize>),
+        }
+        Ok(match Raw::deserialize(deserializer)? {
+            Raw::Exact(n) => VrsBound::Exact(n),
+            Raw::Range(min, max) => VrsBound::Range(min, max),
+        })
+    }
+}
+
+impl Serialize for VrsBound {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            VrsBound::Exact(n) => serializer.serialize_u64(*n as u64),
+            VrsBound::Range(min, max) => (min, max).serialize(serializer),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsSequenceLocation {
+    #[serde(default)]
     pub id: String,
     #[serde(rename = "type")]
     pub type_: String,
+    #[serde(default)]
     pub digest: String,
     #[serde(rename = "sequenceReference")]
     pub sequence_reference: VrsSequenceReference,
-    pub start: usize,
-    pub end: usize,
+    pub start: VrsBound,
+    pub end: VrsBound,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum VrsState {
-    Literal {
-        #[serde(rename = "type")]
-        type_: String,
-        sequence: String,
-    },
     ReferenceLength {
         #[serde(rename = "type")]
         type_: String,
         length: usize,
         #[serde(rename = "repeatSubunitLength")]
         repeat_subunit_length: usize,
+        #[serde(default)]
+        sequence: String,
+    },
+    Literal {
+        #[serde(rename = "type")]
+        type_: String,
         sequence: String,
     },
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsExpression {
     pub syntax: String,
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VrsAllele {
+    #[serde(default)]
     pub id: String,
     #[serde(rename = "type")]
     pub type_: String,
+    #[serde(default)]
     pub digest: String,
     pub location: VrsSequenceLocation,
     pub state: VrsState,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub expressions: Vec<VrsExpression>,
 }
 
@@ -93,16 +157,12 @@ impl VrsAllele {
     /// Builds the VRS Allele for `allele` on the sequence identified by
     /// `refget`, carrying `hgvs` (syntax such as `hgvs.g` and the string) as an
     /// expression when given.
-    pub fn new(allele: &CanonicalAllele, refget: &str, hgvs: Option<(&str, &str)>) -> Self {
-        let location_digest = sha512t24u(
-            canonical_json(&json!({
-                "type": "SequenceLocation",
-                "sequenceReference": {"type": "SequenceReference", "refgetAccession": refget},
-                "start": allele.start,
-                "end": allele.end,
-            }))
-            .as_bytes(),
-        );
+    pub fn new(
+        allele: &CanonicalAllele,
+        refget: &str,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
         let state = match allele.repeat_subunit {
             Some(unit) => VrsState::ReferenceLength {
                 type_: "ReferenceLengthExpression".into(),
@@ -115,6 +175,51 @@ impl VrsAllele {
                 sequence: allele.alternate.clone(),
             },
         };
+        Self::build(
+            refget,
+            VrsBound::Exact(allele.start),
+            VrsBound::Exact(allele.end),
+            state,
+            molecule,
+            hgvs,
+        )
+    }
+
+    /// A deletion whose breakpoints are only known to lie within ranges, HGVS
+    /// `g.(a_b)_(c_d)del`. The location carries the ranges and the state is
+    /// the empty literal sequence. Such an allele cannot be normalised, so it
+    /// is rendered as given.
+    pub fn imprecise_deletion(
+        refget: &str,
+        start: VrsBound,
+        end: VrsBound,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let state = VrsState::Literal {
+            type_: "LiteralSequenceExpression".into(),
+            sequence: String::new(),
+        };
+        Self::build(refget, start, end, state, molecule, hgvs)
+    }
+
+    fn build(
+        refget: &str,
+        start: VrsBound,
+        end: VrsBound,
+        state: VrsState,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let location_digest = sha512t24u(
+            canonical_json(&json!({
+                "type": "SequenceLocation",
+                "sequenceReference": {"type": "SequenceReference", "refgetAccession": refget},
+                "start": start,
+                "end": end,
+            }))
+            .as_bytes(),
+        );
         let state_inherent = match &state {
             VrsState::Literal { sequence, .. } => {
                 json!({"type": "LiteralSequenceExpression", "sequence": sequence})
@@ -148,11 +253,11 @@ impl VrsAllele {
                 sequence_reference: VrsSequenceReference {
                     type_: "SequenceReference".into(),
                     refget_accession: refget.to_string(),
-                    residue_alphabet: "na".into(),
-                    molecule_type: "genomic".into(),
+                    residue_alphabet: molecule.residue_alphabet().into(),
+                    molecule_type: molecule.molecule_type().into(),
                 },
-                start: allele.start,
-                end: allele.end,
+                start,
+                end,
             },
             state,
             expressions: hgvs
@@ -164,6 +269,20 @@ impl VrsAllele {
                 })
                 .unwrap_or_default(),
         }
+    }
+
+    /// Parses a VRS 2.0 Allele from JSON. Properties this module does not
+    /// model are ignored; the `type` must be `Allele`.
+    pub fn from_json(json: &str) -> Result<VrsAllele, HgvsError> {
+        let allele: VrsAllele = serde_json::from_str(json)
+            .map_err(|e| HgvsError::ValidationError(format!("Not a VRS Allele: {e}")))?;
+        if allele.type_ != "Allele" {
+            return Err(HgvsError::ValidationError(format!(
+                "Expected a VRS Allele, got a {}",
+                allele.type_
+            )));
+        }
+        Ok(allele)
     }
 
     pub fn to_json(&self) -> String {
@@ -186,7 +305,12 @@ mod tests {
             alternate: "T".into(),
             repeat_subunit: None,
         };
-        let vrs = VrsAllele::new(&allele, "SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl", None);
+        let vrs = VrsAllele::new(
+            &allele,
+            "SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl",
+            VrsMolecule::Genomic,
+            None,
+        );
         assert_eq!(vrs.location.digest, "wIlaGykfwHIpPY2Fcxtbx4TINbbODFVz");
         assert_eq!(vrs.id, "ga4gh:VA.0AePZIWZUNsUlQTamyLrjm2HWUw2opLt");
     }
@@ -207,7 +331,12 @@ mod tests {
             alternate: "CAGCAGCAG".into(),
             repeat_subunit: Some(3),
         };
-        let vrs = VrsAllele::new(&allele, "SQ.test", Some(("hgvs.g", "X:g.3_8dup")));
+        let vrs = VrsAllele::new(
+            &allele,
+            "SQ.test",
+            VrsMolecule::Genomic,
+            Some(("hgvs.g", "X:g.3_8dup")),
+        );
         match &vrs.state {
             VrsState::ReferenceLength {
                 length,

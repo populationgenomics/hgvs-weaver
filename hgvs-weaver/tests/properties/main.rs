@@ -4,9 +4,11 @@
 
 mod strategies;
 
+use hgvs_weaver::coords::HgvsGenomicPos;
 use hgvs_weaver::data::IdentifierType;
 use hgvs_weaver::normalize::{ambiguous_range, normalize, PlacedEdit};
 use hgvs_weaver::reference::ReferenceStore;
+use hgvs_weaver::structs::{GVariant, LinearVariant, SimpleInterval, SimplePosition};
 use proptest::prelude::*;
 use strategies::*;
 
@@ -31,6 +33,23 @@ proptest! {
 
         let again = normalize(&r, after.clone()).unwrap();
         prop_assert_eq!(again, after, "normalisation is not idempotent");
+    }
+
+    /// VRS and SPDI are lossless: an allele read back from either is the same
+    /// allele, whatever spelling the input used.
+    #[test]
+    fn vrs_and_spdi_round_trip((seq, p) in seq_and_edit(false)) {
+        let hdp = Provider::single("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let v = SequenceVariant::Genomic(genomic_variant("X", &p));
+        let vrs = mapper.to_vrs(&v).unwrap();
+        let back = mapper.from_vrs(&vrs.to_json(), Some("X")).unwrap();
+        prop_assert_eq!(&mapper.to_vrs(&back).unwrap().id, &vrs.id, "{} read back as {}", v, back);
+        let spdi = mapper.to_spdi_unambiguous(&v).unwrap();
+        let back = mapper.from_spdi(&spdi).unwrap();
+        prop_assert_eq!(&mapper.to_vrs(&back).unwrap().id, &vrs.id, "{} as {} read back as {}", v, spdi, back);
+        // Reading back is idempotent: the normalised spelling maps to itself.
+        prop_assert_eq!(mapper.from_vrs(&mapper.to_vrs(&back).unwrap().to_json(), Some("X")).unwrap().to_string(), back.to_string());
     }
 
     /// The ambiguity range is exactly the set of positions the change can be
@@ -103,6 +122,29 @@ proptest! {
         }
         prop_assert_eq!(r.whole().unwrap(), seq.clone());
     }
+}
+
+/// The g. variant on `ac` for an edit over an HGVS range.
+fn genomic_variant(ac: &str, p: &PlacedHgvs) -> GVariant {
+    let position = |i: usize| SimplePosition {
+        base: HgvsGenomicPos(i as i32),
+        end: None,
+        uncertain: false,
+    };
+    GVariant::from_parts(
+        ac.to_string(),
+        None,
+        PosEdit {
+            pos: Some(SimpleInterval {
+                start: position(p.start + 1),
+                end: (p.end > p.start + 1).then(|| position(p.end)),
+                uncertain: false,
+            }),
+            edit: p.edit.clone(),
+            uncertain: false,
+            predicted: false,
+        },
+    )
 }
 
 /// The HGVS range a placed (normalised) edit is written over.

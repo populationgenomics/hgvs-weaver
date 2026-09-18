@@ -104,6 +104,12 @@ pub trait DataProvider {
     fn get_refget_accession(&self, _ac: &str) -> Result<Option<String>, HgvsError> {
         Ok(None)
     }
+    /// The accession of the sequence whose refget accession is `refget`, if
+    /// the provider can look it up. `None` means the caller must name it.
+    /// Used by `VariantMapper::from_vrs`.
+    fn get_accession_for_refget(&self, _refget: &str) -> Result<Option<String>, HgvsError> {
+        Ok(None)
+    }
 }
 
 /// Interface for discovering transcripts by region.

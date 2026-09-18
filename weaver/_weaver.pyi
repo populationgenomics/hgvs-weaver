@@ -299,25 +299,21 @@ class VariantMapper:
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
 
-@final
-class VariantTransformSettings:
-    """
-    Settings that control how a variant is transformed before formatting or comparison.
-
-    Create with keyword arguments:
-        settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
-    """
     def to_vrs(self, var: Variant) -> dict[str, Any]:
-        """Returns the GA4GH VRS 2.0 Allele for a nucleotide variant as a dict.
+        """Returns the GA4GH VRS 2.0 Allele for a variant as a dict.
 
-        The variant is projected to its genomic reference, canonicalised (fully
-        justified over its region of ambiguity) and rendered with computed
-        identifiers. The sequence is identified by its refget accession, taken from
+        A nucleotide variant is projected to its genomic reference; a protein
+        variant stays on its protein. Either is canonicalised (fully justified
+        over its region of ambiguity) and rendered with computed identifiers. The sequence is identified by its refget accession, taken from
         the DataProvider's optional get_refget_accession or computed from the whole
         sequence.
 
         Args:
-            var: A g., m., c. or n. Variant.
+            var: A g., m., c., n. or p. Variant. Protein variants must describe a
+                sequence: frameshifts, extensions and p.? have no allele. A g. or
+                m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is
+                rendered as given, with Range bounds ([min, max], null when
+                unbounded) and an empty literal state; it is not normalised.
 
         Returns:
             A dict in the VRS 2.0 Allele schema.
@@ -327,13 +323,14 @@ class VariantTransformSettings:
         """
 
     def vrs_id(self, var: Variant) -> str:
-        """Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a nucleotide variant.
+        """Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a variant.
 
         Two variants describing the same change on the same sequence have the same
         identifier.
 
         Args:
-            var: A g., m., c. or n. Variant.
+            var: A g., m., c., n. or p. Variant. Protein variants must describe a
+                sequence: frameshifts, extensions and p.? have no allele.
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
@@ -348,6 +345,53 @@ class VariantTransformSettings:
     @property
     def start_codon(self) -> StartCodonConvention: ...
 
+    def from_vrs(self, allele: dict[str, Any] | str, accession: str | None = None) -> Variant:
+        """Returns the Variant a GA4GH VRS 2.0 Allele names.
+
+        The variant is written in HGVS on the allele's own sequence, trimmed to the
+        change and normalised (3'-shifted): g. for a nucleotide sequence, p. for a
+        protein. Literal and ReferenceLengthExpression states are read; Range bounds
+        are accepted for a deletion, which comes back as g.(a_b)_(c_d)del.
+
+        The sequence behind the allele's refget accession is named by ``accession``
+        when given, else looked up through the DataProvider's optional
+        get_accession_for_refget; the digest is checked against the sequence either
+        way.
+
+        Args:
+            allele: The Allele as a dict (as to_vrs returns) or a JSON string.
+            accession: The accession of the sequence, when the provider cannot look
+                it up from the refget accession.
+
+        Raises:
+            HGVSError: If the allele is malformed, unsupported, or does not match the
+                sequence.
+        """
+
+    def from_spdi(self, spdi: str) -> Variant:
+        """Returns the Variant an SPDI string names.
+
+        ``accession:position:deletion:insertion`` with an interbase position and the
+        deletion given as bases or as a length. The variant is written in HGVS on
+        the accession's own sequence, trimmed to the change and normalised
+        (3'-shifted): g. for a nucleotide sequence, p. for a protein.
+
+        Args:
+            spdi: The SPDI string.
+
+        Raises:
+            HGVSError: If the string is malformed or the deletion does not match the
+                sequence.
+        """
+
+@final
+class VariantTransformSettings:
+    """
+    Settings that control how a variant is transformed before formatting or comparison.
+
+    Create with keyword arguments:
+        settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
+    """
 def parse(input: str) -> Variant:
     """
     Parses an HGVS string into a Variant object.
