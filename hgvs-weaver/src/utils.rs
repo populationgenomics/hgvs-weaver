@@ -272,6 +272,11 @@ fn aa3_chunk_to_residue(s: &str) -> Option<Residue> {
     }
 }
 
+/// The 1-letter form of an HGVS amino acid string (`GlyGly`, `GG`, `Ter`).
+pub fn residues_1(s: &str) -> Result<String, HgvsError> {
+    Ok(decompose_aa(s)?.iter().map(ToString::to_string).collect())
+}
+
 pub fn decompose_aa(s: &str) -> Result<Vec<Residue>, HgvsError> {
     if s.is_empty() {
         return Ok(Vec::new());

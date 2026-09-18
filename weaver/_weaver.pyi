@@ -299,25 +299,18 @@ class VariantMapper:
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
 
-@final
-class VariantTransformSettings:
-    """
-    Settings that control how a variant is transformed before formatting or comparison.
-
-    Create with keyword arguments:
-        settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
-    """
     def to_vrs(self, var: Variant) -> dict[str, Any]:
-        """Returns the GA4GH VRS 2.0 Allele for a nucleotide variant as a dict.
+        """Returns the GA4GH VRS 2.0 Allele for a variant as a dict.
 
-        The variant is projected to its genomic reference, canonicalised (fully
-        justified over its region of ambiguity) and rendered with computed
-        identifiers. The sequence is identified by its refget accession, taken from
+        A nucleotide variant is projected to its genomic reference; a protein
+        variant stays on its protein. Either is canonicalised (fully justified
+        over its region of ambiguity) and rendered with computed identifiers. The sequence is identified by its refget accession, taken from
         the DataProvider's optional get_refget_accession or computed from the whole
         sequence.
 
         Args:
-            var: A g., m., c. or n. Variant.
+            var: A g., m., c., n. or p. Variant. Protein variants must describe a
+                sequence: frameshifts, extensions and p.? have no allele.
 
         Returns:
             A dict in the VRS 2.0 Allele schema.
@@ -327,13 +320,14 @@ class VariantTransformSettings:
         """
 
     def vrs_id(self, var: Variant) -> str:
-        """Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a nucleotide variant.
+        """Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a variant.
 
         Two variants describing the same change on the same sequence have the same
         identifier.
 
         Args:
-            var: A g., m., c. or n. Variant.
+            var: A g., m., c., n. or p. Variant. Protein variants must describe a
+                sequence: frameshifts, extensions and p.? have no allele.
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
@@ -348,6 +342,14 @@ class VariantTransformSettings:
     @property
     def start_codon(self) -> StartCodonConvention: ...
 
+@final
+class VariantTransformSettings:
+    """
+    Settings that control how a variant is transformed before formatting or comparison.
+
+    Create with keyword arguments:
+        settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
+    """
 def parse(input: str) -> Variant:
     """
     Parses an HGVS string into a Variant object.

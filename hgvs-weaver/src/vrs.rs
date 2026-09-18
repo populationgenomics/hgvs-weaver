@@ -29,6 +29,30 @@ fn canonical_json(value: &Value) -> String {
     serde_json::to_string(value).expect("serialising a JSON value cannot fail")
 }
 
+/// What the sequence an allele sits on is, for VRS's `SequenceReference`.
+/// Not part of any computed identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VrsMolecule {
+    Genomic,
+    Protein,
+}
+
+impl VrsMolecule {
+    pub fn residue_alphabet(self) -> &'static str {
+        match self {
+            VrsMolecule::Genomic => "na",
+            VrsMolecule::Protein => "aa",
+        }
+    }
+
+    pub fn molecule_type(self) -> &'static str {
+        match self {
+            VrsMolecule::Genomic => "genomic",
+            VrsMolecule::Protein => "protein",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct VrsSequenceReference {
     #[serde(rename = "type")]
@@ -93,7 +117,12 @@ impl VrsAllele {
     /// Builds the VRS Allele for `allele` on the sequence identified by
     /// `refget`, carrying `hgvs` (syntax such as `hgvs.g` and the string) as an
     /// expression when given.
-    pub fn new(allele: &CanonicalAllele, refget: &str, hgvs: Option<(&str, &str)>) -> Self {
+    pub fn new(
+        allele: &CanonicalAllele,
+        refget: &str,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
         let location_digest = sha512t24u(
             canonical_json(&json!({
                 "type": "SequenceLocation",
@@ -148,8 +177,8 @@ impl VrsAllele {
                 sequence_reference: VrsSequenceReference {
                     type_: "SequenceReference".into(),
                     refget_accession: refget.to_string(),
-                    residue_alphabet: "na".into(),
-                    molecule_type: "genomic".into(),
+                    residue_alphabet: molecule.residue_alphabet().into(),
+                    molecule_type: molecule.molecule_type().into(),
                 },
                 start: allele.start,
                 end: allele.end,
@@ -186,7 +215,12 @@ mod tests {
             alternate: "T".into(),
             repeat_subunit: None,
         };
-        let vrs = VrsAllele::new(&allele, "SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl", None);
+        let vrs = VrsAllele::new(
+            &allele,
+            "SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl",
+            VrsMolecule::Genomic,
+            None,
+        );
         assert_eq!(vrs.location.digest, "wIlaGykfwHIpPY2Fcxtbx4TINbbODFVz");
         assert_eq!(vrs.id, "ga4gh:VA.0AePZIWZUNsUlQTamyLrjm2HWUw2opLt");
     }
@@ -207,7 +241,12 @@ mod tests {
             alternate: "CAGCAGCAG".into(),
             repeat_subunit: Some(3),
         };
-        let vrs = VrsAllele::new(&allele, "SQ.test", Some(("hgvs.g", "X:g.3_8dup")));
+        let vrs = VrsAllele::new(
+            &allele,
+            "SQ.test",
+            VrsMolecule::Genomic,
+            Some(("hgvs.g", "X:g.3_8dup")),
+        );
         match &vrs.state {
             VrsState::ReferenceLength {
                 length,

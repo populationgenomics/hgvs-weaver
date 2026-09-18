@@ -9,7 +9,7 @@ use crate::structs::{
     NVariant, PVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
-use crate::vrs::VrsAllele;
+use crate::vrs::{VrsAllele, VrsMolecule};
 
 fn make_base_offset_position(
     base: crate::coords::HgvsTranscriptPos,
@@ -53,6 +53,20 @@ fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
         crate::edits::NaEdit::RefAlt { .. } => edit.stated_ref().is_none_or(|r| r == actual),
         _ => true,
     }
+}
+
+/// The 0-based half-open residue range a p. interval names.
+fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize), HgvsError> {
+    let start = pos.start.base.to_index().0;
+    let last = pos.end.as_ref().map_or(start, |e| e.base.to_index().0);
+    if start < 0 || last < start {
+        return Err(HgvsError::ValidationError(format!(
+            "Protein interval {}..{} is not a valid range",
+            start + 1,
+            last + 1
+        )));
+    }
+    Ok((start as usize, last as usize + 1))
 }
 
 /// The 0-based half-open index range a g. interval names.
@@ -836,9 +850,55 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::Mitochondrial(v) => self.validate_linear(v),
             crate::SequenceVariant::Coding(v) => self.validate_transcript(v),
             crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
+            crate::SequenceVariant::Protein(v) => self.validate_protein(v),
             _ => Err(HgvsError::UnsupportedOperation(
                 "Validation not implemented for this variant type".into(),
             )),
+        }
+    }
+
+    /// Whether the residues a p. variant names at its positions, and any it
+    /// states as reference, are what the protein sequence holds.
+    fn validate_protein(&self, v: &PVariant) -> Result<bool, HgvsError> {
+        let pos = v
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (start, end) = aa_interval_range(pos)?;
+        let actual = self
+            .refs
+            .reference(&v.ac, IdentifierType::ProteinAccession)
+            .slice(start, end)?;
+        if actual.len() != end - start {
+            return Ok(false); // the range runs past the end of the protein
+        }
+        let named = |aa: &str, at: usize| -> Result<bool, HgvsError> {
+            Ok(aa.is_empty() || crate::utils::residues_1(aa)? == actual[at..=at])
+        };
+        if !named(&pos.start.aa, 0)? {
+            return Ok(false);
+        }
+        if let Some(e) = &pos.end {
+            if !named(&e.aa, actual.len() - 1)? {
+                return Ok(false);
+            }
+        }
+        use crate::edits::AaEdit;
+        let stated = match &v.posedit.edit {
+            AaEdit::Subst { ref_, .. } | AaEdit::DelIns { ref_, .. } | AaEdit::Del { ref_, .. } => {
+                Some(ref_.as_str())
+            }
+            AaEdit::Dup { ref_, .. } | AaEdit::RefAlt { ref_, .. } => ref_.as_deref(),
+            AaEdit::Repeat { ref_, .. } => ref_
+                .as_deref()
+                .filter(|u| !u.chars().all(|c| c.is_ascii_digit())),
+            _ => None,
+        }
+        .filter(|r| !r.is_empty());
+        match stated {
+            Some(r) => Ok(crate::utils::residues_1(r)? == actual),
+            None => Ok(true),
         }
     }
 
@@ -984,9 +1044,22 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        if let crate::SequenceVariant::Protein(vp) = var {
+            let pos = vp
+                .posedit
+                .pos
+                .as_ref()
+                .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+            let (start, end) = aa_interval_range(pos)?;
+            let reference = self
+                .refs
+                .reference(&vp.ac, IdentifierType::ProteinAccession);
+            let resolved = vp.posedit.edit.resolve(&reference, start, end)?;
+            return CanonicalAllele::canonicalize(&reference, &vp.ac, &resolved);
+        }
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
-                "Canonical alleles exist for genomic, mitochondrial, coding and non-coding variants only".into(),
+                "Canonical alleles exist for genomic, mitochondrial, coding, non-coding and protein variants only".into(),
             )
         })??;
         let pos = g
@@ -1021,14 +1094,21 @@ impl<'a> VariantMapper<'a> {
     /// input HGVS is carried as an expression.
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
         let allele = self.canonical_allele(var)?;
+        let (kind, molecule) = match var {
+            crate::SequenceVariant::Protein(_) => {
+                (IdentifierType::ProteinAccession, VrsMolecule::Protein)
+            }
+            _ => (IdentifierType::GenomicAccession, VrsMolecule::Genomic),
+        };
         let refget = self
             .refs
-            .reference(&allele.accession, IdentifierType::GenomicAccession)
+            .reference(&allele.accession, kind)
             .refget_accession()?;
         let syntax = format!("hgvs.{}", var.coordinate_type());
         Ok(VrsAllele::new(
             &allele,
             &refget,
+            molecule,
             Some((&syntax, &var.to_string())),
         ))
     }
@@ -1038,7 +1118,8 @@ impl<'a> VariantMapper<'a> {
         var: &crate::SequenceVariant,
         unambiguous: bool,
     ) -> Result<String, HgvsError> {
-        if unambiguous {
+        // A protein has only the canonical form.
+        if unambiguous || matches!(var, crate::SequenceVariant::Protein(_)) {
             self.to_spdi_unambiguous(var)
         } else {
             // 1. Resolve to genomic if possible.
