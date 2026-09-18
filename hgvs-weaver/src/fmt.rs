@@ -322,6 +322,13 @@ impl fmt::Display for NaEdit {
                 }
                 Ok(())
             }
+            NaEdit::Special { value, uncertain } => {
+                write!(f, "{}", value)?;
+                if *uncertain {
+                    write!(f, "?")?;
+                }
+                Ok(())
+            }
             NaEdit::None => write!(f, "="),
             _ => write!(f, "unknown_na_edit"),
         }

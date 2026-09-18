@@ -47,6 +47,9 @@ pub enum NaEdit {
     },
     /// Copy number change.
     NACopy { copy: i32, uncertain: bool },
+    /// A statement about the whole molecule, with no position: `r.0` (no
+    /// transcript), `r.?`, `r.spl` (splicing affected), `r.=`.
+    Special { value: String, uncertain: bool },
     /// No change (identity).
     None,
 }
@@ -124,7 +127,7 @@ impl AaEdit {
 }
 
 /// True for the strings HGVS allows in place of bases: a length (`del3`) or nothing.
-fn is_length(s: &str) -> bool {
+pub(crate) fn is_length(s: &str) -> bool {
     s.is_empty() || s.chars().all(|c| c.is_ascii_digit())
 }
 
@@ -258,7 +261,7 @@ impl NaEdit {
                 let r = fetch(start, end)?;
                 (r.clone(), r)
             }
-            NaEdit::Con { .. } | NaEdit::NACopy { .. } => {
+            NaEdit::Con { .. } | NaEdit::NACopy { .. } | NaEdit::Special { .. } => {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "Edit type {:?} cannot be resolved to reference and alternate bases",
                     self

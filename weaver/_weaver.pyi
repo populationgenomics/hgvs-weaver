@@ -142,17 +142,21 @@ class VariantMapper:
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = ...) -> Variant:
         """
-        Projects a coding cDNA variant (c.) to its protein consequence (p.).
+        Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).
+
+        An r. variant is predicted from its c. spelling; a statement about the
+        transcript (r.0, r.spl, r.?, r.=) becomes the matching statement about the
+        protein (p.0, p.?, p.(=)).
 
         Args:
-            var_c: The coding Variant to project.
+            var_c: The coding or RNA Variant to project.
             protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.
 
         Returns:
             A new Variant object in 'p.' coordinates.
 
         Raises:
-            ValueError: If var_c is not a coding variant.
+            ValueError: If var_c is not a coding or RNA variant.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
@@ -231,6 +235,58 @@ class VariantMapper:
         Raises:
             ValueError: If var_n is not a non-coding variant.
             HGVSError: If mapping fails due to data or alignment issues.
+        """
+    def r_to_g(self, var_r: Variant, reference_ac: str | None = ...) -> Variant:
+        """
+        Maps an RNA variant (r.) to a genomic variant (g.).
+
+        Only a change within one exon has a genomic form; one spanning a splice
+        junction describes the spliced RNA and raises UnsupportedOperationError.
+
+        Args:
+            var_r: The RNA Variant to map.
+            reference_ac: Optional chromosomal accession.
+
+        Raises:
+            ValueError: If var_r is not an RNA variant.
+            HGVSError: If mapping fails.
+        """
+    def r_to_c(self, var_r: Variant) -> Variant:
+        """
+        Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.
+
+        r. positions on a coding transcript are c. positions; the bases become
+        uppercase DNA letters (u to T).
+
+        Raises:
+            ValueError: If var_r is not an RNA variant.
+            HGVSError: If the transcript has no CDS, or the variant is a statement
+                about the transcript (r.0, r.spl).
+        """
+    def r_to_n(self, var_r: Variant) -> Variant:
+        """
+        Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.
+
+        Raises:
+            ValueError: If var_r is not an RNA variant.
+            HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a
+                statement about the transcript.
+        """
+    def c_to_r(self, var_c: Variant) -> Variant:
+        """
+        Respells a coding variant (c.) as an RNA variant (r.): the same positions,
+        bases in lowercase RNA letters (T to u).
+
+        Raises:
+            ValueError: If var_c is not a coding variant.
+        """
+    def n_to_r(self, var_n: Variant) -> Variant:
+        """
+        Respells a non-coding variant (n.) as an RNA variant (r.): the same positions,
+        bases in lowercase RNA letters (T to u).
+
+        Raises:
+            ValueError: If var_n is not a non-coding variant.
         """
     def normalize_variant(self, var: Variant) -> Variant:
         """

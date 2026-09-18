@@ -75,6 +75,9 @@ impl<'a> VariantEquivalence<'a> {
         // reference; compare it as one.
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
+        // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
+        let var1 = self.rna_as_transcript(var1)?;
+        let var2 = self.rna_as_transcript(var2)?;
         // Expand gene symbols if present
         let vars1 = self.expand_if_gene_symbol(&var1)?;
         let vars2 = self.expand_if_gene_symbol(&var2)?;
@@ -88,6 +91,20 @@ impl<'a> VariantEquivalence<'a> {
             }
         }
         Ok(EquivalenceLevel::Different)
+    }
+
+    fn rna_as_transcript<'v>(
+        &self,
+        var: std::borrow::Cow<'v, SequenceVariant>,
+    ) -> Result<std::borrow::Cow<'v, SequenceVariant>, HgvsError> {
+        match &*var {
+            SequenceVariant::Rna(r)
+                if !matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) =>
+            {
+                Ok(std::borrow::Cow::Owned(self.mapper.r_as_transcript(r)?))
+            }
+            _ => Ok(var),
+        }
     }
 
     fn equivalent_level_single(
