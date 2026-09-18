@@ -262,14 +262,14 @@ fn normalize_converts_genomic_and_noncoding_insertions_to_duplications() {
             .to_string()
     };
     // Inserting T after g.1012 (index 1011, a T): the run of one T ends there, so it is a dup.
-    assert_eq!(norm("NC_TEST.1:g.1012_1013insT"), "NC_TEST.1:g.1012dupT");
+    assert_eq!(norm("NC_TEST.1:g.1012_1013insT"), "NC_TEST.1:g.1012dup");
     // Inserting ACGT into the repeat shifts to the end of the reference and duplicates.
     assert_eq!(
         norm("NC_TEST.1:g.1012_1013insACGT"),
-        "NC_TEST.1:g.1997_2000dupACGT"
+        "NC_TEST.1:g.1997_2000dup"
     );
     // Non-coding on the plus strand: transcript index 11 is genomic 1011 (T).
-    assert_eq!(norm("NM_PLUS0.1:n.12_13insT"), "NM_PLUS0.1:n.12dupT");
+    assert_eq!(norm("NM_PLUS0.1:n.12_13insT"), "NM_PLUS0.1:n.12dup");
     // An insertion that repeats nothing stays an insertion; here it slides one
     // base 3' because inserting AA before an A equals inserting it after.
     assert_eq!(
@@ -310,9 +310,11 @@ fn mitochondrial_variants_share_the_genomic_implementation() {
             .unwrap()
             .to_string()
     };
-    assert_eq!(norm("NC_TEST.1:m.1012_1013insT"), "NC_TEST.1:m.1012dupT");
+    assert_eq!(norm("NC_TEST.1:m.1012_1013insT"), "NC_TEST.1:m.1012dup");
+    assert_eq!(norm("NC_TEST.1:m.1008_1010del"), "NC_TEST.1:m.1008_1010del");
+    // Stated bases stay when the edit does not move.
     assert_eq!(
-        norm("NC_TEST.1:m.1008_1010del"),
+        norm("NC_TEST.1:m.1008_1010delTAC"),
         "NC_TEST.1:m.1008_1010delTAC"
     );
 

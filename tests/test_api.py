@@ -61,7 +61,7 @@ def test_normalization() -> None:
     v = weaver.parse("NM_TEST:c.4_5del")
     v_norm = mapper.normalize_variant(v)
     # Should shift to 5_6del
-    assert v_norm.format() == "NM_TEST:c.5_6delGG"
+    assert v_norm.format() == "NM_TEST:c.5_6del"
 
 
 def test_c_to_p() -> None:
