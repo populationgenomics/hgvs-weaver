@@ -15,10 +15,10 @@ use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit, ProteinPos};
 use crate::utils::{aa1_to_aa3, translate};
 
 /// A nucleotide edit placed on a coding sequence.
-pub struct CodingChange<'a> {
+pub struct CodingChange {
     /// Reference transcript bases from the first base of the CDS to the end
     /// of the transcript, so that read-through past the stop can be translated.
-    pub coding: &'a str,
+    pub coding: String,
 
     /// Length of the CDS in bases, stop codon included, as the data source
     /// declares it. This, not the first stop codon in the translation, says
@@ -41,14 +41,68 @@ fn splice(seq: &str, start: usize, end: usize, insert: &str) -> String {
     out
 }
 
-/// Describes the protein consequence of `change` in HGVS p. terms.
-pub fn describe(change: &CodingChange<'_>) -> Result<PVariant, HgvsError> {
+/// The reference protein and the protein `change` produces, in 1-letter code
+/// without their stops: what a protein allele is made of. The stops are read
+/// as `describe` reads them: the declared CDS end for the reference; for the
+/// alternate the first stop the edit creates or the read-through reaches,
+/// where a `*` the reference already has in frame (a selenocysteine TGA) is
+/// not a stop.
+pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
     let ResolvedEdit {
         start, end, alt, ..
     } = &change.edit;
     let (start, end, alt) = (*start, *end, alt.as_str());
-    let alt_nt = splice(change.coding, start, end, alt);
-    let ref_aa: Vec<char> = translate(change.coding).chars().collect();
+    let alt_nt = splice(&change.coding, start, end, alt);
+    let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
+    let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
+    let net = alt.len() as i64 - (end - start) as i64;
+    let in_frame = net % 3 == 0;
+    let declared = change.cds_len.saturating_sub(1) / 3;
+    let stop = if ref_aa.get(declared) == Some(&'*') {
+        declared
+    } else {
+        ref_aa
+            .iter()
+            .position(|&c| c == '*')
+            .unwrap_or(ref_aa.len())
+    };
+    let reference: String = ref_aa[..stop.min(ref_aa.len())].iter().collect();
+
+    // The first residue that differs; everything before it is the reference's.
+    let mut i = start / 3;
+    while i < ref_aa.len() && i < alt_aa.len() && ref_aa[i] == alt_aa[i] {
+        i += 1;
+    }
+    // The reference residue an alternate position corresponds to, if the
+    // frame is kept; a `*` there before the stop is a selenocysteine.
+    let edit_alt_end = (start + alt.len()).div_ceil(3);
+    let is_sec = |j: usize| {
+        let ref_j = if j < i {
+            j
+        } else if !in_frame {
+            return false;
+        } else if j >= edit_alt_end {
+            (j as i64 - net / 3).max(0) as usize
+        } else {
+            j
+        };
+        ref_j < stop && ref_aa.get(ref_j) == Some(&'*')
+    };
+    let alt_stop = (0..alt_aa.len())
+        .find(|&j| alt_aa[j] == '*' && !is_sec(j))
+        .unwrap_or(alt_aa.len());
+    let alternate: String = alt_aa[..alt_stop].iter().collect();
+    Ok((reference, alternate))
+}
+
+/// Describes the protein consequence of `change` in HGVS p. terms.
+pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
+    let ResolvedEdit {
+        start, end, alt, ..
+    } = &change.edit;
+    let (start, end, alt) = (*start, *end, alt.as_str());
+    let alt_nt = splice(&change.coding, start, end, alt);
+    let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
     let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
     let net = alt.len() as i64 - (end - start) as i64;
     let in_frame = net % 3 == 0;
@@ -370,7 +424,7 @@ mod tests {
             })
             .unwrap();
         describe(&CodingChange {
-            coding: &coding,
+            coding: coding.clone(),
             cds_len: cds.len(),
             edit: resolved,
             protein_ac: "NP".into(),

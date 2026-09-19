@@ -236,6 +236,31 @@ class VariantMapper:
             ValueError: If var_n is not a non-coding variant.
             HGVSError: If mapping fails due to data or alignment issues.
         """
+    def protein_vrs(self, var_c: Variant, protein_ac: str | None = ...) -> dict[str, Any]:
+        """
+        Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.
+
+        The residues from the first change to the end of the protein become the
+        residues the edited transcript encodes, up to its new stop, then the allele
+        is canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,
+        extensions and stop losses. The predicted p. description is carried as an
+        hgvs.p expression.
+
+        Args:
+            var_c: The coding Variant.
+            protein_ac: Optional protein accession; else the provider's mapping for
+                the transcript.
+
+        Raises:
+            ValueError: If var_c is not a coding variant.
+            HGVSError: If the consequence is a statement (p.?, p.Met1?), or the
+                translated CDS is not the protein the provider serves.
+        """
+    def protein_spdi(self, var_c: Variant, protein_ac: str | None = ...) -> str:
+        """
+        Returns the SPDI of a coding variant's protein consequence, on the protein
+        sequence. See protein_vrs for what the allele is.
+        """
     def r_to_g(self, var_r: Variant, reference_ac: str | None = ...) -> Variant:
         """
         Maps an RNA variant (r.) to a genomic variant (g.).
