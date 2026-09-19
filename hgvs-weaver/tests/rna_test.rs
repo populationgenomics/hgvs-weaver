@@ -314,7 +314,7 @@ fn r_normalises_validates_and_has_alleles_like_c() {
     assert_eq!(vrs.id, mapper.to_vrs(&c).unwrap().id);
     assert_eq!(vrs.expressions[0].syntax, "hgvs.r");
 
-    let eq = VariantEquivalence::new(&hdp, &hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
     assert!(eq.equivalent_level(&r, &c).unwrap().is_equivalent());
     assert!(eq
         .equivalent_level(&r, &parse("NM_R.1:c.19del"))

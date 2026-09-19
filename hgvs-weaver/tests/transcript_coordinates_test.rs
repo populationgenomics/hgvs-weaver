@@ -202,7 +202,8 @@ fn coding_variants_on_transcripts_with_different_cds_starts_are_equivalent() {
     // and c.41 on the whole-transcript CDS.
     let v1 = parse_hgvs_variant("NM_PLUS10.1:c.*1A>G").unwrap();
     let v2 = parse_hgvs_variant("NM_PLUS0.1:c.41A>G").unwrap();
-    let eq = VariantEquivalence::new(&Provider, &Provider);
+    let eq_mapper = VariantMapper::new(&Provider);
+    let eq = VariantEquivalence::new(&eq_mapper, &Provider);
     assert_eq!(
         eq.equivalent_level(&v1, &v2).unwrap(),
         EquivalenceLevel::Analogous
@@ -329,7 +330,9 @@ fn mitochondrial_variants_share_the_genomic_implementation() {
     assert!(valid("NC_TEST.1:m.1013A>G"));
     assert!(!valid("NC_TEST.1:m.1013C>G"));
 
-    let eq = VariantEquivalence::new(&Provider, &Provider);
+    let eq_mapper = VariantMapper::new(&Provider);
+
+    let eq = VariantEquivalence::new(&eq_mapper, &Provider);
     let m = parse_hgvs_variant("NC_TEST.1:m.1013A>G").unwrap();
     let g = parse_hgvs_variant("NC_TEST.1:g.1013A>G").unwrap();
     assert_eq!(
@@ -380,7 +383,8 @@ fn canonical_alleles_make_spdi_vrs_and_equivalence_one_value() {
     assert_eq!(vrs_c.expressions[0].value, "NM_PLUS0.1:c.12_13insACGT");
 
     // Equivalence rides on the same value.
-    let eq = VariantEquivalence::new(&Provider, &Provider);
+    let eq_mapper = VariantMapper::new(&Provider);
+    let eq = VariantEquivalence::new(&eq_mapper, &Provider);
     assert!(eq
         .equivalent(
             &parse("NC_TEST.1:g.1012_1013insACGT"),

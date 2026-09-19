@@ -2,6 +2,7 @@ use hgvs_weaver::analogous_edit::{
     apply_aa_edit_to_sparse, apply_na_edit_to_sparse, project_aa_variant, reconcile_projections,
     ResidueToken, SparseReference,
 };
+use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::structs::{AaEdit, NaEdit};
 
 #[test]
@@ -259,7 +260,8 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsErr
 
     let hdp = LocalMockProvider;
     let search = LocalMockSearch;
-    let eq = VariantEquivalence::new(&hdp, &search);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &search);
 
     let v1 = hgvs_weaver::parse_hgvs_variant("NP_001337263.1:p.Tyr165Ter")?;
     let v2 = hgvs_weaver::parse_hgvs_variant("NP_001337263.1:p.Ala164_Tyr165insTer")?;
@@ -333,7 +335,8 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
 
     let hdp = TruncationMockProvider;
     let search = TruncationMockSearch;
-    let eq = VariantEquivalence::new(&hdp, &search);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &search);
 
     // GT: NP_000042.3:p.Tyr1433_Lys1434delinsTer
     let v_gt = hgvs_weaver::parse_hgvs_variant("NP_000042.3:p.Tyr1433_Lys1434delinsTer")?;
@@ -413,7 +416,8 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), hgvs_weaver::error:
 
     let hdp = MockReproProvider;
     let search = MockSearch;
-    let eq = VariantEquivalence::new(&hdp, &search);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &search);
 
     let v1 = hgvs_weaver::parse_hgvs_variant("NP_001337263.1:p.Tyr165Ter")?;
     let v2 = hgvs_weaver::parse_hgvs_variant("NP_001337263.1:p.Ala164_Tyr165insTer")?;
@@ -479,7 +483,8 @@ fn test_analogous_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsErr
 
     let provider = MockRepeatEqProvider;
     let searcher = MockSearcher;
-    let eq = VariantEquivalence::new(&provider, &searcher);
+    let eq_mapper = VariantMapper::new(&provider);
+    let eq = VariantEquivalence::new(&eq_mapper, &searcher);
 
     let v1 = parse_hgvs_variant("NP_001365049.1:p.490PRS[1]")?;
     let v2 = parse_hgvs_variant("NP_001365049.1:p.=")?;
@@ -549,7 +554,8 @@ fn test_analogous_fs_wildcard_unification() -> Result<(), hgvs_weaver::error::Hg
 
     let provider = MockWildcardProvider;
     let searcher = MockSearcher;
-    let eq = VariantEquivalence::new(&provider, &searcher);
+    let eq_mapper = VariantMapper::new(&provider);
+    let eq = VariantEquivalence::new(&eq_mapper, &searcher);
 
     let v1 = parse_hgvs_variant("NP_001.1:p.Arg97ProfsTer4")?;
     let v2 = parse_hgvs_variant("NP_001.1:p.Arg97_Arg97delinsProAlaValTer")?;
@@ -638,7 +644,8 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsEr
 
     let provider = MockMultiRepeatProvider;
     let searcher = MockSearcher;
-    let eq = VariantEquivalence::new(&provider, &searcher);
+    let eq_mapper = VariantMapper::new(&provider);
+    let eq = VariantEquivalence::new(&eq_mapper, &searcher);
 
     // Case 1: p.229GP[2] vs p.Gly233_Pro244del
     // 8 units -> 2 units = delete 6 units (12 residues)

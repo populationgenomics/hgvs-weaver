@@ -4,6 +4,7 @@ use hgvs_weaver::data::{
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
+use hgvs_weaver::mapper::VariantMapper;
 
 struct SimpleProvider;
 impl DataProvider for SimpleProvider {
@@ -69,7 +70,8 @@ impl TranscriptSearch for SimpleProvider {
 #[test]
 fn test_equivalence_levels() -> Result<(), HgvsError> {
     let hdp = SimpleProvider;
-    let eq = VariantEquivalence::new(&hdp, &hdp);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 
     // 1. Identity
     let v1 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1001A>C")?;
@@ -139,7 +141,8 @@ fn test_parity_match_unification() -> Result<(), HgvsError> {
     }
 
     let hdp = MissingSeqProvider;
-    let eq = VariantEquivalence::new(&hdp, &hdp);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 
     // Case: p.Ala201_Val202insGlyProGlyAla vs p.(Gly198_Ala201dup)
     // The insertion variant seeds 201=Ala, 202=Val.
