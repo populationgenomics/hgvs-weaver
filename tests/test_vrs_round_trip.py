@@ -32,6 +32,9 @@ class Provider:
             return weaver.IdentifierType.ProteinAccession
         return weaver.IdentifierType.GenomicAccession
 
+    def get_refget_accession(self, _ac: str) -> str | None:
+        return None  # let weaver compute it
+
     def get_accession_for_refget(self, refget: str) -> str | None:
         if not self.lookup:
             return None
@@ -55,7 +58,8 @@ class Provider:
     ],
 )
 def test_vrs_round_trip(hgvs: str, expected: str) -> None:
-    mapper = weaver.VariantMapper(Provider(lookup=True))
+    provider = Provider(lookup=True)
+    mapper = weaver.VariantMapper(provider, refget=provider)
     allele = mapper.to_vrs(weaver.parse(hgvs))
     back = mapper.from_vrs(allele)
     assert str(back) == expected

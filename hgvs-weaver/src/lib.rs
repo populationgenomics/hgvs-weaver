@@ -105,6 +105,7 @@ pub mod normalize;
 pub mod parser;
 pub mod protein;
 pub mod reference;
+pub mod refget;
 pub mod structs;
 pub mod transcript_mapper;
 pub mod transform;

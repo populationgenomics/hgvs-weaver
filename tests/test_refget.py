@@ -86,7 +86,8 @@ def test_v1_metadata_gives_the_digest_from_trunc512_and_insdc_names() -> None:
 
 
 def test_vrs_round_trips_through_the_server() -> None:
-    mapper = weaver.VariantMapper(RefgetProvider(BASE, transport=Server()))
+    provider = RefgetProvider(BASE, transport=Server())
+    mapper = weaver.VariantMapper(provider, refget=provider)
     allele = mapper.to_vrs(weaver.parse("NC_000099.1:g.4del"))
     assert allele["location"]["sequenceReference"]["refgetAccession"] == DIGEST
     assert str(mapper.from_vrs(allele)) == "NC_000099.1:g.6del"

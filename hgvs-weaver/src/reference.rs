@@ -7,11 +7,12 @@
 //! `get_seq(ac, start, end, kind)` for a block at a time, or once for the whole
 //! sequence when a caller genuinely needs all of it.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::data::{DataProvider, IdentifierType};
 use crate::error::HgvsError;
+use crate::refget::Refget;
 
 /// Bases fetched per provider call when paging. A provider call may cross into
 /// Python, so this is deliberately far larger than any variant.
@@ -30,14 +31,41 @@ struct Cached {
     refget: Option<String>,
 }
 
-/// Owns the sequence cache for one [`DataProvider`].
+/// The blocks, lengths, whole sequences and refget accessions a store has
+/// fetched. Owned by the store, or held outside it and shared so that it
+/// outlives the store: a long-lived object can keep one and build a cheap
+/// store on it per call.
+#[derive(Default)]
+pub struct SequenceCache {
+    inner: Mutex<HashMap<(String, IdentifierType), Cached>>,
+}
+
+impl SequenceCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashMap<(String, IdentifierType), Cached>> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+enum CacheSlot<'a> {
+    Owned(SequenceCache),
+    Shared(&'a SequenceCache),
+}
+
+/// A cached, random-access view of the sequences one [`DataProvider`] serves.
 pub struct ReferenceStore<'a> {
     hdp: &'a dyn DataProvider,
     block_size: usize,
-    cache: RefCell<HashMap<(String, IdentifierType), Cached>>,
+    cache: CacheSlot<'a>,
+    refget: Option<&'a dyn Refget>,
 }
 
 impl<'a> ReferenceStore<'a> {
+    /// A store with its own cache and no refget lookup: refget accessions are
+    /// computed from the whole sequence, and the reverse lookup answers `None`.
     pub fn new(hdp: &'a dyn DataProvider) -> Self {
         Self::with_block_size(hdp, BLOCK_SIZE)
     }
@@ -48,13 +76,56 @@ impl<'a> ReferenceStore<'a> {
         ReferenceStore {
             hdp,
             block_size,
-            cache: RefCell::new(HashMap::new()),
+            cache: CacheSlot::Owned(SequenceCache::new()),
+            refget: None,
+        }
+    }
+
+    /// A store that asks `refget` for accessions before computing them.
+    pub fn with_refget(hdp: &'a dyn DataProvider, refget: &'a dyn Refget) -> Self {
+        ReferenceStore {
+            refget: Some(refget),
+            ..Self::new(hdp)
+        }
+    }
+
+    /// A store over a cache that outlives it, with an optional refget lookup.
+    pub fn shared(
+        hdp: &'a dyn DataProvider,
+        cache: &'a SequenceCache,
+        refget: Option<&'a dyn Refget>,
+    ) -> Self {
+        ReferenceStore {
+            hdp,
+            block_size: BLOCK_SIZE,
+            cache: CacheSlot::Shared(cache),
+            refget,
         }
     }
 
     /// The provider behind this store, for callers that need transcript models.
     pub fn provider(&self) -> &'a dyn DataProvider {
         self.hdp
+    }
+
+    pub fn refget(&self) -> Option<&'a dyn Refget> {
+        self.refget
+    }
+
+    /// The accession of the sequence behind `refget`, if the store's refget
+    /// lookup knows it. Without a lookup nothing can be known.
+    pub fn accession_for_refget(&self, refget: &str) -> Result<Option<String>, HgvsError> {
+        match self.refget {
+            Some(r) => r.accession_for_refget(refget),
+            None => Ok(None),
+        }
+    }
+
+    fn cache(&self) -> MutexGuard<'_, HashMap<(String, IdentifierType), Cached>> {
+        match &self.cache {
+            CacheSlot::Owned(c) => c.lock(),
+            CacheSlot::Shared(c) => c.lock(),
+        }
     }
 
     /// A handle onto one sequence. Cheap; nothing is fetched until it is used.
@@ -90,7 +161,7 @@ impl<'a> ReferenceStore<'a> {
     fn ensure_block(&self, ac: &str, kind: IdentifierType, index: usize) -> Result<(), HgvsError> {
         let key = (ac.to_string(), kind);
         {
-            let cache = self.cache.borrow();
+            let cache = self.cache();
             if let Some(c) = cache.get(&key) {
                 if c.whole.is_some() || c.blocks.contains_key(&index) {
                     return Ok(());
@@ -104,7 +175,7 @@ impl<'a> ReferenceStore<'a> {
         }
         let start = index * self.block_size;
         let block = self.fetch(ac, kind, start, Some(start + self.block_size))?;
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache();
         let entry = cache.entry(key).or_default();
         if block.len() < self.block_size {
             entry.len = Some(start + block.len());
@@ -133,7 +204,7 @@ impl<'s, 'a> Reference<'s, 'a> {
             return Ok(String::new());
         }
         {
-            let cache = self.store.cache.borrow();
+            let cache = self.store.cache();
             if let Some(whole) = cache.get(&self.key()).and_then(|c| c.whole.as_ref()) {
                 return Ok(clamp_slice(whole, start, end));
             }
@@ -144,7 +215,7 @@ impl<'s, 'a> Reference<'s, 'a> {
         let mut out = String::with_capacity(end - start);
         for index in first..=last {
             self.store.ensure_block(&self.ac, self.kind, index)?;
-            let cache = self.store.cache.borrow();
+            let cache = self.store.cache();
             let entry = cache.get(&self.key());
             let block = match entry.and_then(|c| c.blocks.get(&index)) {
                 Some(b) => b,
@@ -170,20 +241,24 @@ impl<'s, 'a> Reference<'s, 'a> {
     }
 
     /// The refget accession (`SQ.` + sha512t24u) identifying this sequence:
-    /// from the provider if it knows it, otherwise computed from the whole
-    /// sequence and cached.
+    /// from the store's refget lookup if it knows it, otherwise computed from
+    /// the whole sequence; cached either way.
     pub fn refget_accession(&self) -> Result<String, HgvsError> {
         {
-            let cache = self.store.cache.borrow();
+            let cache = self.store.cache();
             if let Some(r) = cache.get(&self.key()).and_then(|c| c.refget.clone()) {
                 return Ok(r);
             }
         }
-        let refget = match self.store.hdp.get_refget_accession(&self.ac)? {
+        let known = match self.store.refget {
+            Some(r) => r.refget_accession(&self.ac)?,
+            None => None,
+        };
+        let refget = match known {
             Some(r) => r,
             None => crate::vrs::refget_accession(&self.whole()?),
         };
-        let mut cache = self.store.cache.borrow_mut();
+        let mut cache = self.store.cache();
         cache.entry(self.key()).or_default().refget = Some(refget.clone());
         Ok(refget)
     }
@@ -191,13 +266,13 @@ impl<'s, 'a> Reference<'s, 'a> {
     /// The complete sequence.
     pub fn whole(&self) -> Result<String, HgvsError> {
         {
-            let cache = self.store.cache.borrow();
+            let cache = self.store.cache();
             if let Some(whole) = cache.get(&self.key()).and_then(|c| c.whole.as_ref()) {
                 return Ok(whole.clone());
             }
         }
         let whole = self.store.fetch(&self.ac, self.kind, 0, None)?;
-        let mut cache = self.store.cache.borrow_mut();
+        let mut cache = self.store.cache();
         let entry = cache.entry(self.key()).or_default();
         entry.len = Some(whole.len());
         entry.whole = Some(whole.clone());

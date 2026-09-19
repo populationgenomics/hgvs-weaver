@@ -122,8 +122,20 @@ class VariantMapper:
     and projects cDNA variants onto protein sequences (c. to p.).
     Requires a DataProvider to retrieve transcript and sequence information.
     """
-    def __new__(cls, provider: Any) -> VariantMapper:
-        """Creates a new VariantMapper with the given DataProvider."""
+    def __new__(cls, provider: Any, refget: Any | None = ...) -> VariantMapper:
+        """Creates a new VariantMapper with the given DataProvider.
+
+        The mapper caches the sequence blocks and refget accessions it fetches for
+        as long as it lives, so keep one and reuse it.
+
+        Args:
+            provider: The DataProvider for transcripts and sequences.
+            refget: Optional Refget lookup: an object with get_refget_accession(ac)
+                and get_accession_for_refget(refget), each returning str | None (a
+                weaver.refget.RefgetProvider is one). Without it refget accessions
+                are computed from the whole sequence and from_vrs needs the
+                accession passed.
+        """
     def c_to_g(self, var_c: Variant, reference_ac: str | None = ...) -> Variant:
         """
         Maps a coding cDNA variant (c.) to a genomic variant (g.).
@@ -386,9 +398,8 @@ class VariantMapper:
         A nucleotide variant is projected to its genomic reference; a protein
         variant stays on its protein. Either is canonicalised (fully justified
         over its region of ambiguity) and rendered with computed identifiers. The
-        sequence is identified by its refget accession, taken from the
-        DataProvider's optional get_refget_accession or computed from the whole
-        sequence.
+        sequence is identified by its refget accession, from the Refget given at
+        construction or computed from the whole sequence.
 
         Args:
             var: A g., m., c., n. or p. Variant. Protein variants must describe a
@@ -426,9 +437,8 @@ class VariantMapper:
         are accepted for a deletion, which comes back as g.(a_b)_(c_d)del.
 
         The sequence behind the allele's refget accession is named by ``accession``
-        when given, else looked up through the DataProvider's optional
-        get_accession_for_refget; the digest is checked against the sequence either
-        way.
+        when given, else looked up through the Refget given at construction; the
+        digest is checked against the sequence either way.
 
         Args:
             allele: The Allele as a dict (as to_vrs returns) or a JSON string.
