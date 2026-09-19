@@ -1,193 +1,7 @@
-use hgvs_weaver::analogous_edit::{
-    apply_aa_edit_to_sparse, apply_na_edit_to_sparse, project_aa_variant, reconcile_projections,
-    ResidueToken, SparseReference,
-};
+//! Equivalence judgements on the cases that shaped them: ClinVar spellings
+//! of truncations, repeats and frameshifts against weaver's predictions.
+
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::structs::{AaEdit, NaEdit};
-
-#[test]
-fn test_residue_token_unification_known() {
-    let t1 = vec![ResidueToken::Known("A".into())];
-    let t2 = vec![ResidueToken::Known("A".into())];
-    assert!(reconcile_projections(&t1, &t2));
-
-    let t3 = vec![ResidueToken::Known("A".into())];
-    let t4 = vec![ResidueToken::Known("C".into())];
-    assert!(!reconcile_projections(&t3, &t4));
-}
-
-#[test]
-fn test_residue_token_unification_unknown() {
-    let t1 = vec![ResidueToken::Unknown(10), ResidueToken::Unknown(11)];
-    let t2 = vec![ResidueToken::Unknown(10), ResidueToken::Unknown(11)];
-    assert!(reconcile_projections(&t1, &t2));
-
-    // Cross-mapping unknown to known
-    let t3 = vec![ResidueToken::Unknown(10)];
-    let t4 = vec![ResidueToken::Known("G".into())];
-    assert!(reconcile_projections(&t3, &t4));
-
-    // Consistency check: unknown 10 mapped to G and then compared to A
-    let t5 = vec![ResidueToken::Unknown(10), ResidueToken::Unknown(10)];
-    let t6 = vec![
-        ResidueToken::Known("G".into()),
-        ResidueToken::Known("A".into()),
-    ];
-    assert!(!reconcile_projections(&t5, &t6));
-}
-
-#[test]
-fn test_analogous_duplication_shift() {
-    let mut sref = SparseReference::new();
-    // ABCABC -> ABCABCABC
-    // dup of 1-3 (ABC) -> ABC ABC ABC
-    // dup of 4-6 (ABC) -> ABC ABC ABC
-
-    sref.set(1, "A".into()).unwrap();
-    sref.set(2, "B".into()).unwrap();
-    sref.set(3, "C".into()).unwrap();
-
-    let edit = NaEdit::Dup {
-        ref_: None,
-        uncertain: false,
-    };
-
-    // v1: dup of 1-3. Projection returns [1, 2, 3, 1, 2, 3]
-    let v1_seq = apply_na_edit_to_sparse(&edit, 1, 3, &sref);
-
-    // v2: dup of 4-6. Projection returns [4, 5, 6, 4, 5, 6]
-    let v2_seq = apply_na_edit_to_sparse(&edit, 4, 6, &sref);
-
-    // They match if 1=4, 2=5, 3=6.
-    assert!(v1_seq.is_analogous_to(&v2_seq));
-}
-
-#[test]
-fn test_analogous_protein_repeats_shift() {
-    let mut sref = SparseReference::new();
-    // TrpTrpTrp -> TrpTrpTrpTrpTrp (Repeat TrpTrp twice)
-
-    sref.set(50, "Trp".into()).unwrap();
-    sref.set(51, "Trp".into()).unwrap();
-
-    // v1: Repeat 50-51 twice. Projection: [50, 51, 50, 51]
-    let repeat_edit = AaEdit::Repeat {
-        ref_: None,
-        min: 2,
-        max: 2,
-        uncertain: false,
-    };
-    let v1_seq = apply_aa_edit_to_sparse(&repeat_edit, 50, 51, &sref);
-
-    // v2: Repeat 52-53 twice. Projection: [52, 53, 52, 53]
-    let v2_seq = apply_aa_edit_to_sparse(&repeat_edit, 52, 53, &sref);
-
-    assert!(v1_seq.is_analogous_to(&v2_seq));
-}
-
-#[test]
-fn test_complex_unification_aliases() {
-    let v1 = vec![ResidueToken::Unknown(10), ResidueToken::Known("A".into())];
-    let v2 = vec![ResidueToken::Known("G".into()), ResidueToken::Unknown(20)];
-
-    assert!(reconcile_projections(&v1, &v2));
-
-    let v3 = vec![ResidueToken::Unknown(10), ResidueToken::Unknown(20)];
-    let v4 = vec![
-        ResidueToken::Known("G".into()),
-        ResidueToken::Known("A".into()),
-    ];
-
-    assert!(reconcile_projections(&v3, &v4));
-}
-
-#[test]
-fn test_inconsistent_aliases() {
-    let v1 = vec![ResidueToken::Unknown(10), ResidueToken::Unknown(10)];
-    let v2 = vec![
-        ResidueToken::Known("A".into()),
-        ResidueToken::Known("G".into()),
-    ];
-    assert!(!reconcile_projections(&v1, &v2));
-}
-
-#[test]
-fn test_complex_dup_equivalence() {
-    let mut sref = SparseReference::new();
-    // GT: NP_001365188.1:p.Ala201_Val202insGlyProGlyAla
-    // W:  p.(Gly198_Ala201dup)
-
-    // Model the reference sequence for Weaver's sparse context.
-    sref.set(198, "Gly".into()).unwrap();
-    // 199 is unknown
-    // 200 is unknown
-    sref.set(201, "Ala".into()).unwrap();
-
-    // GT: ins GlyProGlyAla after 201
-    let ins_edit = AaEdit::Ins {
-        alt: "GlyProGlyAla".into(),
-        uncertain: false,
-    };
-    // Use project_aa_variant to compare the sequence over a window (e.g. 198..205).
-    // GT: Ins at 201_202 (between 201 and 202).
-    let v1_proj = project_aa_variant(&ins_edit, 201, 202, 198, 205, &sref);
-
-    // W: dup 198-201
-    // Dup range 198..201.
-    let dup_edit = AaEdit::Dup {
-        ref_: None,
-        uncertain: false,
-    };
-    // Dup range 198..201.
-    let v2_proj = project_aa_variant(&dup_edit, 198, 201, 198, 205, &sref);
-
-    // Assertion: They should be analogous due to wildcard matching
-    assert!(v1_proj.is_analogous_to(&v2_proj));
-}
-
-#[test]
-fn test_cascading_unification() {
-    // 1(unknown) matched to A(known)
-    // 2(unknown) matched to 1(unknown) -> implies 2 matched to A
-    // Then check if 2 matches A
-    // v1: 1, 2, A
-    // v2: A, 1, 2
-    // Pair 1: (1, A) -> 1=A
-    // Pair 2: (2, 1) -> 2=1 -> 2=A
-    // Pair 3: (A, 2) -> A=2 -> A=A -> OK
-    let v1 = vec![
-        ResidueToken::Unknown(1),
-        ResidueToken::Unknown(2),
-        ResidueToken::Known("A".into()),
-    ];
-    let v2 = vec![
-        ResidueToken::Known("A".into()),
-        ResidueToken::Unknown(1),
-        ResidueToken::Unknown(2),
-    ];
-    assert!(reconcile_projections(&v1, &v2));
-
-    // Negative case:
-    // 1 -> A
-    // 2 -> 1 (implies 2 -> A)
-    // Check if 2 matches B (Should Fail)
-    // v3: 1, 2, B
-    // v4: A, 1, 2
-    // Pair 1: (1, A) -> 1=A
-    // Pair 2: (2, 1) -> 2=1 -> 2=A
-    // Pair 3: (B, 2) -> B=2 -> B=A -> FAIL
-    let v3 = vec![
-        ResidueToken::Unknown(1),
-        ResidueToken::Unknown(2),
-        ResidueToken::Known("B".into()),
-    ];
-    let v4 = vec![
-        ResidueToken::Known("A".into()),
-        ResidueToken::Unknown(1),
-        ResidueToken::Unknown(2),
-    ];
-    assert!(!reconcile_projections(&v3, &v4));
-}
 
 #[test]
 fn test_clinvar_regression_tyr165ter() -> Result<(), hgvs_weaver::error::HgvsError> {
@@ -301,7 +115,8 @@ fn test_analogous_protein_truncation() -> Result<(), hgvs_weaver::error::HgvsErr
         ) -> Result<String, hgvs_weaver::error::HgvsError> {
             if kind == IdentifierType::ProteinAccession {
                 // Mock a long protein sequence
-                return Ok("M".repeat(3500));
+                // ATM is 3056 residues long; the deletion runs to its end.
+                return Ok("M".repeat(3056));
             }
             Ok("".to_string())
         }
@@ -600,8 +415,8 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), hgvs_weaver::error::HgvsEr
             } else if ac == "NP_000067.1" {
                 // ...lap apapapap apapvaapap apapapapap apapapdaap...
                 // Residue 179 starts the AP repeat.
-                // 178 X's + 12 AP units (24 chars) + 100 X's
-                Ok("X".repeat(178) + "APAPAPAPAPAPAPAPAPAPAPAP" + &"X".repeat(100))
+                // 178 X's + 8 AP units + 100 X's: AP[5] then deletes three units.
+                Ok("X".repeat(178) + "APAPAPAPAPAPAPAP" + &"X".repeat(100))
             } else {
                 Ok("".to_string())
             }

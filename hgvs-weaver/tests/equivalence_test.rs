@@ -94,7 +94,7 @@ fn test_equivalence_levels() -> Result<(), HgvsError> {
 }
 
 #[test]
-fn test_parity_match_unification() -> Result<(), HgvsError> {
+fn equivalence_needs_the_sequence() -> Result<(), HgvsError> {
     struct MissingSeqProvider;
     impl DataProvider for MissingSeqProvider {
         fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
@@ -144,15 +144,11 @@ fn test_parity_match_unification() -> Result<(), HgvsError> {
     let eq_mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 
-    // Case: p.Ala201_Val202insGlyProGlyAla vs p.(Gly198_Ala201dup)
-    // The insertion variant seeds 201=Ala, 202=Val.
-    // The duplication variant seeds 198=Gly, 201=Ala.
-    // The gaps 199, 200 remain Unknown.
+    // p.Ala201_Val202insGlyProGlyAla vs p.Gly198_Ala201dup may well be the same
+    // change, but only the protein sequence can say: residues 199 and 200 are
+    // named by neither. Without a sequence the judgement is an error, not a guess.
     let v1 = hgvs_weaver::parse_hgvs_variant("NP_0001.1:p.Ala201_Val202insGlyProGlyAla")?;
     let v2 = hgvs_weaver::parse_hgvs_variant("NP_0001.1:p.Gly198_Ala201dup")?;
-
-    // This should now return Weak equivalence via unification!
-    assert_eq!(eq.equivalent_level(&v1, &v2)?, EquivalenceLevel::Analogous);
-
+    assert!(eq.equivalent_level(&v1, &v2).is_err());
     Ok(())
 }

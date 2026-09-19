@@ -57,7 +57,9 @@ fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
 }
 
 /// The 0-based half-open residue range a p. interval names.
-fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize), HgvsError> {
+pub(crate) fn aa_interval_range(
+    pos: &crate::structs::AaInterval,
+) -> Result<(usize, usize), HgvsError> {
     let start = pos.start.base.to_index().0;
     let last = pos.end.as_ref().map_or(start, |e| e.base.to_index().0);
     if start < 0 || last < start {
@@ -1203,6 +1205,25 @@ impl<'a> VariantMapper<'a> {
         CanonicalAllele::canonicalize(&np, &protein_ac, &edit)
     }
 
+    /// The protein a coding variant leaves, in 1-letter code up to its stop:
+    /// empty when the CDS is deleted, `None` when nothing can be said (an
+    /// intronic position, a disrupted start codon).
+    pub fn predicted_protein(
+        &self,
+        var_c: &CVariant,
+        protein_ac: Option<&str>,
+    ) -> Result<Option<String>, HgvsError> {
+        Ok(match self.coding_outcome(var_c, protein_ac)? {
+            CodingOutcome::Statement(p) => match &p.posedit.edit {
+                crate::edits::AaEdit::Special { value, .. } if value.starts_with('0') => {
+                    Some(String::new())
+                }
+                _ => None,
+            },
+            CodingOutcome::Change(change) => Some(crate::protein::proteins(&change)?.1),
+        })
+    }
+
     /// The GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on
     /// the protein sequence, with the predicted p. description as its
     /// expression when there is one.
@@ -1562,7 +1583,16 @@ impl<'a> VariantMapper<'a> {
             let reference = self
                 .refs
                 .reference(&vp.ac, IdentifierType::ProteinAccession);
-            let resolved = vp.posedit.edit.resolve(&reference, start, end)?;
+            let mut resolved = vp.posedit.edit.resolve(&reference, start, end)?;
+            // A stop among the new residues ends the protein there: everything
+            // from it to the end of the reference goes too. p.Tyr165Ter and
+            // p.Ala164_Tyr165insTer are then the same allele.
+            if let Some(k) = resolved.alt.find('*') {
+                let len = reference.whole()?.trim_end_matches('*').len();
+                resolved.alt.truncate(k);
+                resolved.end = len.max(resolved.start);
+                resolved.ref_ = reference.slice(resolved.start, resolved.end)?;
+            }
             return CanonicalAllele::canonicalize(&reference, &vp.ac, &resolved);
         }
         let g = self.as_genomic(var).ok_or_else(|| {

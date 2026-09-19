@@ -5,7 +5,9 @@
 use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{
     DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
+    TranscriptSearch,
 };
+use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::utils::translate;
@@ -89,6 +91,17 @@ impl DataProvider for Provider {
             "NC_" => IdentifierType::GenomicAccession,
             _ => IdentifierType::TranscriptAccession,
         })
+    }
+}
+
+impl TranscriptSearch for Provider {
+    fn get_transcripts_for_region(
+        &self,
+        _: &str,
+        _: i32,
+        _: i32,
+    ) -> Result<Vec<String>, HgvsError> {
+        Ok(vec!["NM_X.1".to_string()])
     }
 }
 
@@ -231,4 +244,76 @@ fn the_vrs_allele_sits_on_the_protein_with_the_p_description_as_expression() {
         mapper.protein_vrs(&vc, None).unwrap().id,
         mapper.to_vrs(&vp).unwrap().id
     );
+}
+
+/// Equivalence judges a coding variant against a protein description by the
+/// protein each leaves, so ClinVar's spellings of the same event agree.
+#[test]
+fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
+    let hdp = Provider { protein: PROTEIN };
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let level = |c: &str, p: &str| {
+        eq.equivalent_level(
+            &parse_hgvs_variant(c).unwrap(),
+            &parse_hgvs_variant(p).unwrap(),
+        )
+        .unwrap()
+    };
+    let same = |c: &str, p: &str| level(c, p).is_equivalent();
+    // The prediction as written is Identity; other spellings are Analogous.
+    assert_eq!(
+        level("NM_X.1:c.4A>C", "NP_X.1:p.(Lys2Gln)"),
+        EquivalenceLevel::Identity
+    );
+    assert_eq!(
+        level("NM_X.1:c.4A>C", "NP_X.1:p.Lys2Gln"),
+        EquivalenceLevel::Analogous
+    );
+    assert_eq!(
+        level("NM_X.1:c.4A>C", "NP_X.1:p.K2Q"),
+        EquivalenceLevel::Analogous
+    );
+    // A stop loss written as a substitution of the stop (ClinVar's form).
+    assert!(same("NM_X.1:c.19T>C", "NP_X.1:p.Ter7Gln"));
+    assert!(same("NM_X.1:c.19T>C", "NP_X.1:p.Ter7GlnextTer?"));
+    assert!(!same("NM_X.1:c.19T>C", "NP_X.1:p.Ter7Trp"));
+    // A frameshift with or without its length, its first residue, or the
+    // unchanged residue before it named.
+    let fs = mapper
+        .c_to_p(&coding("NM_X.1:c.5del"), None)
+        .unwrap()
+        .to_string();
+    assert!(fs.contains("Lys2AsnfsTer"), "{fs}");
+    assert!(same("NM_X.1:c.5del", &fs));
+    assert!(same("NM_X.1:c.5del", "NP_X.1:p.Lys2Asnfs"));
+    assert!(same("NM_X.1:c.5del", "NP_X.1:p.Lys2fs"));
+    assert!(
+        same("NM_X.1:c.5del", "NP_X.1:p.Met1fs"),
+        "named at the residue before"
+    );
+    assert!(!same("NM_X.1:c.5del", "NP_X.1:p.Lys2Glnfs"));
+    assert!(!same("NM_X.1:c.5del", "NP_X.1:p.Leu3fs"));
+    // Nonsense in every spelling.
+    assert!(same("NM_X.1:c.4A>T", "NP_X.1:p.Lys2Ter"));
+    assert!(same("NM_X.1:c.4A>T", "NP_X.1:p.Met1_Lys2insTer"));
+    assert!(same("NM_X.1:c.4A>T", "NP_X.1:p.Lys2Terfs"));
+    // No protein at all, and a start codon nobody can read.
+    assert!(same("NM_X.1:c.-5_*14del", "NP_X.1:p.0"));
+    assert!(same("NM_X.1:c.-5_*14del", "NP_X.1:p.0?"));
+    assert!(!same("NM_X.1:c.-3_2del", "NP_X.1:p.Leu3fs"));
+    // A protein description against another spelling of itself, and against
+    // an older version of the same accession.
+    let pp = |a: &str, b: &str| {
+        eq.equivalent_level(
+            &parse_hgvs_variant(a).unwrap(),
+            &parse_hgvs_variant(b).unwrap(),
+        )
+        .unwrap()
+        .is_equivalent()
+    };
+    assert!(pp("NP_X.1:p.Lys2Ter", "NP_X.1:p.Met1_Lys2insTer"));
+    assert!(pp("NP_X.1:p.(Lys2Gln)", "NP_X.0:p.Lys2Gln"));
+    assert!(pp("NP_X.1:p.Lys2AsnfsTer9", "NP_X.1:p.Lys2fs"));
+    assert!(!pp("NP_X.1:p.Lys2Gln", "NP_Y.1:p.Lys2Gln"));
 }
