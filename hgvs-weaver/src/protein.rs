@@ -15,10 +15,10 @@ use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit, ProteinPos};
 use crate::utils::{aa1_to_aa3, translate};
 
 /// A nucleotide edit placed on a coding sequence.
-pub struct CodingChange<'a> {
+pub struct CodingChange {
     /// Reference transcript bases from the first base of the CDS to the end
     /// of the transcript, so that read-through past the stop can be translated.
-    pub coding: &'a str,
+    pub coding: String,
 
     /// Length of the CDS in bases, stop codon included, as the data source
     /// declares it. This, not the first stop codon in the translation, says
@@ -47,13 +47,13 @@ fn splice(seq: &str, start: usize, end: usize, insert: &str) -> String {
 /// alternate the first stop the edit creates or the read-through reaches,
 /// where a `*` the reference already has in frame (a selenocysteine TGA) is
 /// not a stop.
-pub fn proteins(change: &CodingChange<'_>) -> Result<(String, String), HgvsError> {
+pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
     let ResolvedEdit {
         start, end, alt, ..
     } = &change.edit;
     let (start, end, alt) = (*start, *end, alt.as_str());
-    let alt_nt = splice(change.coding, start, end, alt);
-    let ref_aa: Vec<char> = translate(change.coding).chars().collect();
+    let alt_nt = splice(&change.coding, start, end, alt);
+    let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
     let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
     let net = alt.len() as i64 - (end - start) as i64;
     let in_frame = net % 3 == 0;
@@ -96,13 +96,13 @@ pub fn proteins(change: &CodingChange<'_>) -> Result<(String, String), HgvsError
 }
 
 /// Describes the protein consequence of `change` in HGVS p. terms.
-pub fn describe(change: &CodingChange<'_>) -> Result<PVariant, HgvsError> {
+pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
     let ResolvedEdit {
         start, end, alt, ..
     } = &change.edit;
     let (start, end, alt) = (*start, *end, alt.as_str());
-    let alt_nt = splice(change.coding, start, end, alt);
-    let ref_aa: Vec<char> = translate(change.coding).chars().collect();
+    let alt_nt = splice(&change.coding, start, end, alt);
+    let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
     let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
     let net = alt.len() as i64 - (end - start) as i64;
     let in_frame = net % 3 == 0;
@@ -424,7 +424,7 @@ mod tests {
             })
             .unwrap();
         describe(&CodingChange {
-            coding: &coding,
+            coding: coding.clone(),
             cds_len: cds.len(),
             edit: resolved,
             protein_ac: "NP".into(),

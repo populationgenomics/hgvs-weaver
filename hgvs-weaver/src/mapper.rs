@@ -222,30 +222,11 @@ fn protein_variant(
     })
 }
 
-/// A coding change that owns its transcript bases; see `protein::CodingChange`.
-struct OwnedCodingChange {
-    coding: String,
-    cds_len: usize,
-    edit: crate::edits::ResolvedEdit,
-    protein_ac: String,
-}
-
-impl OwnedCodingChange {
-    fn borrow(&self) -> crate::protein::CodingChange<'_> {
-        crate::protein::CodingChange {
-            coding: &self.coding,
-            cds_len: self.cds_len,
-            edit: self.edit.clone(),
-            protein_ac: self.protein_ac.clone(),
-        }
-    }
-}
-
 /// What a coding variant does to its protein.
 enum CodingOutcome {
     /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`.
     Statement(PVariant),
-    Change(OwnedCodingChange),
+    Change(crate::protein::CodingChange),
 }
 
 /// The alphabet a transcript edit is written in.
@@ -787,7 +768,7 @@ impl<'a> VariantMapper<'a> {
         match self.coding_outcome(var_c, protein_ac)? {
             CodingOutcome::Statement(p) => Ok(p),
             CodingOutcome::Change(change) => {
-                let mut var_p = crate::protein::describe(&change.borrow())?;
+                let mut var_p = crate::protein::describe(&change)?;
                 var_p.posedit.predicted = true;
                 Ok(var_p)
             }
@@ -827,7 +808,7 @@ impl<'a> VariantMapper<'a> {
                 }
             },
             CodingOutcome::Change(change) => {
-                let (r, a) = crate::protein::proteins(&change.borrow())?;
+                let (r, a) = crate::protein::proteins(&change)?;
                 if r == a {
                     let first = change.edit.start / 3;
                     let last = change.edit.end.max(change.edit.start + 1) - 1;
@@ -1049,7 +1030,7 @@ impl<'a> VariantMapper<'a> {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
             })
         };
-        Ok(CodingOutcome::Change(OwnedCodingChange {
+        Ok(CodingOutcome::Change(crate::protein::CodingChange {
             coding: ref_seq[cds_start_idx..].to_string(),
             cds_len: cds_end_idx + 1 - cds_start_idx,
             edit: crate::edits::ResolvedEdit {
