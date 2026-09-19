@@ -5,6 +5,7 @@ use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, Transcript
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
+use hgvs_weaver::refget::Refget;
 use hgvs_weaver::vrs::refget_accession;
 
 const GENOME: &str = "ACGTTTGCAAGGCTAGCTAGCTTTTAACGGGATCGATCGA";
@@ -59,8 +60,14 @@ impl DataProvider for Provider {
             IdentifierType::GenomicAccession
         })
     }
+}
 
-    fn get_accession_for_refget(&self, refget: &str) -> Result<Option<String>, HgvsError> {
+impl Refget for Provider {
+    fn refget_accession(&self, _ac: &str) -> Result<Option<String>, HgvsError> {
+        Ok(None) // let the store compute it
+    }
+
+    fn accession_for_refget(&self, refget: &str) -> Result<Option<String>, HgvsError> {
         if !self.lookup {
             return Ok(None);
         }
@@ -100,7 +107,7 @@ fn round_trip(mapper: &VariantMapper, hgvs: &str, expected: &str) {
 #[test]
 fn nucleotide_variants_round_trip_to_their_normalised_form() {
     let hdp = Provider { lookup: true };
-    let mapper = VariantMapper::new(&hdp);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
     // ACGTTTGCAAGGCTAGCTAGCTTTTAACGGGATCGATCGA
     // 1234567890123456789012345678901234567890
     round_trip(&mapper, "NC_TEST.1:g.7G>C", "NC_TEST.1:g.7G>C");
@@ -128,7 +135,7 @@ fn nucleotide_variants_round_trip_to_their_normalised_form() {
 #[test]
 fn protein_variants_round_trip_to_their_normalised_form() {
     let hdp = Provider { lookup: true };
-    let mapper = VariantMapper::new(&hdp);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
     round_trip(&mapper, "NP_TEST.1:p.Lys2Leu", "NP_TEST.1:p.Lys2Leu");
     round_trip(&mapper, "NP_TEST.1:p.Ala4del", "NP_TEST.1:p.Ala6del");
     round_trip(&mapper, "NP_TEST.1:p.Ala4dup", "NP_TEST.1:p.Ala6dup");
@@ -148,7 +155,7 @@ fn protein_variants_round_trip_to_their_normalised_form() {
 #[test]
 fn imprecise_deletions_round_trip_as_written() {
     let hdp = Provider { lookup: true };
-    let mapper = VariantMapper::new(&hdp);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
     for hgvs in [
         "NC_TEST.1:g.(?_5)_(10_?)del",
         "NC_TEST.1:g.(3_5)_(10_12)del",
@@ -192,7 +199,7 @@ fn the_sequence_is_named_by_the_caller_or_looked_up_and_always_checked() {
 #[test]
 fn alleles_from_other_producers_parse() {
     let hdp = Provider { lookup: true };
-    let mapper = VariantMapper::new(&hdp);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
     let refget = refget_accession(GENOME);
     // No ids or digests, no sequence on the reference-length state, extra
     // properties, a Range location elsewhere: what another tool may emit.

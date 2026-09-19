@@ -26,6 +26,7 @@ __all__ = [
     "HGVSError",
     "IdentifierType",
     "ParseError",
+    "Refget",
     "StartCodonConvention",
     "TranscriptData",
     "TranscriptMismatchError",
@@ -82,6 +83,23 @@ class TranscriptSearch(Protocol):
         ...
 
 
+class Refget(Protocol):
+    """Optional lookup passed to ``VariantMapper(provider, refget=...)``.
+
+    Without one, weaver computes refget accessions from the whole sequence (slow
+    for a chromosome) and ``from_vrs`` needs the accession passed by the caller.
+    ``weaver.refget.RefgetProvider`` implements this as well as DataProvider.
+    """
+
+    def get_refget_accession(self, ac: str) -> str | None:
+        """Return the refget accession ("SQ." + sha512t24u of the sequence) for ``ac``, or None."""
+        ...
+
+    def get_accession_for_refget(self, refget: str) -> str | None:
+        """Return the accession of the sequence whose refget accession is ``refget``, or None."""
+        ...
+
+
 class DataProvider(Protocol):
     """Required interface for the object passed to VariantMapper."""
 
@@ -113,22 +131,6 @@ class DataProvider(Protocol):
         Returns a list of tuples (identifier_type, accession).
         identifier_type should be one of 'genomic_accession', 'transcript_accession',
         'protein_accession', 'gene_symbol', or a member of the IdentifierType enum.
-        """
-        ...
-
-    def get_refget_accession(self, ac: str) -> str | None:  # optional
-        """Return the refget accession ("SQ." + sha512t24u of the sequence) for ``ac``.
-
-        Optional. When absent or returning None, weaver fetches the whole sequence and
-        computes it, which is slow for a chromosome. Used by ``VariantMapper.to_vrs``.
-        """
-        ...
-
-    def get_accession_for_refget(self, refget: str) -> str | None:  # optional
-        """Return the accession of the sequence whose refget accession is ``refget``.
-
-        Optional. When absent or returning None, ``VariantMapper.from_vrs`` needs the
-        accession passed by the caller.
         """
         ...
 

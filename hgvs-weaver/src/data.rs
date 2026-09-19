@@ -98,18 +98,6 @@ pub trait DataProvider {
         target_kind: IdentifierKind,
     ) -> Result<Vec<(IdentifierType, String)>, HgvsError>;
     fn get_identifier_type(&self, identifier: &str) -> Result<IdentifierType, HgvsError>;
-    /// The refget accession (`SQ.` plus the sha512t24u digest of the sequence)
-    /// for `ac`, if the provider can look it up. `None` means the core will
-    /// fetch the whole sequence and compute it.
-    fn get_refget_accession(&self, _ac: &str) -> Result<Option<String>, HgvsError> {
-        Ok(None)
-    }
-    /// The accession of the sequence whose refget accession is `refget`, if
-    /// the provider can look it up. `None` means the caller must name it.
-    /// Used by `VariantMapper::from_vrs`.
-    fn get_accession_for_refget(&self, _refget: &str) -> Result<Option<String>, HgvsError> {
-        Ok(None)
-    }
 }
 
 /// Interface for discovering transcripts by region.

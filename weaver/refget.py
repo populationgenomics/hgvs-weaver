@@ -3,9 +3,10 @@
 Refget servers hand out sequences and their metadata by digest or alias:
 ``GET {base}/sequence/{id}?start=&end=`` returns an interbase sub-range and
 ``GET {base}/sequence/{id}/metadata`` the digests, length and aliases. That is
-exactly what weaver needs for ``get_seq`` and the two refget hooks, so
-:class:`RefgetProvider` serves sequences from such a server and leaves
-transcript models to another provider.
+exactly what weaver needs for ``get_seq`` and for the ``Refget`` lookup, so
+:class:`RefgetProvider` is both a DataProvider (sequences from the server,
+transcript models from another provider) and a Refget; pass it as either or
+both: ``VariantMapper(provider, refget=provider)``.
 
 Any refget v1 or v2 server works, for example the biocommons SeqRepo REST
 service (``http://localhost:5000/seqrepo/1``) or EBI's

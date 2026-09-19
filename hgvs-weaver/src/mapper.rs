@@ -407,9 +407,22 @@ pub struct VariantMapper<'a> {
 impl<'a> VariantMapper<'a> {
     /// Creates a new `VariantMapper` with the given data provider.
     pub fn new(hdp: &'a dyn DataProvider) -> Self {
+        Self::from_store(ReferenceStore::new(hdp))
+    }
+
+    /// A mapper whose refget accessions come from `refget` (and which can
+    /// look a refget accession up); without one they are computed from the
+    /// whole sequence and `from_vrs` needs the accession passed.
+    pub fn with_refget(hdp: &'a dyn DataProvider, refget: &'a dyn crate::refget::Refget) -> Self {
+        Self::from_store(ReferenceStore::with_refget(hdp, refget))
+    }
+
+    /// A mapper over an existing store, for callers that keep a cache alive
+    /// across mappers.
+    pub fn from_store(refs: ReferenceStore<'a>) -> Self {
         VariantMapper {
-            hdp,
-            refs: ReferenceStore::new(hdp),
+            hdp: refs.provider(),
+            refs,
         }
     }
 
@@ -1588,8 +1601,8 @@ impl<'a> VariantMapper<'a> {
 
     /// The variant a GA4GH VRS 2.0 Allele (as JSON) names, written in HGVS on
     /// its own sequence and 3'-normalised. The sequence is identified by its
-    /// refget accession: `accession` names it when given, else the provider's
-    /// `get_accession_for_refget` must; the digest is checked against the
+    /// refget accession: `accession` names it when given, else the mapper's
+    /// `Refget` lookup must; the digest is checked against the
     /// sequence either way. Range bounds are accepted for a deletion, which
     /// comes back as `g.(a_b)_(c_d)del`.
     pub fn from_vrs(
@@ -1601,9 +1614,9 @@ impl<'a> VariantMapper<'a> {
         let refget = allele.location.sequence_reference.refget_accession.as_str();
         let ac = match accession {
             Some(a) => a.to_string(),
-            None => self.hdp.get_accession_for_refget(refget)?.ok_or_else(|| {
+            None => self.refs.accession_for_refget(refget)?.ok_or_else(|| {
                 HgvsError::DataProviderError(format!(
-                    "No accession is known for {refget}; pass one, or implement DataProvider::get_accession_for_refget"
+                    "No accession is known for {refget}; pass one, or give the mapper a Refget lookup"
                 ))
             })?,
         };
