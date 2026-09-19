@@ -1,6 +1,6 @@
 # weaver
 
-<img src="https://raw.githubusercontent.com/folded/hgvs-weaver/main/docs/source/_static/weaver.svg" alt="weaver" width=200>
+<img src="https://raw.githubusercontent.com/populationgenomics/hgvs-weaver/main/docs/source/_static/weaver.svg" alt="weaver" width=200>
 
 High-performance HGVS variant mapping and validation engine.
 
@@ -9,59 +9,86 @@ Registered on Crates.io as `hgvs-weaver`.
 
 ## Overview
 
-`weaver` is a high-performance engine for parsing, validating, and mapping HGVS variants. It provides a robust Python interface backed by a core implementation in Rust, designed for high-throughput variant interpretation pipelines.
+`weaver` parses HGVS descriptions, projects them between coordinate systems, predicts protein
+consequences, normalises them, renders them as SPDI and GA4GH VRS, and decides whether two
+descriptions name the same change. The core is Rust; the Python package wraps it with typed
+exceptions and protocol-based data access, so it needs no database.
 
-### Correctness through Type Safety
+### What it does
 
-A key feature of `weaver` is its use of Rust's type system to ensure coordinate system integrity. Internally, the library employs "tagged integers" to represent positions in different coordinate spaces:
+- **Parsing and formatting** of `g.`, `m.`, `c.`, `n.`, `r.` and `p.` descriptions: substitutions,
+  deletions, insertions, duplications, delins, inversions, repeats (`[n]`) and identity; intronic
+  offsets and CDS anchors (`c.-12`, `c.*5`, `c.88+2`); uncertain genomic breakpoints
+  (`g.(?_100)_(200_?)del`); and the statements `p.?`, `p.0`, `p.Met1?`, `r.0`, `r.spl`, `r.=`.
+  The grammar is checked rule by rule against the biocommons `hgvs` grammar table.
+- **Projection** between systems through transcript models: `g.` to and from `c.`/`n.`, intronic
+  positions included; `r.` to and from `c.`/`n.` (the same positions in RNA letters, with a
+  change across a splice junction refused a genomic form); `c.` and `r.` to `p.`; `p.` back to
+  `c.` for substitutions.
+- **Protein consequences read from codons**, not from a protein-string diff: silent, missense,
+  nonsense, in-frame changes written 3'-most, frameshifts with the distance to the new stop, stop
+  losses as extensions, a stop formed inside inserted bases, selenocysteine `TGA` not read as a
+  stop, the declared CDS end as the reference stop; an edit across the start codon gives
+  `p.Met1?`, a deleted CDS `p.0?`.
+- **Normalisation** by the 3' rule, cyclic over repeats, with insertions that repeat their
+  neighbours written as duplications; `del` and `dup` are written bare; intronic edits are left as
+  written. **Validation** checks stated bases and residues against the sequence.
+- **Canonical alleles, SPDI and GA4GH VRS 2.0.** A canonical allele is a change on a sequence,
+  fully justified over its region of ambiguity, so every spelling of one change is one allele
+  with one computed identifier (`ga4gh:VA.…`). `to_spdi_unambiguous`, `to_vrs` and `vrs_id`
+  render it for nucleotide variants (on the genome) and protein variants (on the protein);
+  `protein_vrs` gives the protein allele of a coding variant, frameshifts and extensions
+  included; deletions with uncertain breakpoints carry VRS `Range` bounds. `from_vrs` and
+  `from_spdi` read alleles back into normalised HGVS. Refget accessions come from a `Refget`
+  lookup (a refget server, or any table) or are computed from the sequence.
+- **Equivalence** at four levels, `Identity`, `Analogous`, `Different`, `Unknown`, judged by
+  canonical alleles for nucleotide variants and by the protein each description leaves for
+  protein ones, so `p.Tyr165Ter`, `p.Ala164_Tyr165insTer` and the `c.` deletion that causes them
+  agree. [How it decides](docs/source/equivalence_logic.md).
 
-- **`GenomicPos`**: 0-based inclusive genomic coordinates.
-- **`TranscriptPos`**: 0-based inclusive transcript coordinates (distance from the transcription start site).
-- **`ProteinPos`**: 0-based inclusive amino acid positions.
+### Correctness through types
 
-The library also uses explicit types for HGVS-style 1-based coordinates:
-
-- **`HgvsGenomicPos`**: 1-based genomic coordinates.
-- **`HgvsTranscriptPos`**: 1-based cDNA/non-coding coordinates, which correctly skip the non-existent position 0 (e.g., jumps from `-1` to `1`).
-- **`HgvsProteinPos`**: 1-based amino acid positions.
-
-By enforcing these types at compile time in Rust, `weaver` prevents common off-by-one errors and accidental mixing of coordinate systems during complex mapping operations (e.g., from `g.` to `c.` to `p.`).
-
-### Supported HGVS Features
-
-`weaver` supports a wide range of HGVS variant types and operations:
-
-- **Parsing**: robust parsing of `g.`, `m.`, `c.`, `n.`, `r.`, and `p.` variants.
-- **Mapping**:
-    - Genomic to Coding (`g.` to `c.`).
-    - Coding to Genomic (`c.` to `g.`).
-    - Coding to Protein (`c.` to `p.`) with full translation.
-- **Normalization**: Automatic 3' shifting of variants in repetitive regions.
-- **Complex Edits**: Support for deletions (`del`), insertions (`ins`), duplications (`dup`), inversions (`inv`), and repeats (`[n]`).
+Positions are tagged integers: `GenomicPos`, `TranscriptPos` and `ProteinPos` are 0-based indices,
+`HgvsGenomicPos`, `HgvsTranscriptPos` and `HgvsProteinPos` are the 1-based coordinates HGVS writes
+(with `c.` skipping the non-existent position 0). Transcript positions carry an anchor
+(transcript start, CDS start, CDS end) and an optional intronic offset, and resolve through one
+`TranscriptMapper`. Mixing systems is a compile error in Rust, not an off-by-one at run time.
 
 #### Examples
 
 ```python
 import weaver
 
-# Parsing and Formatting
 v = weaver.parse("NM_000051.3:c.123A>G")
-print(v.format()) # "NM_000051.3:c.123A>G"
+print(v.format())  # NM_000051.3:c.123A>G
 
-# Mapping c. to p.
-# (Requires a DataProvider, see below)
-v_p = mapper.c_to_p(v)
-print(v_p.format()) # "NP_000042.3:p.(Lys41Arg)"
+mapper = weaver.VariantMapper(provider)  # see Data Provider below; keep one, it caches
 
-# Normalization (3' shifting)
-v_raw = weaver.parse("NM_000051.3:c.4_5del")
-v_norm = mapper.normalize_variant(v_raw)
-print(v_norm.format()) # e.g., "NM_000051.3:c.5_6del"
+print(mapper.c_to_p(v))                                   # NP_000042.3:p.(Lys41Arg)
+print(mapper.c_to_g(v))                                   # NC_000011.10:g.108227625A>G
+print(mapper.normalize_variant(weaver.parse("NM_000051.3:c.4_5del")))  # NM_000051.3:c.5_6del
+
+print(mapper.to_spdi_unambiguous(v))                      # NC_000011.10:108227624:A:G
+allele = mapper.to_vrs(v)                                 # dict in the VRS 2.0 Allele schema
+print(allele["id"])                                       # ga4gh:VA.…
+print(mapper.from_vrs(allele))                            # NC_000011.10:g.108227625A>G
+
+r = mapper.c_to_r(v)                                      # NM_000051.3:r.123a>g
+print(mapper.c_to_p(r))                                   # the same protein prediction
+
+level = mapper.equivalent_level(v, weaver.parse("NP_000042.3:p.Lys41Arg"), searcher)
+print(level)                                              # EquivalenceLevel.Analogous
 ```
 
 ## Data Provider Implementation
 
-To perform mapping operations, `weaver` requires an object that implements the `DataProvider` protocol. This object is responsible for providing transcript models and reference sequences.
+Mapping needs an object implementing the `DataProvider` protocol, which supplies transcript models
+and reference sequences. `weaver.cli.provider.RefSeqDataProvider` implements it over a RefSeq GFF3
+and FASTA; `weaver.refget.RefgetProvider` implements it over a GA4GH refget server (for sequences)
+plus another provider for transcript models.
+
+A `VariantMapper` caches the sequence blocks and refget accessions it fetches for as long as it
+lives. Build one and reuse it.
 
 ### Coordinate Expectations
 
@@ -95,13 +122,23 @@ class DataProvider(Protocol):
         """Map gene symbols to accessions (e.g., 'ATM' -> [('transcript_accession', 'NM_000051.3')])."""
         ...
 
-    def get_refget_accession(self, ac: str) -> str | None:  # optional
-        """Refget accession ("SQ." + sha512t24u) for ac; None lets weaver compute it. Used by to_vrs."""
-        ...
-
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
         """Identify what type of identifier a string is (e.g., 'genomic_accession', 'gene_symbol')."""
         ...
+```
+
+### Refget
+
+VRS identifies a sequence by its refget accession (`SQ.` + the sha512t24u digest of its bases).
+Pass a `Refget` lookup to the mapper, `VariantMapper(provider, refget=lookup)`, and `to_vrs` asks
+it for accessions and `from_vrs` can name the sequence behind one. Without it, accessions are
+computed by hashing the whole sequence (slow for a chromosome, cached per mapper) and `from_vrs`
+needs the accession passed. A `RefgetProvider` is a `Refget` as well as a `DataProvider`.
+
+```python
+class Refget(Protocol):
+    def get_refget_accession(self, ac: str) -> str | None: ...
+    def get_accession_for_refget(self, refget: str) -> str | None: ...
 ```
 
 ## Dataset
@@ -170,6 +207,24 @@ To rerun the validation, you need the RefSeq annotation and genomic sequence fil
    uv run weaver/cli/validate.py data/clinvar_variants_100k.tsv ...
    ```
 
+### Parsing Quality
+
+Parsing is checked three ways, all in the test suite:
+
+- **The biocommons `hgvs` grammar table**: 580 inputs over the 92 grammar rules the two grammars
+  share, each required to be accepted or rejected as the table says. One difference is recorded
+  on purpose: weaver accepts a terminator inside an amino acid sequence (`insTerGlu`), which
+  ClinVar writes.
+- **Real-world strings**: a gauntlet of 31 descriptions collected from the wild, the HGVS
+  specification's examples, and every description in the 100,000-variant ClinVar set, of which
+  weaver parses all (the reference implementation rejects 394).
+- **Properties**: a random canonical description round-trips through the parser and formatter,
+  and arbitrary text never panics the parser. Fifteen such properties cover parsing, coordinates,
+  normalisation, alleles and protein prediction.
+
+The `r.` conversions were cross-checked against VariantValidator on fourteen queries: every exonic
+case agreed on the `r.`, `c.`, `g.` and `p.` descriptions.
+
 <!-- markdownlint-disable MD033 -->
 <!-- PERFORMANCE_GRAPH_START -->
 <p align="center">
@@ -186,29 +241,29 @@ To rerun the validation, you need the RefSeq annotation and genomic sequence fil
 
 Summary of results comparing `weaver` and `ref-hgvs` against ClinVar ground truth:
 
-| Implementation | Protein Identity | Protein Analogous | SPDI (Genomic) | Parse Errors |
-| :------------- | :--------------: | :---------------: | :------------: | :----------: |
-| weaver         |  **93.869%**  | 4.355% | **98.224%** | **0** |
-| ref-hgvs       |  93.352%  | **4.451%** | 97.803% | 394 |
+| Implementation | Protein Identity | Protein Analogous | SPDI (Genomic) | Total Success | Parse Errors |
+| :------------- | :--------------: | :---------------: | :------------: | :-----------: | :----------: |
+| weaver         |  **93.902%**  | **4.928%** | **98.768%** | **98.830%** | **0** |
+| ref-hgvs       |  93.352%  | 4.890% | 97.726% | **98.242%** | 394 |
 
 
-RefSeq Data Mismatches: 0 (0.0%)
+Transcripts absent from the RefSeq annotation (LRG, superseded versions): 1,126 (1.1%)
 
 #### Protein Translation Agreement
 
 |                     | ref-hgvs Match | ref-hgvs Mismatch |
 | :------------------ | :------------: | :---------------: |
-| **weaver Match**    |     93,345     |     524     |
-| **weaver Mismatch** |     7     |     6,124     |
+| **weaver Match**    |     93,351     |     551     |
+| **weaver Mismatch** |     1     |     6,097     |
 
 #### SPDI Mapping Agreement
 
 |                     | ref-hgvs Match | ref-hgvs Mismatch |
 | :------------------ | :------------: | :---------------: |
-| **weaver Match**    |     97,576     |     648     |
-| **weaver Mismatch** |     227     |     1,549     |
+| **weaver Match**    |     97,724     |     1,044     |
+| **weaver Mismatch** |     2     |     1,230     |
 
-- **Variant Equivalence**: Check if two variants are biologically equivalent using advanced cross-coordinate mapping and normalization. [See Algorithm](docs/source/equivalence_logic.md).
+Equivalence between weaver's and ClinVar's protein descriptions is judged by weaver itself; [how it decides](docs/source/equivalence_logic.md) is documented separately.
 
 ## Type stubs
 
@@ -221,6 +276,8 @@ stubloom generate --module weaver._weaver --package hgvs-weaver-py --out weaver/
     --allow-any "Variant.to_dict return" \
     --allow-any Variant.validate.provider \
     --allow-any VariantMapper.__new__.provider \
+    --allow-any VariantMapper.__new__.refget \
+    --allow-any VariantMapper.from_vrs.allele \
     --allow-any VariantMapper.equivalent.searcher \
     --allow-any VariantMapper.equivalent_level.searcher \
     --allow-any VariantMapper.g_to_c_all.searcher
