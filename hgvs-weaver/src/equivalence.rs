@@ -1,5 +1,5 @@
 use crate::analogous_edit::{project_aa_variant, project_na_variant, SparseReference};
-use crate::data::{DataProvider, IdentifierKind, TranscriptSearch};
+use crate::data::{IdentifierKind, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{GVariant, IntervalSpdi, NaEdit, PVariant, SequenceVariant, Variant};
@@ -35,9 +35,9 @@ fn strand_aware_edit(edit: &NaEdit, strand: crate::data::Strand) -> NaEdit {
 }
 
 pub struct VariantEquivalence<'a> {
-    pub hdp: &'a dyn DataProvider,
+    /// The mapper whose provider, cache and refget lookup the comparison uses.
+    pub mapper: &'a VariantMapper<'a>,
     pub searcher: &'a dyn TranscriptSearch,
-    pub mapper: VariantMapper<'a>,
 }
 
 fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVariant> {
@@ -50,12 +50,8 @@ fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVarian
 }
 
 impl<'a> VariantEquivalence<'a> {
-    pub fn new(hdp: &'a dyn DataProvider, searcher: &'a dyn TranscriptSearch) -> Self {
-        VariantEquivalence {
-            hdp,
-            searcher,
-            mapper: VariantMapper::new(hdp),
-        }
+    pub fn new(mapper: &'a VariantMapper<'a>, searcher: &'a dyn TranscriptSearch) -> Self {
+        VariantEquivalence { mapper, searcher }
     }
 
     pub fn equivalent(
@@ -210,12 +206,12 @@ impl<'a> VariantEquivalence<'a> {
         let (Some(pos1), Some(pos2)) = (&v1.posedit().pos, &v2.posedit().pos) else {
             return Ok(false);
         };
-        let mut i1 = pos1.spdi_interval(v1.ac(), self.hdp)?;
-        let mut i2 = pos2.spdi_interval(v2.ac(), self.hdp)?;
+        let mut i1 = pos1.spdi_interval(v1.ac(), self.mapper.provider())?;
+        let mut i2 = pos2.spdi_interval(v2.ac(), self.mapper.provider())?;
 
-        let t1 = self.hdp.get_transcript(v1.ac(), None)?;
+        let t1 = self.mapper.provider().get_transcript(v1.ac(), None)?;
         let edit1 = strand_aware_edit(&v1.posedit().edit, t1.strand);
-        let t2 = self.hdp.get_transcript(v2.ac(), None)?;
+        let t2 = self.mapper.provider().get_transcript(v2.ac(), None)?;
         let edit2 = strand_aware_edit(&v2.posedit().edit, t2.strand);
 
         // An insertion between two flanking bases is anchored at the lower
@@ -250,7 +246,7 @@ impl<'a> VariantEquivalence<'a> {
             }
             (SequenceVariant::Genomic(vg), SequenceVariant::Coding(vc))
             | (SequenceVariant::Coding(vc), SequenceVariant::Genomic(vg)) => {
-                if let Ok(tx) = self.hdp.get_transcript(&vc.ac, None) {
+                if let Ok(tx) = self.mapper.provider().get_transcript(&vc.ac, None) {
                     if let Ok(vg_generated) = self
                         .mapper
                         .c_to_g(vc, Some(tx.reference_accession.as_str()))
@@ -265,7 +261,7 @@ impl<'a> VariantEquivalence<'a> {
             }
             (SequenceVariant::Genomic(vg), SequenceVariant::NonCoding(vn))
             | (SequenceVariant::NonCoding(vn), SequenceVariant::Genomic(vg)) => {
-                if let Ok(tx) = self.hdp.get_transcript(&vn.ac, None) {
+                if let Ok(tx) = self.mapper.provider().get_transcript(&vn.ac, None) {
                     if let Ok(vg_generated) = self
                         .mapper
                         .n_to_g(vn, Some(tx.reference_accession.as_str()))
@@ -280,7 +276,7 @@ impl<'a> VariantEquivalence<'a> {
             }
             (SequenceVariant::NonCoding(vn), SequenceVariant::Protein(vp))
             | (SequenceVariant::Protein(vp), SequenceVariant::NonCoding(vn)) => {
-                if let Ok(tx) = self.hdp.get_transcript(&vn.ac, None) {
+                if let Ok(tx) = self.mapper.provider().get_transcript(&vn.ac, None) {
                     if let Ok(vg_generated) = self
                         .mapper
                         .n_to_g(vn, Some(tx.reference_accession.as_str()))
@@ -336,7 +332,9 @@ impl<'a> VariantEquivalence<'a> {
             }
             SequenceVariant::Coding(vc) => {
                 if let Some(pos) = &vc.posedit.pos {
-                    if let Ok((start, end, spdi_ac)) = pos.spdi_interval(&vc.ac, self.hdp) {
+                    if let Ok((start, end, spdi_ac)) =
+                        pos.spdi_interval(&vc.ac, self.mapper.provider())
+                    {
                         if let (Ok(s0), Ok(e0)) = (usize::try_from(start), usize::try_from(end)) {
                             if let Ok(seq) = self
                                 .mapper
@@ -362,7 +360,7 @@ impl<'a> VariantEquivalence<'a> {
         let ac = var.ac();
 
         // Use DataProvider to determine if this is a symbol or an accession.
-        let id_type = self.hdp.get_identifier_type(ac)?;
+        let id_type = self.mapper.provider().get_identifier_type(ac)?;
 
         if id_type == crate::data::IdentifierType::GeneSymbol {
             let target_kind = match var {
@@ -374,9 +372,11 @@ impl<'a> VariantEquivalence<'a> {
             };
 
             // Try symbol expansion.
-            let accessions =
-                self.hdp
-                    .get_symbol_accessions(ac, IdentifierKind::Genomic, target_kind)?;
+            let accessions = self.mapper.provider().get_symbol_accessions(
+                ac,
+                IdentifierKind::Genomic,
+                target_kind,
+            )?;
 
             if !accessions.is_empty() {
                 let mut expanded = Vec::new();
@@ -549,8 +549,8 @@ impl<'a> VariantEquivalence<'a> {
         v1: &A,
         v2: &B,
     ) -> Result<bool, HgvsError> {
-        let tx1 = self.hdp.get_transcript(v1.ac(), None)?;
-        let tx2 = self.hdp.get_transcript(v2.ac(), None)?;
+        let tx1 = self.mapper.provider().get_transcript(v1.ac(), None)?;
+        let tx2 = self.mapper.provider().get_transcript(v2.ac(), None)?;
         let g1 = self
             .mapper
             .tx_to_g(v1, Some(tx1.reference_accession.as_str()))?;
@@ -574,7 +574,7 @@ impl<'a> VariantEquivalence<'a> {
         vn: &crate::structs::NVariant,
         vp: &crate::structs::PVariant,
     ) -> Result<bool, HgvsError> {
-        let tx = self.hdp.get_transcript(&vn.ac, None)?;
+        let tx = self.mapper.provider().get_transcript(&vn.ac, None)?;
         let ref_ac = tx.reference_accession;
         let vg = self.mapper.tx_to_g(vn, Some(ref_ac.as_str()))?;
         self.g_vs_p_equivalent(&vg, vp)
@@ -655,7 +655,7 @@ mod tests {
     use crate::data::{ExonData, IdentifierKind, IdentifierType, TranscriptData};
 
     struct MockDataProvider;
-    impl DataProvider for MockDataProvider {
+    impl crate::data::DataProvider for MockDataProvider {
         fn get_transcript(
             &self,
             ac: &str,
@@ -750,7 +750,8 @@ mod tests {
     fn test_normalize_format_question_equals_xaa() {
         let hdp = MockDataProvider;
         let search = MockSearch;
-        let eq = VariantEquivalence::new(&hdp, &search);
+        let mapper = VariantMapper::new(&hdp);
+        let eq = VariantEquivalence::new(&mapper, &search);
 
         // '?' should normalize to 'X', the same as 'Xaa' -> 'X'.
         // This ensures p.Met1? and p.Met1Xaa compare equal after normalization.

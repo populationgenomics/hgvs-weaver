@@ -8,7 +8,7 @@
 //! sequence when a caller genuinely needs all of it.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::data::{DataProvider, IdentifierType};
 use crate::error::HgvsError;
@@ -50,16 +50,11 @@ impl SequenceCache {
     }
 }
 
-enum CacheSlot<'a> {
-    Owned(SequenceCache),
-    Shared(&'a SequenceCache),
-}
-
 /// A cached, random-access view of the sequences one [`DataProvider`] serves.
 pub struct ReferenceStore<'a> {
     hdp: &'a dyn DataProvider,
     block_size: usize,
-    cache: CacheSlot<'a>,
+    cache: Arc<SequenceCache>,
     refget: Option<&'a dyn Refget>,
 }
 
@@ -76,7 +71,7 @@ impl<'a> ReferenceStore<'a> {
         ReferenceStore {
             hdp,
             block_size,
-            cache: CacheSlot::Owned(SequenceCache::new()),
+            cache: Arc::new(SequenceCache::new()),
             refget: None,
         }
     }
@@ -89,16 +84,17 @@ impl<'a> ReferenceStore<'a> {
         }
     }
 
-    /// A store over a cache that outlives it, with an optional refget lookup.
+    /// A store over a cache shared with others, so that what one fetches the
+    /// next can use, with an optional refget lookup.
     pub fn shared(
         hdp: &'a dyn DataProvider,
-        cache: &'a SequenceCache,
+        cache: Arc<SequenceCache>,
         refget: Option<&'a dyn Refget>,
     ) -> Self {
         ReferenceStore {
             hdp,
             block_size: BLOCK_SIZE,
-            cache: CacheSlot::Shared(cache),
+            cache,
             refget,
         }
     }
@@ -122,10 +118,7 @@ impl<'a> ReferenceStore<'a> {
     }
 
     fn cache(&self) -> MutexGuard<'_, HashMap<(String, IdentifierType), Cached>> {
-        match &self.cache {
-            CacheSlot::Owned(c) => c.lock(),
-            CacheSlot::Shared(c) => c.lock(),
-        }
+        self.cache.lock()
     }
 
     /// A handle onto one sequence. Cheap; nothing is fetched until it is used.

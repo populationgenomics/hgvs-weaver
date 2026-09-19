@@ -540,9 +540,9 @@ impl TranscriptSearch for PyTranscriptSearchBridge {
 #[pyclass(name = "VariantMapper", module = "weaver._weaver")]
 #[doc = "High-level variant mapping engine.\n\nCoordinates mapping between different reference sequences (e.g., g. to c.)\nand projects cDNA variants onto protein sequences (c. to p.).\nRequires a DataProvider to retrieve transcript and sequence information."]
 pub struct PyVariantMapper {
-    pub bridge: std::sync::Arc<PyDataProviderBridge>,
+    pub bridge: PyDataProviderBridge,
     /// Sequence blocks and refget accessions, kept for the mapper's lifetime.
-    cache: ::hgvs_weaver::reference::SequenceCache,
+    cache: std::sync::Arc<::hgvs_weaver::reference::SequenceCache>,
     refget: Option<PyRefgetBridge>,
 }
 
@@ -554,8 +554,8 @@ impl PyVariantMapper {
             .as_ref()
             .map(|r| r as &dyn ::hgvs_weaver::refget::Refget);
         VariantMapper::from_store(::hgvs_weaver::reference::ReferenceStore::shared(
-            self.bridge.as_ref(),
-            &self.cache,
+            &self.bridge,
+            std::sync::Arc::clone(&self.cache),
             refget,
         ))
     }
@@ -568,8 +568,8 @@ impl PyVariantMapper {
     #[doc = "Creates a new VariantMapper with the given DataProvider.\n\nThe mapper caches the sequence blocks and refget accessions it fetches for\nas long as it lives, so keep one and reuse it.\n\nArgs:\n    provider: The DataProvider for transcripts and sequences.\n    refget: Optional Refget lookup: an object with get_refget_accession(ac)\n        and get_accession_for_refget(refget), each returning str | None (a\n        weaver.refget.RefgetProvider is one). Without it refget accessions\n        are computed from the whole sequence and from_vrs needs the\n        accession passed."]
     fn new(provider: Py<PyAny>, refget: Option<Py<PyAny>>) -> Self {
         PyVariantMapper {
-            bridge: std::sync::Arc::new(PyDataProviderBridge { provider }),
-            cache: ::hgvs_weaver::reference::SequenceCache::new(),
+            bridge: PyDataProviderBridge { provider },
+            cache: std::sync::Arc::new(::hgvs_weaver::reference::SequenceCache::new()),
             refget: refget.map(|refget| PyRefgetBridge { refget }),
         }
     }
@@ -849,10 +849,8 @@ impl PyVariantMapper {
         searcher: Py<PyAny>,
     ) -> PyResult<bool> {
         let bridge_searcher = PyTranscriptSearchBridge { searcher };
-        let equiv = ::hgvs_weaver::equivalence::VariantEquivalence::new(
-            self.bridge.as_ref(),
-            &bridge_searcher,
-        );
+        let mapper = self.mapper();
+        let equiv = ::hgvs_weaver::equivalence::VariantEquivalence::new(&mapper, &bridge_searcher);
         equiv
             .equivalent(&var1.inner, &var2.inner)
             .map_err(map_hgvs_error)
@@ -868,10 +866,8 @@ impl PyVariantMapper {
         searcher: Py<PyAny>,
     ) -> PyResult<PyEquivalenceLevel> {
         let bridge_searcher = PyTranscriptSearchBridge { searcher };
-        let equiv = ::hgvs_weaver::equivalence::VariantEquivalence::new(
-            self.bridge.as_ref(),
-            &bridge_searcher,
-        );
+        let mapper = self.mapper();
+        let equiv = ::hgvs_weaver::equivalence::VariantEquivalence::new(&mapper, &bridge_searcher);
         let res = equiv
             .equivalent_level(&var1.inner, &var2.inner)
             .map_err(map_hgvs_error)?;

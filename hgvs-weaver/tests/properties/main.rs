@@ -631,7 +631,7 @@ proptest! {
         let am = TranscriptMapper::new(g.transcript_data()).unwrap();
         let hdp = g.provider();
         let mapper = VariantMapper::new(&hdp);
-        let eq = VariantEquivalence::new(&hdp, &hdp);
+        let eq = VariantEquivalence::new(&mapper, &hdp);
         let pos = g.cds_start + pick % (g.cds_end + 1 - g.cds_start);
         let ref_base = g.transcript_seq.as_bytes()[pos] as char;
         let edit = if del {

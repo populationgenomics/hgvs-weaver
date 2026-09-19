@@ -4,6 +4,7 @@ use hgvs_weaver::data::{
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
+use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 
 struct MockDataProvider;
@@ -97,7 +98,8 @@ impl TranscriptSearch for MockSearch {
 fn test_repro_case9() -> Result<(), HgvsError> {
     let hdp = MockDataProvider;
     let search = MockSearch;
-    let eq = VariantEquivalence::new(&hdp, &search);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &search);
 
     let v1 = parse_hgvs_variant("NM_001166478.1:c.35_36insT")?;
     let v2 = parse_hgvs_variant("NM_001166478.1:c.35dup")?;
@@ -110,7 +112,8 @@ fn test_repro_case9() -> Result<(), HgvsError> {
 fn test_repro_case15() -> Result<(), HgvsError> {
     let hdp = MockDataProvider;
     let search = MockSearch;
-    let eq = VariantEquivalence::new(&hdp, &search);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &search);
 
     let v1 = parse_hgvs_variant("NM_005813.3:c.2673insA")?;
     let v2 = parse_hgvs_variant("NM_005813.3:c.2673dup")?;
@@ -123,7 +126,8 @@ fn test_repro_case15() -> Result<(), HgvsError> {
 fn test_braf_identity() -> Result<(), HgvsError> {
     let hdp = MockDataProvider;
     let search = MockSearch;
-    let eq = VariantEquivalence::new(&hdp, &search);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &search);
 
     // c.1799T>A -> p.Val600Glu (predicted)
     let v1 = parse_hgvs_variant("NM_BRAF:c.1799T>A")?;

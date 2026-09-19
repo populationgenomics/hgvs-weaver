@@ -1,5 +1,5 @@
 use crate::allele::CanonicalAllele;
-use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
+use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
 use crate::reference::ReferenceStore;
@@ -398,9 +398,8 @@ fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
 
 /// High-level mapper for transforming variants between coordinate systems.
 pub struct VariantMapper<'a> {
-    /// Data provider used to retrieve transcript and sequence information.
-    pub hdp: &'a dyn DataProvider,
-    /// Cached, random-access view of every sequence the provider serves.
+    /// Cached, random-access view of every sequence the provider serves; the
+    /// provider itself is behind it.
     pub refs: ReferenceStore<'a>,
 }
 
@@ -420,15 +419,19 @@ impl<'a> VariantMapper<'a> {
     /// A mapper over an existing store, for callers that keep a cache alive
     /// across mappers.
     pub fn from_store(refs: ReferenceStore<'a>) -> Self {
-        VariantMapper {
-            hdp: refs.provider(),
-            refs,
-        }
+        VariantMapper { refs }
+    }
+
+    /// The provider behind this mapper, for transcript models and symbols.
+    pub fn provider(&self) -> &'a dyn DataProvider {
+        self.refs.provider()
     }
 
     /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
     pub fn g_to_c(&self, var_g: &GVariant, transcript_ac: &str) -> Result<CVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(transcript_ac, Some(&var_g.ac))?;
+        let transcript = self
+            .provider()
+            .get_transcript(transcript_ac, Some(&var_g.ac))?;
         let am = TranscriptMapper::new(transcript)?;
 
         let pos = var_g
@@ -594,7 +597,7 @@ impl<'a> VariantMapper<'a> {
         var_c: &V,
         reference_ac: Option<&str>,
     ) -> Result<GVariant, HgvsError> {
-        let transcript = self.hdp.get_transcript(var_c.ac(), reference_ac)?;
+        let transcript = self.provider().get_transcript(var_c.ac(), reference_ac)?;
         let am = TranscriptMapper::new(transcript)?;
 
         let pos = var_c
@@ -727,7 +730,7 @@ impl<'a> VariantMapper<'a> {
             return Ok(ac.to_string());
         }
         Ok(self
-            .hdp
+            .provider()
             .get_symbol_accessions(
                 transcript_ac,
                 IdentifierKind::Transcript,
@@ -901,7 +904,7 @@ impl<'a> VariantMapper<'a> {
         let transcript_ac = &var_c.ac;
         let pro_ac_str = self.protein_accession(transcript_ac, protein_ac)?;
 
-        let transcript = self.hdp.get_transcript(transcript_ac, None)?;
+        let transcript = self.provider().get_transcript(transcript_ac, None)?;
         let unknown = |pos: Option<crate::structs::AaInterval>, value: &str| PVariant {
             ac: pro_ac_str.clone(),
             gene: var_c.gene.clone(),
@@ -1115,7 +1118,7 @@ impl<'a> VariantMapper<'a> {
         let tx_ac = if let Some(ta) = transcript_ac {
             ta.to_string()
         } else {
-            self.hdp
+            self.provider()
                 .get_symbol_accessions(ac, IdentifierKind::Protein, IdentifierKind::Transcript)?
                 .first()
                 .ok_or_else(|| {
@@ -1126,7 +1129,7 @@ impl<'a> VariantMapper<'a> {
         };
 
         // Get transcript
-        let transcript = self.hdp.get_transcript(&tx_ac, None)?;
+        let transcript = self.provider().get_transcript(&tx_ac, None)?;
         let cds_start = transcript
             .cds_start_index
             .ok_or_else(|| HgvsError::ValidationError("No CDS start for transcript".into()))?
@@ -1331,7 +1334,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     fn validate_transcript<V: TranscriptVariant>(&self, v: &V) -> Result<bool, HgvsError> {
-        let transcript = self.hdp.get_transcript(v.ac(), None)?;
+        let transcript = self.provider().get_transcript(v.ac(), None)?;
         let pos = v
             .posedit()
             .pos
@@ -1410,7 +1413,7 @@ impl<'a> VariantMapper<'a> {
 
     fn normalize_transcript<V: TranscriptVariant>(&self, mut v: V) -> Result<V, HgvsError> {
         let ac = v.ac().to_string();
-        let transcript = self.hdp.get_transcript(&ac, None)?;
+        let am = TranscriptMapper::new(self.provider().get_transcript(&ac, None)?)?;
         let Some(pos) = &v.posedit().pos else {
             return Ok(v);
         };
@@ -1419,7 +1422,7 @@ impl<'a> VariantMapper<'a> {
             // normalise against in transcript space. Leave the variant as written.
             return Ok(v);
         }
-        let (start, end) = self.get_c_indices(pos, &transcript)?;
+        let (start, end) = self.get_c_indices(pos, &am)?;
         let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self
             .refs
@@ -1430,7 +1433,6 @@ impl<'a> VariantMapper<'a> {
         if placement_changed(&before, &after) {
             // Re-derive positions from indices so that, for c., the c.0 gap and
             // the CDS anchors come out right when a shift crosses the CDS bounds.
-            let am = TranscriptMapper::new(transcript)?;
             let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
             pos.start = V::position_from_index(&am, s as i32)?;
             pos.end = e
@@ -1441,12 +1443,12 @@ impl<'a> VariantMapper<'a> {
         Ok(v)
     }
 
+    /// The 0-based half-open transcript index range a c./n. interval names.
     pub fn get_c_indices(
         &self,
         pos: &BaseOffsetInterval,
-        transcript: &TranscriptData,
+        am: &TranscriptMapper,
     ) -> Result<(usize, usize), HgvsError> {
-        let am = TranscriptMapper::new(transcript.clone())?;
         let (n_start, n_end) = am.interval_to_n(pos)?;
         if n_start.0 < 0 {
             return Err(HgvsError::ValidationError(format!(
@@ -1679,7 +1681,7 @@ impl<'a> VariantMapper<'a> {
 
     /// Whether `ac` names a protein or a nucleotide sequence.
     fn sequence_kind(&self, ac: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(match self.hdp.get_identifier_type(ac)? {
+        Ok(match self.provider().get_identifier_type(ac)? {
             IdentifierType::ProteinAccession => IdentifierType::ProteinAccession,
             _ => IdentifierType::GenomicAccession,
         })
@@ -1848,7 +1850,7 @@ impl<'a> VariantMapper<'a> {
 
     /// Whether `ac` has a CDS, which decides whether r. is numbered like c. or n.
     fn has_cds(&self, ac: &str) -> Result<bool, HgvsError> {
-        let t = self.hdp.get_transcript(ac, None)?;
+        let t = self.provider().get_transcript(ac, None)?;
         Ok(t.cds_start_index.is_some() && t.cds_end_index.is_some())
     }
 
@@ -1940,13 +1942,12 @@ impl<'a> VariantMapper<'a> {
             _ => unreachable!("r_as_transcript gives c. or n."),
         };
         if let Some(pos) = &posedit.pos {
-            let transcript = self.hdp.get_transcript(&r.ac, None)?;
-            let exons = transcript.exons.clone();
-            let am = TranscriptMapper::new(transcript)?;
+            let am = TranscriptMapper::new(self.provider().get_transcript(&r.ac, None)?)?;
             // Intronic positions do not resolve to a transcript range; they
             // name the genome directly and need no guard.
             if let Ok((start, end)) = am.interval_to_n(pos) {
-                let within_one_exon = exons
+                let within_one_exon = am
+                    .exons
                     .iter()
                     .any(|x| x.transcript_start.0 <= start.0 && end.0 <= x.transcript_end.0);
                 if !within_one_exon {
