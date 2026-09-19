@@ -1,10 +1,8 @@
-use crate::analogous_edit::{project_aa_variant, project_na_variant, SparseReference};
+use crate::allele::CanonicalAllele;
 use crate::data::{IdentifierKind, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
-use crate::structs::{GVariant, IntervalSpdi, NaEdit, PVariant, SequenceVariant, Variant};
-use crate::structs::{LinearVariant, TranscriptVariant};
-use crate::utils::decompose_aa;
+use crate::structs::{CVariant, LinearVariant, PVariant, SequenceVariant, Variant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquivalenceLevel {
@@ -21,16 +19,6 @@ pub enum EquivalenceLevel {
 impl EquivalenceLevel {
     pub fn is_equivalent(&self) -> bool {
         matches!(self, Self::Identity | Self::Analogous)
-    }
-}
-
-// Migrated to analogous_edit.rs
-
-fn strand_aware_edit(edit: &NaEdit, strand: crate::data::Strand) -> NaEdit {
-    if strand == crate::data::Strand::Minus {
-        edit.reverse_complement()
-    } else {
-        edit.clone()
     }
 }
 
@@ -103,254 +91,255 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
+    /// Two variants are `Identity` when they are the same text after spelling
+    /// normalisation, `Analogous` when they name the same change (the same
+    /// canonical allele on the genome, or the same protein left behind) and
+    /// `Different` otherwise.
     fn equivalent_level_single(
         &self,
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // 1. Strict Check (after normalization)
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
         }
-
-        // 2. Build and Merge Sparse References
-        let s1 = self.get_ref_for_variant(var1);
-        let s2 = self.get_ref_for_variant(var2);
-        let mut merged = s1;
-        if let Err(_) = merged.merge(&s2) {
-            return Ok(EquivalenceLevel::Different); // Inconsistent references
-        }
-
-        // 3. Project and Compare Outcomes
-        match (var1, var2) {
+        let same = match (var1, var2) {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
-                let pos1_opt = &p1.posedit.pos;
-                let pos2_opt = &p2.posedit.pos;
-
-                // Handle global identity (p.=) vs positional variant
-                let (start1, end1, edit1, start2, end2, edit2) = match (pos1_opt, pos2_opt) {
-                    (Some(pos1), Some(pos2)) => {
-                        let s1 = pos1.start.base.to_index().0;
-                        let e1 = self.get_effective_end(p1, s1);
-                        let s2 = pos2.start.base.to_index().0;
-                        let e2 = self.get_effective_end(p2, s2);
-                        (s1, e1, &p1.posedit.edit, s2, e2, &p2.posedit.edit)
-                    }
-                    (Some(pos1), None) if p2.posedit.edit.is_identity() => {
-                        let s1 = pos1.start.base.to_index().0;
-                        let e1 = self.get_effective_end(p1, s1);
-                        // Synthesize p2 interval to match p1
-                        (s1, e1, &p1.posedit.edit, s1, e1, &p2.posedit.edit)
-                    }
-                    (None, Some(pos2)) if p1.posedit.edit.is_identity() => {
-                        let s2 = pos2.start.base.to_index().0;
-                        let e2 = self.get_effective_end(p2, s2);
-                        // Synthesize p1 interval to match p2
-                        (s2, e2, &p1.posedit.edit, s2, e2, &p2.posedit.edit)
-                    }
-                    _ => {
-                        // Fallback to cross-type comparison logic which handles non-projected cases
-                        if self.are_equivalent_single(var1, var2)? {
-                            return Ok(EquivalenceLevel::Analogous);
-                        }
-                        return Ok(EquivalenceLevel::Different);
-                    }
-                };
-
-                let min_pos = start1.min(start2);
-                let max_pos = end1.max(end2);
-
-                let res1 = project_aa_variant(edit1, start1, end1, min_pos, max_pos, &merged)
-                    .trim_at_stop();
-                let res2 = project_aa_variant(edit2, start2, end2, min_pos, max_pos, &merged)
-                    .trim_at_stop();
-
-                let is_analogous = res1.is_analogous_to(&res2);
-
-                if is_analogous {
-                    return Ok(EquivalenceLevel::Analogous);
-                }
+                // Versions of one protein accession are compared on ours: the
+                // same description in another spelling, or the same protein left.
+                base_accession(&p1.ac) == base_accession(&p2.ac)
+                    && (self.normalize_format(&p1.posedit.to_string())
+                        == self.normalize_format(&p2.posedit.to_string())
+                        || same_protein(
+                            self.protein_outcome_on(p1, &p1.ac)?,
+                            self.protein_outcome_on(p2, &p1.ac)?,
+                        ))
             }
-            (SequenceVariant::Coding(c1), SequenceVariant::Coding(c2)) => {
-                if self.tx_projections_analogous(c1, c2, &merged)? {
-                    return Ok(EquivalenceLevel::Analogous);
-                }
-            }
-            (SequenceVariant::NonCoding(n1), SequenceVariant::NonCoding(n2)) => {
-                if self.tx_projections_analogous(n1, n2, &merged)? {
-                    return Ok(EquivalenceLevel::Analogous);
-                }
+            (SequenceVariant::Protein(p), nucleotide)
+            | (nucleotide, SequenceVariant::Protein(p)) => {
+                return self.nucleotide_vs_protein(nucleotide, p);
             }
             _ => {
-                // Fallback to existing logic for cross-type comparison
-                if self.are_equivalent_single(var1, var2)? {
-                    if self.is_cross_type_identity(var1, var2) {
-                        return Ok(EquivalenceLevel::Identity);
-                    }
-                    return Ok(EquivalenceLevel::Analogous);
+                // A transcript variant that projects to exactly the genomic text.
+                if self.exact_projection(var1, var2)? || self.exact_projection(var2, var1)? {
+                    return Ok(EquivalenceLevel::Identity);
+                }
+                match (self.nucleotide_allele(var1)?, self.nucleotide_allele(var2)?) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
                 }
             }
-        }
-
-        Ok(EquivalenceLevel::Different)
+        };
+        Ok(if same {
+            EquivalenceLevel::Analogous
+        } else {
+            EquivalenceLevel::Different
+        })
     }
 
-    /// Projects two transcript-space variants onto the merged sparse reference
-    /// and asks whether the outcomes are analogous.
-    fn tx_projections_analogous<V: TranscriptVariant>(
+    /// Whether `tx` is a c. or n. variant whose projection onto `g`'s
+    /// reference is `g` to the letter.
+    fn exact_projection(
         &self,
-        v1: &V,
-        v2: &V,
-        merged: &SparseReference,
+        g: &SequenceVariant,
+        tx: &SequenceVariant,
     ) -> Result<bool, HgvsError> {
-        let (Some(pos1), Some(pos2)) = (&v1.posedit().pos, &v2.posedit().pos) else {
+        let SequenceVariant::Genomic(g) = g else {
             return Ok(false);
         };
-        let mut i1 = pos1.spdi_interval(v1.ac(), self.mapper.provider())?;
-        let mut i2 = pos2.spdi_interval(v2.ac(), self.mapper.provider())?;
-
-        let t1 = self.mapper.provider().get_transcript(v1.ac(), None)?;
-        let edit1 = strand_aware_edit(&v1.posedit().edit, t1.strand);
-        let t2 = self.mapper.provider().get_transcript(v2.ac(), None)?;
-        let edit2 = strand_aware_edit(&v2.posedit().edit, t2.strand);
-
-        // An insertion between two flanking bases is anchored at the lower
-        // genomic index for projection.
-        if matches!(v1.posedit().edit, NaEdit::Ins { .. }) && pos1.end.is_some() {
-            let (p, _, ac) = i1;
-            i1 = (p, p + 1, ac);
-        }
-        if matches!(v2.posedit().edit, NaEdit::Ins { .. }) && pos2.end.is_some() {
-            let (p, _, ac) = i2;
-            i2 = (p, p + 1, ac);
-        }
-
-        let (start1, end1, _) = i1;
-        let (start2, end2, _) = i2;
-        let min_pos = start1.min(start2).saturating_sub(2);
-        let max_pos = end1.max(end2) + 2;
-        let res1 = project_na_variant(&edit1, start1, end1 - 1, min_pos, max_pos - 1, merged);
-        let res2 = project_na_variant(&edit2, start2, end2 - 1, min_pos, max_pos - 1, merged);
-        Ok(res1.is_analogous_to(&res2))
+        let projected = match tx {
+            SequenceVariant::Coding(c) => self.mapper.tx_to_g(c, Some(&g.ac)),
+            SequenceVariant::NonCoding(n) => self.mapper.tx_to_g(n, Some(&g.ac)),
+            _ => return Ok(false),
+        };
+        Ok(projected.is_ok_and(|p| p.to_string() == g.to_string()))
     }
 
-    fn is_cross_type_identity(&self, var1: &SequenceVariant, var2: &SequenceVariant) -> bool {
-        match (var1, var2) {
-            (SequenceVariant::Coding(vc), SequenceVariant::Protein(vp))
-            | (SequenceVariant::Protein(vp), SequenceVariant::Coding(vc)) => {
-                if let Ok(vp_generated) = self.mapper.c_to_p(vc, Some(&vp.ac)) {
-                    vp_generated.to_string() == vp.to_string()
-                } else {
-                    false
-                }
-            }
-            (SequenceVariant::Genomic(vg), SequenceVariant::Coding(vc))
-            | (SequenceVariant::Coding(vc), SequenceVariant::Genomic(vg)) => {
-                if let Ok(tx) = self.mapper.provider().get_transcript(&vc.ac, None) {
-                    if let Ok(vg_generated) = self
-                        .mapper
-                        .c_to_g(vc, Some(tx.reference_accession.as_str()))
-                    {
-                        vg_generated.to_string() == vg.to_string()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            (SequenceVariant::Genomic(vg), SequenceVariant::NonCoding(vn))
-            | (SequenceVariant::NonCoding(vn), SequenceVariant::Genomic(vg)) => {
-                if let Ok(tx) = self.mapper.provider().get_transcript(&vn.ac, None) {
-                    if let Ok(vg_generated) = self
-                        .mapper
-                        .n_to_g(vn, Some(tx.reference_accession.as_str()))
-                    {
-                        vg_generated.to_string() == vg.to_string()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            (SequenceVariant::NonCoding(vn), SequenceVariant::Protein(vp))
-            | (SequenceVariant::Protein(vp), SequenceVariant::NonCoding(vn)) => {
-                if let Ok(tx) = self.mapper.provider().get_transcript(&vn.ac, None) {
-                    if let Ok(vg_generated) = self
-                        .mapper
-                        .n_to_g(vn, Some(tx.reference_accession.as_str()))
-                    {
-                        if let Ok(c_variants) = self.mapper.g_to_c_all(&vg_generated, self.searcher)
-                        {
-                            for vc in c_variants {
-                                if let Ok(vp_generated) = self.mapper.c_to_p(&vc, Some(&vp.ac)) {
-                                    if vp_generated.to_string() == vp.to_string() {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                false
-            }
-            _ => false,
+    /// The canonical allele of a nucleotide variant, or `None` for an edit
+    /// that has none (a conversion, a copy number).
+    fn nucleotide_allele(
+        &self,
+        var: &SequenceVariant,
+    ) -> Result<Option<CanonicalAllele>, HgvsError> {
+        match self.mapper.canonical_allele(var) {
+            Ok(a) => Ok(Some(a)),
+            Err(HgvsError::UnsupportedOperation(_)) => Ok(None),
+            Err(e) => Err(e),
         }
     }
 
-    fn get_effective_end(&self, vp: &PVariant, start: i32) -> i32 {
-        let mut end = vp.posedit.pos.as_ref().map_or(start, |pos| {
-            pos.end.as_ref().map_or(start, |e| e.base.to_index().0)
-        });
-
-        if let crate::structs::AaEdit::Repeat { ref_: Some(s), .. } = &vp.posedit.edit {
-            let len = s.len() as i32;
-            if end - start + 1 < len {
-                end = start + len - 1;
-            }
-        }
-        end
-    }
-
-    fn get_ref_for_variant(&self, var: &SequenceVariant) -> SparseReference {
-        let mut s = SparseReference::new();
-        match var {
-            SequenceVariant::Protein(vp) => {
-                if let Ok(seq) = self
+    /// A nucleotide variant against a protein description: through every
+    /// transcript the variant lies on, `Identity` if the predicted description
+    /// is the same text, `Analogous` if the protein left is the same.
+    fn nucleotide_vs_protein(
+        &self,
+        nucleotide: &SequenceVariant,
+        vp: &PVariant,
+    ) -> Result<EquivalenceLevel, HgvsError> {
+        let coding: Vec<CVariant> = match nucleotide {
+            SequenceVariant::Coding(c) => vec![c.clone()],
+            SequenceVariant::Genomic(g) => self.mapper.g_to_c_all(g, self.searcher)?,
+            SequenceVariant::NonCoding(n) => {
+                let tx = self.mapper.provider().get_transcript(&n.ac, None)?;
+                let g = self
                     .mapper
-                    .refs
-                    .reference(&vp.ac, crate::data::IdentifierType::ProteinAccession)
-                    .whole()
-                {
-                    if let Ok(aas) = decompose_aa(&seq) {
-                        for (i, aa) in aas.iter().enumerate() {
-                            let _ = s.set(i as i32, aa.to_string());
-                        }
-                    }
-                }
+                    .tx_to_g(n, Some(tx.reference_accession.as_str()))?;
+                self.mapper.g_to_c_all(&g, self.searcher)?
             }
-            SequenceVariant::Coding(vc) => {
-                if let Some(pos) = &vc.posedit.pos {
-                    if let Ok((start, end, spdi_ac)) =
-                        pos.spdi_interval(&vc.ac, self.mapper.provider())
-                    {
-                        if let (Ok(s0), Ok(e0)) = (usize::try_from(start), usize::try_from(end)) {
-                            if let Ok(seq) = self
-                                .mapper
-                                .refs
-                                .reference(&spdi_ac, crate::data::IdentifierType::GenomicAccession)
-                                .slice(s0, e0)
-                            {
-                                let _ = s.set(start, seq);
-                            }
-                        }
-                    }
+            _ => vec![],
+        };
+        // First by description: the prediction written exactly as given is
+        // Identity (c. implies p.(...) exactly); the same description in
+        // another spelling is Analogous. Neither needs the protein sequence.
+        let described = self.normalize_format(&vp.to_string());
+        let mut analogous = false;
+        for c in &coding {
+            if let Ok(predicted) = self.mapper.c_to_p(c, Some(&vp.ac)) {
+                if predicted.to_string() == vp.to_string() {
+                    return Ok(EquivalenceLevel::Identity);
                 }
+                analogous |= self.normalize_format(&predicted.to_string()) == described;
             }
-            _ => {}
         }
-        s
+        // Then by the protein left behind.
+        if !analogous {
+            let outcome = self.protein_outcome_on(vp, &vp.ac)?;
+            let reference = self.reference_protein(&vp.ac)?;
+            for c in &coding {
+                let predicted = self
+                    .mapper
+                    .predicted_protein(c, Some(&vp.ac))?
+                    .map(|residues| Outcome {
+                        changed_from: first_difference(&reference, &residues),
+                        residues,
+                        open: false,
+                        anchored: false,
+                    });
+                if same_protein(predicted, outcome.clone()) {
+                    analogous = true;
+                }
+            }
+        }
+        Ok(if analogous {
+            EquivalenceLevel::Analogous
+        } else {
+            EquivalenceLevel::Different
+        })
+    }
+
+    /// The protein a p. description leaves: its residues in 1-letter code up
+    /// to the stop, `X` where the description does not say (a frameshift's
+    /// unnamed residues), and `open` when more residues follow whose number
+    /// the description does not give (a stop loss written `Ter#Xxx`, an
+    /// extension or frameshift of unknown length). `None` when it says
+    /// nothing about the sequence: `p.?`, `p.Met1?`.
+    fn protein_outcome_on(&self, vp: &PVariant, ac: &str) -> Result<Option<Outcome>, HgvsError> {
+        use crate::edits::AaEdit;
+        let reference = self
+            .mapper
+            .refs
+            .reference(ac, crate::data::IdentifierType::ProteinAccession);
+        let whole = reference.whole()?;
+        let protein = whole.trim_end_matches('*');
+        let len = protein.len();
+        let closed = |s: String, changed_from: usize| Outcome {
+            residues: s,
+            open: false,
+            changed_from,
+            anchored: false,
+        };
+        let Some(pos) = &vp.posedit.pos else {
+            return Ok(match &vp.posedit.edit {
+                AaEdit::Identity { .. } => Some(closed(protein.to_string(), len)),
+                AaEdit::Special { value, .. } if value == "=" => {
+                    Some(closed(protein.to_string(), len))
+                }
+                AaEdit::Special { value, .. } if value.starts_with('0') => {
+                    Some(closed(String::new(), 0))
+                }
+                _ => None,
+            });
+        };
+        let (start, end) = crate::mapper::aa_interval_range(pos)?;
+        // `p.Met1?`: something happens from this residue on; what, it does not say.
+        if let AaEdit::Special { value, .. } = &vp.posedit.edit {
+            return Ok((value == "?").then(|| Outcome {
+                residues: protein[..start.min(len)].to_string(),
+                open: true,
+                changed_from: start.min(len),
+                anchored: true,
+            }));
+        }
+        // The count after `fs` or `ext`, when it is a number.
+        let count =
+            |length: &Option<String>| length.as_deref().and_then(|l| l.parse::<usize>().ok());
+        let (start, end, alt, open) = match &vp.posedit.edit {
+            // `Xxx#Yyyfs*N`: Yyy, then N - 2 residues it does not name, then a stop.
+            AaEdit::Fs { alt, length, .. } => {
+                let mut alt = crate::utils::residues_1(alt)?;
+                match count(length) {
+                    Some(n) if n >= 1 => {
+                        while alt.len() < n - 1 {
+                            alt.push('X');
+                        }
+                        alt.push('*');
+                        (start, end, alt, false)
+                    }
+                    _ if alt == "*" => (start, end, alt, false),
+                    _ => (start, end, alt, true),
+                }
+            }
+            // `Ter#Xxxext*N`: the stop becomes Xxx, then N - 1 residues, then a stop.
+            AaEdit::Ext { alt, length, .. } => {
+                let mut alt = crate::utils::residues_1(alt)?;
+                match count(length) {
+                    Some(n) if n >= 1 => {
+                        while alt.len() < n {
+                            alt.push('X');
+                        }
+                        (len, len, alt, false)
+                    }
+                    _ => (len, len, alt, true),
+                }
+            }
+            AaEdit::Special { .. } | AaEdit::None => return Ok(None),
+            edit => {
+                let r = edit.resolve(&reference, start, end)?;
+                // A change at the stop itself that does not stop again reads on
+                // for an unknown distance: ClinVar's `Ter#Xxx` for a stop loss.
+                let open = r.start >= len && !r.alt.contains('*');
+                (r.start, r.end, r.alt, open)
+            }
+        };
+        // Nothing of the reference follows a stop, nor an open end.
+        let (end, alt) = match alt.find('*') {
+            Some(k) => (len, alt[..k].to_string()),
+            None if open => (len, alt),
+            None => (end, alt),
+        };
+        let start = start.min(len);
+        let residues = format!(
+            "{}{}{}",
+            &protein[..start],
+            alt,
+            &protein[end.clamp(start, len)..]
+        );
+        Ok(Some(Outcome {
+            changed_from: first_difference(protein, &residues),
+            residues,
+            open,
+            anchored: false,
+        }))
+    }
+
+    /// The protein sequence of `ac`, without a trailing stop.
+    fn reference_protein(&self, ac: &str) -> Result<String, HgvsError> {
+        let whole = self
+            .mapper
+            .refs
+            .reference(ac, crate::data::IdentifierType::ProteinAccession)
+            .whole()?;
+        Ok(whole.trim_end_matches('*').to_string())
     }
 
     fn expand_if_gene_symbol(
@@ -421,80 +410,6 @@ impl<'a> VariantEquivalence<'a> {
         Ok(vec![var.clone()])
     }
 
-    fn are_equivalent_single(
-        &self,
-        var1: &SequenceVariant,
-        var2: &SequenceVariant,
-    ) -> Result<bool, HgvsError> {
-        match (var1, var2) {
-            // Nucleotide vs Nucleotide
-            (SequenceVariant::Genomic(v1), SequenceVariant::Genomic(v2)) => {
-                self.n_vs_n_equivalent(v1, v2)
-            }
-            (SequenceVariant::Coding(v1), SequenceVariant::Coding(v2)) => {
-                self.tx_vs_tx_equivalent(v1, v2)
-            }
-            (SequenceVariant::NonCoding(v1), SequenceVariant::NonCoding(v2)) => {
-                self.tx_vs_tx_equivalent(v1, v2)
-            }
-
-            (SequenceVariant::Genomic(v1), SequenceVariant::Coding(v2)) => {
-                self.g_vs_tx_equivalent(v1, v2)
-            }
-            (SequenceVariant::Coding(v1), SequenceVariant::Genomic(v2)) => {
-                self.g_vs_tx_equivalent(v2, v1)
-            }
-
-            (SequenceVariant::Genomic(v1), SequenceVariant::NonCoding(v2)) => {
-                self.g_vs_tx_equivalent(v1, v2)
-            }
-            (SequenceVariant::NonCoding(v1), SequenceVariant::Genomic(v2)) => {
-                self.g_vs_tx_equivalent(v2, v1)
-            }
-
-            (SequenceVariant::Coding(v1), SequenceVariant::NonCoding(v2)) => {
-                self.tx_vs_tx_equivalent(v1, v2)
-            }
-            (SequenceVariant::NonCoding(v1), SequenceVariant::Coding(v2)) => {
-                self.tx_vs_tx_equivalent(v2, v1)
-            }
-
-            // Nucleotide vs Protein
-            (SequenceVariant::Genomic(v1), SequenceVariant::Protein(v2)) => {
-                self.g_vs_p_equivalent(v1, v2)
-            }
-            (SequenceVariant::Protein(v1), SequenceVariant::Genomic(v2)) => {
-                self.g_vs_p_equivalent(v2, v1)
-            }
-            (SequenceVariant::Coding(v1), SequenceVariant::Protein(v2)) => {
-                self.c_vs_p_equivalent(v1, v2)
-            }
-            (SequenceVariant::Protein(v1), SequenceVariant::Coding(v2)) => {
-                self.c_vs_p_equivalent(v2, v1)
-            }
-            (SequenceVariant::NonCoding(v1), SequenceVariant::Protein(v2)) => {
-                self.n_vs_p_equivalent(v1, v2)
-            }
-            (SequenceVariant::Protein(v1), SequenceVariant::NonCoding(v2)) => {
-                self.n_vs_p_equivalent(v2, v1)
-            }
-
-            // Protein vs Protein
-            (SequenceVariant::Protein(v1), SequenceVariant::Protein(v2)) => {
-                self.p_vs_p_equivalent(v1, v2)
-            }
-
-            // Fallback
-            _ => {
-                if var1.ac() == var2.ac() && var1.coordinate_type() == var2.coordinate_type() {
-                    return Ok(self.normalize_format(&var1.to_string())
-                        == self.normalize_format(&var2.to_string()));
-                }
-                Ok(false)
-            }
-        }
-    }
-
     fn normalize_format(&self, s: &str) -> String {
         // Strip parentheses and replace '?' with 'X' (unknown amino acid, analogous to Xaa)
         let mut s = s.replace(['(', ')'], "").replace('?', "X");
@@ -530,243 +445,57 @@ impl<'a> VariantEquivalence<'a> {
         }
         s
     }
-
-    /// Two genomic variants are the same change exactly when their canonical
-    /// alleles are equal.
-    fn n_vs_n_equivalent(&self, v1: &GVariant, v2: &GVariant) -> Result<bool, HgvsError> {
-        let a1 = self
-            .mapper
-            .canonical_allele(&SequenceVariant::Genomic(v1.clone()))?;
-        let a2 = self
-            .mapper
-            .canonical_allele(&SequenceVariant::Genomic(v2.clone()))?;
-        Ok(a1 == a2)
-    }
-
-    /// Two transcript-space variants, compared on their references.
-    fn tx_vs_tx_equivalent<A: TranscriptVariant, B: TranscriptVariant>(
-        &self,
-        v1: &A,
-        v2: &B,
-    ) -> Result<bool, HgvsError> {
-        let tx1 = self.mapper.provider().get_transcript(v1.ac(), None)?;
-        let tx2 = self.mapper.provider().get_transcript(v2.ac(), None)?;
-        let g1 = self
-            .mapper
-            .tx_to_g(v1, Some(tx1.reference_accession.as_str()))?;
-        let g2 = self
-            .mapper
-            .tx_to_g(v2, Some(tx2.reference_accession.as_str()))?;
-        self.n_vs_n_equivalent(&g1, &g2)
-    }
-
-    fn g_vs_tx_equivalent<V: TranscriptVariant>(
-        &self,
-        vg: &GVariant,
-        v: &V,
-    ) -> Result<bool, HgvsError> {
-        let g2 = self.mapper.tx_to_g(v, Some(&vg.ac))?;
-        self.n_vs_n_equivalent(vg, &g2)
-    }
-
-    fn n_vs_p_equivalent(
-        &self,
-        vn: &crate::structs::NVariant,
-        vp: &crate::structs::PVariant,
-    ) -> Result<bool, HgvsError> {
-        let tx = self.mapper.provider().get_transcript(&vn.ac, None)?;
-        let ref_ac = tx.reference_accession;
-        let vg = self.mapper.tx_to_g(vn, Some(ref_ac.as_str()))?;
-        self.g_vs_p_equivalent(&vg, vp)
-    }
-
-    fn g_vs_p_equivalent(
-        &self,
-        vg: &crate::structs::GVariant,
-        vp: &crate::structs::PVariant,
-    ) -> Result<bool, HgvsError> {
-        let c_variants = self.mapper.g_to_c_all(vg, self.searcher)?;
-        for vc in c_variants {
-            if self.c_vs_p_equivalent(&vc, vp)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn c_vs_p_equivalent(
-        &self,
-        vc: &crate::structs::CVariant,
-        vp: &crate::structs::PVariant,
-    ) -> Result<bool, HgvsError> {
-        let vp_generated = self.mapper.c_to_p(vc, Some(&vp.ac))?;
-        Ok(self.normalize_format(&vp_generated.to_string())
-            == self.normalize_format(&vp.to_string()))
-    }
-
-    fn p_vs_p_equivalent(&self, v1: &PVariant, v2: &PVariant) -> Result<bool, HgvsError> {
-        if v1.ac == v2.ac {
-            if self.normalize_format(&v1.to_string()) == self.normalize_format(&v2.to_string()) {
-                return Ok(true);
-            }
-
-            if let (Some(pos1), Some(pos2)) = (&v1.posedit.pos, &v2.posedit.pos) {
-                let start1 = pos1.start.base.to_index().0;
-                let end1 = self.get_effective_end(v1, start1);
-
-                let start2 = pos2.start.base.to_index().0;
-                let end2 = self.get_effective_end(v2, start2);
-
-                let min_pos = start1.min(start2).saturating_sub(2);
-                let max_pos = end1.max(end2) + 2;
-
-                let mut sref = self.get_ref_for_variant(&SequenceVariant::Protein(v1.clone()));
-                let sref2 = self.get_ref_for_variant(&SequenceVariant::Protein(v2.clone()));
-                sref.merge(&sref2)?;
-
-                let res1 = crate::analogous_edit::project_aa_variant(
-                    &v1.posedit.edit,
-                    start1,
-                    end1,
-                    min_pos,
-                    max_pos,
-                    &sref,
-                );
-                let res2 = crate::analogous_edit::project_aa_variant(
-                    &v2.posedit.edit,
-                    start2,
-                    end2,
-                    min_pos,
-                    max_pos,
-                    &sref,
-                );
-
-                return Ok(res1.is_analogous_to(&res2));
-            }
-        }
-        Ok(false)
-    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::coords::{GenomicPos, TranscriptPos};
-    use crate::data::{ExonData, IdentifierKind, IdentifierType, TranscriptData};
+/// What a protein description leaves behind; see `protein_outcome`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Outcome {
+    residues: String,
+    /// More residues follow, their number unknown.
+    open: bool,
+    /// The first residue that differs from the reference (its length if none).
+    changed_from: usize,
+    /// A statement (`p.Met1?`): only where the change starts is known, and
+    /// the other side must start its change there.
+    anchored: bool,
+}
 
-    struct MockDataProvider;
-    impl crate::data::DataProvider for MockDataProvider {
-        fn get_transcript(
-            &self,
-            ac: &str,
-            _ref_ac: Option<&str>,
-        ) -> Result<TranscriptData, HgvsError> {
-            if ac == "NM_000123.4" {
-                Ok(TranscriptData {
-                    ac: "NM_000123.4".to_string(),
-                    gene: "ABC".to_string(),
-                    cds_start_index: Some(TranscriptPos(0)),
-                    cds_end_index: Some(TranscriptPos(19)),
-                    strand: crate::data::Strand::Plus,
-                    reference_accession: "NC_000001.11".to_string(),
-                    exons: vec![ExonData {
-                        transcript_start: TranscriptPos(0),
-                        transcript_end: TranscriptPos(19),
-                        reference_start: GenomicPos(0),
-                        reference_end: GenomicPos(19),
-                        alt_strand: crate::data::Strand::Plus,
-                        cigar: "20M".to_string(),
-                    }],
-                })
-            } else {
-                Err(HgvsError::ValidationError("Not found".into()))
-            }
-        }
-        fn get_seq(
-            &self,
-            _ac: &str,
-            start: i32,
-            end: Option<i32>,
-            _kind: IdentifierType,
-        ) -> Result<String, HgvsError> {
-            let seq = "ACGTACGTACGTACGTACGT"; // A=0, C=1, G=2, T=3, A=4, ...
-            let s = (start.max(0) as usize).min(seq.len());
-            let e = end.map_or(seq.len(), |e| (e as usize).min(seq.len()));
-            Ok(seq[s..e.max(s)].to_string())
-        }
-        fn get_symbol_accessions(
-            &self,
-            _s: &str,
-            _f: IdentifierKind,
-            _t: IdentifierKind,
-        ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-            Ok(vec![])
-        }
-        fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
-            Ok(IdentifierType::GenomicAccession)
-        }
+/// The accession without its version: `NP_000050` of `NP_000050.3`.
+fn base_accession(ac: &str) -> &str {
+    ac.split('.').next().unwrap_or(ac)
+}
+
+/// The first index at which two proteins differ, or the shorter length.
+fn first_difference(a: &str, b: &str) -> usize {
+    a.bytes()
+        .zip(b.bytes())
+        .position(|(x, y)| x != y)
+        .unwrap_or(a.len().min(b.len()))
+}
+
+/// Whether two outcomes can be the same protein: residue for residue with
+/// `X` standing for any, over the whole of both when both are closed, over
+/// the shorter when one is open (the other must then be at least as long).
+/// `None` (nothing said) matches nothing.
+fn same_protein(a: Option<Outcome>, b: Option<Outcome>) -> bool {
+    let (Some(a), Some(b)) = (a, b) else {
+        return false;
+    };
+    // A statement says only where the change starts: the other side must
+    // start its change at the same residue.
+    if a.anchored || b.anchored {
+        return a.changed_from == b.changed_from;
     }
-
-    struct MockSearch;
-    impl TranscriptSearch for MockSearch {
-        fn get_transcripts_for_region(
-            &self,
-            _ac: &str,
-            _s: i32,
-            _e: i32,
-        ) -> Result<Vec<String>, HgvsError> {
-            Ok(vec![])
-        }
-    }
-
-    #[test]
-    fn normalize_writes_a_repeated_insertion_as_a_duplication() -> Result<(), HgvsError> {
-        let hdp = MockDataProvider;
-        let mapper = VariantMapper::new(&hdp);
-        let norm = |hgvs: &str| -> Result<String, HgvsError> {
-            Ok(mapper
-                .normalize_variant(crate::parse_hgvs_variant(hgvs)?)?
-                .to_string())
-        };
-
-        // Reference is ACGT repeated; base 2 (index 1) is C.
-        assert_eq!(norm("NC_000001.11:g.2_3insC")?, "NC_000001.11:g.2dup");
-        assert_eq!(norm("NM_000123.4:c.2_3insC")?, "NM_000123.4:c.2dup");
-        assert_eq!(norm("NM_000123.4:n.2_3insC")?, "NM_000123.4:n.2dup");
-
-        // A whole-unit insertion into a repeat shifts to the 3' end of the run
-        // first, then duplicates the last copy.
-        assert_eq!(
-            norm("NC_000001.11:g.4_5insACGT")?,
-            "NC_000001.11:g.17_20dup"
-        );
-
-        // An insertion that does not repeat its neighbours stays an insertion.
-        assert_eq!(norm("NC_000001.11:g.2_3insTT")?, "NC_000001.11:g.2_3insTT");
-        Ok(())
-    }
-
-    #[test]
-    fn test_normalize_format_question_equals_xaa() {
-        let hdp = MockDataProvider;
-        let search = MockSearch;
-        let mapper = VariantMapper::new(&hdp);
-        let eq = VariantEquivalence::new(&mapper, &search);
-
-        // '?' should normalize to 'X', the same as 'Xaa' -> 'X'.
-        // This ensures p.Met1? and p.Met1Xaa compare equal after normalization.
-        let q = eq.normalize_format("NP_000001.1:p.Met1?");
-        let xaa = eq.normalize_format("NP_000001.1:p.Met1Xaa");
-        assert_eq!(q, xaa, "p.Met1? and p.Met1Xaa should normalize identically");
-
-        // Parentheses and predicted markers are still stripped.
-        let predicted = eq.normalize_format("NP_000001.1:p.(Met1Val)");
-        let bare = eq.normalize_format("NP_000001.1:p.Met1Val");
-        assert_eq!(predicted, bare);
-
-        // 3-letter codes normalize to 1-letter.
-        let three = eq.normalize_format("NP_000001.1:p.Met1Val");
-        let one = eq.normalize_format("NP_000001.1:p.M1V");
-        assert_eq!(three, one);
-    }
+    let (na, nb) = (a.residues.len(), b.residues.len());
+    let fits = match (a.open, b.open) {
+        (false, false) => na == nb,
+        (true, false) => nb >= na,
+        (false, true) => na >= nb,
+        (true, true) => true,
+    };
+    fits && a
+        .residues
+        .chars()
+        .zip(b.residues.chars())
+        .all(|(x, y)| x == y || x == 'X' || y == 'X')
 }

@@ -89,6 +89,24 @@ fn substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein() {
 }
 
 #[test]
+fn a_stop_among_the_new_residues_ends_the_protein() {
+    let hdp = Provider;
+    let mapper = VariantMapper::new(&hdp);
+    // Nonsense, a stop inserted before the residue, and a delins ending in a
+    // stop all leave the same protein, so they are one allele.
+    assert_eq!(spdi(&mapper, "p.Lys2Ter"), "NP_TEST.1:1:KLAAAYRQ:");
+    assert_eq!(spdi(&mapper, "p.Met1_Lys2insTer"), "NP_TEST.1:1:KLAAAYRQ:");
+    assert_eq!(
+        spdi(&mapper, "p.Lys2_Leu3delinsTer"),
+        "NP_TEST.1:1:KLAAAYRQ:"
+    );
+    assert_eq!(
+        spdi(&mapper, "p.Leu3_Ala4delinsTrpTer"),
+        "NP_TEST.1:2:LAAAYRQ:W"
+    );
+}
+
+#[test]
 fn consequences_have_no_allele() {
     let hdp = Provider;
     let mapper = VariantMapper::new(&hdp);
