@@ -642,6 +642,40 @@ impl PyVariantMapper {
         })
     }
 
+    #[pyo3(signature = (var_c, protein_ac=None))]
+    #[doc = "Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.\n\nThe residues from the first change to the end of the protein become the\nresidues the edited transcript encodes, up to its new stop, then the allele\nis canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,\nextensions and stop losses. The predicted p. description is carried as an\nhgvs.p expression.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If the consequence is a statement (p.?, p.Met1?), or the translated CDS is not the protein the provider serves."]
+    fn protein_vrs(
+        &self,
+        py: Python,
+        var_c: &PyVariant,
+        protein_ac: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let v = expect_coding(&var_c.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        let json_str = mapper
+            .protein_vrs(v, protein_ac.as_deref())
+            .map_err(map_hgvs_error)?
+            .to_json();
+        let json_mod = py.import("json")?;
+        Ok(json_mod.call_method1("loads", (json_str,))?.unbind())
+    }
+
+    #[pyo3(signature = (var_c, protein_ac=None))]
+    #[doc = "Returns the SPDI of a coding variant's protein consequence, on the protein sequence.\n\nSee protein_vrs for what the allele is.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript."]
+    fn protein_spdi(
+        &self,
+        _py: Python,
+        var_c: &PyVariant,
+        protein_ac: Option<String>,
+    ) -> PyResult<String> {
+        let v = expect_coding(&var_c.inner)?;
+        let mapper = VariantMapper::new(self.bridge.as_ref());
+        Ok(mapper
+            .protein_allele(v, protein_ac.as_deref())
+            .map_err(map_hgvs_error)?
+            .spdi())
+    }
+
     #[pyo3(signature = (var_r, reference_ac = None))]
     #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If mapping fails."]
     fn r_to_g(

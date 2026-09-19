@@ -222,6 +222,32 @@ fn protein_variant(
     })
 }
 
+/// A coding change that owns its transcript bases; see `protein::CodingChange`.
+struct OwnedCodingChange {
+    coding: String,
+    cds_len: usize,
+    edit: crate::edits::ResolvedEdit,
+    protein_ac: String,
+}
+
+impl OwnedCodingChange {
+    fn borrow(&self) -> crate::protein::CodingChange<'_> {
+        crate::protein::CodingChange {
+            coding: &self.coding,
+            cds_len: self.cds_len,
+            edit: self.edit.clone(),
+            protein_ac: self.protein_ac.clone(),
+        }
+    }
+}
+
+/// What a coding variant does to its protein.
+enum CodingOutcome {
+    /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`.
+    Statement(PVariant),
+    Change(OwnedCodingChange),
+}
+
 /// The alphabet a transcript edit is written in.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Letters {
@@ -758,6 +784,126 @@ impl<'a> VariantMapper<'a> {
         var_c: &CVariant,
         protein_ac: Option<&str>,
     ) -> Result<PVariant, HgvsError> {
+        match self.coding_outcome(var_c, protein_ac)? {
+            CodingOutcome::Statement(p) => Ok(p),
+            CodingOutcome::Change(change) => {
+                let mut var_p = crate::protein::describe(&change.borrow())?;
+                var_p.posedit.predicted = true;
+                Ok(var_p)
+            }
+        }
+    }
+
+    /// The protein allele of a coding variant: on the protein the transcript
+    /// is paired with, the residues from the first change to the end become
+    /// the residues the edited transcript encodes, up to its new stop. Unlike
+    /// the allele of a p. variant this covers frameshifts, extensions and
+    /// stop losses, which are computed rather than described. The translated
+    /// CDS must be the protein the provider serves; a difference is an
+    /// annotation error and is reported as one.
+    pub fn protein_allele(
+        &self,
+        var_c: &CVariant,
+        protein_ac: Option<&str>,
+    ) -> Result<CanonicalAllele, HgvsError> {
+        let strip_stop = |s: String| s.trim_end_matches('*').to_string();
+        // For a silent change the allele is the reference over the codons the
+        // edit touched, as the p. description names them.
+        let mut touched: Option<(usize, usize)> = None;
+        let (protein_ac, reference, alternate) = match self.coding_outcome(var_c, protein_ac)? {
+            CodingOutcome::Statement(p) => match &p.posedit.edit {
+                // A deleted CDS: no protein at all.
+                crate::edits::AaEdit::Special { value, .. } if value == "0?" => {
+                    let whole = self
+                        .refs
+                        .reference(&p.ac, IdentifierType::ProteinAccession)
+                        .whole()?;
+                    (p.ac.clone(), strip_stop(whole), String::new())
+                }
+                _ => {
+                    return Err(HgvsError::UnsupportedOperation(format!(
+                        "{p} names no protein sequence, so it has no allele"
+                    )))
+                }
+            },
+            CodingOutcome::Change(change) => {
+                let (r, a) = crate::protein::proteins(&change.borrow())?;
+                if r == a {
+                    let first = change.edit.start / 3;
+                    let last = change.edit.end.max(change.edit.start + 1) - 1;
+                    touched = Some((
+                        first.min(r.len()),
+                        (last / 3 + 1).clamp(first.min(r.len()), r.len()),
+                    ));
+                }
+                (change.protein_ac, r, a)
+            }
+        };
+        let np = self
+            .refs
+            .reference(&protein_ac, IdentifierType::ProteinAccession);
+        let actual = strip_stop(np.whole()?);
+        if actual != reference {
+            let at = actual
+                .bytes()
+                .zip(reference.bytes())
+                .position(|(x, y)| x != y)
+                .unwrap_or(actual.len().min(reference.len()));
+            return Err(HgvsError::ValidationError(format!(
+                "The CDS of {} does not translate to {protein_ac}: they differ from residue {} ({} vs {}); the annotation pairs them wrongly",
+                var_c.ac,
+                at + 1,
+                &actual[at.min(actual.len())..(at + 10).min(actual.len())],
+                &reference[at.min(reference.len())..(at + 10).min(reference.len())],
+            )));
+        }
+        let edit = match touched {
+            Some((s, e)) => crate::edits::ResolvedEdit {
+                start: s,
+                end: e,
+                ref_: reference[s..e].to_string(),
+                alt: reference[s..e].to_string(),
+            },
+            None => crate::edits::ResolvedEdit {
+                start: 0,
+                end: reference.len(),
+                ref_: reference,
+                alt: alternate,
+            },
+        };
+        CanonicalAllele::canonicalize(&np, &protein_ac, &edit)
+    }
+
+    /// The GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on
+    /// the protein sequence, with the predicted p. description as its
+    /// expression when there is one.
+    pub fn protein_vrs(
+        &self,
+        var_c: &CVariant,
+        protein_ac: Option<&str>,
+    ) -> Result<VrsAllele, HgvsError> {
+        let allele = self.protein_allele(var_c, protein_ac)?;
+        let refget = self
+            .refs
+            .reference(&allele.accession, IdentifierType::ProteinAccession)
+            .refget_accession()?;
+        let hgvs = self.c_to_p(var_c, protein_ac).ok().map(|p| p.to_string());
+        Ok(VrsAllele::new(
+            &allele,
+            &refget,
+            VrsMolecule::Protein,
+            hgvs.as_deref().map(|h| ("hgvs.p", h)),
+        ))
+    }
+
+    /// What a coding variant does to the protein: a statement (`p.?`,
+    /// `p.Met1?`, `p.0?`) when the edit lies outside or across the CDS
+    /// boundary, else the resolved change to describe or read.
+    fn coding_outcome(
+        &self,
+        var_c: &CVariant,
+        protein_ac: Option<&str>,
+    ) -> Result<CodingOutcome, HgvsError> {
         let transcript_ac = &var_c.ac;
         let pro_ac_str = self.protein_accession(transcript_ac, protein_ac)?;
 
@@ -783,7 +929,7 @@ impl<'a> VariantMapper<'a> {
                     .as_ref()
                     .is_some_and(|e| e.offset.is_some_and(|o| o.0 != 0));
             if has_offset {
-                return Ok(unknown(None, "?"));
+                return Ok(CodingOutcome::Statement(unknown(None, "?")));
             }
 
             // An edit that starts in the 5'UTR. Deleting the whole CDS predicts
@@ -802,7 +948,7 @@ impl<'a> VariantMapper<'a> {
                         || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
                 });
                 let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
-                return Ok(if covers_cds && deletes {
+                return Ok(CodingOutcome::Statement(if covers_cds && deletes {
                     unknown(None, "0?")
                 } else if reaches_cds {
                     let met1 = crate::structs::AaInterval {
@@ -817,7 +963,7 @@ impl<'a> VariantMapper<'a> {
                     unknown(Some(met1), "?")
                 } else {
                     unknown(None, "?")
-                });
+                }));
             }
         }
 
@@ -903,8 +1049,8 @@ impl<'a> VariantMapper<'a> {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
             })
         };
-        let change = crate::protein::CodingChange {
-            coding: &ref_seq[cds_start_idx..],
+        Ok(CodingOutcome::Change(OwnedCodingChange {
+            coding: ref_seq[cds_start_idx..].to_string(),
             cds_len: cds_end_idx + 1 - cds_start_idx,
             edit: crate::edits::ResolvedEdit {
                 start: rel(resolved.start)?,
@@ -913,10 +1059,7 @@ impl<'a> VariantMapper<'a> {
                 alt: resolved.alt,
             },
             protein_ac: pro_ac_str,
-        };
-        let mut var_p = crate::protein::describe(&change)?;
-        var_p.posedit.predicted = true;
-        Ok(var_p)
+        }))
     }
 
     /// Back-converts a single amino acid substitution (p.Xxx###Yyy) to a coding variant (c.).

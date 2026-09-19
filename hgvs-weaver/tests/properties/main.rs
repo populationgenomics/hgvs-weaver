@@ -530,6 +530,35 @@ proptest! {
         let _ = parse_hgvs_variant(&s);
     }
 
+    /// The protein allele of a coding change, applied to the protein, is the
+    /// protein the edited transcript encodes, to its first stop, for every
+    /// kind of change: silent, missense, nonsense, in-frame, frameshift,
+    /// stop loss.
+    #[test]
+    fn the_protein_allele_is_the_edited_translation(g in gene(), pick in 0usize..10_000, alt in prop::sample::select(BASES.to_vec()), kind in 0u8..3) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let pos = g.cds_start + pick % (g.cds_end + 1 - g.cds_start);
+        let ref_base = g.transcript_seq.as_bytes()[pos] as char;
+        let (end, edit) = match kind {
+            0 => { prop_assume!(alt != ref_base); (pos + 1, NaEdit::RefAlt { ref_: Some(ref_base.to_string()), alt: Some(alt.to_string()), uncertain: false }) }
+            1 => (pos + 1, NaEdit::Del { ref_: None, uncertain: false }),
+            _ => (pos + 1, NaEdit::Ins { alt: Some(alt.to_string()), uncertain: false }),
+        };
+        // An insertion is written between two bases; keep it inside the CDS.
+        let (start, end) = if kind == 2 { if pos + 1 > g.cds_end { return Ok(()) } (pos, pos + 2) } else { (pos, end) };
+        let vc = coding_variant(&g, &am, start, end, edit.clone());
+        let allele = mapper.protein_allele(&vc, Some("NP_PROP.1")).unwrap();
+        let protein = hgvs_weaver::utils::translate(&g.transcript_seq[g.cds_start..=g.cds_end]);
+        let protein = protein.trim_end_matches('*');
+        prop_assert_eq!(&allele.accession, "NP_PROP.1");
+        let applied = format!("{}{}{}", &protein[..allele.start], allele.alternate, &protein[allele.end..]);
+        let edited = apply(&g.transcript_seq, &PlacedHgvs { start, end, edit });
+        let expected: String = hgvs_weaver::utils::translate(&edited[g.cds_start..]).split('*').next().unwrap().to_string();
+        prop_assert_eq!(applied, expected, "{} ({})", vc, mapper.c_to_p(&vc, Some("NP_PROP.1")).map(|p| p.to_string()).unwrap_or_else(|e| e.to_string()));
+    }
+
     /// r. is the c. (or n.) spelling in RNA letters: converting there and back
     /// is the identity, the letters are lowercase with u, and a change inside
     /// one exon has the same allele and the same protein either way.
