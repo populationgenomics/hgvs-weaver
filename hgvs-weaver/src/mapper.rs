@@ -1,5 +1,5 @@
 use crate::allele::CanonicalAllele;
-use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptSearch};
+use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
 use crate::reference::ReferenceStore;
@@ -227,6 +227,238 @@ enum CodingOutcome {
     /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`.
     Statement(PVariant),
     Change(crate::protein::CodingChange),
+}
+
+/// `p.?`, `p.Met1?` or `p.0?` for an edit whose codons cannot be read: an
+/// intronic position, or a start in the 5'UTR (deleting the whole CDS predicts
+/// no protein, reaching into it disrupts the start codon, staying upstream
+/// says nothing). `None` when the edit is a change to read.
+fn statement_about_transcript(
+    var_c: &CVariant,
+    transcript: &TranscriptData,
+    protein_ac: &str,
+) -> Option<PVariant> {
+    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
+    let pos = var_c.posedit.pos.as_ref()?;
+    let statement = |pos: Option<AaInterval>, value: &str| PVariant {
+        ac: protein_ac.to_string(),
+        gene: var_c.gene.clone(),
+        posedit: PosEdit {
+            pos,
+            edit: crate::edits::AaEdit::Special {
+                value: value.to_string(),
+                uncertain: false,
+            },
+            uncertain: false,
+            predicted: false,
+        },
+    };
+    if has_intronic_offset(pos) {
+        return Some(statement(None, "?"));
+    }
+    if pos.start.anchor != Anchor::CdsStart || pos.start.base.0 >= 0 {
+        return None;
+    }
+    let cds_len = transcript
+        .cds_start_index
+        .zip(transcript.cds_end_index)
+        .map(|(s, e)| e.0 - s.0 + 1);
+    let end = pos.end.as_ref();
+    let reaches_cds = end.is_some_and(|e| e.anchor == Anchor::CdsEnd || e.base.0 > 0);
+    let covers_cds = end.is_some_and(|e| {
+        e.anchor == Anchor::CdsEnd
+            || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
+    });
+    let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
+    Some(if covers_cds && deletes {
+        statement(None, "0?")
+    } else if reaches_cds {
+        let met1 = AaInterval {
+            start: AAPosition {
+                base: ProteinPos(0).to_hgvs(),
+                aa: "Met".to_string(),
+                uncertain: false,
+            },
+            end: None,
+            uncertain: false,
+        };
+        statement(Some(met1), "?")
+    } else {
+        statement(None, "?")
+    })
+}
+
+/// The CDS as 0-based transcript indices (start, last base of the stop),
+/// checked against the transcript's length.
+fn cds_bounds(transcript: &TranscriptData, len: usize) -> Result<(usize, usize), HgvsError> {
+    let cds_start_tx = transcript
+        .cds_start_index
+        .ok_or_else(|| HgvsError::ValidationError("Missing CDS start".into()))?;
+    let cds_end_tx = transcript
+        .cds_end_index
+        .ok_or_else(|| HgvsError::ValidationError("Missing CDS end".into()))?;
+    let cds_start = checked_usize(cds_start_tx.0, "CDS start")?;
+    let cds_end = checked_usize(cds_end_tx.0, "CDS end")?;
+    if len < cds_end {
+        return Err(HgvsError::ValidationError(format!(
+            "Transcript sequence too short (len={}, expected at least {})",
+            len, cds_end
+        )));
+    }
+    if cds_start > len {
+        return Err(HgvsError::ValidationError(format!(
+            "CDS start {} out of sequence bounds {}",
+            cds_start, len
+        )));
+    }
+    Ok((cds_start, cds_end))
+}
+
+/// The change `var_c` names on the transcript, over 0-based indices: the range
+/// checked against the sequence, and the stated bases against what is there.
+fn resolve_in_transcript(
+    var_c: &CVariant,
+    am: &TranscriptMapper,
+    ref_seq: &str,
+) -> Result<crate::edits::ResolvedEdit, HgvsError> {
+    let pos = var_c
+        .posedit
+        .pos
+        .as_ref()
+        .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+    let (n_start, n_end) = am.interval_to_n(pos)?;
+    if n_start.0 < 0 {
+        return Err(HgvsError::ValidationError(format!(
+            "Position {} before transcript start",
+            n_start.0
+        )));
+    }
+    let (start, end) = (n_start.0 as usize, n_end.0 as usize);
+    if end > ref_seq.len() {
+        let first_bad = if start >= ref_seq.len() { start } else { end };
+        return Err(HgvsError::ValidationError(format!(
+            "Coordinate out of bounds: index {} is beyond transcript length {}",
+            first_bad,
+            ref_seq.len()
+        )));
+    }
+    let window = |s: usize, e: usize| -> &str {
+        let s = s.min(ref_seq.len());
+        &ref_seq[s..e.min(ref_seq.len()).max(s)]
+    };
+    if let Some(stated) = var_c.posedit.edit.stated_ref() {
+        let actual = window(start, end);
+        if actual != stated {
+            return Err(HgvsError::TranscriptMismatch {
+                expected: stated.to_string(),
+                found: actual.to_string(),
+                start,
+                end,
+            });
+        }
+    }
+    var_c
+        .posedit
+        .edit
+        .resolve_with(start, end, |s, e| Ok(window(s, e).to_string()))
+}
+
+/// The residue a `p.` substitution puts at which 1-based position.
+fn substituted_residue(var_p: &PVariant) -> Result<(usize, char), HgvsError> {
+    let pos = var_p
+        .posedit
+        .pos
+        .as_ref()
+        .ok_or_else(|| HgvsError::ValidationError("Missing protein position".into()))?;
+    let alt = match &var_p.posedit.edit {
+        crate::edits::AaEdit::Subst { alt, .. } => alt,
+        _ => {
+            return Err(HgvsError::UnsupportedOperation(
+                "p_to_c only supports single amino acid substitutions".into(),
+            ))
+        }
+    };
+    let raw_pos = pos.start.base.0;
+    if raw_pos <= 0 {
+        return Err(HgvsError::ValidationError(format!(
+            "Protein position {raw_pos} is not valid (must be >= 1)"
+        )));
+    }
+    let aa_pos = checked_usize(raw_pos, "protein position")?;
+    crate::utils::aa3_to_aa1(&pos.start.aa)
+        .chars()
+        .next()
+        .ok_or_else(|| HgvsError::ValidationError("Invalid reference AA".into()))?;
+    let alt_aa = crate::utils::aa3_to_aa1(alt)
+        .chars()
+        .next()
+        .ok_or_else(|| HgvsError::ValidationError("Invalid alternate AA".into()))?;
+    Ok((aa_pos, alt_aa))
+}
+
+/// The codon for `alt_aa` fewest bases away from `ref_codon`, and whether it
+/// is the only one that close (ties go to the alphabetically first).
+fn closest_codon(ref_codon: &str, alt_aa: char) -> Result<(&'static str, bool), HgvsError> {
+    let candidates = crate::utils::codons_for_aa(alt_aa);
+    if candidates.is_empty() {
+        return Err(HgvsError::ValidationError(format!(
+            "No codons found for amino acid '{}'",
+            alt_aa
+        )));
+    }
+    let distance = |codon: &str| {
+        codon
+            .bytes()
+            .zip(ref_codon.bytes())
+            .filter(|(a, b)| a != b)
+            .count()
+    };
+    let mut scored: Vec<(usize, &'static str)> =
+        candidates.iter().map(|c| (distance(c), *c)).collect();
+    scored.sort();
+    let best = scored[0].0;
+    let ties = scored.iter().filter(|(d, _)| *d == best).count();
+    Ok((scored[0].1, ties == 1))
+}
+
+/// The c. edit that turns `ref_codon` (residue `aa_pos`, 1-based) into
+/// `alt_codon`: a substitution for one changed base, a delins for more.
+fn codon_change(
+    aa_pos: usize,
+    ref_codon: &str,
+    alt_codon: &str,
+) -> crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit> {
+    use crate::coords::HgvsTranscriptPos;
+    let changes: Vec<(usize, u8, u8)> = ref_codon
+        .bytes()
+        .zip(alt_codon.bytes())
+        .enumerate()
+        .filter(|(_, (r, a))| r != a)
+        .map(|(i, (r, a))| ((aa_pos - 1) * 3 + i + 1, r, a))
+        .collect();
+    let edit = crate::edits::NaEdit::RefAlt {
+        ref_: Some(changes.iter().map(|(_, r, _)| *r as char).collect()),
+        alt: Some(changes.iter().map(|(_, _, a)| *a as char).collect()),
+        uncertain: false,
+    };
+    let start = changes.first().map_or(1, |(p, _, _)| *p);
+    let end = changes.last().map_or(start, |(p, _, _)| *p);
+    let position = |c: usize| BaseOffsetPosition {
+        base: HgvsTranscriptPos(c as i32),
+        offset: None,
+        anchor: Anchor::CdsStart,
+        uncertain: false,
+    };
+    crate::structs::PosEdit {
+        pos: Some(BaseOffsetInterval {
+            start: position(start),
+            end: (end != start).then(|| position(end)),
+            uncertain: false,
+        }),
+        edit,
+        uncertain: false,
+        predicted: false,
+    }
 }
 
 /// The alphabet a transcript edit is written in.
@@ -901,161 +1133,33 @@ impl<'a> VariantMapper<'a> {
         var_c: &CVariant,
         protein_ac: Option<&str>,
     ) -> Result<CodingOutcome, HgvsError> {
-        let transcript_ac = &var_c.ac;
-        let pro_ac_str = self.protein_accession(transcript_ac, protein_ac)?;
-
-        let transcript = self.provider().get_transcript(transcript_ac, None)?;
-        let unknown = |pos: Option<crate::structs::AaInterval>, value: &str| PVariant {
-            ac: pro_ac_str.clone(),
-            gene: var_c.gene.clone(),
-            posedit: crate::structs::PosEdit {
-                pos,
-                edit: crate::edits::AaEdit::Special {
-                    value: value.to_string(),
-                    uncertain: false,
-                },
-                uncertain: false,
-                predicted: false,
-            },
-        };
-        if let Some(pos) = &var_c.posedit.pos {
-            // Intronic: the protein consequence cannot be predicted.
-            let has_offset = pos.start.offset.is_some_and(|o| o.0 != 0)
-                || pos
-                    .end
-                    .as_ref()
-                    .is_some_and(|e| e.offset.is_some_and(|o| o.0 != 0));
-            if has_offset {
-                return Ok(CodingOutcome::Statement(unknown(None, "?")));
-            }
-
-            // An edit that starts in the 5'UTR. Deleting the whole CDS predicts
-            // no protein (p.0?); reaching into the CDS disrupts the start codon
-            // (p.Met1?); staying upstream says nothing about the protein (p.?).
-            use crate::coords::Anchor;
-            if pos.start.anchor == Anchor::CdsStart && pos.start.base.0 < 0 {
-                let cds_len = transcript
-                    .cds_start_index
-                    .zip(transcript.cds_end_index)
-                    .map(|(s, e)| e.0 - s.0 + 1);
-                let end = pos.end.as_ref();
-                let reaches_cds = end.is_some_and(|e| e.anchor == Anchor::CdsEnd || e.base.0 > 0);
-                let covers_cds = end.is_some_and(|e| {
-                    e.anchor == Anchor::CdsEnd
-                        || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
-                });
-                let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
-                return Ok(CodingOutcome::Statement(if covers_cds && deletes {
-                    unknown(None, "0?")
-                } else if reaches_cds {
-                    let met1 = crate::structs::AaInterval {
-                        start: crate::structs::AAPosition {
-                            base: crate::structs::ProteinPos(0).to_hgvs(),
-                            aa: "Met".to_string(),
-                            uncertain: false,
-                        },
-                        end: None,
-                        uncertain: false,
-                    };
-                    unknown(Some(met1), "?")
-                } else {
-                    unknown(None, "?")
-                }));
-            }
+        let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
+        let transcript = self.provider().get_transcript(&var_c.ac, None)?;
+        if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
+            return Ok(CodingOutcome::Statement(statement));
         }
-
         let ref_seq = self
             .refs
-            .reference(transcript_ac, IdentifierType::TranscriptAccession)
+            .reference(&var_c.ac, IdentifierType::TranscriptAccession)
             .whole()?;
-
-        let cds_start_tx = transcript
-            .cds_start_index
-            .ok_or_else(|| HgvsError::ValidationError("Missing CDS start".into()))?;
-        let cds_end_tx = transcript
-            .cds_end_index
-            .ok_or_else(|| HgvsError::ValidationError("Missing CDS end".into()))?;
-        let cds_start_idx = checked_usize(cds_start_tx.0, "CDS start")?;
-        let cds_end_idx = checked_usize(cds_end_tx.0, "CDS end")?;
-
-        if ref_seq.len() < cds_end_idx {
-            return Err(HgvsError::ValidationError(format!(
-                "Transcript sequence too short (len={}, expected at least {})",
-                ref_seq.len(),
-                cds_end_idx
-            )));
-        }
-
-        if cds_start_idx > ref_seq.len() {
-            return Err(HgvsError::ValidationError(format!(
-                "CDS start {} out of sequence bounds {}",
-                cds_start_idx,
-                ref_seq.len()
-            )));
-        }
-
-        let pos = var_c
-            .posedit
-            .pos
-            .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (cds_start, cds_end) = cds_bounds(&transcript, ref_seq.len())?;
         let am = TranscriptMapper::new(transcript)?;
-        let (n_start, n_end) = am.interval_to_n(pos)?;
-        if n_start.0 < 0 {
-            return Err(HgvsError::ValidationError(format!(
-                "Position {} before transcript start",
-                n_start.0
-            )));
-        }
-        let (start_idx, end_idx) = (n_start.0 as usize, n_end.0 as usize);
-        if end_idx > ref_seq.len() {
-            let first_bad = if start_idx >= ref_seq.len() {
-                start_idx
-            } else {
-                end_idx
-            };
-            return Err(HgvsError::ValidationError(format!(
-                "Coordinate out of bounds: index {} is beyond transcript length {}",
-                first_bad,
-                ref_seq.len()
-            )));
-        }
-
-        let window = |s: usize, e: usize| -> &str {
-            let s = s.min(ref_seq.len());
-            &ref_seq[s..e.min(ref_seq.len()).max(s)]
-        };
-        // The bases the variant says are there must be there.
-        if let Some(stated) = var_c.posedit.edit.stated_ref() {
-            let actual = window(start_idx, end_idx);
-            if actual != stated {
-                return Err(HgvsError::TranscriptMismatch {
-                    expected: stated.to_string(),
-                    found: actual.to_string(),
-                    start: start_idx,
-                    end: end_idx,
-                });
-            }
-        }
-        let resolved = var_c
-            .posedit
-            .edit
-            .resolve_with(start_idx, end_idx, |s, e| Ok(window(s, e).to_string()))?;
+        let resolved = resolve_in_transcript(var_c, &am, &ref_seq)?;
         let rel = |i: usize| {
-            i.checked_sub(cds_start_idx).ok_or_else(|| {
+            i.checked_sub(cds_start).ok_or_else(|| {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
             })
         };
         Ok(CodingOutcome::Change(crate::protein::CodingChange {
-            coding: ref_seq[cds_start_idx..].to_string(),
-            cds_len: cds_end_idx + 1 - cds_start_idx,
+            coding: ref_seq[cds_start..].to_string(),
+            cds_len: cds_end + 1 - cds_start,
             edit: crate::edits::ResolvedEdit {
                 start: rel(resolved.start)?,
                 end: rel(resolved.end)?,
                 ref_: resolved.ref_,
                 alt: resolved.alt,
             },
-            protein_ac: pro_ac_str,
+            protein_ac,
         }))
     }
 
@@ -1071,189 +1175,67 @@ impl<'a> VariantMapper<'a> {
         var_p: &PVariant,
         transcript_ac: Option<&str>,
     ) -> Result<(CVariant, bool), HgvsError> {
-        let ac = &var_p.ac;
-
-        // Extract position and edit
-        let pos = var_p
-            .posedit
-            .pos
-            .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing protein position".into()))?;
-
-        let edit = &var_p.posedit.edit;
-
-        // Only handle Subst for now
-        let alt_aa_str = match edit {
-            crate::edits::AaEdit::Subst { alt, .. } => alt.clone(),
-            _ => {
-                return Err(HgvsError::UnsupportedOperation(
-                    "p_to_c only supports single amino acid substitutions".into(),
-                ));
-            }
+        let (aa_pos, alt_aa) = substituted_residue(var_p)?;
+        let tx_ac = self.transcript_for_protein(&var_p.ac, transcript_ac)?;
+        let ref_codon = self.codon_at(&tx_ac, aa_pos)?;
+        let (alt_codon, is_unique) = closest_codon(&ref_codon, alt_aa)?;
+        let c_variant = CVariant {
+            ac: tx_ac,
+            gene: var_p.gene.clone(),
+            posedit: codon_change(aa_pos, &ref_codon, alt_codon),
         };
+        Ok((c_variant, is_unique))
+    }
 
-        let raw_pos = pos.start.base.0;
-        if raw_pos <= 0 {
-            return Err(HgvsError::ValidationError(format!(
-                "Protein position {raw_pos} is not valid (must be >= 1)"
-            )));
+    /// `transcript_ac` if given, else the transcript the provider maps `protein_ac` to.
+    fn transcript_for_protein(
+        &self,
+        protein_ac: &str,
+        transcript_ac: Option<&str>,
+    ) -> Result<String, HgvsError> {
+        if let Some(ac) = transcript_ac {
+            return Ok(ac.to_string());
         }
-        let aa_pos = checked_usize(raw_pos, "protein position")?; // 1-based
-        let ref_aa_str = &pos.start.aa;
+        Ok(self
+            .provider()
+            .get_symbol_accessions(
+                protein_ac,
+                IdentifierKind::Protein,
+                IdentifierKind::Transcript,
+            )?
+            .first()
+            .ok_or_else(|| {
+                HgvsError::ValidationError(format!(
+                    "No transcript accession found for {}",
+                    protein_ac
+                ))
+            })?
+            .1
+            .clone())
+    }
 
-        // Convert 3-letter or 1-letter to single char
-        let ref_aa_1 = crate::utils::aa3_to_aa1(ref_aa_str);
-        let alt_aa_1 = crate::utils::aa3_to_aa1(&alt_aa_str);
-
-        let _ref_aa = ref_aa_1
-            .chars()
-            .next()
-            .ok_or_else(|| HgvsError::ValidationError("Invalid reference AA".into()))?;
-        let alt_aa = alt_aa_1
-            .chars()
-            .next()
-            .ok_or_else(|| HgvsError::ValidationError("Invalid alternate AA".into()))?;
-
-        // Resolve transcript accession
-        let tx_ac = if let Some(ta) = transcript_ac {
-            ta.to_string()
-        } else {
-            self.provider()
-                .get_symbol_accessions(ac, IdentifierKind::Protein, IdentifierKind::Transcript)?
-                .first()
-                .ok_or_else(|| {
-                    HgvsError::ValidationError(format!("No transcript accession found for {}", ac))
-                })?
-                .1
-                .clone()
-        };
-
-        // Get transcript
-        let transcript = self.provider().get_transcript(&tx_ac, None)?;
+    /// The codon of residue `aa_pos` (1-based) on `tx_ac`, uppercase.
+    fn codon_at(&self, tx_ac: &str, aa_pos: usize) -> Result<String, HgvsError> {
+        let transcript = self.provider().get_transcript(tx_ac, None)?;
         let cds_start = transcript
             .cds_start_index
             .ok_or_else(|| HgvsError::ValidationError("No CDS start for transcript".into()))?
             .0 as usize;
-
-        // Get transcript sequence
-        let tx_seq_str = self
+        let tx_seq = self
             .refs
-            .reference(&tx_ac, IdentifierType::TranscriptAccession)
+            .reference(tx_ac, IdentifierType::TranscriptAccession)
             .whole()?;
-
-        // Calculate codon position (0-based in transcript)
         let codon_start = cds_start + (aa_pos - 1) * 3;
         let codon_end = codon_start + 3;
-        if codon_end > tx_seq_str.len() {
+        if codon_end > tx_seq.len() {
             return Err(HgvsError::ValidationError(format!(
                 "Codon position {}-{} out of range for sequence length {}",
                 codon_start,
                 codon_end,
-                tx_seq_str.len()
+                tx_seq.len()
             )));
         }
-
-        let ref_codon = tx_seq_str[codon_start..codon_end].to_uppercase();
-        let ref_codon_bytes = ref_codon.as_bytes();
-
-        // Get all codons for the target AA
-        let alt_codons = crate::utils::codons_for_aa(alt_aa);
-        if alt_codons.is_empty() {
-            return Err(HgvsError::ValidationError(format!(
-                "No codons found for amino acid '{}'",
-                alt_aa
-            )));
-        }
-
-        // Score each candidate by nucleotide differences, pick minimum
-        let mut scored: Vec<(usize, &str)> = alt_codons
-            .iter()
-            .map(|codon| {
-                let diffs = codon
-                    .as_bytes()
-                    .iter()
-                    .zip(ref_codon_bytes.iter())
-                    .filter(|(a, b)| a != b)
-                    .count();
-                (diffs, *codon)
-            })
-            .collect();
-        scored.sort();
-
-        let best_diffs = scored[0].0;
-        let best_codons: Vec<&str> = scored
-            .iter()
-            .filter(|(d, _)| *d == best_diffs)
-            .map(|(_, c)| *c)
-            .collect();
-        let is_unique = best_codons.len() == 1;
-        let best_codon = best_codons[0];
-
-        // Build the c. variant for the changed nucleotides
-        let mut changes: Vec<(usize, u8, u8)> = Vec::new();
-        for i in 0..3 {
-            if ref_codon_bytes[i] != best_codon.as_bytes()[i] {
-                // c. position is 1-based from CDS start
-                let c_pos = (aa_pos - 1) * 3 + i + 1;
-                changes.push((c_pos, ref_codon_bytes[i], best_codon.as_bytes()[i]));
-            }
-        }
-
-        let na_edit = if changes.len() == 1 {
-            crate::edits::NaEdit::RefAlt {
-                ref_: Some(String::from(changes[0].1 as char)),
-                alt: Some(String::from(changes[0].2 as char)),
-                uncertain: false,
-            }
-        } else {
-            // Multiple nucleotide changes → delins
-            let ref_nts: String = changes.iter().map(|(_, r, _)| *r as char).collect();
-            let alt_nts: String = changes.iter().map(|(_, _, a)| *a as char).collect();
-            crate::edits::NaEdit::RefAlt {
-                ref_: Some(ref_nts),
-                alt: Some(alt_nts),
-                uncertain: false,
-            }
-        };
-
-        let start_c_pos = changes.first().map(|(p, _, _)| *p).unwrap_or(1);
-        let end_c_pos = changes.last().map(|(p, _, _)| *p).unwrap_or(start_c_pos);
-
-        use crate::coords::{Anchor, HgvsTranscriptPos};
-        use crate::structs::BaseOffsetPosition;
-
-        let c_pos = BaseOffsetInterval {
-            start: BaseOffsetPosition {
-                base: HgvsTranscriptPos(start_c_pos as i32),
-                offset: None,
-                anchor: Anchor::CdsStart,
-                uncertain: false,
-            },
-            end: if start_c_pos == end_c_pos {
-                None
-            } else {
-                Some(BaseOffsetPosition {
-                    base: HgvsTranscriptPos(end_c_pos as i32),
-                    offset: None,
-                    anchor: Anchor::CdsStart,
-                    uncertain: false,
-                })
-            },
-            uncertain: false,
-        };
-
-        let c_variant = CVariant {
-            ac: tx_ac.clone(),
-            gene: var_p.gene.clone(),
-            posedit: crate::structs::PosEdit {
-                pos: Some(c_pos),
-                edit: na_edit,
-                uncertain: false,
-                predicted: false,
-            },
-        };
-
-        Ok((c_variant, is_unique))
+        Ok(tx_seq[codon_start..codon_end].to_uppercase())
     }
 
     /// Normalizes a variant to its 3' most position.
