@@ -461,6 +461,106 @@ fn codon_change(
     }
 }
 
+/// `ref_` and `alt` with what they share at both ends removed, prefix first,
+/// and the index the remainder starts at. Prefix first so that a fully
+/// justified insertion or deletion lands at the 3' end of its run, where HGVS
+/// writes it.
+fn trim_ends(start: usize, ref_: &str, alt: &str) -> (usize, String, String) {
+    let prefix = ref_
+        .bytes()
+        .zip(alt.bytes())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (r, a) = (&ref_[prefix..], &alt[prefix..]);
+    let suffix = r
+        .bytes()
+        .rev()
+        .zip(a.bytes().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    (
+        start + prefix,
+        r[..r.len() - suffix].to_string(),
+        a[..a.len() - suffix].to_string(),
+    )
+}
+
+/// The HGVS edit, and the range it is written over before normalisation, for
+/// "the bases over `[start, end)` (which are `ref_`) become `alt`": identity,
+/// substitution, inversion, deletion, insertion or delins.
+fn hgvs_edit_for(
+    reference: &crate::reference::Reference<'_, '_>,
+    kind: IdentifierType,
+    start: usize,
+    end: usize,
+    ref_: &str,
+    alt: &str,
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    use crate::edits::NaEdit;
+    let (at, r, a) = trim_ends(start, ref_, alt);
+    let uncertain = false;
+    Ok(if r.is_empty() && a.is_empty() {
+        let edit = NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain,
+        };
+        if end > start {
+            (edit, start, end)
+        } else {
+            // Nothing over an empty range: say so of the base before it.
+            let s = start.saturating_sub(1);
+            (edit, s, s + 1)
+        }
+    } else if r.is_empty() && at == 0 {
+        // HGVS has no insertion before the first base; it is written as a
+        // delins of that base.
+        let first = reference.slice(0, 1)?;
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(format!("{a}{first}")),
+            uncertain,
+        };
+        (edit, 0, 1)
+    } else if r.is_empty() {
+        let edit = NaEdit::Ins {
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at - 1, at + 1)
+    } else if a.is_empty() {
+        let edit = NaEdit::Del {
+            ref_: None,
+            uncertain,
+        };
+        (edit, at, at + r.len())
+    } else if r.len() == 1 && a.len() == 1 {
+        let edit = NaEdit::RefAlt {
+            ref_: Some(r),
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at, at + 1)
+    } else if kind != IdentifierType::ProteinAccession
+        && r.len() > 1
+        && a == crate::utils::reverse_complement(&r)
+    {
+        let edit = NaEdit::Inv {
+            ref_: None,
+            uncertain,
+        };
+        (edit, at, at + r.len())
+    } else {
+        // A delins, written without the deleted bases.
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at, at + r.len())
+    })
+}
+
 /// The alphabet a transcript edit is written in.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Letters {
@@ -1679,7 +1779,6 @@ impl<'a> VariantMapper<'a> {
         end: usize,
         alt: String,
     ) -> Result<crate::SequenceVariant, HgvsError> {
-        use crate::edits::NaEdit;
         let reference = self.refs.reference(ac, kind);
         let ref_ = reference.slice(start, end)?;
         if ref_.len() != end - start {
@@ -1687,97 +1786,19 @@ impl<'a> VariantMapper<'a> {
                 "{ac} is shorter than position {end}"
             )));
         }
-        // Trim what the allele leaves unchanged, prefix first: a fully
-        // justified insertion or deletion then sits at the 3' end of its run,
-        // which is where HGVS writes it.
-        let prefix = ref_
-            .bytes()
-            .zip(alt.bytes())
-            .take_while(|(x, y)| x == y)
-            .count();
-        let (r, a) = (&ref_[prefix..], &alt[prefix..]);
-        let suffix = r
-            .bytes()
-            .rev()
-            .zip(a.bytes().rev())
-            .take_while(|(x, y)| x == y)
-            .count();
-        let r = r[..r.len() - suffix].to_string();
-        let a = a[..a.len() - suffix].to_string();
-        let at = start + prefix;
-        let (edit, s, e) = if r.is_empty() && a.is_empty() {
-            let edit = NaEdit::RefAlt {
-                ref_: None,
-                alt: None,
-                uncertain: false,
-            };
-            if end > start {
-                (edit, start, end)
-            } else {
-                // Nothing over an empty range: say so of the base before it.
-                let s = start.saturating_sub(1);
-                (edit, s, s + 1)
-            }
-        } else if r.is_empty() && at == 0 {
-            // HGVS has no insertion before the first base; it is written as a
-            // delins of that base.
-            let first = reference.slice(0, 1)?;
-            let edit = NaEdit::RefAlt {
-                ref_: Some(String::new()),
-                alt: Some(format!("{a}{first}")),
-                uncertain: false,
-            };
-            (edit, 0, 1)
-        } else if r.is_empty() {
-            let edit = NaEdit::Ins {
-                alt: Some(a),
-                uncertain: false,
-            };
-            (edit, at - 1, at + 1)
-        } else if a.is_empty() {
-            let edit = NaEdit::Del {
-                ref_: None,
-                uncertain: false,
-            };
-            (edit, at, at + r.len())
-        } else if r.len() == 1 && a.len() == 1 {
-            let edit = NaEdit::RefAlt {
-                ref_: Some(r),
-                alt: Some(a),
-                uncertain: false,
-            };
-            (edit, at, at + 1)
-        } else if kind != IdentifierType::ProteinAccession
-            && r.len() > 1
-            && a == crate::utils::reverse_complement(&r)
-        {
-            let edit = NaEdit::Inv {
-                ref_: None,
-                uncertain: false,
-            };
-            (edit, at, at + r.len())
-        } else {
-            // A delins, written without the deleted bases.
-            let edit = NaEdit::RefAlt {
-                ref_: Some(String::new()),
-                alt: Some(a),
-                uncertain: false,
-            };
-            (edit, at, at + r.len())
-        };
+        let (edit, s, e) = hgvs_edit_for(&reference, kind, start, end, &ref_, &alt)?;
         let placed = normalize::normalize(&reference, PlacedEdit::from_hgvs_range(s, e, edit))?;
         let (s, e) = placed.hgvs_range();
-        let edit = placed.edit;
         Ok(match kind {
             IdentifierType::ProteinAccession => {
-                crate::SequenceVariant::Protein(protein_variant(ac, &reference, s, e, edit)?)
+                crate::SequenceVariant::Protein(protein_variant(ac, &reference, s, e, placed.edit)?)
             }
             _ => crate::SequenceVariant::Genomic(GVariant::from_parts(
                 ac.to_string(),
                 None,
                 crate::structs::PosEdit {
                     pos: Some(interval(s, e)),
-                    edit,
+                    edit: placed.edit,
                     uncertain: false,
                     predicted: false,
                 },
