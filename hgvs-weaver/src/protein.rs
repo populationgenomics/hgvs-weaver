@@ -41,188 +41,218 @@ fn splice(seq: &str, start: usize, end: usize, insert: &str) -> String {
     out
 }
 
-/// The reference protein and the protein `change` produces, in 1-letter code
-/// without their stops: what a protein allele is made of. The stops are read
-/// as `describe` reads them: the declared CDS end for the reference; for the
-/// alternate the first stop the edit creates or the read-through reaches,
-/// where a `*` the reference already has in frame (a selenocysteine TGA) is
-/// not a stop.
-pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
-    let ResolvedEdit {
-        start, end, alt, ..
-    } = &change.edit;
-    let (start, end, alt) = (*start, *end, alt.as_str());
-    let alt_nt = splice(&change.coding, start, end, alt);
-    let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
-    let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
-    let net = alt.len() as i64 - (end - start) as i64;
-    let in_frame = net % 3 == 0;
-    let declared = change.cds_len.saturating_sub(1) / 3;
-    let stop = if ref_aa.get(declared) == Some(&'*') {
-        declared
-    } else {
-        ref_aa
-            .iter()
-            .position(|&c| c == '*')
-            .unwrap_or(ref_aa.len())
-    };
-    let reference: String = ref_aa[..stop.min(ref_aa.len())].iter().collect();
+/// A coding change read at the protein level: both translations, and the
+/// indices every rule about stops and frames refers to. `describe` and
+/// `proteins` are two readers of the same reading.
+struct Reading {
+    start: usize,
+    alt_len: usize,
+    ref_aa: Vec<char>,
+    alt_aa: Vec<char>,
+    /// The reference stop: the codon the CDS end declares, when that codon
+    /// really is a stop; otherwise (a loosely marked CDS end) the first stop
+    /// in the translation; otherwise the length.
+    stop: usize,
+    /// Bases added minus bases removed.
+    net: i64,
+    in_frame: bool,
+    /// The codons the edit touches, for describing a silent change.
+    first_codon: usize,
+    last_codon: usize,
+    /// The first residue that differs, at or after the first touched codon.
+    first_changed: usize,
+    /// Whether the edit left the reference's own stop codon intact.
+    stop_intact: bool,
+}
 
-    // The first residue that differs; everything before it is the reference's.
-    let mut i = start / 3;
-    while i < ref_aa.len() && i < alt_aa.len() && ref_aa[i] == alt_aa[i] {
-        i += 1;
-    }
-    // The reference residue an alternate position corresponds to, if the
-    // frame is kept; a `*` there before the stop is a selenocysteine.
-    let edit_alt_end = (start + alt.len()).div_ceil(3);
-    let is_sec = |j: usize| {
-        let ref_j = if j < i {
-            j
-        } else if !in_frame {
-            return false;
-        } else if j >= edit_alt_end {
-            (j as i64 - net / 3).max(0) as usize
+impl Reading {
+    fn new(change: &CodingChange) -> Self {
+        let ResolvedEdit {
+            start, end, alt, ..
+        } = &change.edit;
+        let (start, end, alt) = (*start, *end, alt.as_str());
+        let alt_nt = splice(&change.coding, start, end, alt);
+        let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
+        let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
+        let net = alt.len() as i64 - (end - start) as i64;
+        let declared = change.cds_len.saturating_sub(1) / 3;
+        let stop = if ref_aa.get(declared) == Some(&'*') {
+            declared
         } else {
-            j
+            ref_aa
+                .iter()
+                .position(|&c| c == '*')
+                .unwrap_or(ref_aa.len())
         };
-        ref_j < stop && ref_aa.get(ref_j) == Some(&'*')
-    };
-    let alt_stop = (0..alt_aa.len())
-        .find(|&j| alt_aa[j] == '*' && !is_sec(j))
-        .unwrap_or(alt_aa.len());
-    let alternate: String = alt_aa[..alt_stop].iter().collect();
+        let first_codon = start / 3;
+        let last_codon = if end > start {
+            (end - 1) / 3
+        } else {
+            start / 3
+        };
+        let mut first_changed = first_codon;
+        while first_changed < ref_aa.len()
+            && first_changed < alt_aa.len()
+            && ref_aa[first_changed] == alt_aa[first_changed]
+        {
+            first_changed += 1;
+        }
+        Reading {
+            start,
+            alt_len: alt.len(),
+            ref_aa,
+            alt_aa,
+            stop,
+            net,
+            in_frame: net % 3 == 0,
+            first_codon,
+            last_codon,
+            first_changed,
+            stop_intact: end <= stop * 3,
+        }
+    }
+
+    /// The protein is the same: nothing differs, or the difference lies past the stop.
+    fn unchanged(&self) -> bool {
+        self.ref_aa == self.alt_aa || self.first_changed > self.stop
+    }
+
+    /// Where the reference's own stop sits in the alternate, for an in-frame
+    /// edit that left it intact.
+    fn original_stop_in_alt(&self) -> Option<usize> {
+        (self.in_frame && self.stop_intact)
+            .then(|| (self.stop as i64 + self.net / 3).max(0) as usize)
+    }
+
+    /// The reference codon that alternate index `j` reads, when the frame
+    /// there is the reference's: before the first change it is `j` itself,
+    /// past the edit it is shifted by the net change, and in a shifted frame
+    /// there is none.
+    fn ref_index(&self, j: usize) -> Option<usize> {
+        if j < self.first_changed {
+            Some(j)
+        } else if !self.in_frame {
+            None
+        } else if j >= (self.start + self.alt_len).div_ceil(3) {
+            Some((j as i64 - self.net / 3).max(0) as usize)
+        } else {
+            Some(j)
+        }
+    }
+
+    /// Whether a `*` at alternate index `j` is one the reference already has
+    /// before its stop (a selenocysteine TGA), not a stop the edit made.
+    fn is_selenocysteine(&self, j: usize) -> bool {
+        self.ref_index(j)
+            .is_some_and(|r| r < self.stop && self.ref_aa.get(r) == Some(&'*'))
+    }
+
+    /// Where the alternate protein ends: its first `*` that is a stop.
+    fn alt_stop(&self) -> usize {
+        (0..self.alt_aa.len())
+            .find(|&j| self.alt_aa[j] == '*' && !self.is_selenocysteine(j))
+            .unwrap_or(self.alt_aa.len())
+    }
+
+    /// The last reference codon an edit's description covers when a new stop
+    /// ends it: the touched codons, or at least the first changed one.
+    fn ref_end_at_new_stop(&self) -> usize {
+        (self.last_codon + 1)
+            .max(self.first_changed + 1)
+            .min(self.ref_aa.len())
+    }
+}
+
+/// The reference protein and the protein `change` produces, in 1-letter code
+/// without their stops: what a protein allele is made of.
+pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
+    let t = Reading::new(change);
+    let reference: String = t.ref_aa[..t.stop.min(t.ref_aa.len())].iter().collect();
+    let alternate: String = t.alt_aa[..t.alt_stop()].iter().collect();
     Ok((reference, alternate))
 }
 
 /// Describes the protein consequence of `change` in HGVS p. terms.
 pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
-    let ResolvedEdit {
-        start, end, alt, ..
-    } = &change.edit;
-    let (start, end, alt) = (*start, *end, alt.as_str());
-    let alt_nt = splice(&change.coding, start, end, alt);
-    let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
-    let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
-    let net = alt.len() as i64 - (end - start) as i64;
-    let in_frame = net % 3 == 0;
-    // The reference stop is the codon the CDS end declares, when that codon
-    // really is a stop; otherwise (a loosely marked CDS end) the first stop in
-    // the translation.
-    let declared = change.cds_len.saturating_sub(1) / 3;
-    let stop = if ref_aa.get(declared) == Some(&'*') {
-        declared
-    } else {
-        ref_aa
-            .iter()
-            .position(|&c| c == '*')
-            .unwrap_or(ref_aa.len())
-    };
-    let first_codon = start / 3;
-    // Codons the edit touches, for describing a silent change.
-    let last_codon = if end > start {
-        (end - 1) / 3
-    } else {
-        start / 3
-    };
-
+    let t = Reading::new(change);
     let out = Writer {
-        ref_aa: &ref_aa,
-        alt_aa: &alt_aa,
+        ref_aa: &t.ref_aa,
+        alt_aa: &t.alt_aa,
         protein_ac: &change.protein_ac,
     };
-
-    if ref_aa == alt_aa {
-        return out.identity(first_codon, last_codon);
+    if t.unchanged() {
+        return out.identity(t.first_codon, t.last_codon);
     }
-
-    // The first residue that differs, at or after the first codon the edit touches.
-    let mut i = first_codon;
-    while i < ref_aa.len() && i < alt_aa.len() && ref_aa[i] == alt_aa[i] {
-        i += 1;
+    if t.in_frame {
+        describe_in_frame(&t, &out)
+    } else {
+        describe_frameshift(&t, &out)
     }
-    if i > stop {
-        // The protein is unchanged; the difference lies past its stop.
-        return out.identity(first_codon, last_codon);
-    }
+}
 
-    if !in_frame {
-        // A stop codon formed entirely from inserted bases ends translation
-        // before the new frame reads a single reference base, so there is no
-        // frameshift to report: the touched codons are replaced up to that stop.
-        let inserted_end = start + alt.len();
-        if let Some(j) = (i..alt_aa.len()).find(|&j| alt_aa[j] == '*') {
-            if j * 3 >= start && (j + 1) * 3 <= inserted_end {
-                let ref_end = (last_codon + 1).max(i + 1).min(ref_aa.len());
-                if j == i {
-                    return out.substitution(i, ref_aa[i], '*');
-                }
-                return out.delins(i, ref_end - 1, &alt_aa[i..=j]);
+/// An out-of-frame edit: a frameshift, unless a stop formed entirely from the
+/// inserted bases ends translation before the new frame reads a reference
+/// base (then the touched codons are replaced up to that stop), or the first
+/// changed residue is the stop itself (then it reads through: an extension).
+fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
+    let i = t.first_changed;
+    let inserted_end = t.start + t.alt_len;
+    if let Some(j) = (i..t.alt_aa.len()).find(|&j| t.alt_aa[j] == '*') {
+        if j * 3 >= t.start && (j + 1) * 3 <= inserted_end {
+            if j == i {
+                return out.substitution(i, t.ref_aa[i], '*');
             }
+            return out.delins(i, t.ref_end_at_new_stop() - 1, &t.alt_aa[i..=j]);
         }
-        // A frameshift whose first changed residue is the stop itself reads
-        // through it: HGVS writes that as an extension, not a frameshift.
-        if i == stop && alt_aa.get(i).is_some_and(|&c| c != '*') {
-            return out.extension(i);
-        }
-        return out.frameshift(i);
     }
+    if i == t.stop && t.alt_aa.get(i).is_some_and(|&c| c != '*') {
+        return out.extension(i);
+    }
+    out.frameshift(i)
+}
 
-    // --- In frame ---
-
-    // Where the reference's own stop codon sits in the alternate protein, if
-    // the edit left it intact.
-    let original_stop_in_alt = (end <= stop * 3).then(|| (stop as i64 + net / 3).max(0) as usize);
-
+/// An in-frame edit: written at its 3'-most equivalent residues (the shared
+/// tail is trimmed), cut at a stop the edit creates, and classified as a
+/// stop loss, nonsense, duplication, insertion, substitution, deletion or
+/// delins.
+fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
+    let i = t.first_changed;
     // Stop lost: the edit reaches into the stop codon and the residue there
     // is no longer a stop. An in-frame insertion just before the stop can also
     // make the stop position the first differing residue, but then the stop
     // is intact further along, and the change is an insertion, not a loss.
-    if original_stop_in_alt.is_none() && ref_aa.get(i) == Some(&'*') {
+    let original_stop_in_alt = t.original_stop_in_alt();
+    if original_stop_in_alt.is_none() && t.ref_aa.get(i) == Some(&'*') {
         return out.extension(i);
     }
 
-    // Trim the shared tail. This is also the protein-level 3' rule: an
-    // in-frame change is written at its 3'-most equivalent residues.
-    let mut ref_end = ref_aa.len();
-    let mut alt_end = alt_aa.len();
-    while ref_end > i && alt_end > i && ref_aa[ref_end - 1] == alt_aa[alt_end - 1] {
+    let mut ref_end = t.ref_aa.len();
+    let mut alt_end = t.alt_aa.len();
+    while ref_end > i && alt_end > i && t.ref_aa[ref_end - 1] == t.alt_aa[alt_end - 1] {
         ref_end -= 1;
         alt_end -= 1;
     }
 
     // A stop created by the edit, before the original stop: the change is
-    // written up to and including it, over the codons the edit touched. A
-    // `*` the reference already has at the corresponding codon (a
-    // selenocysteine TGA) was not created by the edit.
+    // written up to and including it, over the codons the edit touched.
     let search_end = original_stop_in_alt
-        .unwrap_or(alt_aa.len())
-        .min(alt_aa.len());
-    let edit_alt_end = (start + alt.len()).div_ceil(3);
-    let already_in_ref = |j: usize| {
-        let ref_j = if j >= edit_alt_end {
-            (j as i64 - net / 3).max(0) as usize
-        } else {
-            j
-        };
-        ref_aa.get(ref_j) == Some(&'*')
-    };
-    if let Some(j) = (i..search_end).find(|&j| alt_aa[j] == '*' && !already_in_ref(j)) {
+        .unwrap_or(t.alt_aa.len())
+        .min(t.alt_aa.len());
+    if let Some(j) = (i..search_end).find(|&j| t.alt_aa[j] == '*' && !t.is_selenocysteine(j)) {
         alt_end = j + 1;
-        ref_end = (last_codon + 1).max(i + 1).min(ref_aa.len());
+        ref_end = t.ref_end_at_new_stop();
     }
 
     // Nonsense: the first changed residue is a stop.
-    if alt_aa.get(i) == Some(&'*') && i < alt_end {
-        return out.substitution(i, ref_aa[i], '*');
+    if t.alt_aa.get(i) == Some(&'*') && i < alt_end {
+        return out.substitution(i, t.ref_aa[i], '*');
     }
 
-    let del: &[char] = &ref_aa[i..ref_end.max(i)];
-    let ins: &[char] = &alt_aa[i..alt_end.max(i)];
-
+    let del: &[char] = &t.ref_aa[i..ref_end.max(i)];
+    let ins: &[char] = &t.alt_aa[i..alt_end.max(i)];
     if del.is_empty() && !ins.is_empty() {
         // Duplication: the inserted residues repeat those just before them.
-        if i >= ins.len() && ref_aa[i - ins.len()..i] == *ins {
+        if i >= ins.len() && t.ref_aa[i - ins.len()..i] == *ins {
             return out.duplication(i - ins.len(), i - 1);
         }
         if i == 0 {

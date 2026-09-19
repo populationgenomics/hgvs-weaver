@@ -327,277 +327,216 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
     })
 }
 
+/// The text of a pair.
+fn text(p: Pair<Rule>) -> String {
+    p.as_str().to_string()
+}
+
+/// The text of a pair's first child, if it has one.
+fn first_child_text(pair: Pair<Rule>) -> Option<String> {
+    pair.into_inner().next().map(text)
+}
+
+/// `unit[n]` or `unit(min_max)`: the stated unit (a child for which `is_unit`
+/// holds) and the copy count or range. Shared by nucleotide and protein repeats.
+fn repeat_parts(pair: Pair<Rule>, is_unit: fn(Rule) -> bool) -> (Option<String>, i32, i32) {
+    let mut unit = None;
+    let mut counts: Vec<i32> = Vec::new();
+    for p in pair.into_inner() {
+        if is_unit(p.as_rule()) {
+            unit = Some(text(p));
+        } else if p.as_rule() == Rule::num {
+            counts.push(p.as_str().parse().unwrap_or(0));
+        }
+    }
+    let min = counts.first().copied().unwrap_or(0);
+    let max = counts.get(1).copied().unwrap_or(min);
+    (unit, min, max)
+}
+
+/// `delins` carries the inserted bases and, optionally, the deleted bases or
+/// their count before them.
+fn na_delins(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
+    let parts: Vec<String> = pair.into_inner().map(text).collect();
+    let (ref_, alt) = match parts.as_slice() {
+        [alt] => (String::new(), alt.clone()),
+        [ref_, alt] => (ref_.clone(), alt.clone()),
+        _ => return Err(HgvsError::PestError("Malformed delins".into())),
+    };
+    Ok(NaEdit::RefAlt {
+        ref_: Some(ref_),
+        alt: Some(alt),
+        uncertain: false,
+    })
+}
+
+/// `=`, optionally preceded by the bases that are unchanged.
+fn na_ident(pair: Pair<Rule>) -> NaEdit {
+    let stated = pair
+        .into_inner()
+        .find(|p| matches!(p.as_rule(), Rule::dna | Rule::rna))
+        .map(text);
+    NaEdit::RefAlt {
+        ref_: stated.clone(),
+        alt: stated,
+        uncertain: false,
+    }
+}
+
 pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
-    let mut inner = pair.into_inner();
-    let inner_feat = inner
+    let edit = pair
+        .into_inner()
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty na_edit".into()))?;
-    match inner_feat.as_rule() {
+    let uncertain = false;
+    Ok(match edit.as_rule() {
         Rule::dna_subst | Rule::rna_subst => {
-            let mut parts = inner_feat.into_inner();
-            let ref_ = parts.next().map(|p: Pair<Rule>| p.as_str().to_string());
-            let alt = parts.next().map(|p: Pair<Rule>| p.as_str().to_string());
-            Ok(NaEdit::RefAlt {
-                ref_,
-                alt,
-                uncertain: false,
-            })
-        }
-        Rule::dna_del | Rule::rna_del => {
-            let ref_ = inner_feat
-                .into_inner()
-                .next()
-                .map(|p: Pair<Rule>| p.as_str().to_string());
-            Ok(NaEdit::Del {
-                ref_,
-                uncertain: false,
-            })
-        }
-        Rule::dna_ins | Rule::rna_ins => {
-            let alt = inner_feat
-                .into_inner()
-                .next()
-                .map(|p: Pair<Rule>| p.as_str().to_string());
-            Ok(NaEdit::Ins {
-                alt,
-                uncertain: false,
-            })
-        }
-        Rule::dna_delins | Rule::rna_delins => {
-            let mut parts = inner_feat.into_inner();
-            let first = parts
-                .next()
-                .map(|p: Pair<Rule>| p.as_str().to_string())
-                .unwrap_or_default();
-            let second = parts.next().map(|p: Pair<Rule>| p.as_str().to_string());
-            if second.is_none() {
-                Ok(NaEdit::RefAlt {
-                    ref_: Some("".to_string()),
-                    alt: Some(first),
-                    uncertain: false,
-                })
-            } else {
-                Ok(NaEdit::RefAlt {
-                    ref_: Some(first),
-                    alt: second,
-                    uncertain: false,
-                })
+            let mut parts = edit.into_inner().map(text);
+            NaEdit::RefAlt {
+                ref_: parts.next(),
+                alt: parts.next(),
+                uncertain,
             }
         }
-        Rule::dna_dup | Rule::rna_dup => {
-            let ref_ = inner_feat
-                .into_inner()
-                .next()
-                .map(|p: Pair<Rule>| p.as_str().to_string());
-            Ok(NaEdit::Dup {
-                ref_,
-                uncertain: false,
-            })
-        }
-        Rule::dna_inv | Rule::rna_inv => {
-            let ref_ = inner_feat
-                .into_inner()
-                .next()
-                .map(|p: Pair<Rule>| p.as_str().to_string());
-            Ok(NaEdit::Inv {
-                ref_,
-                uncertain: false,
-            })
-        }
-        Rule::dna_ident | Rule::rna_ident => {
-            let mut inner = inner_feat.into_inner();
-            let mut ref_ = None;
-            if let Some(p) = inner.next() {
-                if p.as_rule() == Rule::dna || p.as_rule() == Rule::rna {
-                    ref_ = Some(p.as_str().to_string());
-                }
-            }
-            Ok(NaEdit::RefAlt {
-                ref_: ref_.clone(),
-                alt: ref_.clone(),
-                uncertain: false,
-            })
-        }
+        Rule::dna_del | Rule::rna_del => NaEdit::Del {
+            ref_: first_child_text(edit),
+            uncertain,
+        },
+        Rule::dna_ins | Rule::rna_ins => NaEdit::Ins {
+            alt: first_child_text(edit),
+            uncertain,
+        },
+        Rule::dna_delins | Rule::rna_delins => na_delins(edit)?,
+        Rule::dna_dup | Rule::rna_dup => NaEdit::Dup {
+            ref_: first_child_text(edit),
+            uncertain,
+        },
+        Rule::dna_inv | Rule::rna_inv => NaEdit::Inv {
+            ref_: first_child_text(edit),
+            uncertain,
+        },
+        Rule::dna_ident | Rule::rna_ident => na_ident(edit),
         Rule::dna_repeat | Rule::rna_repeat => {
-            let inner = inner_feat.into_inner();
-            let mut ref_ = None;
-            let mut first = 0;
-            let mut second = None;
-
-            for p in inner {
-                match p.as_rule() {
-                    Rule::dna | Rule::rna => ref_ = Some(p.as_str().to_string()),
-                    Rule::num => {
-                        if first == 0 {
-                            first = p.as_str().parse().unwrap_or(0);
-                        } else {
-                            second = Some(p.as_str().parse().unwrap_or(0));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            let max = second.unwrap_or(first);
-            Ok(NaEdit::Repeat {
+            let (ref_, min, max) = repeat_parts(edit, |r| matches!(r, Rule::dna | Rule::rna));
+            NaEdit::Repeat {
                 ref_,
-                min: first,
+                min,
                 max,
-                uncertain: false,
-            })
+                uncertain,
+            }
         }
-        Rule::dna_con | Rule::rna_con => {
-            // Placeholder/Generic for now as struct support is minimal
-            Ok(NaEdit::None)
+        Rule::dna_copy => NaEdit::NACopy {
+            copy: first_child_text(edit)
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0),
+            uncertain,
+        },
+        // Conversions are parsed but not modelled.
+        _ => NaEdit::None,
+    })
+}
+
+/// The parts of `fs...` or `ext...`: the terminator or residue named, and the
+/// count or offset, wherever the grammar nests them.
+fn fs_ext_parts(pair: Pair<Rule>) -> (Option<String>, Option<String>) {
+    let mut named = None;
+    let mut count = None;
+    for p in pair.into_inner().flatten() {
+        match p.as_rule() {
+            Rule::term13 | Rule::aa13 => named = Some(text(p)),
+            Rule::fsext_offset | Rule::snum => count = Some(text(p)),
+            _ => {}
         }
-        Rule::dna_copy => {
-            let mut inner = inner_feat.into_inner();
-            let copy = inner
-                .next()
-                .map(|p| p.as_str().parse().unwrap_or(0))
-                .unwrap_or(0);
-            Ok(NaEdit::NACopy {
-                copy,
-                uncertain: false,
-            })
+    }
+    (named, count)
+}
+
+/// `Xxx#Yyyfs*N`: the new residue, then the frameshift's terminator and distance.
+fn pro_fs(pair: Pair<Rule>) -> AaEdit {
+    let mut alt = String::new();
+    let mut term = None;
+    let mut length = None;
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::aat13 => alt = text(p),
+            Rule::fs => (term, length) = fs_ext_parts(p),
+            _ => {}
         }
-        _ => Ok(NaEdit::None),
+    }
+    AaEdit::Fs {
+        ref_: String::new(),
+        alt,
+        term,
+        length,
+        uncertain: false,
+    }
+}
+
+/// `Ter#Xxxext*N`: the residue read through the stop, then the extension's
+/// terminator and distance (or a residue and signed offset).
+fn pro_ext(pair: Pair<Rule>) -> AaEdit {
+    let mut alt = String::new();
+    let mut aaterm = None;
+    let mut length = None;
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::aat13 => alt = text(p),
+            Rule::ext => (aaterm, length) = fs_ext_parts(p),
+            _ => {}
+        }
+    }
+    AaEdit::Ext {
+        ref_: String::new(),
+        alt,
+        aaterm,
+        length,
+        uncertain: false,
     }
 }
 
 pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
-    let inner = pair
+    let edit = pair
         .into_inner()
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty pro_edit".into()))?;
-    match inner.as_rule() {
-        Rule::pro_ident => Ok(AaEdit::Identity { uncertain: false }),
-        Rule::pro_subst => Ok(AaEdit::Subst {
-            ref_: "".into(),
-            alt: inner.as_str().to_string(),
-            uncertain: false,
-        }),
-        Rule::pro_del => Ok(AaEdit::Del {
-            ref_: "".into(),
-            uncertain: false,
-        }),
-        Rule::pro_ins => Ok(AaEdit::Ins {
-            alt: inner
-                .into_inner()
-                .next()
-                .map(|p| p.as_str().to_string())
-                .unwrap_or_default(),
-            uncertain: false,
-        }),
-        Rule::pro_dup => Ok(AaEdit::Dup {
+    let uncertain = false;
+    Ok(match edit.as_rule() {
+        Rule::pro_ident => AaEdit::Identity { uncertain },
+        Rule::pro_subst => AaEdit::Subst {
+            ref_: String::new(),
+            alt: text(edit),
+            uncertain,
+        },
+        Rule::pro_del => AaEdit::Del {
+            ref_: String::new(),
+            uncertain,
+        },
+        Rule::pro_ins => AaEdit::Ins {
+            alt: first_child_text(edit).unwrap_or_default(),
+            uncertain,
+        },
+        Rule::pro_dup => AaEdit::Dup {
             ref_: None,
-            uncertain: false,
-        }),
-        Rule::pro_delins => Ok(AaEdit::DelIns {
-            ref_: "".into(),
-            alt: inner
-                .into_inner()
-                .next()
-                .map(|p| p.as_str().to_string())
-                .unwrap_or_default(),
-            uncertain: false,
-        }),
-        Rule::pro_fs => {
-            let mut alt = String::new();
-            let mut term = None;
-            let mut length = None;
-            for p in inner.into_inner() {
-                match p.as_rule() {
-                    Rule::aat13 => alt = p.as_str().to_string(),
-                    Rule::fs => {
-                        let mut fs_inner = p.into_inner();
-                        if let Some(aa_fs) = fs_inner.next() {
-                            let mut p_inner = aa_fs.into_inner();
-                            term = p_inner.next().map(|t| t.as_str().to_string());
-                            length = p_inner.next().map(|l| l.as_str().to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(AaEdit::Fs {
-                ref_: "".into(),
-                alt,
-                term,
-                length,
-                uncertain: false,
-            })
-        }
-        Rule::pro_ext => {
-            let ref_ = String::new();
-            let mut alt = String::new();
-            let mut aaterm = None;
-            let mut length = None;
-            for p in inner.into_inner() {
-                match p.as_rule() {
-                    Rule::aat13
-                    | Rule::aat3
-                    | Rule::aat1
-                    | Rule::aa3
-                    | Rule::aa1
-                    | Rule::term3
-                    | Rule::term1 => alt = p.as_str().to_string(),
-                    Rule::ext => {
-                        let mut ext_inner = p.into_inner();
-                        if let Some(aa_ext) = ext_inner.next() {
-                            // aa13_ext is either `term13 fsext_offset` or `aa13? snum`.
-                            for q in aa_ext.into_inner() {
-                                match q.as_rule() {
-                                    Rule::term13 | Rule::aa13 => {
-                                        aaterm = Some(q.as_str().to_string())
-                                    }
-                                    Rule::fsext_offset | Rule::snum => {
-                                        length = Some(q.as_str().to_string())
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(AaEdit::Ext {
-                ref_,
-                alt,
-                aaterm,
-                length,
-                uncertain: false,
-            })
-        }
+            uncertain,
+        },
+        Rule::pro_delins => AaEdit::DelIns {
+            ref_: String::new(),
+            alt: first_child_text(edit).unwrap_or_default(),
+            uncertain,
+        },
+        Rule::pro_fs => pro_fs(edit),
+        Rule::pro_ext => pro_ext(edit),
         Rule::pro_repeat => {
-            let inner = inner.into_inner();
-            let mut ref_ = None;
-            let mut first = 0;
-            let mut second = None;
-
-            for p in inner {
-                match p.as_rule() {
-                    Rule::aat13_seq => ref_ = Some(p.as_str().to_string()),
-                    Rule::num => {
-                        if first == 0 {
-                            first = p.as_str().parse().unwrap_or(0);
-                        } else {
-                            second = Some(p.as_str().parse().unwrap_or(0));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            let max = second.unwrap_or(first);
-            Ok(AaEdit::Repeat {
+            let (ref_, min, max) = repeat_parts(edit, |r| r == Rule::aat13_seq);
+            AaEdit::Repeat {
                 ref_,
-                min: first,
+                min,
                 max,
-                uncertain: false,
-            })
+                uncertain,
+            }
         }
-        _ => Ok(AaEdit::None),
-    }
+        _ => AaEdit::None,
+    })
 }
 
 #[cfg(test)]
