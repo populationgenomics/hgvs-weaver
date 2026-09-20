@@ -195,7 +195,8 @@ def update_performance_graphs(repo_root: Path) -> None:
 
     for entry in history:
         commit = entry["commit"][:7]
-        version = tags.get(commit)
+        # An entry may name its version; otherwise the tag on its commit does.
+        version = entry.get("version") or tags.get(commit)
 
         if not version and entry == history[0] and current_version not in tags.values():
             version = f"{current_version} (dev)"
@@ -429,7 +430,7 @@ def main() -> None:
         if readme_path.exists():
             content = readme_path.read_text()
             pattern = re.compile(
-                r"### Validation Results \(.*?\).*?(?=\n- \*\*Variant Equivalence\*\*)",
+                r"### Validation Results \(.*?\).*?(?=\n## )",
                 re.DOTALL,
             )
             if pattern.search(content):
