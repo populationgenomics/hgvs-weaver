@@ -329,6 +329,13 @@ impl fmt::Display for NaEdit {
                 }
                 Ok(())
             }
+            NaEdit::NACopy { copy, uncertain } => {
+                write!(f, "copy{}", copy)?;
+                if *uncertain {
+                    write!(f, "?")?;
+                }
+                Ok(())
+            }
             NaEdit::None => write!(f, "="),
             _ => write!(f, "unknown_na_edit"),
         }
