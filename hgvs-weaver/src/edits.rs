@@ -323,6 +323,110 @@ impl NaEdit {
     }
 }
 
+impl AaEdit {
+    /// Resolves the edit over `[start, end)` of a protein `reference` (0-based
+    /// residue indices) to the residues it removes and the residues it puts
+    /// there, in 1-letter code. The protein counterpart of [`NaEdit::resolve`].
+    pub fn resolve(
+        &self,
+        reference: &Reference<'_, '_>,
+        start: usize,
+        end: usize,
+    ) -> Result<ResolvedEdit, HgvsError> {
+        self.resolve_with(start, end, |s, e| reference.slice(s, e))
+    }
+
+    /// [`AaEdit::resolve`] with `fetch(start, end)` supplying reference residues.
+    ///
+    /// Edits that describe a consequence rather than a sequence (frameshift,
+    /// extension, `p.?`, `p.0`, `p.Xxx1?`) cannot be resolved and are
+    /// unsupported. Stated residues are not consulted; the reference is what
+    /// the sequence holds.
+    pub fn resolve_with(
+        &self,
+        start: usize,
+        end: usize,
+        fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+    ) -> Result<ResolvedEdit, HgvsError> {
+        use crate::utils::residues_1;
+        let unsupported = || {
+            Err(HgvsError::UnsupportedOperation(format!(
+                "Protein edit {self:?} describes a consequence, not a sequence"
+            )))
+        };
+        let (ref_, alt) = match self {
+            AaEdit::Subst { alt, .. } => {
+                if alt == "?" {
+                    return unsupported();
+                }
+                (fetch(start, end)?, residues_1(alt)?)
+            }
+            AaEdit::Del { .. } => (fetch(start, end)?, String::new()),
+            AaEdit::Ins { alt, .. } => {
+                let anchor = if end > start { end - 1 } else { start };
+                return Ok(ResolvedEdit {
+                    start: anchor,
+                    end: anchor,
+                    ref_: String::new(),
+                    alt: residues_1(alt)?,
+                });
+            }
+            AaEdit::DelIns { alt, .. } => (fetch(start, end)?, residues_1(alt)?),
+            AaEdit::RefAlt { alt, .. } => {
+                let r = fetch(start, end)?;
+                let a = match alt {
+                    Some(a) => residues_1(a)?,
+                    None => r.clone(),
+                };
+                (r, a)
+            }
+            AaEdit::Dup { .. } => {
+                let r = fetch(start, end)?;
+                let a = format!("{r}{r}");
+                (r, a)
+            }
+            AaEdit::Repeat { ref_, max, .. } => {
+                // `unit[n]`: every existing copy of the unit, starting at
+                // `start`, becomes n copies. The reference is the whole run.
+                let unit = match ref_ {
+                    Some(u) if !u.is_empty() && !u.chars().all(|c| c.is_ascii_digit()) => {
+                        residues_1(u)?
+                    }
+                    _ => fetch(start, end)?,
+                };
+                let mut run_end = start;
+                if !unit.is_empty() {
+                    while fetch(run_end, run_end + unit.len())? == unit {
+                        run_end += unit.len();
+                    }
+                }
+                if run_end == start {
+                    run_end = end;
+                }
+                return Ok(ResolvedEdit {
+                    start,
+                    end: run_end,
+                    ref_: fetch(start, run_end)?,
+                    alt: unit.repeat((*max).max(0) as usize),
+                });
+            }
+            AaEdit::Identity { .. } => {
+                let r = fetch(start, end)?;
+                (r.clone(), r)
+            }
+            AaEdit::Fs { .. } | AaEdit::Ext { .. } | AaEdit::Special { .. } | AaEdit::None => {
+                return unsupported()
+            }
+        };
+        Ok(ResolvedEdit {
+            start,
+            end,
+            ref_,
+            alt,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,109 +596,5 @@ mod tests {
             .stated_ref(),
             None
         );
-    }
-}
-
-impl AaEdit {
-    /// Resolves the edit over `[start, end)` of a protein `reference` (0-based
-    /// residue indices) to the residues it removes and the residues it puts
-    /// there, in 1-letter code. The protein counterpart of [`NaEdit::resolve`].
-    pub fn resolve(
-        &self,
-        reference: &Reference<'_, '_>,
-        start: usize,
-        end: usize,
-    ) -> Result<ResolvedEdit, HgvsError> {
-        self.resolve_with(start, end, |s, e| reference.slice(s, e))
-    }
-
-    /// [`AaEdit::resolve`] with `fetch(start, end)` supplying reference residues.
-    ///
-    /// Edits that describe a consequence rather than a sequence (frameshift,
-    /// extension, `p.?`, `p.0`, `p.Xxx1?`) cannot be resolved and are
-    /// unsupported. Stated residues are not consulted; the reference is what
-    /// the sequence holds.
-    pub fn resolve_with(
-        &self,
-        start: usize,
-        end: usize,
-        fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
-    ) -> Result<ResolvedEdit, HgvsError> {
-        use crate::utils::residues_1;
-        let unsupported = || {
-            Err(HgvsError::UnsupportedOperation(format!(
-                "Protein edit {self:?} describes a consequence, not a sequence"
-            )))
-        };
-        let (ref_, alt) = match self {
-            AaEdit::Subst { alt, .. } => {
-                if alt == "?" {
-                    return unsupported();
-                }
-                (fetch(start, end)?, residues_1(alt)?)
-            }
-            AaEdit::Del { .. } => (fetch(start, end)?, String::new()),
-            AaEdit::Ins { alt, .. } => {
-                let anchor = if end > start { end - 1 } else { start };
-                return Ok(ResolvedEdit {
-                    start: anchor,
-                    end: anchor,
-                    ref_: String::new(),
-                    alt: residues_1(alt)?,
-                });
-            }
-            AaEdit::DelIns { alt, .. } => (fetch(start, end)?, residues_1(alt)?),
-            AaEdit::RefAlt { alt, .. } => {
-                let r = fetch(start, end)?;
-                let a = match alt {
-                    Some(a) => residues_1(a)?,
-                    None => r.clone(),
-                };
-                (r, a)
-            }
-            AaEdit::Dup { .. } => {
-                let r = fetch(start, end)?;
-                let a = format!("{r}{r}");
-                (r, a)
-            }
-            AaEdit::Repeat { ref_, max, .. } => {
-                // `unit[n]`: every existing copy of the unit, starting at
-                // `start`, becomes n copies. The reference is the whole run.
-                let unit = match ref_ {
-                    Some(u) if !u.is_empty() && !u.chars().all(|c| c.is_ascii_digit()) => {
-                        residues_1(u)?
-                    }
-                    _ => fetch(start, end)?,
-                };
-                let mut run_end = start;
-                if !unit.is_empty() {
-                    while fetch(run_end, run_end + unit.len())? == unit {
-                        run_end += unit.len();
-                    }
-                }
-                if run_end == start {
-                    run_end = end;
-                }
-                return Ok(ResolvedEdit {
-                    start,
-                    end: run_end,
-                    ref_: fetch(start, run_end)?,
-                    alt: unit.repeat((*max).max(0) as usize),
-                });
-            }
-            AaEdit::Identity { .. } => {
-                let r = fetch(start, end)?;
-                (r.clone(), r)
-            }
-            AaEdit::Fs { .. } | AaEdit::Ext { .. } | AaEdit::Special { .. } | AaEdit::None => {
-                return unsupported()
-            }
-        };
-        Ok(ResolvedEdit {
-            start,
-            end,
-            ref_,
-            alt,
-        })
     }
 }

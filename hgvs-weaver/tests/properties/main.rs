@@ -86,7 +86,7 @@ proptest! {
             prop_assert_eq!(apply(&seq, &placed_at(s)), expected.clone(), "placement at {} inside the range differs", s);
         }
         // Completeness: one past each end is a different molecule (when in bounds).
-        if u_end + 1 <= seq.len() {
+        if u_end < seq.len() {
             prop_assert_ne!(apply(&seq, &placed_at(u_end - width + 1)), expected.clone(), "range is not maximal on the right");
         }
         if u_start > 0 && !(is_ins && u_start == 1) {

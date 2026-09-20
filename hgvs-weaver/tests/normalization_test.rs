@@ -16,9 +16,7 @@ impl DataProvider for NormMockDataProvider {
             "CCATTTTTTT".to_string()
         } else if ac == "NM_PREMATURE_STOP" {
             "ATGCAACAAGATGATTAA".to_string()
-        } else if ac == "NM_INFRAME_DEL" {
-            "ATGGCTGCATGCGATTAA".to_string()
-        } else if ac == "NM_CTERM_SUBST" {
+        } else if ac == "NM_INFRAME_DEL" || ac == "NM_CTERM_SUBST" {
             "ATGGCTGCATGCGATTAA".to_string()
         } else if ac == "NM_REPEAT_EXP" {
             "ATGGCTGCTGCTTTTTAA".to_string()

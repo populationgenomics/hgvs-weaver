@@ -6,7 +6,6 @@ use ::hgvs_weaver::{
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyErr};
-use serde_json;
 
 pyo3::create_exception!(_weaver, HGVSError, pyo3::exceptions::PyException);
 pyo3::create_exception!(_weaver, ParseError, HGVSError);
@@ -801,6 +800,8 @@ impl PyVariantMapper {
 
     #[pyo3(signature = (allele, accession=None))]
     #[doc = "Returns the Variant a GA4GH VRS 2.0 Allele names.\n\nThe variant is written in HGVS on the allele's own sequence, trimmed to the\nchange and normalised (3'-shifted): g. for a nucleotide sequence, p. for a\nprotein. Literal and ReferenceLengthExpression states are read; Range bounds\nare accepted for a deletion, which comes back as g.(a_b)_(c_d)del.\n\nThe sequence behind the allele's refget accession is named by ``accession``\nwhen given, else looked up through the Refget given at construction; the\ndigest is checked against the sequence either way.\n\nArgs:\n    allele: The Allele as a dict (as to_vrs returns) or a JSON string.\n    accession: The accession of the sequence, when the provider cannot look\n        it up from the refget accession.\n\nRaises:\n    HGVSError: If the allele is malformed, unsupported, or does not match the\n        sequence."]
+    // Public Python API: a constructor-style name on the mapper, kept as is.
+    #[allow(clippy::wrong_self_convention)]
     fn from_vrs(
         &self,
         py: Python,
@@ -823,6 +824,8 @@ impl PyVariantMapper {
 
     #[pyo3(signature = (spdi))]
     #[doc = "Returns the Variant an SPDI string names.\n\n``accession:position:deletion:insertion`` with an interbase position and the\ndeletion given as bases or as a length. The variant is written in HGVS on\nthe accession's own sequence, trimmed to the change and normalised\n(3'-shifted): g. for a nucleotide sequence, p. for a protein.\n\nArgs:\n    spdi: The SPDI string.\n\nRaises:\n    HGVSError: If the string is malformed or the deletion does not match the\n        sequence."]
+    // Public Python API: a constructor-style name on the mapper, kept as is.
+    #[allow(clippy::wrong_self_convention)]
     fn from_spdi(&self, _py: Python, spdi: &str) -> PyResult<PyVariant> {
         let mapper = self.mapper();
         let inner = mapper.from_spdi(spdi).map_err(map_hgvs_error)?;

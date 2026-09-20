@@ -42,7 +42,7 @@ fn apply_strand_complement(
     strand: crate::data::Strand,
 ) -> crate::edits::NaEdit {
     if strand == crate::data::Strand::Minus {
-        edit.map_sequence(|s| crate::utils::reverse_complement(s))
+        edit.map_sequence(crate::utils::reverse_complement)
     } else {
         edit
     }
