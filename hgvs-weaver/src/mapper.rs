@@ -1816,7 +1816,7 @@ impl<'a> VariantMapper<'a> {
         accession: Option<&str>,
     ) -> Result<crate::SequenceVariant, HgvsError> {
         if vrs_type(json)? == "CopyNumberCount" {
-            return self.from_vrs_copy_number(json, accession);
+            return self.copy_number_from_vrs(json, accession);
         }
         let allele = VrsAllele::from_json(json)?;
         let (ac, kind) = self.located_sequence(&allele.location, accession)?;
@@ -1871,7 +1871,7 @@ impl<'a> VariantMapper<'a> {
 
     /// `g.<start+1>_<end>copyN` from a VRS `CopyNumberCount`. HGVS has no
     /// syntax for a range of counts, so `copies` must be exact.
-    fn from_vrs_copy_number(
+    fn copy_number_from_vrs(
         &self,
         json: &str,
         accession: Option<&str>,
