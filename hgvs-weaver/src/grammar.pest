@@ -16,7 +16,10 @@ c_posedit = { c_interval ~ dna_edit }
 g_posedit = { g_interval ~ dna_edit }
 m_posedit = { m_interval ~ dna_edit }
 n_posedit = { n_interval ~ dna_edit }
-r_posedit = { (r_interval ~ rna_edit) | ("(" ~ r_interval ~ rna_edit ~ ")") | r_posedit_special }
+r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | r_posedit_special }
+// A predicted RNA change, r.(123a>g): the RNA was not analysed. Only r. and
+// p. have this form; on DNA, parentheses mark uncertain positions instead.
+r_posedit_predicted = { "(" ~ r_interval ~ rna_edit ~ ")" }
 // Statements about the transcript as a whole: no RNA (r.0), unknown effect
 // (r.?), splicing affected (r.spl), no change (r.=).
 r_posedit_special = {

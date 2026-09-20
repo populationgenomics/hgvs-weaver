@@ -25,16 +25,14 @@ pub fn parse_g_posedit(pair: Pair<Rule>) -> Result<PosEdit<SimpleInterval, NaEdi
 
 /// Parses a transcript-space posedit (`c.`, `n.` or `r.`); positions without
 /// an explicit anchor get `default_anchor`. Only the r. grammar has a
-/// predicted form, `r.(123a>g)`: the parentheses are not captured as a pair,
-/// so it is recognised by the interval starting after the posedit does.
+/// predicted form, `r.(123a>g)`, its own rule.
 pub fn parse_tx_posedit(
     pair: Pair<Rule>,
     default_anchor: Anchor,
 ) -> Result<PosEdit<BaseOffsetInterval, NaEdit>, HgvsError> {
     let text = pair.as_str();
-    let start = pair.as_span().start();
     let mut inner = pair.into_inner();
-    let first = inner
+    let mut first = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?;
     if first.as_rule() == Rule::r_posedit_special {
@@ -48,7 +46,13 @@ pub fn parse_tx_posedit(
             predicted: text.starts_with('('),
         });
     }
-    let predicted = first.as_span().start() > start;
+    let predicted = first.as_rule() == Rule::r_posedit_predicted;
+    if predicted {
+        inner = first.into_inner();
+        first = inner
+            .next()
+            .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?;
+    }
     let pos = parse_base_offset_interval(first, default_anchor)?;
     let edit = parse_na_edit(
         inner
