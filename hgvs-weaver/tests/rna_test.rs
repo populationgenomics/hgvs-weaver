@@ -3,15 +3,14 @@
 //! spanning a splice junction describes the spliced RNA and cannot be
 //! projected to the genome.
 
-use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
-    TranscriptSearch,
-};
+mod support;
+
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::equivalence::VariantEquivalence;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
+use support::{exon, transcript, Provider};
 
 /// A 200-base genome: a CGT repeat with ATG at 15, AAAA at 30 and TAA at 142.
 fn genome() -> String {
@@ -30,83 +29,27 @@ fn spliced() -> String {
     format!("{}{}", &g[10..60], &g[100..160])
 }
 
-struct Provider;
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        let (cds_start, cds_end) = match ac {
-            "NM_R.1" => (Some(TranscriptPos(5)), Some(TranscriptPos(94))),
-            "NR_R.1" => (None, None),
-            _ => return Err(HgvsError::DataProviderError(format!("no transcript {ac}"))),
-        };
-        let exon = |ts: i32, te: i32, gs: i32| ExonData {
-            transcript_start: TranscriptPos(ts),
-            transcript_end: TranscriptPos(te),
-            reference_start: GenomicPos(gs),
-            reference_end: GenomicPos(gs + (te - ts) - 1),
-            alt_strand: Strand::Plus,
-            cigar: format!("{}M", te - ts),
-        };
-        Ok(TranscriptData {
-            ac: ac.to_string(),
-            gene: "R".to_string(),
-            cds_start_index: cds_start,
-            cds_end_index: cds_end,
-            strand: Strand::Plus,
-            reference_accession: "NC_R.1".to_string(),
-            exons: vec![exon(0, 50, 10), exon(50, 110, 100)],
-        })
-    }
-
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq = match ac {
-            "NC_R.1" => genome(),
-            "NM_R.1" | "NR_R.1" => spliced(),
-            _ => return Err(HgvsError::DataProviderError(format!("no sequence {ac}"))),
-        };
-        let start = (start.max(0) as usize).min(seq.len());
-        let end = end.map_or(seq.len(), |e| (e.max(0) as usize).min(seq.len()));
-        Ok(seq[start..end.max(start)].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        symbol: &str,
-        _: IdentifierKind,
-        target: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(match (symbol, target) {
-            ("NM_R.1", IdentifierKind::Protein) => {
-                vec![(IdentifierType::ProteinAccession, "NP_R.1".to_string())]
-            }
-            _ => vec![],
-        })
-    }
-
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(match &id[..3] {
-            "NC_" => IdentifierType::GenomicAccession,
-            "NP_" => IdentifierType::ProteinAccession,
-            _ => IdentifierType::TranscriptAccession,
-        })
-    }
-}
-
-impl TranscriptSearch for Provider {
-    fn get_transcripts_for_region(
-        &self,
-        _: &str,
-        _: i32,
-        _: i32,
-    ) -> Result<Vec<String>, HgvsError> {
-        Ok(vec![])
-    }
+/// The coding NM_R.1 and the non-coding NR_R.1, both spliced from the genome.
+fn provider() -> Provider {
+    let exons = || {
+        vec![
+            exon((0, 50), (10, 59), Strand::Plus),
+            exon((50, 110), (100, 159), Strand::Plus),
+        ]
+    };
+    Provider::new()
+        .sequence("NC_R.1", &genome())
+        .sequence("NM_R.1", &spliced())
+        .sequence("NR_R.1", &spliced())
+        .transcript(transcript(
+            "NM_R.1",
+            "NC_R.1",
+            Strand::Plus,
+            Some((5, 94)),
+            exons(),
+        ))
+        .transcript(transcript("NR_R.1", "NC_R.1", Strand::Plus, None, exons()))
+        .protein_for("NM_R.1", "NP_R.1")
 }
 
 fn parse(s: &str) -> SequenceVariant {
@@ -163,7 +106,7 @@ fn predicted_changes_keep_their_parentheses() {
     assert!(!rna("NM_R.1:r.(10_20)del").posedit.predicted);
     // c. has no parenthesised form in this grammar, so the flag is dropped on
     // the way to c. and the result still parses.
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let c = mapper.r_to_c(&rna("NM_R.1:r.(10c>g)")).unwrap();
     assert_eq!(c.to_string(), "NM_R.1:c.10C>G");
@@ -172,7 +115,7 @@ fn predicted_changes_keep_their_parentheses() {
 
 #[test]
 fn r_is_c_in_rna_letters() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     for (r, c) in [
         ("NM_R.1:r.10c>g", "NM_R.1:c.10C>G"),
@@ -196,7 +139,7 @@ fn r_is_c_in_rna_letters() {
 
 #[test]
 fn r_on_a_non_coding_transcript_is_n() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let n = mapper.r_to_n(&rna("NR_R.1:r.10c>g")).unwrap();
     assert_eq!(n.to_string(), "NR_R.1:n.10C>G");
@@ -225,7 +168,7 @@ fn r_on_a_non_coding_transcript_is_n() {
 
 #[test]
 fn r_projects_to_the_genome_within_one_exon_only() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let g = |s: &str| mapper.as_genomic(&parse(s)).unwrap().map(|v| v.to_string());
     // c.10 is transcript index 14, genome index 24: g.25.
@@ -258,7 +201,7 @@ fn r_projects_to_the_genome_within_one_exon_only() {
 
 #[test]
 fn r_predicts_the_protein_like_c() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let p_from_r = |s: &str| mapper.r_to_p(&rna(s), None).map(|p| p.to_string());
     let p_from_c = |s: &str| mapper.c_to_p(&coding(s), None).unwrap().to_string();
@@ -292,7 +235,7 @@ fn r_predicts_the_protein_like_c() {
 
 #[test]
 fn r_normalises_validates_and_has_alleles_like_c() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     // c.16..c.20 are AAAA A? No: transcript indices 20..24 are A, i.e. c.16..c.19,
     // so a deletion of one A rolls to c.19.

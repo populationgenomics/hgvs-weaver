@@ -1,99 +1,17 @@
-use hgvs_weaver::data::TranscriptData;
+mod support;
+
 use hgvs_weaver::*;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
+use support::Provider;
 
-#[derive(Serialize, Deserialize)]
-struct ToyData {
-    sequences: HashMap<String, String>,
-    transcripts: HashMap<String, TranscriptData>,
-}
-
-struct JsonDataProvider {
-    data: ToyData,
-}
-
-impl JsonDataProvider {
-    fn new(path: &str) -> Self {
-        let file = File::open(path).expect("Failed to open toy data file");
-        let reader = BufReader::new(file);
-        let data: ToyData = serde_json::from_reader(reader).expect("Failed to parse toy data");
-        JsonDataProvider { data }
-    }
-}
-
-impl DataProvider for JsonDataProvider {
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: hgvs_weaver::data::IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq =
-            self.data.sequences.get(ac).ok_or_else(|| {
-                HgvsError::DataProviderError(format!("Sequence {} not found", ac))
-            })?;
-        let len = seq.len() as i32;
-        let actual_end = end.unwrap_or(len);
-        if start < 0 || actual_end > len || start > actual_end {
-            return Err(HgvsError::DataProviderError(
-                "Sequence range out of bounds".into(),
-            ));
-        }
-        Ok(seq[(start as usize)..(actual_end as usize)].to_string())
-    }
-
-    fn get_transcript(
-        &self,
-        transcript_ac: &str,
-        _reference_accession: Option<&str>,
-    ) -> Result<TranscriptData, HgvsError> {
-        let td = self.data.transcripts.get(transcript_ac).ok_or_else(|| {
-            HgvsError::DataProviderError(format!("Transcript {} not found", transcript_ac))
-        })?;
-        Ok(td.clone())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        symbol: &str,
-        _sk: hgvs_weaver::data::IdentifierKind,
-        tk: hgvs_weaver::data::IdentifierKind,
-    ) -> Result<Vec<(hgvs_weaver::data::IdentifierType, String)>, HgvsError> {
-        if tk == hgvs_weaver::data::IdentifierKind::Protein {
-            if symbol == "NM_PLUS.1" {
-                return Ok(vec![(
-                    hgvs_weaver::data::IdentifierType::ProteinAccession,
-                    "NP_PLUS.1".to_string(),
-                )]);
-            }
-            if symbol == "NM_MINUS.1" {
-                return Ok(vec![(
-                    hgvs_weaver::data::IdentifierType::ProteinAccession,
-                    "NP_MINUS.1".to_string(),
-                )]);
-            }
-        }
-        Ok(vec![(
-            hgvs_weaver::data::IdentifierType::Unknown,
-            symbol.to_string(),
-        )])
-    }
-
-    fn get_identifier_type(
-        &self,
-        _identifier: &str,
-    ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
-        Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
+fn provider() -> Provider {
+    Provider::from_json_file("../tests/data/toy_data.json")
+        .protein_for("NM_PLUS.1", "NP_PLUS.1")
+        .protein_for("NM_MINUS.1", "NP_MINUS.1")
 }
 
 #[test]
 fn test_toy_plus_strand_mapping() {
-    let hdp = JsonDataProvider::new("../tests/data/toy_data.json");
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // Genomic variant NC_TOY.1:g.25A>T → c.1A>T (g-to-c positional mapping)
@@ -113,7 +31,7 @@ fn test_toy_plus_strand_mapping() {
 
 #[test]
 fn test_toy_plus_strand_missense() {
-    let hdp = JsonDataProvider::new("../tests/data/toy_data.json");
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_PLUS.1 CDS: ATG(Met1) CGT(Arg2) ACG(Thr3) ...
@@ -129,7 +47,7 @@ fn test_toy_plus_strand_missense() {
 
 #[test]
 fn test_toy_minus_strand_mapping() {
-    let hdp = JsonDataProvider::new("../tests/data/toy_data.json");
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     let var_g = parse_hgvs_variant("NC_TOY.1:g.236T>G").unwrap();

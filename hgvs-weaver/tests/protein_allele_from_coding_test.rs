@@ -2,17 +2,16 @@
 //! first change to the end of the protein become what the edited transcript
 //! encodes. Covers what a p. description cannot name as a sequence.
 
-use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
-    TranscriptSearch,
-};
+mod support;
+
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::utils::translate;
 use hgvs_weaver::vrs::VrsBound;
 use hgvs_weaver::{parse_hgvs_variant, CVariant, SequenceVariant};
+use support::{single_exon_transcript, Provider};
 
 const UTR5: &str = "GGGGG";
 /// M K L A Y R *
@@ -26,83 +25,21 @@ fn transcript() -> String {
 }
 
 /// Serves the transcript and a protein; `protein` may disagree with the CDS.
-struct Provider {
-    protein: &'static str,
-}
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        if ac != "NM_X.1" {
-            return Err(HgvsError::DataProviderError(format!("no transcript {ac}")));
-        }
-        let len = transcript().len() as i32;
-        Ok(TranscriptData {
-            ac: ac.to_string(),
-            gene: "X".to_string(),
-            cds_start_index: Some(TranscriptPos(UTR5.len() as i32)),
-            cds_end_index: Some(TranscriptPos((UTR5.len() + CDS.len()) as i32 - 1)),
-            strand: Strand::Plus,
-            reference_accession: "NC_X.1".to_string(),
-            exons: vec![ExonData {
-                transcript_start: TranscriptPos(0),
-                transcript_end: TranscriptPos(len),
-                reference_start: GenomicPos(100),
-                reference_end: GenomicPos(100 + len - 1),
-                alt_strand: Strand::Plus,
-                cigar: format!("{len}M"),
-            }],
-        })
-    }
-
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq = match ac {
-            "NM_X.1" => transcript(),
-            "NP_X.1" => self.protein.to_string(),
-            _ => return Err(HgvsError::DataProviderError(format!("no sequence {ac}"))),
-        };
-        let start = (start.max(0) as usize).min(seq.len());
-        let end = end.map_or(seq.len(), |e| (e.max(0) as usize).min(seq.len()));
-        Ok(seq[start..end.max(start)].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        symbol: &str,
-        _: IdentifierKind,
-        target: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(match (symbol, target) {
-            ("NM_X.1", IdentifierKind::Protein) => {
-                vec![(IdentifierType::ProteinAccession, "NP_X.1".to_string())]
-            }
-            _ => vec![],
-        })
-    }
-
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(match &id[..3] {
-            "NP_" => IdentifierType::ProteinAccession,
-            "NC_" => IdentifierType::GenomicAccession,
-            _ => IdentifierType::TranscriptAccession,
-        })
-    }
-}
-
-impl TranscriptSearch for Provider {
-    fn get_transcripts_for_region(
-        &self,
-        _: &str,
-        _: i32,
-        _: i32,
-    ) -> Result<Vec<String>, HgvsError> {
-        Ok(vec!["NM_X.1".to_string()])
-    }
+fn provider(protein: &str) -> Provider {
+    let transcript = transcript();
+    Provider::new()
+        .sequence("NM_X.1", &transcript)
+        .sequence("NP_X.1", protein)
+        .transcript(single_exon_transcript(
+            "NM_X.1",
+            "NC_X.1",
+            100,
+            Strand::Plus,
+            UTR5.len() as i32,
+            (UTR5.len() + CDS.len()) as i32 - 1,
+            transcript.len() as i32,
+        ))
+        .protein_for("NM_X.1", "NP_X.1")
 }
 
 fn coding(s: &str) -> CVariant {
@@ -130,7 +67,7 @@ fn applied(allele: &hgvs_weaver::allele::CanonicalAllele) -> String {
 
 #[test]
 fn definite_changes_give_the_same_allele_by_either_route() {
-    let hdp = Provider { protein: PROTEIN };
+    let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     for c in [
         "NM_X.1:c.4A>C",          // Lys2Gln
@@ -159,7 +96,7 @@ fn definite_changes_give_the_same_allele_by_either_route() {
 
 #[test]
 fn consequences_without_a_p_sequence_still_have_an_allele() {
-    let hdp = Provider { protein: PROTEIN };
+    let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let allele = |c: &str| mapper.protein_allele(&coding(c), None).unwrap();
 
@@ -195,7 +132,7 @@ fn consequences_without_a_p_sequence_still_have_an_allele() {
 
 #[test]
 fn statements_have_no_allele_and_a_wrong_protein_is_an_error() {
-    let hdp = Provider { protein: PROTEIN };
+    let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let err = mapper
         .protein_allele(&coding("NM_X.1:c.-3G>A"), None)
@@ -207,7 +144,7 @@ fn statements_have_no_allele_and_a_wrong_protein_is_an_error() {
     assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
 
     // The annotation pairs the transcript with a protein its CDS does not encode.
-    let wrong = Provider { protein: "MKLAYQ" };
+    let wrong = provider("MKLAYQ");
     let mapper = VariantMapper::new(&wrong);
     let err = mapper
         .protein_allele(&coding("NM_X.1:c.4A>C"), None)
@@ -220,7 +157,7 @@ fn statements_have_no_allele_and_a_wrong_protein_is_an_error() {
 
 #[test]
 fn the_vrs_allele_sits_on_the_protein_with_the_p_description_as_expression() {
-    let hdp = Provider { protein: PROTEIN };
+    let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let vrs = mapper.protein_vrs(&coding("NM_X.1:c.5del"), None).unwrap();
     assert_eq!(vrs.location.sequence_reference.residue_alphabet, "aa");
@@ -250,7 +187,7 @@ fn the_vrs_allele_sits_on_the_protein_with_the_p_description_as_expression() {
 /// protein each leaves, so ClinVar's spellings of the same event agree.
 #[test]
 fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
-    let hdp = Provider { protein: PROTEIN };
+    let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&mapper, &hdp);
     let level = |c: &str, p: &str| {

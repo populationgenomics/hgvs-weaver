@@ -1,81 +1,24 @@
 //! VRS and SPDI read back: `from_vrs` and `from_spdi` invert `to_vrs` and
 //! `to_spdi`, on nucleotide and protein sequences.
 
-use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
+mod support;
+
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
-use hgvs_weaver::refget::Refget;
 use hgvs_weaver::vrs::refget_accession;
+use support::Provider;
 
 const GENOME: &str = "ACGTTTGCAAGGCTAGCTAGCTTTTAACGGGATCGATCGA";
 const OTHER: &str = "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT";
 const PROTEIN: &str = "MKLAAAYRQ";
 
-/// Serves three sequences and can look an accession up by refget digest.
-struct Provider {
-    lookup: bool,
-}
-
-fn sequence(ac: &str) -> Result<&'static str, HgvsError> {
-    match ac {
-        "NC_TEST.1" => Ok(GENOME),
-        "NC_OTHER.1" => Ok(OTHER),
-        "NP_TEST.1" => Ok(PROTEIN),
-        _ => Err(HgvsError::DataProviderError(format!("no sequence {ac}"))),
-    }
-}
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        Err(HgvsError::DataProviderError(format!("no transcript {ac}")))
-    }
-
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq = sequence(ac)?;
-        let start = (start.max(0) as usize).min(seq.len());
-        let end = end.map_or(seq.len(), |e| (e.max(0) as usize).min(seq.len()));
-        Ok(seq[start..end.max(start)].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        _: &str,
-        _: IdentifierKind,
-        _: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(if id.starts_with("NP_") {
-            IdentifierType::ProteinAccession
-        } else {
-            IdentifierType::GenomicAccession
-        })
-    }
-}
-
-impl Refget for Provider {
-    fn refget_accession(&self, _ac: &str) -> Result<Option<String>, HgvsError> {
-        Ok(None) // let the store compute it
-    }
-
-    fn accession_for_refget(&self, refget: &str) -> Result<Option<String>, HgvsError> {
-        if !self.lookup {
-            return Ok(None);
-        }
-        Ok(["NC_TEST.1", "NC_OTHER.1", "NP_TEST.1"]
-            .into_iter()
-            .find(|ac| refget_accession(sequence(ac).unwrap()) == refget)
-            .map(str::to_string))
-    }
+/// Serves three sequences; as a `Refget` it looks accessions up by digest.
+fn provider() -> Provider {
+    Provider::new()
+        .sequence("NC_TEST.1", GENOME)
+        .sequence("NC_OTHER.1", OTHER)
+        .sequence("NP_TEST.1", PROTEIN)
 }
 
 /// `hgvs` through VRS and back, and through SPDI and back; both must give an
@@ -106,7 +49,7 @@ fn round_trip(mapper: &VariantMapper, hgvs: &str, expected: &str) {
 
 #[test]
 fn nucleotide_variants_round_trip_to_their_normalised_form() {
-    let hdp = Provider { lookup: true };
+    let hdp = provider();
     let mapper = VariantMapper::with_refget(&hdp, &hdp);
     // ACGTTTGCAAGGCTAGCTAGCTTTTAACGGGATCGATCGA
     // 1234567890123456789012345678901234567890
@@ -134,7 +77,7 @@ fn nucleotide_variants_round_trip_to_their_normalised_form() {
 
 #[test]
 fn protein_variants_round_trip_to_their_normalised_form() {
-    let hdp = Provider { lookup: true };
+    let hdp = provider();
     let mapper = VariantMapper::with_refget(&hdp, &hdp);
     round_trip(&mapper, "NP_TEST.1:p.Lys2Leu", "NP_TEST.1:p.Lys2Leu");
     round_trip(&mapper, "NP_TEST.1:p.Ala4del", "NP_TEST.1:p.Ala6del");
@@ -154,7 +97,7 @@ fn protein_variants_round_trip_to_their_normalised_form() {
 
 #[test]
 fn imprecise_deletions_round_trip_as_written() {
-    let hdp = Provider { lookup: true };
+    let hdp = provider();
     let mapper = VariantMapper::with_refget(&hdp, &hdp);
     for hgvs in [
         "NC_TEST.1:g.(?_5)_(10_?)del",
@@ -172,7 +115,7 @@ fn imprecise_deletions_round_trip_as_written() {
 
 #[test]
 fn the_sequence_is_named_by_the_caller_or_looked_up_and_always_checked() {
-    let no_lookup = Provider { lookup: false };
+    let no_lookup = provider();
     let mapper = VariantMapper::new(&no_lookup);
     let json = mapper
         .to_vrs(&parse_hgvs_variant("NC_TEST.1:g.7G>C").unwrap())
@@ -198,7 +141,7 @@ fn the_sequence_is_named_by_the_caller_or_looked_up_and_always_checked() {
 
 #[test]
 fn alleles_from_other_producers_parse() {
-    let hdp = Provider { lookup: true };
+    let hdp = provider();
     let mapper = VariantMapper::with_refget(&hdp, &hdp);
     let refget = refget_accession(GENOME);
     // No ids or digests, no sequence on the reference-length state, extra

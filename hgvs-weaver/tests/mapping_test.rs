@@ -1,92 +1,29 @@
-use hgvs_weaver::data::{ExonData, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
+mod support;
+
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::*;
+use support::{exon, transcript, Provider};
 
-struct MockDataProvider;
-
-impl DataProvider for MockDataProvider {
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: hgvs_weaver::data::IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let mut s = String::new();
-        s.push_str("AAAAAAAAAA"); // 10 A's
-        s.push_str("ATG"); // n.11 is c.1
-        for _ in 0..25 {
-            s.push_str("ATGC");
-        }
-
-        let start = start as usize;
-        let end = end.map_or(s.len(), |e| e as usize);
-        if start > s.len() {
-            return Ok("".into());
-        }
-        let end = end.min(s.len());
-        Ok(s[start..end].to_string())
-    }
-
-    fn get_transcript(
-        &self,
-        transcript_ac: &str,
-        _reference_ac: Option<&str>,
-    ) -> Result<TranscriptData, HgvsError> {
-        if transcript_ac == "NM_0001.3" {
-            let exons = vec![ExonData {
-                transcript_start: TranscriptPos(0),
-                transcript_end: TranscriptPos(100),
-                reference_start: GenomicPos(1000),
-                reference_end: GenomicPos(1100),
-                alt_strand: hgvs_weaver::data::Strand::Plus,
-                cigar: "100M".to_string(),
-            }];
-            let td = TranscriptData {
-                ac: "NM_0001.3".to_string(),
-                gene: "MOCK".to_string(),
-                cds_start_index: Some(TranscriptPos(10)), // n.11 is c.1
-                cds_end_index: Some(TranscriptPos(50)),
-                strand: hgvs_weaver::data::Strand::Plus,
-                reference_accession: "NC_0001.10".to_string(),
-                exons,
-            };
-            return Ok(td);
-        }
-        Err(HgvsError::DataProviderError(
-            "Transcript not found".to_string(),
+/// Ten A's, then ATG (n.11 is c.1), then ATGC repeated; the same string is
+/// the transcript and the genome. The CDS is transcript indices 10..=50.
+fn provider() -> Provider {
+    let seq = format!("AAAAAAAAAAATG{}", "ATGC".repeat(25));
+    Provider::new()
+        .sequence("NM_0001.3", &seq)
+        .sequence("NC_0001.10", &seq)
+        .transcript(transcript(
+            "NM_0001.3",
+            "NC_0001.10",
+            Strand::Plus,
+            Some((10, 50)),
+            vec![exon((0, 100), (1000, 1100), Strand::Plus)],
         ))
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        symbol: &str,
-        _sk: hgvs_weaver::data::IdentifierKind,
-        tk: hgvs_weaver::data::IdentifierKind,
-    ) -> Result<Vec<(hgvs_weaver::data::IdentifierType, String)>, HgvsError> {
-        if tk == hgvs_weaver::data::IdentifierKind::Protein && symbol == "NM_0001.3" {
-            return Ok(vec![(
-                hgvs_weaver::data::IdentifierType::ProteinAccession,
-                "NP_0001.1".to_string(),
-            )]);
-        }
-        Ok(vec![(
-            hgvs_weaver::data::IdentifierType::Unknown,
-            symbol.to_string(),
-        )])
-    }
-
-    fn get_identifier_type(
-        &self,
-        _identifier: &str,
-    ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
-        Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
+        .protein_for("NM_0001.3", "NP_0001.1")
 }
 
 #[test]
 fn test_mapper_c_to_p_start_codon_subst() {
-    let hdp = MockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // c.1A>T changes ATG(Met) → TTG(Leu): predicts the specific amino acid change p.(Met1Leu)
@@ -99,7 +36,7 @@ fn test_mapper_c_to_p_start_codon_subst() {
 
 #[test]
 fn test_mapper_c_to_p_start_codon_del() {
-    let hdp = MockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // c.2del removes 'T' from ATG start codon → frameshift from position 1
@@ -116,7 +53,7 @@ fn test_mapper_c_to_p_start_codon_del() {
 
 #[test]
 fn test_mapper_c_to_p_missense() {
-    let hdp = MockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // Mock CDS: ATG(Met1) ATG(Met2) CAT(His3) GCA(Ala4)...
@@ -132,7 +69,7 @@ fn test_mapper_c_to_p_missense() {
 
 #[test]
 fn test_mapper_c_to_p_frameshift() {
-    let hdp = MockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // c.7del removes C from codon 3 (CAT=His), causing a frameshift: p.(His3...fsTer...)
@@ -152,7 +89,7 @@ fn test_mapper_c_to_p_frameshift() {
 
 #[test]
 fn test_mapper_g_to_c_3utr() {
-    let hdp = MockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // Genomic 1052 (index 1051) -> n.52 -> c.*1
@@ -165,7 +102,7 @@ fn test_mapper_g_to_c_3utr() {
 
 #[test]
 fn test_mapper_c_to_g_3utr() {
-    let hdp = MockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     let var_c = parse_hgvs_variant("NM_0001.3:c.*1A>T").unwrap();

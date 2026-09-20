@@ -7,19 +7,21 @@
 //! fixtures here deliberately use a CDS that does not start at index 0 and a
 //! minus-strand transcript.
 
-use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
-    TranscriptSearch,
-};
+mod support;
+
+use hgvs_weaver::data::{Strand, TranscriptData};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
-use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::structs::IntervalSpdi;
 use hgvs_weaver::SequenceVariant;
+use support::{single_exon_transcript, Provider};
 
 const REF_AC: &str = "NC_TEST.1";
+fn genome() -> String {
+    "ACGT".repeat(500)
+}
+
 /// A second reference: 5 T, three copies of GCCATT, 5 A, then C to 100 bases.
 /// GCCATT is not its own reverse complement (that is AATGGC), so a repeat on
 /// the minus strand reads differently from the genome.
@@ -42,114 +44,54 @@ fn transcript_on(
     cds_start: i32,
     cds_end: i32,
 ) -> TranscriptData {
-    TranscriptData {
-        ac: ac.to_string(),
-        gene: "TEST".to_string(),
-        cds_start_index: Some(TranscriptPos(cds_start)),
-        cds_end_index: Some(TranscriptPos(cds_end)),
-        strand,
-        reference_accession: reference.to_string(),
-        exons: vec![ExonData {
-            transcript_start: TranscriptPos(0),
-            transcript_end: TranscriptPos(100),
-            reference_start: GenomicPos(g0),
-            reference_end: GenomicPos(g0 + 99),
-            alt_strand: strand,
-            cigar: "100M".to_string(),
-        }],
+    single_exon_transcript(ac, reference, g0, strand, cds_start, cds_end, 100)
+}
+
+/// The bases of `transcript`'s one exon, read from its genome on its strand.
+fn transcript_sequence(transcript: &TranscriptData) -> String {
+    let genome = if transcript.reference_accession == REP_AC {
+        rep_genome()
+    } else {
+        genome()
+    };
+    let exon = &transcript.exons[0];
+    let exonic = &genome[exon.reference_start.0 as usize..=exon.reference_end.0 as usize];
+    match transcript.strand {
+        Strand::Plus => exonic.to_string(),
+        Strand::Minus => exonic
+            .chars()
+            .rev()
+            .map(|c| match c {
+                'A' => 'T',
+                'C' => 'G',
+                'G' => 'C',
+                'T' => 'A',
+                other => other,
+            })
+            .collect(),
     }
 }
 
-struct Provider;
-
-impl Provider {
-    fn genome() -> String {
-        "ACGT".repeat(500)
+fn provider() -> Provider {
+    let transcripts = [
+        // CDS at transcript indices 10..=39 on the plus strand.
+        transcript("NM_PLUS10.1", Strand::Plus, 10, 39),
+        // CDS spanning the whole transcript on the plus strand.
+        transcript("NM_PLUS0.1", Strand::Plus, 0, 99),
+        // CDS at transcript indices 10..=39 on the minus strand.
+        transcript("NM_MINUS10.1", Strand::Minus, 10, 39),
+        // The whole of NC_REP.1, read on the minus strand, CDS the whole transcript.
+        transcript_on("NM_REP_MINUS.1", REP_AC, 0, Strand::Minus, 0, 99),
+    ];
+    let mut provider = Provider::new()
+        .sequence(REF_AC, &genome())
+        .sequence(REP_AC, &rep_genome());
+    for transcript in transcripts {
+        provider = provider
+            .sequence(&transcript.ac, &transcript_sequence(&transcript))
+            .transcript(transcript);
     }
-}
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        match ac {
-            // CDS at transcript indices 10..=39 on the plus strand.
-            "NM_PLUS10.1" => Ok(transcript(ac, Strand::Plus, 10, 39)),
-            // CDS spanning the whole transcript on the plus strand.
-            "NM_PLUS0.1" => Ok(transcript(ac, Strand::Plus, 0, 99)),
-            // CDS at transcript indices 10..=39 on the minus strand.
-            "NM_MINUS10.1" => Ok(transcript(ac, Strand::Minus, 10, 39)),
-            // The whole of NC_REP.1, read on the minus strand, CDS the whole transcript.
-            "NM_REP_MINUS.1" => Ok(transcript_on(ac, REP_AC, 0, Strand::Minus, 0, 99)),
-            _ => Err(HgvsError::DataProviderError(format!("unknown {}", ac))),
-        }
-    }
-
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq: String = if ac == REF_AC {
-            Self::genome()
-        } else if ac == REP_AC {
-            rep_genome()
-        } else {
-            let tx = self.get_transcript(ac, None)?;
-            let genome = if tx.reference_accession == REP_AC {
-                rep_genome()
-            } else {
-                Self::genome()
-            };
-            let exon = &tx.exons[0];
-            let exonic = &genome[exon.reference_start.0 as usize..=exon.reference_end.0 as usize];
-            match tx.strand {
-                Strand::Plus => exonic.to_string(),
-                Strand::Minus => exonic
-                    .chars()
-                    .rev()
-                    .map(|c| match c {
-                        'A' => 'T',
-                        'C' => 'G',
-                        'G' => 'C',
-                        'T' => 'A',
-                        other => other,
-                    })
-                    .collect(),
-            }
-        };
-        let s = start.max(0) as usize;
-        let e = end.map_or(seq.len(), |e| (e as usize).min(seq.len()));
-        Ok(seq[s.min(e)..e].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        _symbol: &str,
-        _source: IdentifierKind,
-        _target: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(if id.starts_with("NC_") {
-            IdentifierType::GenomicAccession
-        } else {
-            IdentifierType::TranscriptAccession
-        })
-    }
-}
-
-impl TranscriptSearch for Provider {
-    fn get_transcripts_for_region(
-        &self,
-        _chrom: &str,
-        _start: i32,
-        _end: i32,
-    ) -> Result<Vec<String>, HgvsError> {
-        Ok(vec![])
-    }
+    provider
 }
 
 fn coding_interval(hgvs: &str) -> hgvs_weaver::structs::BaseOffsetInterval {
@@ -163,7 +105,7 @@ fn coding_interval(hgvs: &str) -> hgvs_weaver::structs::BaseOffsetInterval {
 fn spdi_interval_honours_cds_end_anchor() {
     // c.*1 is the base after the stop codon: transcript index 40, genomic 1040.
     let iv = coding_interval("NM_PLUS10.1:c.*1A>G");
-    let got = iv.spdi_interval("NM_PLUS10.1", &Provider).unwrap();
+    let got = iv.spdi_interval("NM_PLUS10.1", &provider()).unwrap();
     assert_eq!(got, (1040, 1041, REF_AC.to_string()));
 }
 
@@ -171,7 +113,7 @@ fn spdi_interval_honours_cds_end_anchor() {
 fn spdi_interval_honours_non_zero_cds_start() {
     // c.1 is transcript index 10, genomic 1010.
     let iv = coding_interval("NM_PLUS10.1:c.1A>G");
-    let got = iv.spdi_interval("NM_PLUS10.1", &Provider).unwrap();
+    let got = iv.spdi_interval("NM_PLUS10.1", &provider()).unwrap();
     assert_eq!(got, (1010, 1011, REF_AC.to_string()));
 }
 
@@ -179,12 +121,12 @@ fn spdi_interval_honours_non_zero_cds_start() {
 fn spdi_interval_on_minus_strand() {
     // Minus strand: transcript index 0 is genomic 1099, so c.1 (index 10) is 1089.
     let iv = coding_interval("NM_MINUS10.1:c.1A>G");
-    let got = iv.spdi_interval("NM_MINUS10.1", &Provider).unwrap();
+    let got = iv.spdi_interval("NM_MINUS10.1", &provider()).unwrap();
     assert_eq!(got, (1089, 1090, REF_AC.to_string()));
 
     // A multi-base interval is reported low-to-high on the genome.
     let iv = coding_interval("NM_MINUS10.1:c.1_3del");
-    let got = iv.spdi_interval("NM_MINUS10.1", &Provider).unwrap();
+    let got = iv.spdi_interval("NM_MINUS10.1", &provider()).unwrap();
     assert_eq!(got, (1087, 1090, REF_AC.to_string()));
 }
 
@@ -192,7 +134,7 @@ fn spdi_interval_on_minus_strand() {
 fn spdi_interval_applies_intronic_offset_by_strand() {
     // On the minus strand a +5 intronic offset moves towards lower genomic indices.
     let iv = coding_interval("NM_MINUS10.1:c.1+5A>G");
-    let got = iv.spdi_interval("NM_MINUS10.1", &Provider).unwrap();
+    let got = iv.spdi_interval("NM_MINUS10.1", &provider()).unwrap();
     assert_eq!(got, (1084, 1085, REF_AC.to_string()));
 }
 
@@ -202,8 +144,9 @@ fn coding_variants_on_transcripts_with_different_cds_starts_are_equivalent() {
     // and c.41 on the whole-transcript CDS.
     let v1 = parse_hgvs_variant("NM_PLUS10.1:c.*1A>G").unwrap();
     let v2 = parse_hgvs_variant("NM_PLUS0.1:c.41A>G").unwrap();
-    let eq_mapper = VariantMapper::new(&Provider);
-    let eq = VariantEquivalence::new(&eq_mapper, &Provider);
+    let hdp = provider();
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &hdp);
     assert_eq!(
         eq.equivalent_level(&v1, &v2).unwrap(),
         EquivalenceLevel::Analogous
@@ -219,7 +162,8 @@ fn coding_variants_on_transcripts_with_different_cds_starts_are_equivalent() {
 
 #[test]
 fn validate_checks_stated_reference_through_transcript_coordinates() {
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     let ok = |hgvs: &str| mapper.validate(&parse_hgvs_variant(hgvs).unwrap()).unwrap();
 
     // Plus strand, CDS at index 10: c.1 is transcript index 10, genome[1010] = G.
@@ -241,7 +185,8 @@ fn normalize_leaves_intronic_coding_variants_as_written() {
     // An insertion straddling an exon boundary has no transcript-space
     // normalisation. It must come back unchanged, not as an error, so that
     // c_to_p (p.?) and to_spdi (via g.) still run on it.
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     for hgvs in [
         "NM_PLUS10.1:c.30_30+1insA",
         "NM_MINUS10.1:c.1+5del",
@@ -255,7 +200,8 @@ fn normalize_leaves_intronic_coding_variants_as_written() {
 #[test]
 fn normalize_converts_genomic_and_noncoding_insertions_to_duplications() {
     // Reference is ACGT repeated: genomic index 1010 is G, 1011 is T.
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     let norm = |hgvs: &str| {
         mapper
             .normalize_variant(parse_hgvs_variant(hgvs).unwrap())
@@ -288,7 +234,8 @@ fn plain_spdi_places_an_insertion_at_its_second_flank() {
     // SPDI counts the bases before the change, so an insertion between
     // g.1012 and g.1013 sits at 0-based position 1012, like a duplication of
     // g.1012 does. Reference here: index 1011 is T, 1012 is A.
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     let spdi = |hgvs: &str| {
         mapper
             .to_spdi(&parse_hgvs_variant(hgvs).unwrap(), false)
@@ -304,7 +251,8 @@ fn plain_spdi_places_an_insertion_at_its_second_flank() {
 fn mitochondrial_variants_share_the_genomic_implementation() {
     // m. is g. on the mitochondrial reference: same normalisation, SPDI,
     // validation and equivalence, written back with the m. letter.
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     let norm = |hgvs: &str| {
         mapper
             .normalize_variant(parse_hgvs_variant(hgvs).unwrap())
@@ -330,9 +278,9 @@ fn mitochondrial_variants_share_the_genomic_implementation() {
     assert!(valid("NC_TEST.1:m.1013A>G"));
     assert!(!valid("NC_TEST.1:m.1013C>G"));
 
-    let eq_mapper = VariantMapper::new(&Provider);
+    let eq_mapper = VariantMapper::new(&hdp);
 
-    let eq = VariantEquivalence::new(&eq_mapper, &Provider);
+    let eq = VariantEquivalence::new(&eq_mapper, &hdp);
     let m = parse_hgvs_variant("NC_TEST.1:m.1013A>G").unwrap();
     let g = parse_hgvs_variant("NC_TEST.1:g.1013A>G").unwrap();
     assert_eq!(
@@ -343,7 +291,8 @@ fn mitochondrial_variants_share_the_genomic_implementation() {
 
 #[test]
 fn canonical_alleles_make_spdi_vrs_and_equivalence_one_value() {
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     let parse = |h: &str| parse_hgvs_variant(h).unwrap();
     // Two spellings of one change in the ACGT repeat: inserting ACGT anywhere
     // in the run, or duplicating any copy, is the same allele.
@@ -377,14 +326,14 @@ fn canonical_alleles_make_spdi_vrs_and_equivalence_one_value() {
     // No provider hook here, so the refget accession is computed from the sequence.
     assert_eq!(
         vrs_a.location.sequence_reference.refget_accession,
-        hgvs_weaver::vrs::refget_accession(&Provider::genome())
+        hgvs_weaver::vrs::refget_accession(&genome())
     );
     assert_eq!(vrs_a.expressions[0].syntax, "hgvs.g");
     assert_eq!(vrs_c.expressions[0].value, "NM_PLUS0.1:c.12_13insACGT");
 
     // Equivalence rides on the same value.
-    let eq_mapper = VariantMapper::new(&Provider);
-    let eq = VariantEquivalence::new(&eq_mapper, &Provider);
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &hdp);
     assert!(eq
         .equivalent(
             &parse("NC_TEST.1:g.1012_1013insACGT"),
@@ -403,7 +352,8 @@ fn canonical_alleles_make_spdi_vrs_and_equivalence_one_value() {
 fn repeat_on_the_minus_strand_projects_to_its_whole_run() {
     // On the transcript (reverse complement of NC_REP.1), the GCCATT run reads
     // as AATGGC x3 starting at transcript index 77, i.e. c.78.
-    let mapper = VariantMapper::new(&Provider);
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
     let parse = |h: &str| parse_hgvs_variant(h).unwrap();
     let SequenceVariant::Coding(c) = parse("NM_REP_MINUS.1:c.78AATGGC[4]") else {
         panic!()

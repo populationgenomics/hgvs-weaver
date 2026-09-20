@@ -1,116 +1,45 @@
-use hgvs_weaver::data::{ExonData, TranscriptData};
-use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
+mod support;
+
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::*;
+use support::{exon, transcript, Provider};
 
-struct NormMockDataProvider;
+/// `(transcript, sequence, CDS start index, CDS end index)`. Every transcript
+/// is one plus-strand exon whose alignment is marked minus, as the original
+/// fixture had it.
+const TRANSCRIPTS: &[(&str, &str, i32, i32)] = &[
+    // Ten A's, then ATG AAA TAG (Met Lys *), then ATGC repeated.
+    ("NM_0001.1", "AAAAAAAAAAATGAAATAG", 10, 19),
+    ("NM_SHIFT_BUG", "CCATTTTTTT", 0, 30),
+    ("NM_PREMATURE_STOP", "ATGCAACAAGATGATTAA", 0, 18), // M Q Q D D * (18 bases)
+    ("NM_INFRAME_DEL", "ATGGCTGCATGCGATTAA", 0, 18),    // M A B C D * (18 bases)
+    ("NM_CTERM_SUBST", "ATGGCTGCATGCGATTAA", 0, 18),    // M A B C D *
+    ("NM_REPEAT_EXP", "ATGGCTGCTGCTTTTTAA", 0, 18),     // M A A A F *
+    ("NM_REPEAT_CON", "ATGGCAGCAGCAGCATTTTAA", 0, 21),  // M A A A A F *
+];
 
-impl DataProvider for NormMockDataProvider {
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: hgvs_weaver::data::IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let base_seq = if ac == "NM_SHIFT_BUG" {
-            "CCATTTTTTT".to_string()
-        } else if ac == "NM_PREMATURE_STOP" {
-            "ATGCAACAAGATGATTAA".to_string()
-        } else if ac == "NM_INFRAME_DEL" || ac == "NM_CTERM_SUBST" {
-            "ATGGCTGCATGCGATTAA".to_string()
-        } else if ac == "NM_REPEAT_EXP" {
-            "ATGGCTGCTGCTTTTTAA".to_string()
-        } else if ac == "NM_REPEAT_CON" {
-            "ATGGCAGCAGCAGCATTTTAA".to_string()
+fn provider() -> Provider {
+    let mut provider = Provider::new().protein_for("NM_0001.1", "NP_0001.1");
+    for &(ac, seq, cds_start, cds_end) in TRANSCRIPTS {
+        let seq = if ac == "NM_0001.1" {
+            format!("{seq}{}", "ATGC".repeat(20))
         } else {
-            let mut s = String::new();
-            s.push_str("AAAAAAAAAA"); // 10 A's
-            s.push_str("ATGAAATAG");
-            for _ in 0..20 {
-                s.push_str("ATGC");
-            }
-            s
+            seq.to_string()
         };
-
-        let s = start as usize;
-        let e = end.map_or(base_seq.len(), |e| e as usize);
-        if s > base_seq.len() {
-            return Ok("".into());
-        }
-        let e = e.min(base_seq.len());
-        Ok(base_seq[s..e].to_string())
+        provider = provider.sequence(ac, &seq).transcript(transcript(
+            ac,
+            "NC_0001.10",
+            Strand::Plus,
+            Some((cds_start, cds_end)),
+            vec![exon((0, 100), (1000, 1100), Strand::Minus)],
+        ));
     }
-
-    fn get_transcript(
-        &self,
-        transcript_ac: &str,
-        _reference_ac: Option<&str>,
-    ) -> Result<TranscriptData, HgvsError> {
-        let exons = vec![ExonData {
-            transcript_start: TranscriptPos(0),
-            transcript_end: TranscriptPos(100),
-            reference_start: GenomicPos(1000),
-            reference_end: GenomicPos(1100),
-            alt_strand: hgvs_weaver::data::Strand::Minus,
-            cigar: "100M".to_string(),
-        }];
-
-        let (cds_start, cds_end) = match transcript_ac {
-            "NM_0001.1" => (10, 19), // Met Lys *
-            "NM_SHIFT_BUG" => (0, 30),
-            "NM_PREMATURE_STOP" => (0, 18), // M Q Q D D * (18 bases)
-            "NM_INFRAME_DEL" => (0, 18),    // M A B C D * (18 bases)
-            "NM_CTERM_SUBST" => (0, 18),    // M A B C D *
-            "NM_REPEAT_EXP" => (0, 18),     // M A A A F * (ATG GCT GCT GCT TTT TAA)
-            "NM_REPEAT_CON" => (0, 21),     // M A A A A F * (ATG GCA GCA GCA GCA TTT TAA)
-            _ => {
-                return Err(HgvsError::DataProviderError(
-                    "Transcript not found".to_string(),
-                ))
-            }
-        };
-
-        let td = TranscriptData {
-            ac: transcript_ac.to_string(),
-            gene: "NORM".to_string(),
-            cds_start_index: Some(TranscriptPos(cds_start)),
-            cds_end_index: Some(TranscriptPos(cds_end)),
-            strand: hgvs_weaver::data::Strand::Plus,
-            reference_accession: "NC_0001.10".to_string(),
-            exons,
-        };
-        Ok(td)
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        symbol: &str,
-        _sk: hgvs_weaver::data::IdentifierKind,
-        tk: hgvs_weaver::data::IdentifierKind,
-    ) -> Result<Vec<(hgvs_weaver::data::IdentifierType, String)>, HgvsError> {
-        if tk == hgvs_weaver::data::IdentifierKind::Protein && symbol == "NM_0001.1" {
-            return Ok(vec![(
-                hgvs_weaver::data::IdentifierType::ProteinAccession,
-                "NP_0001.1".to_string(),
-            )]);
-        }
-        Ok(vec![(
-            hgvs_weaver::data::IdentifierType::Unknown,
-            symbol.to_string(),
-        )])
-    }
-
-    fn get_identifier_type(
-        &self,
-        _identifier: &str,
-    ) -> Result<hgvs_weaver::data::IdentifierType, HgvsError> {
-        Ok(hgvs_weaver::data::IdentifierType::Unknown)
-    }
+    provider
 }
 
 #[test]
 fn test_nonsense_normalization() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // c.4A>T changes AAA (Lys) to TAA (Stop).
@@ -124,7 +53,7 @@ fn test_nonsense_normalization() {
 
 #[test]
 fn test_extension_normalization() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // c.7T>G changes TAG (Stop) to GAG (Glu).
@@ -138,7 +67,7 @@ fn test_extension_normalization() {
 
 #[test]
 fn test_normalization_shift_bug() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_SHIFT_BUG: Sequence "CCAT...". UTR=0.
@@ -166,7 +95,7 @@ fn test_normalization_shift_bug() {
 
 #[test]
 fn test_premature_stop_formatting() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_PREMATURE_STOP: M Q Q D D *.
@@ -185,7 +114,7 @@ fn test_premature_stop_formatting() {
 
 #[test]
 fn test_inframe_deletion_tail() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_INFRAME_DEL: M A A C D *.
@@ -204,7 +133,7 @@ fn test_inframe_deletion_tail() {
 
 #[test]
 fn test_cterm_substitution() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_CTERM_SUBST: M A B C D *.
@@ -223,7 +152,7 @@ fn test_cterm_substitution() {
 
 #[test]
 fn test_repeat_expansion() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_REPEAT_EXP: M A A A *. (ATG GCT GCT GCT TAA).
@@ -244,7 +173,7 @@ fn test_repeat_expansion() {
 
 #[test]
 fn test_repeat_contraction() {
-    let hdp = NormMockDataProvider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_REPEAT_CON: M A A A A *. (ATG GCA GCA GCA GCA TAA).
