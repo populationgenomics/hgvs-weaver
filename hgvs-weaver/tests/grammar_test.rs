@@ -129,6 +129,7 @@ const KNOWN_DIFFERENCES: &[(&str, &str)] = &[
 fn biocommons_grammar_table() {
     let text = fs::read_to_string("../tests/data/grammar_test.tsv").expect("grammar table");
     let mut checked = 0;
+    let mut rules_seen = std::collections::BTreeSet::new();
     let mut unexpected: Vec<String> = Vec::new();
     for line in text.lines().skip(1) {
         if line.starts_with('#') || line.trim().is_empty() {
@@ -140,6 +141,7 @@ fn biocommons_grammar_table() {
         }
         let (func, tests, valid) = (cols[0], cols[1], cols[2] == "True");
         let Some(r) = rule(func) else { continue };
+        rules_seen.insert(func);
         // `InType` says how the Test column is split: a `string` is one input
         // per character, a `list` one per `|`.
         let inputs: Vec<String> = if cols.get(3).copied() == Some("string") {
@@ -165,6 +167,11 @@ fn biocommons_grammar_table() {
             }
         }
     }
+    // Run with `--nocapture` to see the corpus size.
+    println!(
+        "grammar table: {checked} inputs over {} shared rules",
+        rules_seen.len()
+    );
     assert!(checked > 100, "only {checked} inputs checked");
     assert!(
         unexpected.is_empty(),

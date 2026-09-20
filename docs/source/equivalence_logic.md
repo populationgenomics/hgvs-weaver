@@ -1,119 +1,117 @@
-# Variant Equivalence Algorithm
+# How Equivalence Is Decided
 
-This document outlines the algorithm used by `hgvs-weaver` to determine if two variants are biologically equivalent. The `VariantEquivalence` struct manages this process, handling gene symbol expansion, normalization, and cross-coordinate mapping.
+`VariantMapper.equivalent_level(a, b, searcher)` says whether two HGVS descriptions name the same
+change. It answers at one of four levels:
 
-## Overview
+| Level         | Meaning                                                                                  |
+| :------------ | :--------------------------------------------------------------------------------------- |
+| `Identity`    | The same text after spelling normalisation, or a prediction written exactly as given.     |
+| `Analogous`   | Different text, the same change: the same allele, or the same protein left behind.        |
+| `Different`   | Both descriptions are understood and they name different changes.                        |
+| `Unknown`     | A description could not be judged (an error from the data provider, a missing sequence). |
 
-The equivalence check proceeds in two main phases:
+`equivalent(a, b, searcher)` is `Identity` or `Analogous`.
 
-1. **Gene Symbol Expansion**: If a variant uses a gene symbol (e.g., `BRAF:c.1799T>A`) instead of an accession, it is resolved to all valid accessions for that gene.
-2. **Comparison**: All combinations of the expanded variants are compared using strategies specific to their coordinate types.
+## Before comparing
 
-## Algorithm Flowchart
+- A gene symbol in place of an accession is expanded to every accession the provider maps it to,
+  of the kind the coordinate system needs; the pair is equivalent if any expansion is.
+- An `m.` variant is compared as the `g.` variant it is on the mitochondrial reference.
+- An `r.` variant is compared as its `c.` or `n.` spelling (`r_to_c`, `r_to_n`); `r.0`, `r.spl` and
+  the other statements about a transcript are compared as text.
+
+## The rules
 
 ```mermaid
 flowchart TD
-    Start(["Start: Compare var1, var2"]) --> Expansion1[Expand var1]
-    Expansion1 --> Expansion2[Expand var2]
-    Expansion2 --> LoopStart{"For each v1 in vars1\nFor each v2 in vars2"}
-
-    LoopStart -->|Next Pair| CheckType{Check Types}
-
-    CheckType -- Both Genomic (g.) --> NvsN[Normalize & String Compare]
-    CheckType -- Both Coding (c.) --> CvsC["Map c. to g. \nNormalize & String Compare"]
-    CheckType -- g. vs c. --> GvsC["Map c. to g. \nNormalize & String Compare"]
-
-    CheckType -- g. vs p. --> GvsP["Map g. to all c. (transcripts)\nProject c. to p.\nCompare p. strings"]
-    CheckType -- c. vs p. --> CvsP["Project c. to p.\nCompare p. strings"]
-    CheckType -- Both Protein (p.) --> PvsP[Direct String Compare]
-
-    CheckType -- Other/Mismatch --> Fallback[Simple String Compare]
-
-    NvsN --> IsMatch{Match?}
-    CvsC --> IsMatch
-    GvsC --> IsMatch
-    GvsP --> IsMatch
-    CvsP --> IsMatch
-    PvsP --> IsMatch
-    Fallback --> IsMatch
-
-    IsMatch -- Yes --> ReturnTrue([Return TRUE])
-    IsMatch -- No --> LoopStart
-
-    LoopStart -- No More Pairs --> ReturnFalse([Return FALSE])
-
-    subgraph SymbolExpansion [Gene Symbol Expansion]
-        direction TB
-        Input[Variant] --> IsSymbol{Is Gene Symbol?}
-        IsSymbol -- Yes --> GetKind{Target Kind?}
-        GetKind -- Protein --> FetchP[Fetch Protein Accessions]
-        GetKind -- Transcript --> FetchT[Fetch Transcript Accessions]
-        GetKind -- Genomic --> FetchG[Fetch Genomic Accessions]
-
-        FetchP --> Filter[Filter by Compatibility]
-        FetchT --> Filter
-        FetchG --> Filter
-
-        Filter --> Output[List of Accession-based Variants]
-        IsSymbol -- No --> AsIs[Return Original Variant]
-    end
+    Start(["a, b"]) --> Text{"same text after<br/>spelling normalisation?"}
+    Text -- yes --> Identity([Identity])
+    Text -- no --> Kind{kinds}
+    Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
+    Proj -- yes --> Identity
+    Proj -- no --> Allele{"canonical alleles<br/>equal?"}
+    Kind -- "nucleotide, protein" --> Pred{"prediction written<br/>exactly as given?"}
+    Pred -- yes --> Identity
+    Pred -- no --> Spell{"same description,<br/>other spelling?"}
+    Spell -- yes --> Analogous([Analogous])
+    Spell -- no --> Left{"protein the variant leaves<br/>= protein the description leaves?"}
+    Kind -- "protein, protein" --> Base{"same accession<br/>(any version)?"}
+    Base -- no --> Different([Different])
+    Base -- yes --> Left2{"same spelling, or<br/>same protein left?"}
+    Allele -- yes --> Analogous
+    Allele -- no --> Different
+    Left -- yes --> Analogous
+    Left -- no --> Different
+    Left2 -- yes --> Analogous
+    Left2 -- no --> Different
 ```
 
-## Detailed Steps
+### Nucleotide against nucleotide
 
-### 1. Gene Symbol Expansion
+Two `g.`, `c.` or `n.` variants are the same change exactly when their **canonical alleles** are
+equal. A canonical allele is the change projected onto the genomic reference, trimmed to what it
+alters, then widened over the whole region in which it could equally be written (VRS/VOCA
+"fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
+`g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have
+one allele. Edits without an allele (conversions, copy numbers) are `Different` unless the text
+matches.
 
-Before comparison, each variant is checked to see if it uses a gene symbol (e.g., `BRAF`) via `DataProvider::get_identifier_type`.
+### Nucleotide against protein
 
-- **Smart Selection**: The expansion targets a specific accession type based on the variant's coordinate system:
-    - `p.` variants $\rightarrow$ `ProteinAccession`
-    - `c.` / `n.` / `r.` variants $\rightarrow$ `TranscriptAccession`
-    - `g.` / `m.` variants $\rightarrow$ `GenomicAccession`
-- **Compatibility Filter**: Returned accessions are filtered to ensure they match the variant type (e.g., ensuring a `c.` variant doesn't get assigned a protein accession).
+The nucleotide variant is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or
+`n.` is projected and the `searcher` names the transcripts). For each, the predicted `p.`
+description is compared with the given one: written exactly as given it is `Identity`
+(`c.1799T>A` against `p.(Val600Glu)`); the same description in another spelling is `Analogous`
+(`p.Val600Glu`, `p.V600E`). Failing that, the **protein the variant leaves** (`predicted_protein`) is
+compared with the **protein the description leaves** (below); if they can be the same protein the
+pair is `Analogous`.
 
-### 2. Comparison Strategies
+### Protein against protein
 
-Code: [hgvs-weaver/src/equivalence.rs](../../hgvs-weaver/src/equivalence.rs)
+Two `p.` descriptions must be on the same protein accession, any version (ClinVar often names an
+older `NP_` version). They are `Analogous` if they are the same description in another spelling, or
+if the proteins they leave can be the same.
 
-The system now supports granular equivalence levels:
+### The protein a description leaves
 
-### HGVS Variant Equivalence Examples
+Every `p.` description that says something about the sequence is turned into the protein it
+leaves, in one-letter code, read against the reference protein:
 
-| Equivalence Level | Comparison Type | Scenario Description      | Example Variant A | Example Variant B       | Notes                                                                                                       |
-| :---------------- | :-------------- | :------------------------ | :---------------- | :---------------------- | :---------------------------------------------------------------------------------------------------------- |
-| **`Identity`**    | `c.` vs `c.`    | **Exact Match**           | `c.123A>G`        | `c.123A>G`              | Strings match after basic normalization.                                                                    |
-|                   | `g.` vs `c.`    | **Transcript Location**   | `g.5000A>G`       | `c.123A>G`              | `g.` variant projects exactly to the `c.` variant on the transcript.                                        |
-|                   | `c.` vs `p.`    | **Predicted Consequence** | `c.123A>G`        | `p.(Glu41Gly)`          | The *predicted* protein consequence of `c.` matches `p.` exactly (including parentheses).                   |
-| **`Analogous`**   | `c.` vs `c.`    | **Repeat Shifting**       | `c.4_6del`        | `c.10_12del`            | Deleting first vs third repeat unit results in identical transcript sequence.                               |
-|                   | `p.` vs `p.`    | **Insertion Offset**      | `p.Tyr165Ter`     | `p.Ala164_Tyr165insTer` | Different descriptions of the same truncation event.                                                        |
-|                   | `c.` vs `p.`    | **Observed vs Predicted** | `c.123A>G`        | `p.Glu41Gly`            | `c.` predicts `p.(Glu41Gly)`; matches observed `p.Glu41Gly` biologically (ignoring prediction brackets).    |
-|                   | `g.` vs `g.`    | **Indel Redundancy**      | `g.10_11insA`     | `g.10dup`               | Insertion of `A` after `A` is biologically identical to duplicating `A`.                                    |
-| **`Different`**   | `c.` vs `c.`    | **Distinct Edits**        | `c.123A>G`        | `c.123A>T`              | Different nucleotide substitutions.                                                                         |
-|                   | `c.` vs `p.`    | **Effect Mismatch**       | `c.123A>G`        | `p.Glu41Val`            | `c.` predicts `p.Glu41Gly`, but `p.` is `Val`.                                                              |
-|                   | `c.` vs `p.`    | **Normalization Clash**   | `c.4_6del`        | `p.Gln4del`             | *Known Issue:* Weaver generates `p.Gln4Ter` (Substitution) instead of `p.Gln4del` (Deletion) for this case. |
-| **`Unknown`**     | `c.` vs `?`     | **Missing Data**          | `c.123A>G`        | `p.?`                   | Transcript or protein sequence unavailable for projection.                                                  |
+- a substitution, deletion, insertion, duplication, delins, repeat or identity is applied to the
+  reference; a **stop** among the new residues ends the protein there (`p.Tyr165Ter`,
+  `p.Ala164_Tyr165insTer` and `p.Tyr164_Tyr165delinsTer` all leave the protein ended after 164);
+- a frameshift `p.Arg97ProfsTer4` leaves the reference up to 96, then `P`, then two residues it does
+  not name (written `X`, which matches any residue), then ends;
+- a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop
+  loss written as a substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is
+  known, then more residues in unknown number. An open outcome matches any outcome it is a prefix
+  of;
+- `p.0` and `p.0?` leave no protein; `p.=` leaves the reference;
+- `p.?` says nothing and matches nothing; `p.Met1?` and its like are **anchored**: they say only
+  where the change starts, and match an outcome whose change starts at that residue.
 
-#### Genomic vs. Genomic / Coding vs. Coding / NonCoding vs. NonCoding
+Judging needs the protein sequence. With no sequence to read the description against the result is
+an error (`Unknown` in the harness), not a guess from the residues the descriptions happen to name.
 
-1. **3'-Most Normalization**: Variants are shifted to their most 3' position.
-2. **Strand-Aware Projection**:
-   - Variants are projected onto a local sequence window (`±2` bases).
-   - **Crucial**: If the variant is on the minus strand, edits (like `insA` or `T>C`) are reverse-complemented before projection onto the genomic reference. This ensures that `c.35_36insT` (minus strand) defines an insertion of `T` on the *transcript*, which corresponds to an insertion of `A` on the *genome*, correctly matching `g.dupA` if the reference is `A`.
-3. **Implicit Sequence Filling**: Deletions/Duplications by length are filled with reference sequence.
-4. **Unification**: The projected sequences are compared using `analogous_edit::reconcile_projections`.
+## Examples
 
-#### Protein vs. Protein (`p_vs_p_equivalent`)
+| Level        | A                              | B                                    | Why                                                        |
+| :----------- | :----------------------------- | :----------------------------------- | :--------------------------------------------------------- |
+| `Identity`   | `c.123A>G`                     | `c.123A>G`                           | Same text.                                                 |
+| `Identity`   | `NC_…:g.5000A>G`               | `NM_…:c.123A>G`                      | The `c.` projects to exactly that `g.`.                    |
+| `Identity`   | `c.1799T>A`                    | `p.(Val600Glu)`                      | The prediction, written as predicted.                      |
+| `Analogous`  | `c.1799T>A`                    | `p.Val600Glu`                        | The same description, observed rather than predicted.      |
+| `Analogous`  | `c.4_6del`                     | `c.10_12del`                         | One allele: the same trinucleotide run, one unit shorter.  |
+| `Analogous`  | `g.10_11insA`                  | `g.10dup`                            | One allele.                                                |
+| `Analogous`  | `p.Tyr165Ter`                  | `p.Ala164_Tyr165insTer`              | Both leave the protein ended after 164.                    |
+| `Analogous`  | `c.495_498del`                 | `p.Ala164_Tyr165insTer`              | The frameshift's first stop is at 165; same protein left.  |
+| `Analogous`  | `c.567delG`                    | `p.Ala190Profs`                      | The frameshift starts Ala190Pro; the rest is unknown.      |
+| `Analogous`  | `c.1796A>G`                    | `p.Ter599Trp`                        | A stop loss, written as ClinVar writes it.                 |
+| `Analogous`  | `p.490PRS[1]`                  | `p.Pro493_Ser495del`                 | One copy of a three-residue unit removed, either way.      |
+| `Different`  | `c.123A>G`                     | `c.123A>T`                           | Different alleles.                                         |
+| `Different`  | `c.1799T>A`                    | `p.Val600Lys`                        | Different protein left.                                    |
+| `Different`  | `p.Arg97ProfsTer4`             | `p.Arg97_Arg97delinsProAlaValLeuTer` | One residue longer before the stop.                        |
+| `Different`  | `c.-3_13dup` (weaver `p.Met1?`) | `p.Leu5fs`                          | A statement of not knowing does not match a commitment.    |
+| `Unknown`    | `c.123A>G`                     | `p.Val41Gly`                         | The provider has no sequence for the protein.              |
 
-1. **Residue Unification**:
-   - Amino acids are parsed into `ResidueToken`s (e.g., `Known(Ala)`, `Unknown(Xaa, 1)`).
-   - Variants are projected onto a window around the edit.
-   - Using `UnificationEnv`, ambiguous tokens (`?`, `Xaa`) are unified with specific residues if a consistent mapping exists (e.g., `Xaa` can become `Ala`).
-2. **Sequence Identity Check**:
-   - Checks if the final protein sequences are identical.
-   - Handles localized redundancy (e.g., `Ala2_Ala3dup` vs `Ala3_Ala4dup` in a poly-Ala tract).
-
-#### Cross-Coordinate Comparisons (g. vs c., c. vs p., etc.)
-
-1. **Mapping**: Variants are mapped to a common coordinate system (usually Genomic for NA, Protein for AA).
-2. **Projection**: Once mapped, the standard comparison logic (Projection + Unification) is applied.
-3. **Transcript Mismatch**: If a `c.` variant implies a transcript sequence that differs from the reference (e.g., `insA` where Ref is `G`), it is flagged as `Different` unless the user explicitly allows mismatches (though `weaver` defaults to strict checks).
+Code: [hgvs-weaver/src/equivalence.rs](../../hgvs-weaver/src/equivalence.rs).

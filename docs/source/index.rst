@@ -11,11 +11,12 @@ weaver documentation
    :alt: weaver hex sticker
    :align: center
 
-Welcome to the documentation for `weaver` a Rust-based HGVS variant parser and validator library for Python.
+`weaver` parses, projects, normalises and compares HGVS variant descriptions, and renders them as SPDI and GA4GH VRS. The core is Rust; this is the Python package.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
    readme
+   equivalence_logic
    api

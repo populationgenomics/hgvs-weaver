@@ -402,7 +402,7 @@ def main() -> None:
         *fh_rows,
         "",
         "",
-        f"RefSeq Data Mismatches: {rs_ref_mismatch:,} ({rs_ref_mismatch / total * 100:.1f}%)",
+        f"Transcripts absent from the RefSeq annotation (LRG, superseded versions): {rs_ref_mismatch:,} ({rs_ref_mismatch / total * 100:.1f}%)",
         "",
         "#### Protein Translation Agreement",
         "",
