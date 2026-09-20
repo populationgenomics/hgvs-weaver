@@ -783,23 +783,29 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var))]
-    #[doc = "Returns the GA4GH VRS 2.0 Allele for a variant as a dict.\n\nA nucleotide variant is projected to its genomic reference; a protein\nvariant stays on its protein. Either is canonicalised (fully justified\nover its region of ambiguity) and rendered with computed identifiers. The\nsequence is identified by its refget accession, from the Refget given at\nconstruction or computed from the whole sequence.\n\nArgs:\n    var: A g., m., c., n. or p. Variant. Protein variants must describe a\n        sequence: frameshifts, extensions and p.? have no allele. A g. or\n        m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is\n        rendered as given, with Range bounds ([min, max], null when\n        unbounded) and an empty literal state; it is not normalised.\n\nReturns:\n    A dict in the VRS 2.0 Allele schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    #[doc = "Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, or a\nCopyNumberCount for a copy-number edit.\n\nA nucleotide variant is projected to its genomic reference; a protein\nvariant stays on its protein. Either is canonicalised (fully justified\nover its region of ambiguity) and rendered with computed identifiers. The\nsequence is identified by its refget accession, from the Refget given at\nconstruction or computed from the whole sequence.\n\nA g. or m. copy-number edit, g.1000_2000copy3, becomes a CopyNumberCount\nover the range with the count as ``copies``; it is not normalised. The\ndict's ``type`` says which object was returned.\n\nArgs:\n    var: A g., m., c., n. or p. Variant. Protein variants must describe a\n        sequence: frameshifts, extensions and p.? have no allele. A g. or\n        m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is\n        rendered as given, with Range bounds ([min, max], null when\n        unbounded) and an empty literal state; it is not normalised.\n\nReturns:\n    A dict in the VRS 2.0 Allele or CopyNumberCount schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
     fn to_vrs(&self, py: Python, var: &PyVariant) -> PyResult<Py<PyAny>> {
         let mapper = self.mapper();
-        let json_str = mapper.to_vrs(&var.inner).map_err(map_hgvs_error)?.to_json();
+        let json_str = mapper
+            .to_vrs_variation(&var.inner)
+            .map_err(map_hgvs_error)?
+            .to_json();
         let json_mod = py.import("json")?;
         Ok(json_mod.call_method1("loads", (json_str,))?.unbind())
     }
 
     #[pyo3(signature = (var))]
-    #[doc = "Returns the GA4GH VRS computed identifier (ga4gh:VA.<digest>) of a variant.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier.\n\nArgs:\n    var: A g., m., c., n. or p. Variant, as for to_vrs.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    #[doc = "Returns the GA4GH VRS computed identifier of a variant: ga4gh:VA.<digest>\nfor an Allele, ga4gh:CN.<digest> for a copy-number edit.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier.\n\nArgs:\n    var: A g., m., c., n. or p. Variant, as for to_vrs.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
     fn vrs_id(&self, _py: Python, var: &PyVariant) -> PyResult<String> {
         let mapper = self.mapper();
-        Ok(mapper.to_vrs(&var.inner).map_err(map_hgvs_error)?.id)
+        let variation = mapper
+            .to_vrs_variation(&var.inner)
+            .map_err(map_hgvs_error)?;
+        Ok(variation.id().to_string())
     }
 
     #[pyo3(signature = (allele, accession=None))]
-    #[doc = "Returns the Variant a GA4GH VRS 2.0 Allele names.\n\nThe variant is written in HGVS on the allele's own sequence, trimmed to the\nchange and normalised (3'-shifted): g. for a nucleotide sequence, p. for a\nprotein. Literal and ReferenceLengthExpression states are read; Range bounds\nare accepted for a deletion, which comes back as g.(a_b)_(c_d)del.\n\nThe sequence behind the allele's refget accession is named by ``accession``\nwhen given, else looked up through the Refget given at construction; the\ndigest is checked against the sequence either way.\n\nArgs:\n    allele: The Allele as a dict (as to_vrs returns) or a JSON string.\n    accession: The accession of the sequence, when the provider cannot look\n        it up from the refget accession.\n\nRaises:\n    HGVSError: If the allele is malformed, unsupported, or does not match the\n        sequence."]
+    #[doc = "Returns the Variant a GA4GH VRS 2.0 Allele or CopyNumberCount names.\n\nAn Allele is written in HGVS on its own sequence, trimmed to the change and\nnormalised (3'-shifted): g. for a nucleotide sequence, p. for a protein.\nLiteral and ReferenceLengthExpression states are read; Range bounds are\naccepted for a deletion, which comes back as g.(a_b)_(c_d)del. A\nCopyNumberCount comes back as g.<start+1>_<end>copyN; its ``copies`` must\nbe an exact count, as HGVS has no syntax for a range of counts.\n\nThe sequence behind the object's refget accession is named by ``accession``\nwhen given, else looked up through the Refget given at construction; the\ndigest is checked against the sequence either way.\n\nArgs:\n    allele: The Allele or CopyNumberCount as a dict (as to_vrs returns) or a\n        JSON string.\n    accession: The accession of the sequence, when the provider cannot look\n        it up from the refget accession.\n\nRaises:\n    HGVSError: If the object is malformed, unsupported, or does not match the\n        sequence."]
     // Public Python API: a constructor-style name on the mapper, kept as is.
     #[allow(clippy::wrong_self_convention)]
     fn from_vrs(
