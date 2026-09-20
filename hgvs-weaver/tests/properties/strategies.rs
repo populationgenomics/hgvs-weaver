@@ -68,9 +68,8 @@ pub fn seq_and_edit(del_ins_only: bool) -> impl Strategy<Value = (String, Placed
 }
 
 pub fn edit_on_kinds(len: usize, del_ins_only: bool) -> impl Strategy<Value = PlacedHgvs> {
-    let span = (1usize..=len.saturating_sub(2).max(1)).prop_flat_map(move |l| {
-        (0..=len.saturating_sub(l + 1).max(0)).prop_map(move |s| (s, s + l))
-    });
+    let span = (1usize..=len.saturating_sub(2).max(1))
+        .prop_flat_map(move |l| (0..=len.saturating_sub(l + 1)).prop_map(move |s| (s, s + l)));
     let bases = |n: usize| {
         prop::collection::vec(prop::sample::select(BASES.to_vec()), 1..=n)
             .prop_map(|v| v.into_iter().collect::<String>())

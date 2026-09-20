@@ -42,7 +42,7 @@ fn apply_strand_complement(
     strand: crate::data::Strand,
 ) -> crate::edits::NaEdit {
     if strand == crate::data::Strand::Minus {
-        edit.map_sequence(|s| crate::utils::reverse_complement(s))
+        edit.map_sequence(crate::utils::reverse_complement)
     } else {
         edit
     }
@@ -649,6 +649,11 @@ fn relettered_posedit(
         }
     }
     out.edit = relettered(&posedit.edit, letters);
+    // Only r. has a predicted spelling, r.(123a>g); c. and n. cannot carry
+    // the flag, so it is dropped on the way to DNA letters.
+    if matches!(letters, Letters::Dna) {
+        out.predicted = false;
+    }
     Ok(out)
 }
 

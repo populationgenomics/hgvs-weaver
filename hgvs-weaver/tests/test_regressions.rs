@@ -242,7 +242,7 @@ impl DataProvider for DelinsMismatchProvider {
         let effective_end = end.unwrap_or(5000);
         let mut seq = String::with_capacity((effective_end - start) as usize);
         for i in start..effective_end {
-            if i >= 4497 && i <= 4499 {
+            if (4497..=4499).contains(&i) {
                 if i == 4497 {
                     seq.push('C');
                 }
