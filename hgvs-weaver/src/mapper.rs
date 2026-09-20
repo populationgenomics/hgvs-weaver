@@ -649,6 +649,11 @@ fn relettered_posedit(
         }
     }
     out.edit = relettered(&posedit.edit, letters);
+    // Only r. has a predicted spelling, r.(123a>g); c. and n. cannot carry
+    // the flag, so it is dropped on the way to DNA letters.
+    if matches!(letters, Letters::Dna) {
+        out.predicted = false;
+    }
     Ok(out)
 }
 

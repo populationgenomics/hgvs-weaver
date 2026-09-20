@@ -143,6 +143,34 @@ fn statements_about_the_transcript_round_trip() {
 }
 
 #[test]
+fn predicted_changes_keep_their_parentheses() {
+    for s in ["NM_R.1:r.(10c>g)", "NM_R.1:r.(16_20del)"] {
+        assert_eq!(parse(s).to_string(), s);
+    }
+    // The parentheses set only the predicted flag.
+    let predicted = rna("NM_R.1:r.(10c>g)").posedit;
+    let observed = rna("NM_R.1:r.10c>g").posedit;
+    assert!(predicted.predicted);
+    assert!(!observed.predicted);
+    assert_eq!(
+        hgvs_weaver::structs::PosEdit {
+            predicted: false,
+            ..predicted
+        },
+        observed
+    );
+    // An uncertain interval is not a predicted change.
+    assert!(!rna("NM_R.1:r.(10_20)del").posedit.predicted);
+    // c. has no parenthesised form in this grammar, so the flag is dropped on
+    // the way to c. and the result still parses.
+    let hdp = Provider;
+    let mapper = VariantMapper::new(&hdp);
+    let c = mapper.r_to_c(&rna("NM_R.1:r.(10c>g)")).unwrap();
+    assert_eq!(c.to_string(), "NM_R.1:c.10C>G");
+    assert_eq!(parse(&c.to_string()).to_string(), c.to_string());
+}
+
+#[test]
 fn r_is_c_in_rna_letters() {
     let hdp = Provider;
     let mapper = VariantMapper::new(&hdp);
