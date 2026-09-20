@@ -10,7 +10,10 @@ use crate::structs::{
     NVariant, PVariant, RVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
 use crate::transcript_mapper::TranscriptMapper;
-use crate::vrs::{VrsAllele, VrsBound, VrsMolecule, VrsState};
+use crate::vrs::{
+    vrs_type, VrsAllele, VrsBound, VrsCopyNumberCount, VrsMolecule, VrsSequenceLocation, VrsState,
+    VrsVariation,
+};
 
 fn make_base_offset_position(
     base: crate::coords::HgvsTranscriptPos,
@@ -106,8 +109,9 @@ fn interval(s: usize, e: usize) -> SimpleInterval {
     }
 }
 
-/// `g.(a_b)_(c_d)del` from VRS bounds: the inverse of `uncertain_bounds`.
-fn imprecise_deletion(ac: &str, start: VrsBound, end: VrsBound) -> GVariant {
+/// The g. interval `(a_b)_(c_d)` from VRS bounds: the inverse of
+/// `uncertain_bounds`. Exact bounds come out as parenthesis-free positions.
+fn bounded_interval(start: VrsBound, end: VrsBound) -> SimpleInterval {
     use crate::coords::HgvsGenomicPos;
     let position = |b: VrsBound, to_hgvs: fn(usize) -> i32| {
         let known =
@@ -128,24 +132,40 @@ fn imprecise_deletion(ac: &str, start: VrsBound, end: VrsBound) -> GVariant {
     // A single base somewhere in `a..=b` came out as `[a-1, b-1]`, `[a, b]`.
     let single = matches!((start, end), (VrsBound::Range(lo, hi), VrsBound::Range(lo2, hi2))
         if lo.map(|n| n + 1) == lo2 && hi.map(|n| n + 1) == hi2);
-    let pos = SimpleInterval {
+    SimpleInterval {
         start: position(start, |n| n as i32 + 1),
         end: (!single).then(|| position(end, |n| n as i32)),
         uncertain: false,
-    };
+    }
+}
+
+/// The `g.` variant with edit `edit` at `pos` on `ac`.
+fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVariant {
     GVariant::from_parts(
         ac.to_string(),
         None,
         crate::structs::PosEdit {
             pos: Some(pos),
-            edit: crate::edits::NaEdit::Del {
-                ref_: None,
-                uncertain: false,
-            },
+            edit,
             uncertain: false,
             predicted: false,
         },
     )
+}
+
+/// Whether `var` is a copy-number edit, `copyN`, which VRS renders as a
+/// `CopyNumberCount` rather than an `Allele`.
+fn is_copy_number(var: &crate::SequenceVariant) -> bool {
+    use crate::SequenceVariant as SV;
+    let edit = match var {
+        SV::Genomic(v) => &v.posedit.edit,
+        SV::Mitochondrial(v) => &v.posedit.edit,
+        SV::Coding(v) => &v.posedit.edit,
+        SV::NonCoding(v) => &v.posedit.edit,
+        SV::Rna(v) => &v.posedit.edit,
+        SV::Protein(_) => return false,
+    };
+    matches!(edit, crate::edits::NaEdit::NACopy { .. })
 }
 
 /// The p. variant for a normalised edit over residues `[s, e)` of a protein.
@@ -1686,6 +1706,71 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
+    /// The GA4GH VRS 2.0 `CopyNumberCount` of a `g.` or `m.` copy-number
+    /// variant, `g.1000_2000copy3`: the location over the range, as interbase
+    /// `[start-1, end)` or as Range bounds when the breakpoints are uncertain,
+    /// and the count. Nothing is normalised: a count has no placement to
+    /// shift. The input HGVS is carried as an expression.
+    pub fn to_vrs_copy_number(
+        &self,
+        var: &crate::SequenceVariant,
+    ) -> Result<VrsCopyNumberCount, HgvsError> {
+        let g = match var {
+            crate::SequenceVariant::Genomic(v) => v.clone(),
+            crate::SequenceVariant::Mitochondrial(v) => v.to_genomic(),
+            _ => {
+                return Err(HgvsError::UnsupportedOperation(
+                    "Copy number counts exist for genomic and mitochondrial variants only".into(),
+                ))
+            }
+        };
+        let crate::edits::NaEdit::NACopy { copy, .. } = g.posedit.edit else {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "Edit type {:?} is not a copy number change",
+                g.posedit.edit
+            )));
+        };
+        let copies = usize::try_from(copy)
+            .map_err(|_| HgvsError::ValidationError(format!("Copy number {copy} is negative")))?;
+        let pos = g
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (start, end) = match uncertain_bounds(pos) {
+            Some(bounds) => bounds,
+            None => {
+                let (s, e) = simple_interval_range(pos)?;
+                (VrsBound::Exact(s), VrsBound::Exact(e))
+            }
+        };
+        let refget = self
+            .refs
+            .reference(&g.ac, IdentifierType::GenomicAccession)
+            .refget_accession()?;
+        Ok(VrsCopyNumberCount::new(
+            &refget,
+            start,
+            end,
+            VrsBound::Exact(copies),
+            VrsMolecule::Genomic,
+            Some((&format!("hgvs.{}", var.coordinate_type()), &var.to_string())),
+        ))
+    }
+
+    /// The VRS 2.0 object of a variant: the `CopyNumberCount` of a copy-number
+    /// edit, else the `Allele` of `to_vrs`.
+    pub fn to_vrs_variation(
+        &self,
+        var: &crate::SequenceVariant,
+    ) -> Result<VrsVariation, HgvsError> {
+        Ok(if is_copy_number(var) {
+            VrsVariation::CopyNumberCount(self.to_vrs_copy_number(var)?)
+        } else {
+            VrsVariation::Allele(self.to_vrs(var)?)
+        })
+    }
+
     /// The variant an SPDI string names (`accession:position:deletion:insertion`,
     /// interbase position, the deletion as bases or as a length), written in
     /// HGVS on its own sequence and 3'-normalised: `g.` for a nucleotide
@@ -1718,42 +1803,24 @@ impl<'a> VariantMapper<'a> {
         self.allele_to_variant(ac, kind, start, end, ins.to_string())
     }
 
-    /// The variant a GA4GH VRS 2.0 Allele (as JSON) names, written in HGVS on
-    /// its own sequence and 3'-normalised. The sequence is identified by its
-    /// refget accession: `accession` names it when given, else the mapper's
-    /// `Refget` lookup must; the digest is checked against the
-    /// sequence either way. Range bounds are accepted for a deletion, which
-    /// comes back as `g.(a_b)_(c_d)del`.
+    /// The variant a GA4GH VRS 2.0 object (as JSON) names, written in HGVS on
+    /// its own sequence. An `Allele` comes back 3'-normalised, with Range
+    /// bounds accepted for a deletion, `g.(a_b)_(c_d)del`; a `CopyNumberCount`
+    /// comes back as `g.<start+1>_<end>copyN`. The sequence is identified by
+    /// its refget accession: `accession` names it when given, else the
+    /// mapper's `Refget` lookup must; the digest is checked against the
+    /// sequence either way.
     pub fn from_vrs(
         &self,
         json: &str,
         accession: Option<&str>,
     ) -> Result<crate::SequenceVariant, HgvsError> {
-        let allele = VrsAllele::from_json(json)?;
-        let refget = allele.location.sequence_reference.refget_accession.as_str();
-        let ac = match accession {
-            Some(a) => a.to_string(),
-            None => self.refs.accession_for_refget(refget)?.ok_or_else(|| {
-                HgvsError::DataProviderError(format!(
-                    "No accession is known for {refget}; pass one, or give the mapper a Refget lookup"
-                ))
-            })?,
-        };
-        let sr = &allele.location.sequence_reference;
-        let kind = if sr.residue_alphabet == "aa" || sr.molecule_type == "protein" {
-            IdentifierType::ProteinAccession
-        } else if sr.residue_alphabet == "na" {
-            IdentifierType::GenomicAccession
-        } else {
-            self.sequence_kind(&ac)?
-        };
-        let reference = self.refs.reference(&ac, kind);
-        let actual = reference.refget_accession()?;
-        if actual != refget {
-            return Err(HgvsError::ValidationError(format!(
-                "{refget} is not the refget accession of {ac}, which is {actual}"
-            )));
+        if vrs_type(json)? == "CopyNumberCount" {
+            return self.from_vrs_copy_number(json, accession);
         }
+        let allele = VrsAllele::from_json(json)?;
+        let (ac, kind) = self.located_sequence(&allele.location, accession)?;
+        let reference = self.refs.reference(&ac, kind);
         match (allele.location.start, allele.location.end) {
             (VrsBound::Exact(start), VrsBound::Exact(end)) => {
                 if end < start {
@@ -1789,11 +1856,92 @@ impl<'a> VariantMapper<'a> {
                             .into(),
                     ));
                 }
-                Ok(crate::SequenceVariant::Genomic(imprecise_deletion(
-                    &ac, start, end,
+                let del = crate::edits::NaEdit::Del {
+                    ref_: None,
+                    uncertain: false,
+                };
+                Ok(crate::SequenceVariant::Genomic(g_variant(
+                    &ac,
+                    bounded_interval(start, end),
+                    del,
                 )))
             }
         }
+    }
+
+    /// `g.<start+1>_<end>copyN` from a VRS `CopyNumberCount`. HGVS has no
+    /// syntax for a range of counts, so `copies` must be exact.
+    fn from_vrs_copy_number(
+        &self,
+        json: &str,
+        accession: Option<&str>,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        let count = VrsCopyNumberCount::from_json(json)?;
+        let (ac, kind) = self.located_sequence(&count.location, accession)?;
+        if kind == IdentifierType::ProteinAccession {
+            return Err(HgvsError::UnsupportedOperation(
+                "A copy number count is of a nucleotide sequence, not a protein".into(),
+            ));
+        }
+        let VrsBound::Exact(copies) = count.copies else {
+            return Err(HgvsError::UnsupportedOperation(
+                "HGVS writes an exact copy number, not a range of counts".into(),
+            ));
+        };
+        let copy = i32::try_from(copies).map_err(|_| {
+            HgvsError::ValidationError(format!("Copy number {copies} is too large"))
+        })?;
+        let pos = match (count.location.start, count.location.end) {
+            (VrsBound::Exact(start), VrsBound::Exact(end)) => {
+                if end <= start {
+                    return Err(HgvsError::ValidationError(format!(
+                        "Location end {end} is not after start {start}"
+                    )));
+                }
+                interval(start, end)
+            }
+            (start, end) => bounded_interval(start, end),
+        };
+        let edit = crate::edits::NaEdit::NACopy {
+            copy,
+            uncertain: false,
+        };
+        Ok(crate::SequenceVariant::Genomic(g_variant(&ac, pos, edit)))
+    }
+
+    /// The accession and kind of the sequence a VRS location is on: named by
+    /// `accession` when given, else looked up from the refget accession; the
+    /// digest is checked against the sequence either way. The kind is read
+    /// from the sequence reference when it says, else asked of the provider.
+    fn located_sequence(
+        &self,
+        location: &VrsSequenceLocation,
+        accession: Option<&str>,
+    ) -> Result<(String, IdentifierType), HgvsError> {
+        let sr = &location.sequence_reference;
+        let refget = sr.refget_accession.as_str();
+        let ac = match accession {
+            Some(a) => a.to_string(),
+            None => self.refs.accession_for_refget(refget)?.ok_or_else(|| {
+                HgvsError::DataProviderError(format!(
+                    "No accession is known for {refget}; pass one, or give the mapper a Refget lookup"
+                ))
+            })?,
+        };
+        let kind = if sr.residue_alphabet == "aa" || sr.molecule_type == "protein" {
+            IdentifierType::ProteinAccession
+        } else if sr.residue_alphabet == "na" {
+            IdentifierType::GenomicAccession
+        } else {
+            self.sequence_kind(&ac)?
+        };
+        let actual = self.refs.reference(&ac, kind).refget_accession()?;
+        if actual != refget {
+            return Err(HgvsError::ValidationError(format!(
+                "{refget} is not the refget accession of {ac}, which is {actual}"
+            )));
+        }
+        Ok((ac, kind))
     }
 
     /// Whether `ac` names a protein or a nucleotide sequence.
@@ -1828,16 +1976,7 @@ impl<'a> VariantMapper<'a> {
             IdentifierType::ProteinAccession => {
                 crate::SequenceVariant::Protein(protein_variant(ac, &reference, s, e, placed.edit)?)
             }
-            _ => crate::SequenceVariant::Genomic(GVariant::from_parts(
-                ac.to_string(),
-                None,
-                crate::structs::PosEdit {
-                    pos: Some(interval(s, e)),
-                    edit: placed.edit,
-                    uncertain: false,
-                    predicted: false,
-                },
-            )),
+            _ => crate::SequenceVariant::Genomic(g_variant(ac, interval(s, e), placed.edit)),
         })
     }
 
