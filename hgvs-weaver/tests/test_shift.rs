@@ -1,62 +1,23 @@
-use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
-use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
+mod support;
+
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
+use hgvs_weaver::SequenceVariant;
+use support::Provider;
 
-struct HomopolymerProvider;
-impl DataProvider for HomopolymerProvider {
-    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        Ok(TranscriptData {
-            ac: ac.to_string(),
-            gene: "TEST".to_string(),
-            cds_start_index: Some(TranscriptPos(0)),
-            cds_end_index: Some(TranscriptPos(100)),
-            strand: hgvs_weaver::data::Strand::Plus,
-            reference_accession: "NC_TEST.1".to_string(),
-            exons: vec![ExonData {
-                transcript_start: TranscriptPos(0),
-                transcript_end: TranscriptPos(100),
-                reference_start: GenomicPos(1000),
-                reference_end: GenomicPos(1100),
-                alt_strand: hgvs_weaver::data::Strand::Plus,
-                cigar: "100M".to_string(),
-            }],
-        })
-    }
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        // Return 100 'A's
-        let seq = "A".repeat(2000);
-        let s = start as usize;
-        let e = end.map_or(seq.len(), |e| e as usize);
-        if s < seq.len() {
-            let actual_e = e.min(seq.len());
-            Ok(seq[s..actual_e].to_string())
-        } else {
-            Ok("".to_string())
-        }
-    }
-    fn get_symbol_accessions(
-        &self,
-        _s: &str,
-        _f: IdentifierKind,
-        _t: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-    fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::GenomicAccession)
-    }
+/// A genome of 2000 A's.
+fn homopolymer() -> Provider {
+    Provider::new().sequence("NC_TEST.1", &"A".repeat(2000))
+}
+
+/// A genome of CAG repeated.
+fn repeat() -> Provider {
+    Provider::new().sequence("NC_TEST.1", &"CAG".repeat(1000))
 }
 
 #[test]
 fn test_ins_3_prime_shifting() -> Result<(), HgvsError> {
-    let hdp = HomopolymerProvider;
+    let hdp = homopolymer();
     let mapper = VariantMapper::new(&hdp);
 
     // NC_TEST.1:g.1005_1006insA
@@ -77,61 +38,9 @@ fn test_ins_3_prime_shifting() -> Result<(), HgvsError> {
     Ok(())
 }
 
-struct RepeatProvider;
-impl DataProvider for RepeatProvider {
-    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        Ok(TranscriptData {
-            ac: ac.to_string(),
-            gene: "TEST".to_string(),
-            cds_start_index: Some(TranscriptPos(0)),
-            cds_end_index: Some(TranscriptPos(100)),
-            strand: hgvs_weaver::data::Strand::Plus,
-            reference_accession: "NC_TEST.1".to_string(),
-            exons: vec![ExonData {
-                transcript_start: TranscriptPos(0),
-                transcript_end: TranscriptPos(100),
-                reference_start: GenomicPos(1000),
-                reference_end: GenomicPos(1100),
-                alt_strand: hgvs_weaver::data::Strand::Minus,
-                cigar: "100M".to_string(),
-            }],
-        })
-    }
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        // Return repeating "CAG"
-        let unit = "CAG";
-        let seq = unit.repeat(1000);
-        let s = start as usize;
-        let e = end.map_or(seq.len(), |e| e as usize);
-        if s < seq.len() {
-            let actual_e = e.min(seq.len());
-            Ok(seq[s..actual_e].to_string())
-        } else {
-            Ok("".to_string())
-        }
-    }
-    fn get_symbol_accessions(
-        &self,
-        _s: &str,
-        _f: IdentifierKind,
-        _t: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-    fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::GenomicAccession)
-    }
-}
-
 #[test]
 fn test_multi_base_ins_3_prime_shifting() -> Result<(), HgvsError> {
-    let hdp = RepeatProvider;
+    let hdp = repeat();
     let mapper = VariantMapper::new(&hdp);
 
     // Reference is CAGCAGCAG... (at 1000, 1003, 1006, ...)
@@ -157,7 +66,7 @@ fn test_multi_base_ins_3_prime_shifting() -> Result<(), HgvsError> {
 
 #[test]
 fn test_ins_5_prime_shifting_no_panic() -> Result<(), HgvsError> {
-    let hdp = HomopolymerProvider;
+    let hdp = homopolymer();
     let mapper = VariantMapper::new(&hdp);
 
     // NC_TEST.1:g.1005_1006insA
@@ -170,5 +79,3 @@ fn test_ins_5_prime_shifting_no_panic() -> Result<(), HgvsError> {
 
     Ok(())
 }
-
-use hgvs_weaver::SequenceVariant;

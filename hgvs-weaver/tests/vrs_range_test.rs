@@ -1,44 +1,20 @@
 //! VRS `Range` bounds for deletions whose breakpoints are uncertain.
 
-use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
+mod support;
+
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::vrs::VrsBound::{Exact, Range};
+use support::Provider;
 
 const GENOME: &str = "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
 
-struct Provider;
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        Err(HgvsError::DataProviderError(format!("no transcript {ac}")))
-    }
-
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let start = (start.max(0) as usize).min(GENOME.len());
-        let end = end.map_or(GENOME.len(), |e| (e.max(0) as usize).min(GENOME.len()));
-        Ok(GENOME[start..end.max(start)].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        _: &str,
-        _: IdentifierKind,
-        _: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-
-    fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::GenomicAccession)
-    }
+/// The same genome under a nuclear and the mitochondrial accession.
+fn provider() -> Provider {
+    Provider::new()
+        .sequence("NC_TEST.1", GENOME)
+        .sequence("NC_012920.1", GENOME)
 }
 
 fn bounds(
@@ -54,7 +30,7 @@ fn bounds(
 
 #[test]
 fn uncertain_breakpoints_become_ranges() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let b = |h| bounds(&mapper, h).unwrap();
     assert_eq!(
@@ -89,7 +65,7 @@ fn uncertain_breakpoints_become_ranges() {
 
 #[test]
 fn an_imprecise_deletion_has_an_empty_literal_state_and_json_ranges() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let var = parse_hgvs_variant("NC_TEST.1:g.(?_5)_(10_?)del").unwrap();
     let json = mapper.to_vrs(&var).unwrap().to_json();
@@ -103,7 +79,7 @@ fn an_imprecise_deletion_has_an_empty_literal_state_and_json_ranges() {
 
 #[test]
 fn only_deletions_may_have_uncertain_breakpoints() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     for hgvs in [
         "NC_TEST.1:g.(3_5)_(10_12)dup",

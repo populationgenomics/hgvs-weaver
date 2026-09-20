@@ -1,54 +1,19 @@
 //! Canonical alleles, SPDI and VRS for protein variants: the same
 //! normalisation as nucleotide alleles, on the protein sequence.
 
-use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
-use hgvs_weaver::error::HgvsError;
+mod support;
+
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::vrs::{refget_accession, VrsBound};
+use support::Provider;
 
 /// M K L A A A Y R Q
 const PROTEIN: &str = "MKLAAAYRQ";
 const NP: &str = "NP_TEST.1";
 
-struct Provider;
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        Err(HgvsError::DataProviderError(format!("no transcript {ac}")))
-    }
-
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        if ac != NP {
-            return Err(HgvsError::DataProviderError(format!("no sequence {ac}")));
-        }
-        let start = (start.max(0) as usize).min(PROTEIN.len());
-        let end = end.map_or(PROTEIN.len(), |e| (e.max(0) as usize).min(PROTEIN.len()));
-        Ok(PROTEIN[start..end.max(start)].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        _: &str,
-        _: IdentifierKind,
-        _: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(if id.starts_with("NP_") {
-            IdentifierType::ProteinAccession
-        } else {
-            IdentifierType::GenomicAccession
-        })
-    }
+fn provider() -> Provider {
+    Provider::new().sequence(NP, PROTEIN)
 }
 
 fn spdi(mapper: &VariantMapper, hgvs: &str) -> String {
@@ -60,7 +25,7 @@ fn spdi(mapper: &VariantMapper, hgvs: &str) -> String {
 
 #[test]
 fn a_deletion_anywhere_in_a_run_is_the_same_allele() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     for hgvs in ["p.Ala4del", "p.Ala5del", "p.Ala6del"] {
         assert_eq!(spdi(&mapper, hgvs), "NP_TEST.1:3:AAA:AA", "{hgvs}");
@@ -74,7 +39,7 @@ fn a_deletion_anywhere_in_a_run_is_the_same_allele() {
 
 #[test]
 fn substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(spdi(&mapper, "p.Lys2Leu"), "NP_TEST.1:1:K:L");
     assert_eq!(spdi(&mapper, "p.K2L"), "NP_TEST.1:1:K:L");
@@ -90,7 +55,7 @@ fn substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein() {
 
 #[test]
 fn a_stop_among_the_new_residues_ends_the_protein() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     // Nonsense, a stop inserted before the residue, and a delins ending in a
     // stop all leave the same protein, so they are one allele.
@@ -108,7 +73,7 @@ fn a_stop_among_the_new_residues_ends_the_protein() {
 
 #[test]
 fn consequences_have_no_allele() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     for hgvs in [
         "p.Leu3fs",
@@ -125,7 +90,7 @@ fn consequences_have_no_allele() {
 
 #[test]
 fn the_vrs_allele_is_on_the_protein() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let var = parse_hgvs_variant("NP_TEST.1:p.Lys2Leu").unwrap();
     let vrs = mapper.to_vrs(&var).unwrap();
@@ -145,7 +110,7 @@ fn the_vrs_allele_is_on_the_protein() {
 
 #[test]
 fn validation_checks_the_named_and_stated_residues() {
-    let hdp = Provider;
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let check = |hgvs: &str| {
         let var = parse_hgvs_variant(&format!("{NP}:{hgvs}")).unwrap();

@@ -2,14 +2,11 @@
 //! on them, and transcripts with random exon structure on both strands, all
 //! served by one in-memory provider.
 
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
-    TranscriptSearch,
-};
+use hgvs_weaver::data::{ExonData, Strand, TranscriptData};
 use hgvs_weaver::edits::NaEdit;
-use hgvs_weaver::error::HgvsError;
 use proptest::prelude::*;
-use std::collections::HashMap;
+
+pub use crate::support::Provider;
 
 pub const BASES: [char; 4] = ['A', 'C', 'G', 'T'];
 
@@ -260,90 +257,15 @@ impl Gene {
             exons: self.exons.clone(),
         }
     }
+    /// The gene's transcript, genome and protein, served by one provider.
     pub fn provider(&self) -> Provider {
-        let mut seqs = HashMap::new();
-        seqs.insert(self.ac.clone(), self.transcript_seq.clone());
-        seqs.insert(self.reference_ac.clone(), self.genome.clone());
-        seqs.insert(
-            "NP_PROP.1".into(),
-            hgvs_weaver::utils::translate(&self.transcript_seq[self.cds_start..=self.cds_end]),
-        );
-        Provider {
-            sequences: seqs,
-            transcripts: vec![self.transcript_data()],
-        }
-    }
-}
-
-/// In-memory provider over whatever sequences and transcripts it is given.
-pub struct Provider {
-    pub sequences: HashMap<String, String>,
-    pub transcripts: Vec<TranscriptData>,
-}
-
-impl Provider {
-    pub fn single(ac: &str, seq: &str) -> Self {
-        let mut sequences = HashMap::new();
-        sequences.insert(ac.to_string(), seq.to_string());
-        Provider {
-            sequences,
-            transcripts: vec![],
-        }
-    }
-}
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        self.transcripts
-            .iter()
-            .find(|t| t.ac == ac)
-            .cloned()
-            .ok_or_else(|| HgvsError::DataProviderError(format!("no transcript {ac}")))
-    }
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq = self
-            .sequences
-            .get(ac)
-            .ok_or_else(|| HgvsError::DataProviderError(format!("no sequence {ac}")))?;
-        let s = (start.max(0) as usize).min(seq.len());
-        let e = end.map_or(seq.len(), |e| (e.max(0) as usize).min(seq.len()));
-        Ok(seq[s..e.max(s)].to_string())
-    }
-    fn get_symbol_accessions(
-        &self,
-        _: &str,
-        _: IdentifierKind,
-        target: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(match target {
-            IdentifierKind::Protein => vec![(IdentifierType::ProteinAccession, "NP_PROP.1".into())],
-            _ => vec![],
-        })
-    }
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(if id.starts_with("NC_") {
-            IdentifierType::GenomicAccession
-        } else if id.starts_with("NP_") {
-            IdentifierType::ProteinAccession
-        } else {
-            IdentifierType::TranscriptAccession
-        })
-    }
-}
-
-impl TranscriptSearch for Provider {
-    fn get_transcripts_for_region(
-        &self,
-        _: &str,
-        _: i32,
-        _: i32,
-    ) -> Result<Vec<String>, HgvsError> {
-        Ok(self.transcripts.iter().map(|t| t.ac.clone()).collect())
+        let protein =
+            hgvs_weaver::utils::translate(&self.transcript_seq[self.cds_start..=self.cds_end]);
+        Provider::new()
+            .sequence(&self.ac, &self.transcript_seq)
+            .sequence(&self.reference_ac, &self.genome)
+            .sequence("NP_PROP.1", &protein)
+            .transcript(self.transcript_data())
+            .protein_for(&self.ac, "NP_PROP.1")
     }
 }

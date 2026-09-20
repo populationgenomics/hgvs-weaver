@@ -3,6 +3,8 @@
 //! ClinVar gate cannot see because ClinVar happens not to contain it.
 
 mod strategies;
+#[path = "../support/mod.rs"]
+mod support;
 
 use hgvs_weaver::coords::HgvsGenomicPos;
 use hgvs_weaver::data::IdentifierType;
@@ -22,7 +24,7 @@ proptest! {
         (seq, p) in seq_and_edit(false),
         block in 1usize..=16,
     ) {
-        let hdp = Provider::single("X", &seq);
+        let hdp = Provider::new().sequence("X", &seq);
         let store = ReferenceStore::with_block_size(&hdp, block);
         let r = store.reference("X", G);
 
@@ -39,7 +41,7 @@ proptest! {
     /// allele, whatever spelling the input used.
     #[test]
     fn vrs_and_spdi_round_trip((seq, p) in seq_and_edit(false)) {
-        let hdp = Provider::single("X", &seq);
+        let hdp = Provider::new().sequence("X", &seq);
         let mapper = VariantMapper::new(&hdp);
         let v = SequenceVariant::Genomic(genomic_variant("X", &p));
         let vrs = mapper.to_vrs(&v).unwrap();
@@ -57,7 +59,7 @@ proptest! {
     /// placements one past either end do not.
     #[test]
     fn ambiguous_range_is_sound_and_complete((seq, p) in seq_and_edit(true)) {
-        let hdp = Provider::single("X", &seq);
+        let hdp = Provider::new().sequence("X", &seq);
         let store = ReferenceStore::with_block_size(&hdp, 4);
         let r = store.reference("X", G);
         let resolved = p.edit.resolve(&r, p.start, p.end).unwrap();
@@ -103,7 +105,7 @@ proptest! {
         ranges in prop::collection::vec((0usize..130, 0usize..130), 1..=8),
         pattern in dna(1, 4),
     ) {
-        let hdp = Provider::single("X", &seq);
+        let hdp = Provider::new().sequence("X", &seq);
         let store = ReferenceStore::with_block_size(&hdp, block);
         let r = store.reference("X", G);
         for (a, b) in ranges {

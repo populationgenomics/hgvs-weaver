@@ -1,86 +1,41 @@
-use hgvs_weaver::coords::{GenomicPos, SequenceVariant, TranscriptPos};
-use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
+mod support;
+
+use hgvs_weaver::coords::SequenceVariant;
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
+use support::{exon, transcript, Provider};
 
-struct RegressionProvider;
-impl DataProvider for RegressionProvider {
-    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        let (cds_start, _protein_ac) = match ac {
-            "NM_153046.3" => (0, "NP_694591.2"),
-            "NM_058216.3" => (0, "NP_478123.1"),
-            _ => (0, "NP_UNKNOWN"),
-        };
-
-        Ok(TranscriptData {
-            ac: ac.to_string(),
-            gene: "TEST".to_string(),
-            cds_start_index: Some(TranscriptPos(cds_start)),
-            cds_end_index: Some(TranscriptPos(2000)),
-            strand: hgvs_weaver::data::Strand::Plus,
-            reference_accession: "NC_TEST".to_string(),
-            exons: vec![ExonData {
-                transcript_start: TranscriptPos(0),
-                transcript_end: TranscriptPos(2000),
-                reference_start: GenomicPos(1000),
-                reference_end: GenomicPos(3000),
-                alt_strand: hgvs_weaver::data::Strand::Plus,
-                cigar: "2000M".to_string(),
-            }],
-        })
+/// Two transcripts over one ACGC repeat, with a T at index 690.
+fn regression_provider() -> Provider {
+    let mut seq = "ACGC".repeat(1000).into_bytes();
+    // For NM_058216.3:c.692_694delinsAA
+    // Ser231: 691, 692, 693
+    // If 691 is T, 692-693 replaced by AA -> TAA (Stop)
+    seq[690] = b'T';
+    let seq = String::from_utf8(seq).unwrap();
+    let mut provider = Provider::new();
+    for (ac, np) in [
+        ("NM_153046.3", "NP_694591.2"),
+        ("NM_058216.3", "NP_478123.1"),
+    ] {
+        provider = provider
+            .sequence(ac, &seq)
+            .transcript(transcript(
+                ac,
+                "NC_TEST",
+                Strand::Plus,
+                Some((0, 2000)),
+                vec![exon((0, 2000), (1000, 3000), Strand::Plus)],
+            ))
+            .protein_for(ac, np);
     }
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let mut seq = "ACGC".repeat(1000).into_bytes();
-        // For NM_058216.3:c.692_694delinsAA
-        // Ser231: 691, 692, 693
-        // If 691 is T, 692-693 replaced by AA -> TAA (Stop)
-        if seq.len() > 690 {
-            seq[690] = b'T';
-        }
-        let s = start as usize;
-        let e = end.map_or(seq.len(), |e| e as usize);
-        if s > seq.len() {
-            return Ok("".to_string());
-        }
-        let actual_e = e.min(seq.len());
-        Ok(String::from_utf8_lossy(&seq[s..actual_e]).to_string())
-    }
-    fn get_symbol_accessions(
-        &self,
-        ac: &str,
-        _f: IdentifierKind,
-        t: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        if t == IdentifierKind::Protein {
-            match ac {
-                "NM_153046.3" => Ok(vec![(
-                    IdentifierType::ProteinAccession,
-                    "NP_694591.2".to_string(),
-                )]),
-                "NM_058216.3" => Ok(vec![(
-                    IdentifierType::ProteinAccession,
-                    "NP_478123.1".to_string(),
-                )]),
-                _ => Ok(vec![]),
-            }
-        } else {
-            Ok(vec![])
-        }
-    }
-    fn get_identifier_type(&self, _id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::TranscriptAccession)
-    }
+    provider
 }
 
 #[test]
 fn test_regression_c_360_eq() -> Result<(), HgvsError> {
-    let hdp = RegressionProvider;
+    let hdp = regression_provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_153046.3:c.360=
@@ -102,7 +57,7 @@ fn test_regression_c_360_eq() -> Result<(), HgvsError> {
 
 #[test]
 fn test_regression_delins_stop() -> Result<(), HgvsError> {
-    let hdp = RegressionProvider;
+    let hdp = regression_provider();
     let mapper = VariantMapper::new(&hdp);
 
     // NM_058216.3:c.692_694delinsAA
@@ -128,56 +83,23 @@ fn test_regression_delins_stop() -> Result<(), HgvsError> {
     Ok(())
 }
 
-struct RepeatProvider;
-// UTR... ATG (1-3) CAG (4-6) CAG (7-9) CAG (10-12) TAG (13-15)
-// M Q Q Q *
-impl DataProvider for RepeatProvider {
-    fn get_transcript(&self, _ac: &str, _ref: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        Ok(TranscriptData {
-            ac: "NM_001.1".to_string(),
-            gene: "TEST".to_string(),
-            cds_start_index: Some(TranscriptPos(0)),
-            cds_end_index: Some(TranscriptPos(14)),
-            strand: hgvs_weaver::data::Strand::Plus,
-            reference_accession: "NC_001.1".to_string(),
-            exons: vec![],
-        })
-    }
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let full_seq = "ATGCAGCAGCAGTAG";
-        let s = start as usize;
-        let e = end.map_or(full_seq.len(), |e| e as usize);
-        if s < full_seq.len() && e <= full_seq.len() {
-            Ok(full_seq[s..e].to_string())
-        } else {
-            Ok("".to_string())
-        }
-    }
-    fn get_symbol_accessions(
-        &self,
-        _: &str,
-        _: IdentifierKind,
-        _: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![(
-            IdentifierType::ProteinAccession,
-            "NP_001.1".to_string(),
-        )])
-    }
-    fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::TranscriptAccession)
-    }
+/// ATG (1-3) CAG (4-6) CAG (7-9) CAG (10-12) TAG (13-15): M Q Q Q *
+fn repeat_provider() -> Provider {
+    Provider::new()
+        .sequence("NM_001.1", "ATGCAGCAGCAGTAG")
+        .transcript(transcript(
+            "NM_001.1",
+            "NC_001.1",
+            Strand::Plus,
+            Some((0, 14)),
+            vec![],
+        ))
+        .protein_for("NM_001.1", "NP_001.1")
 }
 
 #[test]
 fn test_regression_gln4del_vs_ter() -> Result<(), HgvsError> {
-    let hdp = RepeatProvider;
+    let hdp = repeat_provider();
     let mapper = VariantMapper::new(&hdp);
 
     // c.4_6del
@@ -209,81 +131,24 @@ fn test_regression_gln4del_vs_ter() -> Result<(), HgvsError> {
     Ok(())
 }
 
-struct DelinsMismatchProvider;
-impl DataProvider for DelinsMismatchProvider {
-    fn get_transcript(&self, _ac: &str, _ref: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        let exons = vec![ExonData {
-            transcript_start: TranscriptPos(0),
-            transcript_end: TranscriptPos(5000),
-            reference_start: GenomicPos(0),
-            reference_end: GenomicPos(5000),
-            alt_strand: hgvs_weaver::data::Strand::Plus,
-            cigar: "5000M".to_string(),
-        }];
-
-        Ok(TranscriptData {
-            ac: "NM_001008844.3".to_string(),
-            gene: "TEST".to_string(),
-            cds_start_index: Some(TranscriptPos(0)),
-            cds_end_index: Some(TranscriptPos(4500)),
-            strand: hgvs_weaver::data::Strand::Plus,
-            reference_accession: "NC_000001.11".to_string(),
-            exons,
-        })
-    }
-
-    fn get_seq(
-        &self,
-        _ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let effective_end = end.unwrap_or(5000);
-        let mut seq = String::with_capacity((effective_end - start) as usize);
-        for i in start..effective_end {
-            if (4497..=4499).contains(&i) {
-                if i == 4497 {
-                    seq.push('C');
-                }
-                if i == 4498 {
-                    seq.push('C');
-                }
-                if i == 4499 {
-                    seq.push('A');
-                }
-            } else {
-                seq.push('G');
-            }
-        }
-        Ok(seq)
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        symbol: &str,
-        source_kind: IdentifierKind,
-        target_kind: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        if symbol == "NM_001008844.3"
-            && source_kind == IdentifierKind::Transcript
-            && target_kind == IdentifierKind::Protein
-        {
-            return Ok(vec![(
-                IdentifierType::ProteinAccession,
-                "NP_001008844.1".to_string(),
-            )]);
-        }
-        Ok(vec![])
-    }
-    fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::TranscriptAccession)
-    }
+/// 5000 G's with CCA (Pro1500) at indices 4497..=4499.
+fn delins_mismatch_provider() -> Provider {
+    let seq = format!("{}CCA{}", "G".repeat(4497), "G".repeat(500));
+    Provider::new()
+        .sequence("NM_001008844.3", &seq)
+        .transcript(transcript(
+            "NM_001008844.3",
+            "NC_000001.11",
+            Strand::Plus,
+            Some((0, 4500)),
+            vec![exon((0, 5000), (0, 5000), Strand::Plus)],
+        ))
+        .protein_for("NM_001008844.3", "NP_001008844.1")
 }
 
 #[test]
 fn test_regression_pro_ile_mismatch() -> Result<(), HgvsError> {
-    let provider = DelinsMismatchProvider;
+    let provider = delins_mismatch_provider();
     let mapper = VariantMapper::new(&provider);
 
     let v_nuc = hgvs_weaver::parse_hgvs_variant("NM_001008844.3:c.4498_4499delinsAT")?;

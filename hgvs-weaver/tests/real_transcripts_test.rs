@@ -4,15 +4,12 @@
 //! the GenBank records. Each transcript is served as a single exon on a
 //! placeholder reference; c. to p. needs only the transcript.
 
-use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
-use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
-};
-use hgvs_weaver::error::HgvsError;
+mod support;
+
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
-use std::collections::HashMap;
-use std::fs;
+use support::{single_exon_transcript, Provider};
 
 /// `(accession, 0-based CDS start index, 0-based index of the stop codon's last base)`,
 /// from the `CDS` feature of each GenBank record (1-based, inclusive).
@@ -28,81 +25,22 @@ const CDS: &[(&str, i32, i32)] = &[
     ("NM_152263.2", 115, 972),   // TPM3, CDS 116..973
 ];
 
-struct Provider {
-    sequences: HashMap<String, String>,
-}
-
-impl Provider {
-    fn load() -> Self {
-        let text = fs::read_to_string("../tests/data/real_data.json").expect("real_data.json");
-        let json: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-        let sequences = json["sequences"]
-            .as_object()
-            .expect("sequences object")
-            .iter()
-            .map(|(ac, seq)| (ac.clone(), seq.as_str().unwrap().to_uppercase()))
-            .collect();
-        Self { sequences }
+/// The real_data.json sequences, each transcript one exon on a placeholder reference.
+fn provider() -> Provider {
+    let mut provider = Provider::from_json_file("../tests/data/real_data.json");
+    for &(ac, cds_start, cds_end) in CDS {
+        let len = provider.sequences()[ac].len() as i32;
+        provider = provider.transcript(single_exon_transcript(
+            ac,
+            "NC_PLACEHOLDER.1",
+            0,
+            Strand::Plus,
+            cds_start,
+            cds_end,
+            len,
+        ));
     }
-}
-
-impl DataProvider for Provider {
-    fn get_transcript(&self, ac: &str, _ref_ac: Option<&str>) -> Result<TranscriptData, HgvsError> {
-        let (_, cds_start, cds_end) = CDS
-            .iter()
-            .find(|(a, _, _)| *a == ac)
-            .ok_or_else(|| HgvsError::DataProviderError(format!("unknown {ac}")))?;
-        let len = self.sequences[ac].len() as i32;
-        Ok(TranscriptData {
-            ac: ac.to_string(),
-            gene: String::new(),
-            cds_start_index: Some(TranscriptPos(*cds_start)),
-            cds_end_index: Some(TranscriptPos(*cds_end)),
-            strand: Strand::Plus,
-            reference_accession: "NC_PLACEHOLDER.1".to_string(),
-            exons: vec![ExonData {
-                transcript_start: TranscriptPos(0),
-                transcript_end: TranscriptPos(len),
-                reference_start: GenomicPos(0),
-                reference_end: GenomicPos(len - 1),
-                alt_strand: Strand::Plus,
-                cigar: format!("{len}M"),
-            }],
-        })
-    }
-
-    fn get_seq(
-        &self,
-        ac: &str,
-        start: i32,
-        end: Option<i32>,
-        _kind: IdentifierType,
-    ) -> Result<String, HgvsError> {
-        let seq = self
-            .sequences
-            .get(ac)
-            .ok_or_else(|| HgvsError::DataProviderError(format!("no sequence for {ac}")))?;
-        let start = (start.max(0) as usize).min(seq.len());
-        let end = end.map_or(seq.len(), |e| (e.max(0) as usize).min(seq.len()));
-        Ok(seq[start..end.max(start)].to_string())
-    }
-
-    fn get_symbol_accessions(
-        &self,
-        _symbol: &str,
-        _source: IdentifierKind,
-        _target: IdentifierKind,
-    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
-        Ok(vec![])
-    }
-
-    fn get_identifier_type(&self, id: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(if id.starts_with("NC_") {
-            IdentifierType::GenomicAccession
-        } else {
-            IdentifierType::TranscriptAccession
-        })
-    }
+    provider
 }
 
 /// `(id, c. variant, biocommons hgvs answer, weaver's answer)`. The two agree
@@ -188,7 +126,7 @@ const CASES: &[(&str, &str, &str, &str)] = &[
 
 #[test]
 fn biocommons_real_transcript_cases() {
-    let hdp = Provider::load();
+    let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let mut failures = Vec::new();
     for (id, c, biocommons, weaver) in CASES {
