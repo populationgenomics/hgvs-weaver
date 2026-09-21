@@ -62,14 +62,15 @@ VALID_VARIANTS = [
     "r.33+12a>c",
     "r.34_36del",
     "r.92delinsgac",
+    # Alleles in cis
+    "NM_007294.4:c.[122-6T>A;153C>T]",
+    "c.[122-6T>A;153C>T]",
+    "p.[Glu27Trp;Lys212fs]",
 ]
 
 # Variants that mavehgvs accepts but weaver currently rejects
 XFAIL_VARIANTS = [
-    "NM_007294.4:c.[122-6T>A;153C>T]",  # Multi-variant / Allele
     "c.=",  # Whole-sequence identity (c.=)
-    "c.[122-6T>A;153C>T]",  # Multi-variant
-    "p.[Glu27Trp;Lys212fs]",  # Multi-variant
 ]
 
 INVALID_VARIANTS = [

@@ -55,13 +55,25 @@ class Variant:
 
     Provides access to the variant's accession, gene symbol, and coordinate type.
     Variants can be formatted back to HGVS strings or converted to JSON/dict representations.
+
+    An allele in cis, NM_004006.2:c.[145C>T;147C>G], is one Variant whose
+    members are the plain variants written between the brackets.
     """
     @property
     def ac(self) -> str:
         """The primary accession of the variant (e.g., 'NM_000051.3')."""
     @property
     def coordinate_type(self) -> str:
-        """The coordinate type of the variant ('g', 'c', 'p', etc.)."""
+        """The coordinate type of the variant ('g', 'c', 'p', etc.); for an allele in cis, its members'."""
+    @property
+    def members(self) -> list[Variant] | None:
+        """The members of an allele in cis, c.[145C>T;147C>G], as plain Variants in the
+        order written; None for a plain variant.
+
+        Mapping methods take plain variants, so map the members and rebuild the
+        allele from the results with from_dict, or render the whole allele with
+        VariantMapper.to_vrs.
+        """
     def format(self) -> str:
         """Formats the variant back into a standard HGVS string."""
     @staticmethod
@@ -394,8 +406,9 @@ class VariantMapper:
 
     def to_vrs(self, var: Variant) -> dict[str, Any]:
         """Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, a
-        CopyNumberCount for a copy-number edit, or a CopyNumberChange for a
-        duplication with uncertain breakpoints.
+        CopyNumberCount for a copy-number edit, a CopyNumberChange for a
+        duplication with uncertain breakpoints, or a CisPhasedBlock for an allele
+        in cis.
 
         A nucleotide variant is projected to its genomic reference; a protein
         variant stays on its protein. Either is canonicalised (fully justified
@@ -419,18 +432,23 @@ class VariantMapper:
         same over the deleted range. Unknown bases cannot slide, so neither is
         normalised.
 
-        The dict's ``type`` says which object was returned.
+        An allele in cis, c.[145C>T;147C>G], becomes a CisPhasedBlock whose
+        ``members`` are the members' Alleles, each canonicalised on its own and
+        kept in the order written, with the shared sequence as
+        ``sequenceReference``. Its identifier (ga4gh:CPB.) does not depend on the
+        order of the members. The dict's ``type`` says which object was returned.
 
         Args:
-            var: A g., m., c., n. or p. Variant. Protein variants must describe a
-                sequence: frameshifts, extensions and p.? have no allele. A g. or
-                m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is
-                rendered as given, with Range bounds ([min, max], null when
-                unbounded) and an empty literal state; it is not normalised.
+            var: A g., m., c., n., r. or p. Variant, or an allele in cis of any of
+                them. Protein variants must describe a sequence: frameshifts,
+                extensions and p.? have no allele. A g. or m. deletion with
+                uncertain breakpoints, g.(?_100)_(200_?)del, is rendered as given,
+                with Range bounds ([min, max], null when unbounded) and an empty
+                literal state; it is not normalised.
 
         Returns:
-            A dict in the VRS 2.0 Allele, CopyNumberCount or CopyNumberChange
-            schema.
+            A dict in the VRS 2.0 Allele, CopyNumberCount, CopyNumberChange or
+            CisPhasedBlock schema.
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
@@ -439,20 +457,21 @@ class VariantMapper:
     def vrs_id(self, var: Variant) -> str:
         """Returns the GA4GH VRS computed identifier of a variant: ga4gh:VA.<digest>
         for an Allele, ga4gh:CN.<digest> for a copy-number edit, ga4gh:CX.<digest>
-        for a duplication with uncertain breakpoints.
+        for a duplication with uncertain breakpoints, ga4gh:CPB.<digest> for an
+        allele in cis.
 
         Two variants describing the same change on the same sequence have the same
-        identifier.
+        identifier; so do two cis alleles of the same members in either order.
 
         Args:
-            var: A g., m., c., n. or p. Variant, as for to_vrs.
+            var: A g., m., c., n., r. or p. Variant or allele in cis, as for to_vrs.
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
         """
     def from_vrs(self, allele: dict[str, Any] | str, accession: str | None = ...) -> Variant:
-        """Returns the Variant a GA4GH VRS 2.0 Allele, CopyNumberCount or
-        CopyNumberChange names.
+        """Returns the Variant a GA4GH VRS 2.0 Allele, CopyNumberCount,
+        CopyNumberChange or CisPhasedBlock names.
 
         An Allele is written in HGVS on its own sequence, trimmed to the change and
         normalised (3'-shifted): g. for a nucleotide sequence, p. for a protein.
@@ -468,14 +487,17 @@ class VariantMapper:
         EFO:0030070-72) and del for a loss (loss, low-level loss, high-level loss
         or complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range
         bounds as g.(a_b)_(c_d); other terms have no HGVS form.
+        CisPhasedBlock comes back as the allele in cis of its members, g.[a;b] (or
+        p.[a;b]), each member read as an Allele; the members must all lie on one
+        sequence, which may be stated once on the block as the spec allows.
 
         The sequence behind the object's refget accession is named by ``accession``
         when given, else looked up through the Refget given at construction; the
         digest is checked against the sequence either way.
 
         Args:
-            allele: The Allele, CopyNumberCount or CopyNumberChange as a dict (as
-                to_vrs returns) or a JSON string.
+            allele: The Allele, CopyNumberCount, CopyNumberChange or CisPhasedBlock as
+                a dict (as to_vrs returns) or a JSON string.
             accession: The accession of the sequence, when the provider cannot look
                 it up from the refget accession.
 
@@ -523,7 +545,10 @@ def parse(input: str) -> Variant:
     Parses an HGVS string into a Variant object.
 
     Supported types include genomic (g.), coding cDNA (c.), non-coding (n.),
-    mitochondrial (m.), and protein (p.) variants.
+    mitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis
+    in any of them, c.[145C>T;147C>G]: several changes on one molecule, one
+    Variant whose members are the changes. The trans form c.[145C>T];[147C>G]
+    describes two molecules and is refused.
 
     Args:
         input: The HGVS string to parse.
@@ -533,4 +558,5 @@ def parse(input: str) -> Variant:
 
     Raises:
         ParseError: If the HGVS string is malformed or unsupported.
+        UnsupportedOperationError: If the string describes alleles in trans.
     """
