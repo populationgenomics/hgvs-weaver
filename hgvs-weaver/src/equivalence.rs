@@ -2,7 +2,9 @@ use crate::allele::CanonicalAllele;
 use crate::data::{IdentifierKind, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
-use crate::structs::{CVariant, LinearVariant, PVariant, SequenceVariant, Variant};
+use crate::structs::{
+    CVariant, CisPhasedVariant, LinearVariant, PVariant, SequenceVariant, Variant,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquivalenceLevel {
@@ -103,6 +105,9 @@ impl<'a> VariantEquivalence<'a> {
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
         }
+        if let Some(level) = self.cis_phased_level(var1, var2)? {
+            return Ok(level);
+        }
         let same = match (var1, var2) {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
                 // Versions of one protein accession are compared on ours: the
@@ -137,6 +142,50 @@ impl<'a> VariantEquivalence<'a> {
         })
     }
 
+    /// The level when either side is an allele in cis, `None` when neither
+    /// is. Two cis alleles are `Analogous` when the sets of their members'
+    /// canonical alleles are equal, whatever the order written, and
+    /// `Different` otherwise. A cis allele of one member is that member; one
+    /// of several is `Different` from any plain variant. Nothing is projected
+    /// to protein: what several changes on one molecule do to the protein is
+    /// not the sum of what each does.
+    fn cis_phased_level(
+        &self,
+        var1: &SequenceVariant,
+        var2: &SequenceVariant,
+    ) -> Result<Option<EquivalenceLevel>, HgvsError> {
+        Ok(Some(match (var1, var2) {
+            (SequenceVariant::CisPhased(a), SequenceVariant::CisPhased(b)) => {
+                match (self.member_alleles(a)?, self.member_alleles(b)?) {
+                    (Some(x), Some(y)) if x == y => EquivalenceLevel::Analogous,
+                    _ => EquivalenceLevel::Different,
+                }
+            }
+            (SequenceVariant::CisPhased(cis), other) | (other, SequenceVariant::CisPhased(cis)) => {
+                match cis.members.as_slice() {
+                    [member] => return self.equivalent_level_single(member, other).map(Some),
+                    _ => EquivalenceLevel::Different,
+                }
+            }
+            _ => return Ok(None),
+        }))
+    }
+
+    /// The canonical alleles of a cis allele's members, as a sorted set of
+    /// SPDI strings; `None` when a member has no canonical allele.
+    fn member_alleles(&self, cis: &CisPhasedVariant) -> Result<Option<Vec<String>>, HgvsError> {
+        let mut alleles = Vec::with_capacity(cis.members.len());
+        for m in &cis.members {
+            match self.nucleotide_allele(m)? {
+                Some(a) => alleles.push(a.spdi()),
+                None => return Ok(None),
+            }
+        }
+        alleles.sort_unstable();
+        alleles.dedup();
+        Ok(Some(alleles))
+    }
+
     /// Whether `tx` is a c. or n. variant whose projection onto `g`'s
     /// reference is `g` to the letter.
     fn exact_projection(
@@ -155,8 +204,8 @@ impl<'a> VariantEquivalence<'a> {
         Ok(projected.is_ok_and(|p| p.to_string() == g.to_string()))
     }
 
-    /// The canonical allele of a nucleotide variant, or `None` for an edit
-    /// that has none (a conversion, a copy number).
+    /// The canonical allele of a variant, or `None` for one that has none (a
+    /// conversion, a copy number, an allele in cis).
     fn nucleotide_allele(
         &self,
         var: &SequenceVariant,

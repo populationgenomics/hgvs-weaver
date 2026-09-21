@@ -5,6 +5,7 @@
 mod support;
 
 use hgvs_weaver::data::Strand;
+use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::vrs::VrsBound::Exact;
@@ -411,4 +412,87 @@ fn blocks_from_other_producers_parse() {
         mapper.from_vrs(&json, None),
         Err(HgvsError::ValidationError(_))
     ));
+}
+
+#[test]
+fn cis_alleles_compare_as_sets_of_their_members_alleles() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let equivalence = VariantEquivalence::new(&mapper, &hdp);
+    let level = |a: &str, b: &str| {
+        equivalence
+            .equivalent_level(
+                &parse_hgvs_variant(a).unwrap(),
+                &parse_hgvs_variant(b).unwrap(),
+            )
+            .unwrap_or_else(|e| panic!("{a} vs {b}: {e}"))
+    };
+    use EquivalenceLevel::{Analogous, Different, Identity};
+    assert_eq!(
+        level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T;13T>G]"),
+        Identity
+    );
+    // The same members in the other order, spelled on the genome, or
+    // written unnormalised, name the same molecule.
+    assert_eq!(
+        level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[13T>G;7C>T]"),
+        Analogous
+    );
+    assert_eq!(
+        level("NM_X.1:c.[7C>T;13T>G]", "NC_X.1:g.[22C>T;28T>G]"),
+        Analogous
+    );
+    assert_eq!(
+        level("NM_X.1:c.[4del;13T>G]", "NC_X.1:g.[21del;28T>G]"),
+        Analogous
+    );
+    assert_eq!(
+        level("NC_X.1:m.[22C>T;28T>G]", "NC_X.1:g.[28T>G;22C>T]"),
+        Analogous
+    );
+    // A different member, a missing member, an extra member.
+    assert_eq!(
+        level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T;13T>A]"),
+        Different
+    );
+    assert_eq!(level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T]"), Different);
+    assert_eq!(
+        level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T;13T>G;20del]"),
+        Different
+    );
+    // Against a plain variant a cis allele of several members is Different,
+    // one of a single member is that member, to the letter when it is.
+    assert_eq!(level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.7C>T"), Different);
+    assert_eq!(level("NM_X.1:c.7C>T", "NM_X.1:c.[7C>T;13T>G]"), Different);
+    assert_eq!(level("NM_X.1:c.[7C>T]", "NM_X.1:c.7C>T"), Identity);
+    assert_eq!(level("NM_X.1:c.[4del]", "NC_X.1:g.21del"), Analogous);
+    assert_eq!(level("NC_X.1:g.22C>T", "NM_X.1:c.[7C>T]"), Identity);
+    assert_eq!(level("NM_X.1:c.[7C>T]", "NM_X.1:c.13T>G"), Different);
+    // Protein cis alleles compare by their members' protein alleles; no
+    // nucleotide cis allele is projected to protein.
+    assert_eq!(
+        level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Ala4del;Lys2Leu]"),
+        Analogous
+    );
+    assert_eq!(
+        level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[K2L;A4del]"),
+        Identity
+    );
+    assert_eq!(
+        level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Lys2Leu;Tyr5del]"),
+        Different
+    );
+    assert_eq!(
+        level("NM_X.1:c.[7C>T;13T>G]", "NP_X.1:p.Leu3Phe"),
+        Different
+    );
+    // A member without a canonical allele compares Different, not an error.
+    assert_eq!(
+        level("NC_X.1:g.[22C>T;20_30copy3]", "NC_X.1:g.[22C>T;20_30copy3]"),
+        Identity
+    );
+    assert_eq!(
+        level("NC_X.1:g.[22C>T;20_30copy3]", "NC_X.1:g.[20_30copy3;22C>T]"),
+        Different
+    );
 }
