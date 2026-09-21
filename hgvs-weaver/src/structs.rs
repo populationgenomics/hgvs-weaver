@@ -323,7 +323,12 @@ impl EditSpdi for NaEdit {
     ) -> Result<String, HgvsError> {
         if matches!(
             self,
-            NaEdit::None | NaEdit::Con { .. } | NaEdit::NACopy { .. } | NaEdit::Special { .. }
+            NaEdit::None
+                | NaEdit::Con { .. }
+                | NaEdit::NACopy { .. }
+                | NaEdit::Special { .. }
+                | NaEdit::InsLength { .. }
+                | NaEdit::DelInsLength { .. }
         ) {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "Edit type {:?} not yet supported for SPDI",

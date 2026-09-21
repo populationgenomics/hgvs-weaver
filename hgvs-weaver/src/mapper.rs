@@ -11,8 +11,8 @@ use crate::structs::{
 };
 use crate::transcript_mapper::TranscriptMapper;
 use crate::vrs::{
-    vrs_type, VrsAllele, VrsBound, VrsCopyNumberCount, VrsMolecule, VrsSequenceLocation, VrsState,
-    VrsVariation,
+    vrs_type, VrsAllele, VrsBound, VrsCopyChange, VrsCopyNumberChange, VrsCopyNumberCount,
+    VrsMolecule, VrsSequenceLocation, VrsState, VrsVariation,
 };
 
 fn make_base_offset_position(
@@ -95,6 +95,34 @@ fn uncertain_bounds(pos: &SimpleInterval) -> Option<(VrsBound, VrsBound)> {
     Some((bound(&pos.start, |b| b - 1), bound(last, |b| b)))
 }
 
+/// The VRS bounds of a g. interval: Range bounds when a breakpoint is
+/// uncertain, else the exact interbase `[start-1, end)`.
+fn interval_bounds(pos: &SimpleInterval) -> Result<(VrsBound, VrsBound), HgvsError> {
+    Ok(match uncertain_bounds(pos) {
+        Some(bounds) => bounds,
+        None => {
+            let (s, e) = simple_interval_range(pos)?;
+            (VrsBound::Exact(s), VrsBound::Exact(e))
+        }
+    })
+}
+
+/// The g. interval of a VRS location over a non-empty range: `(a_b)_(c_d)`
+/// for Range bounds, `<start+1>_<end>` for exact ones.
+fn location_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, HgvsError> {
+    Ok(match (start, end) {
+        (VrsBound::Exact(s), VrsBound::Exact(e)) => {
+            if e <= s {
+                return Err(HgvsError::ValidationError(format!(
+                    "Location end {e} is not after start {s}"
+                )));
+            }
+            interval(s, e)
+        }
+        (start, end) => bounded_interval(start, end),
+    })
+}
+
 /// The g. interval over the 0-based half-open range `[s, e)`.
 fn interval(s: usize, e: usize) -> SimpleInterval {
     let position = |i: usize| SimplePosition {
@@ -153,19 +181,54 @@ fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVari
     )
 }
 
-/// Whether `var` is a copy-number edit, `copyN`, which VRS renders as a
-/// `CopyNumberCount` rather than an `Allele`.
-fn is_copy_number(var: &crate::SequenceVariant) -> bool {
+/// The nucleotide edit of `var`; `None` for a protein variant.
+fn na_edit(var: &crate::SequenceVariant) -> Option<&crate::edits::NaEdit> {
     use crate::SequenceVariant as SV;
-    let edit = match var {
+    Some(match var {
         SV::Genomic(v) => &v.posedit.edit,
         SV::Mitochondrial(v) => &v.posedit.edit,
         SV::Coding(v) => &v.posedit.edit,
         SV::NonCoding(v) => &v.posedit.edit,
         SV::Rna(v) => &v.posedit.edit,
-        SV::Protein(_) => return false,
+        SV::Protein(_) => return None,
+    })
+}
+
+/// Whether `var` is a copy-number edit, `copyN`, which VRS renders as a
+/// `CopyNumberCount` rather than an `Allele`.
+fn is_copy_number(var: &crate::SequenceVariant) -> bool {
+    matches!(na_edit(var), Some(crate::edits::NaEdit::NACopy { .. }))
+}
+
+/// Whether `var` is a `g.` or `m.` duplication with uncertain breakpoints,
+/// `g.(a_b)_(c_d)dup`. Its bases are not known, so it has no Allele; VRS
+/// renders it as a `CopyNumberChange`.
+fn is_imprecise_duplication(var: &crate::SequenceVariant) -> bool {
+    use crate::SequenceVariant as SV;
+    let posedit = match var {
+        SV::Genomic(v) => &v.posedit,
+        SV::Mitochondrial(v) => &v.posedit,
+        _ => return false,
     };
-    matches!(edit, crate::edits::NaEdit::NACopy { .. })
+    matches!(posedit.edit, crate::edits::NaEdit::Dup { .. })
+        && posedit.pos.as_ref().and_then(uncertain_bounds).is_some()
+}
+
+/// The number of unspecified bases an edit inserts, `insN[20]` or
+/// `delinsN[(20_30)]`, as a VRS bound; `None` for an edit that spells its
+/// bases or has none.
+fn inserted_length(edit: &crate::edits::NaEdit) -> Option<VrsBound> {
+    use crate::edits::NaEdit;
+    match edit {
+        NaEdit::InsLength { min, max, .. } | NaEdit::DelInsLength { min, max, .. } => {
+            Some(if min == max {
+                VrsBound::Exact(*min)
+            } else {
+                VrsBound::Range(Some(*min), Some(*max))
+            })
+        }
+        _ => None,
+    }
 }
 
 /// The p. variant for a normalised edit over residues `[s, e)` of a protein.
@@ -630,6 +693,17 @@ fn relettered(edit: &crate::edits::NaEdit, letters: Letters) -> crate::edits::Na
         },
         NaEdit::Inv { ref_, uncertain } => NaEdit::Inv {
             ref_: opt(ref_),
+            uncertain: *uncertain,
+        },
+        NaEdit::DelInsLength {
+            ref_,
+            min,
+            max,
+            uncertain,
+        } => NaEdit::DelInsLength {
+            ref_: opt(ref_),
+            min: *min,
+            max: *max,
             uncertain: *uncertain,
         },
         NaEdit::Repeat {
@@ -1637,6 +1711,8 @@ impl<'a> VariantMapper<'a> {
                 | crate::edits::NaEdit::Con { .. }
                 | crate::edits::NaEdit::NACopy { .. }
                 | crate::edits::NaEdit::Special { .. }
+                | crate::edits::NaEdit::InsLength { .. }
+                | crate::edits::NaEdit::DelInsLength { .. }
         ) {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "Edit type {:?} has no canonical allele",
@@ -1656,6 +1732,12 @@ impl<'a> VariantMapper<'a> {
 
     /// The GA4GH VRS 2.0 Allele of a variant, with computed identifiers. The
     /// input HGVS is carried as an expression.
+    ///
+    /// An insertion of bases known only by number, `insN[20]` or
+    /// `delinsN[20]`, has a `LengthExpression` state over the insertion point
+    /// or the deleted range, unnormalised; a deletion with uncertain
+    /// breakpoints has Range bounds. A copy-number edit or an imprecise
+    /// duplication has no Allele: see [`to_vrs_variation`](Self::to_vrs_variation).
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
         let syntax = format!("hgvs.{}", var.coordinate_type());
         let hgvs = var.to_string();
@@ -1668,9 +1750,17 @@ impl<'a> VariantMapper<'a> {
         };
         if let Some(g) = linear {
             if let Some((start, end)) = g.posedit.pos.as_ref().and_then(uncertain_bounds) {
+                if matches!(g.posedit.edit, crate::edits::NaEdit::Dup { .. }) {
+                    return Err(HgvsError::UnsupportedOperation(
+                        "A duplication with uncertain breakpoints has no Allele; \
+                         to_vrs_copy_number_change or to_vrs_variation renders it as a \
+                         CopyNumberChange"
+                            .into(),
+                    ));
+                }
                 if !matches!(g.posedit.edit, crate::edits::NaEdit::Del { .. }) {
                     return Err(HgvsError::UnsupportedOperation(format!(
-                        "Only a deletion can have uncertain breakpoints in VRS, not {:?}",
+                        "Only a deletion can have uncertain breakpoints in an Allele, not {:?}",
                         g.posedit.edit
                     )));
                 }
@@ -1686,6 +1776,9 @@ impl<'a> VariantMapper<'a> {
                     Some((&syntax, &hgvs)),
                 ));
             }
+        }
+        if let Some(length) = na_edit(var).and_then(inserted_length) {
+            return self.length_allele(var, length, &syntax, &hgvs);
         }
         let allele = self.canonical_allele(var)?;
         let (kind, molecule) = match var {
@@ -1703,6 +1796,50 @@ impl<'a> VariantMapper<'a> {
             &refget,
             molecule,
             Some((&syntax, &hgvs)),
+        ))
+    }
+
+    /// The Allele of an insertion of unspecified bases on the genomic
+    /// reference: for `insN[20]` the insertion point, the empty interbase
+    /// range in front of the second flanking base (where `NaEdit::Ins` is
+    /// anchored too); for `delinsN[20]` the deleted range. The state is a
+    /// `LengthExpression`. Unknown bases cannot slide, so nothing is
+    /// normalised.
+    fn length_allele(
+        &self,
+        var: &crate::SequenceVariant,
+        length: VrsBound,
+        syntax: &str,
+        hgvs: &str,
+    ) -> Result<VrsAllele, HgvsError> {
+        let g = self.as_genomic(var).ok_or_else(|| {
+            HgvsError::UnsupportedOperation(
+                "An insertion of a stated length is a nucleotide variant".into(),
+            )
+        })??;
+        let pos = g
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (start, end) = simple_interval_range(pos)?;
+        let (start, end) = if matches!(g.posedit.edit, crate::edits::NaEdit::InsLength { .. }) {
+            let anchor = if end > start { end - 1 } else { start };
+            (anchor, anchor)
+        } else {
+            (start, end)
+        };
+        let refget = self
+            .refs
+            .reference(&g.ac, IdentifierType::GenomicAccession)
+            .refget_accession()?;
+        Ok(VrsAllele::length_expression(
+            &refget,
+            VrsBound::Exact(start),
+            VrsBound::Exact(end),
+            length,
+            VrsMolecule::Genomic,
+            Some((syntax, hgvs)),
         ))
     }
 
@@ -1737,13 +1874,7 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        let (start, end) = match uncertain_bounds(pos) {
-            Some(bounds) => bounds,
-            None => {
-                let (s, e) = simple_interval_range(pos)?;
-                (VrsBound::Exact(s), VrsBound::Exact(e))
-            }
-        };
+        let (start, end) = interval_bounds(pos)?;
         let refget = self
             .refs
             .reference(&g.ac, IdentifierType::GenomicAccession)
@@ -1758,14 +1889,67 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
+    /// The GA4GH VRS 2.0 `CopyNumberChange` of a `g.` or `m.` duplication or
+    /// deletion: the location over the range, as interbase `[start-1, end)`
+    /// or as Range bounds when the breakpoints are uncertain, and the
+    /// direction of the change as an EFO term, "gain" (EFO:0030070, copy
+    /// number gain) for a duplication and "loss" (EFO:0030067, copy number
+    /// loss) for a deletion. Nothing is normalised: a change of copies has no
+    /// placement to shift. The input HGVS is carried as an expression.
+    pub fn to_vrs_copy_number_change(
+        &self,
+        var: &crate::SequenceVariant,
+    ) -> Result<VrsCopyNumberChange, HgvsError> {
+        let g = match var {
+            crate::SequenceVariant::Genomic(v) => v.clone(),
+            crate::SequenceVariant::Mitochondrial(v) => v.to_genomic(),
+            _ => {
+                return Err(HgvsError::UnsupportedOperation(
+                    "Copy number changes exist for genomic and mitochondrial variants only".into(),
+                ))
+            }
+        };
+        let copy_change = match &g.posedit.edit {
+            crate::edits::NaEdit::Dup { .. } => VrsCopyChange::Gain,
+            crate::edits::NaEdit::Del { .. } => VrsCopyChange::Loss,
+            other => {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "Edit type {other:?} is neither a duplication nor a deletion"
+                )))
+            }
+        };
+        let pos = g
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let (start, end) = interval_bounds(pos)?;
+        let refget = self
+            .refs
+            .reference(&g.ac, IdentifierType::GenomicAccession)
+            .refget_accession()?;
+        Ok(VrsCopyNumberChange::new(
+            &refget,
+            start,
+            end,
+            copy_change,
+            VrsMolecule::Genomic,
+            Some((&format!("hgvs.{}", var.coordinate_type()), &var.to_string())),
+        ))
+    }
+
     /// The VRS 2.0 object of a variant: the `CopyNumberCount` of a copy-number
-    /// edit, else the `Allele` of `to_vrs`.
+    /// edit, the `CopyNumberChange` of a duplication with uncertain
+    /// breakpoints (which has no Allele), else the `Allele` of `to_vrs` (an
+    /// imprecise deletion included).
     pub fn to_vrs_variation(
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<VrsVariation, HgvsError> {
         Ok(if is_copy_number(var) {
             VrsVariation::CopyNumberCount(self.to_vrs_copy_number(var)?)
+        } else if is_imprecise_duplication(var) {
+            VrsVariation::CopyNumberChange(self.to_vrs_copy_number_change(var)?)
         } else {
             VrsVariation::Allele(self.to_vrs(var)?)
         })
@@ -1805,8 +1989,12 @@ impl<'a> VariantMapper<'a> {
 
     /// The variant a GA4GH VRS 2.0 object (as JSON) names, written in HGVS on
     /// its own sequence. An `Allele` comes back 3'-normalised, with Range
-    /// bounds accepted for a deletion, `g.(a_b)_(c_d)del`; a `CopyNumberCount`
-    /// comes back as `g.<start+1>_<end>copyN`. The sequence is identified by
+    /// bounds accepted for a deletion, `g.(a_b)_(c_d)del`, and a
+    /// `LengthExpression` state as `g.<a>_<a+1>insN[n]` or
+    /// `g.<start+1>_<end>delinsN[n]` (`N[(min_max)]` for a range of lengths);
+    /// a `CopyNumberCount` comes back as `g.<start+1>_<end>copyN`, and a
+    /// `CopyNumberChange` as `g.<start+1>_<end>dup` for a gain or `del` for a
+    /// loss (Range bounds as `(a_b)_(c_d)`). The sequence is identified by
     /// its refget accession: `accession` names it when given, else the
     /// mapper's `Refget` lookup must; the digest is checked against the
     /// sequence either way.
@@ -1817,6 +2005,9 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<crate::SequenceVariant, HgvsError> {
         if vrs_type(json)? == "CopyNumberCount" {
             return self.copy_number_from_vrs(json, accession);
+        }
+        if vrs_type(json)? == "CopyNumberChange" {
+            return self.copy_number_change_from_vrs(json, accession);
         }
         let allele = VrsAllele::from_json(json)?;
         let (ac, kind) = self.located_sequence(&allele.location, accession)?;
@@ -1830,6 +2021,9 @@ impl<'a> VariantMapper<'a> {
                 }
                 let alt = match &allele.state {
                     VrsState::Literal { sequence, .. } => sequence.clone(),
+                    VrsState::Length { length, .. } => {
+                        return self.length_variant(&ac, kind, start, end, *length);
+                    }
                     VrsState::ReferenceLength {
                         length,
                         repeat_subunit_length,
@@ -1869,6 +2063,80 @@ impl<'a> VariantMapper<'a> {
         }
     }
 
+    /// The HGVS variant for "`length` unspecified bases replace interbase
+    /// `[start, end)` of `ac`": `g.<start>_<start+1>insN[n]` when the range
+    /// is empty, `g.<start+1>_<end>delinsN[n]` otherwise, as written (unknown
+    /// bases cannot be normalised).
+    fn length_variant(
+        &self,
+        ac: &str,
+        kind: IdentifierType,
+        start: usize,
+        end: usize,
+        length: VrsBound,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        use crate::edits::NaEdit;
+        if kind == IdentifierType::ProteinAccession {
+            return Err(HgvsError::UnsupportedOperation(
+                "A LengthExpression is read on a nucleotide sequence only".into(),
+            ));
+        }
+        let (min, max) = match length {
+            VrsBound::Exact(n) => (n, n),
+            VrsBound::Range(Some(lo), Some(hi)) if lo <= hi => (lo, hi),
+            _ => return Err(HgvsError::UnsupportedOperation(
+                "HGVS states an insertion's length as a number or a closed range, insN[(20_30)]"
+                    .into(),
+            )),
+        };
+        let uncertain = false;
+        if start == end {
+            if start == 0 {
+                return Err(HgvsError::UnsupportedOperation(
+                    "HGVS has no insertion before the first base".into(),
+                ));
+            }
+            // The insertion point must have a base on each side.
+            if self
+                .refs
+                .reference(ac, kind)
+                .slice(start, start + 1)?
+                .is_empty()
+            {
+                return Err(HgvsError::ValidationError(format!(
+                    "{ac} is shorter than position {}",
+                    start + 1
+                )));
+            }
+            let edit = NaEdit::InsLength {
+                min,
+                max,
+                uncertain,
+            };
+            return Ok(crate::SequenceVariant::Genomic(g_variant(
+                ac,
+                interval(start - 1, start + 1),
+                edit,
+            )));
+        }
+        if self.refs.reference(ac, kind).slice(start, end)?.len() != end - start {
+            return Err(HgvsError::ValidationError(format!(
+                "{ac} is shorter than position {end}"
+            )));
+        }
+        let edit = NaEdit::DelInsLength {
+            ref_: None,
+            min,
+            max,
+            uncertain,
+        };
+        Ok(crate::SequenceVariant::Genomic(g_variant(
+            ac,
+            interval(start, end),
+            edit,
+        )))
+    }
+
     /// `g.<start+1>_<end>copyN` from a VRS `CopyNumberCount`. HGVS has no
     /// syntax for a range of counts, so `copies` must be exact.
     fn copy_number_from_vrs(
@@ -1891,21 +2159,48 @@ impl<'a> VariantMapper<'a> {
         let copy = i32::try_from(copies).map_err(|_| {
             HgvsError::ValidationError(format!("Copy number {copies} is too large"))
         })?;
-        let pos = match (count.location.start, count.location.end) {
-            (VrsBound::Exact(start), VrsBound::Exact(end)) => {
-                if end <= start {
-                    return Err(HgvsError::ValidationError(format!(
-                        "Location end {end} is not after start {start}"
-                    )));
-                }
-                interval(start, end)
-            }
-            (start, end) => bounded_interval(start, end),
-        };
+        let pos = location_interval(count.location.start, count.location.end)?;
         let edit = crate::edits::NaEdit::NACopy {
             copy,
             uncertain: false,
         };
+        Ok(crate::SequenceVariant::Genomic(g_variant(&ac, pos, edit)))
+    }
+
+    /// `g.<start+1>_<end>dup` from a VRS `CopyNumberChange` that is a gain
+    /// (EFO:0030070, 71, 72), `del` from a loss (EFO:0030067, 68, 69,
+    /// EFO:0020073). Regional base ploidy and terms this module does not
+    /// know have no HGVS form.
+    fn copy_number_change_from_vrs(
+        &self,
+        json: &str,
+        accession: Option<&str>,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        let change = VrsCopyNumberChange::from_json(json)?;
+        let (ac, kind) = self.located_sequence(&change.location, accession)?;
+        if kind == IdentifierType::ProteinAccession {
+            return Err(HgvsError::UnsupportedOperation(
+                "A copy number change is of a nucleotide sequence, not a protein".into(),
+            ));
+        }
+        let uncertain = false;
+        let edit = if change.copy_change.is_gain() {
+            crate::edits::NaEdit::Dup {
+                ref_: None,
+                uncertain,
+            }
+        } else if change.copy_change.is_loss() {
+            crate::edits::NaEdit::Del {
+                ref_: None,
+                uncertain,
+            }
+        } else {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "copyChange {:?} is neither a gain nor a loss, so has no HGVS form",
+                change.copy_change.label()
+            )));
+        };
+        let pos = location_interval(change.location.start, change.location.end)?;
         Ok(crate::SequenceVariant::Genomic(g_variant(&ac, pos, edit)))
     }
 
