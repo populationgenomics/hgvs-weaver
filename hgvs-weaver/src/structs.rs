@@ -223,6 +223,73 @@ pub struct RVariant {
 }
 impl_variant!(RVariant, "r");
 
+/// Changes in cis, on one molecule: HGVS `NM_004006.2:c.[145C>T;147C>G]`.
+/// Every member is a plain variant in the same coordinate system on the same
+/// accession; the members are kept in the order written. The trans form,
+/// `c.[145C>T];[147C>G]`, describes two molecules and is not a variant.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct CisPhasedVariant {
+    pub ac: String,
+    pub gene: Option<String>,
+    pub members: Vec<SequenceVariant>,
+}
+
+impl CisPhasedVariant {
+    /// A cis allele of `members`, which must be one or more plain variants of
+    /// one coordinate system on the accession `ac`.
+    pub fn new(
+        ac: String,
+        gene: Option<String>,
+        members: Vec<SequenceVariant>,
+    ) -> Result<Self, HgvsError> {
+        let Some(first) = members.first() else {
+            return Err(HgvsError::ValidationError(
+                "A cis allele needs at least one member".into(),
+            ));
+        };
+        for m in &members {
+            if matches!(m, SequenceVariant::CisPhased(_)) {
+                return Err(HgvsError::ValidationError(
+                    "A cis allele's members are plain variants, not cis alleles".into(),
+                ));
+            }
+            if m.coordinate_type() != first.coordinate_type() {
+                return Err(HgvsError::ValidationError(format!(
+                    "Cis allele members are in one coordinate system, not {} and {}",
+                    first.coordinate_type(),
+                    m.coordinate_type()
+                )));
+            }
+            if m.ac() != ac {
+                return Err(HgvsError::ValidationError(format!(
+                    "Cis allele members are on {ac}, not {}",
+                    m.ac()
+                )));
+            }
+        }
+        Ok(CisPhasedVariant { ac, gene, members })
+    }
+}
+
+impl Variant for CisPhasedVariant {
+    fn ac(&self) -> &str {
+        &self.ac
+    }
+    fn gene(&self) -> Option<&str> {
+        self.gene.as_deref()
+    }
+    /// The members' coordinate system letter; empty with no members.
+    fn coordinate_type(&self) -> &str {
+        self.members.first().map_or("", |m| m.coordinate_type())
+    }
+    fn set_ac(&mut self, ac: String) {
+        for m in &mut self.members {
+            m.set_ac(ac.clone());
+        }
+        self.ac = ac;
+    }
+}
+
 /// Combines an interval and an edit (e.g., `123A>G`).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PosEdit<I, E> {

@@ -12,7 +12,55 @@ impl fmt::Display for SequenceVariant {
             SequenceVariant::Mitochondrial(v) => write!(f, "{}", v),
             SequenceVariant::NonCoding(v) => write!(f, "{}", v),
             SequenceVariant::Rna(v) => write!(f, "{}", v),
+            SequenceVariant::CisPhased(v) => write!(f, "{}", v),
         }
+    }
+}
+
+impl SequenceVariant {
+    /// The posedit alone, `145C>T` of `NM_004006.2:c.145C>T`: what a member
+    /// of a cis allele contributes to `c.[145C>T;147C>G]`.
+    pub fn fmt_posedit(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SequenceVariant::Genomic(v) => write!(f, "{}", v.posedit),
+            SequenceVariant::Coding(v) => write!(f, "{}", v.posedit),
+            SequenceVariant::Mitochondrial(v) => write!(f, "{}", v.posedit),
+            SequenceVariant::NonCoding(v) => write!(f, "{}", v.posedit),
+            SequenceVariant::Rna(v) => write!(f, "{}", v.posedit),
+            SequenceVariant::Protein(v) => v.posedit.format_simple(f),
+            SequenceVariant::CisPhased(v) => v.fmt_members(f),
+        }
+    }
+}
+
+/// `ACCESSION(GENE):x.[posedit;posedit]`, the members' posedits in the order written.
+impl fmt::Display for CisPhasedVariant {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}{}:{}.",
+            self.ac,
+            self.gene
+                .as_ref()
+                .map(|g| format!("({})", g))
+                .unwrap_or_default(),
+            self.coordinate_type()
+        )?;
+        self.fmt_members(f)
+    }
+}
+
+impl CisPhasedVariant {
+    /// `[posedit;posedit]`.
+    fn fmt_members(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (i, m) in self.members.iter().enumerate() {
+            if i > 0 {
+                write!(f, ";")?;
+            }
+            m.fmt_posedit(f)?;
+        }
+        write!(f, "]")
     }
 }
 

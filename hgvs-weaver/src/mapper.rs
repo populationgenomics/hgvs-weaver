@@ -11,8 +11,8 @@ use crate::structs::{
 };
 use crate::transcript_mapper::TranscriptMapper;
 use crate::vrs::{
-    vrs_type, VrsAllele, VrsBound, VrsCopyChange, VrsCopyNumberChange, VrsCopyNumberCount,
-    VrsMolecule, VrsSequenceLocation, VrsState, VrsVariation,
+    vrs_type, VrsAllele, VrsBound, VrsCisPhasedBlock, VrsCopyChange, VrsCopyNumberChange,
+    VrsCopyNumberCount, VrsMolecule, VrsSequenceLocation, VrsState, VrsVariation,
 };
 
 fn make_base_offset_position(
@@ -190,7 +190,7 @@ fn na_edit(var: &crate::SequenceVariant) -> Option<&crate::edits::NaEdit> {
         SV::Coding(v) => &v.posedit.edit,
         SV::NonCoding(v) => &v.posedit.edit,
         SV::Rna(v) => &v.posedit.edit,
-        SV::Protein(_) => return None,
+        SV::Protein(_) | SV::CisPhased(_) => return None,
     })
 }
 
@@ -1473,6 +1473,15 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
             crate::SequenceVariant::Protein(v) => self.validate_protein(v),
             crate::SequenceVariant::Rna(r) => self.validate(&self.r_as_transcript(r)?),
+            // A cis allele holds when every member does.
+            crate::SequenceVariant::CisPhased(cis) => {
+                for m in &cis.members {
+                    if !self.validate(m)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
         }
     }
 
@@ -1585,6 +1594,19 @@ impl<'a> VariantMapper<'a> {
                 let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
                 SV::Rna(self.tx_to_r(&normalised)?)
             }
+            // Each member normalises on its own; the allele keeps their order.
+            SV::CisPhased(cis) => {
+                let members = cis
+                    .members
+                    .into_iter()
+                    .map(|m| self.normalize_variant(m))
+                    .collect::<Result<Vec<_>, _>>()?;
+                SV::CisPhased(crate::structs::CisPhasedVariant {
+                    ac: cis.ac,
+                    gene: cis.gene,
+                    members,
+                })
+            }
             other => other,
         })
     }
@@ -1672,6 +1694,13 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        if let crate::SequenceVariant::CisPhased(cis) = var {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "A cis allele has one canonical allele per member, not one of its own; \
+                 take canonical_allele of each of the {} members of {var}, or to_vrs_variation",
+                cis.members.len()
+            )));
+        }
         if let crate::SequenceVariant::Protein(vp) = var {
             let pos = vp
                 .posedit
@@ -1739,6 +1768,12 @@ impl<'a> VariantMapper<'a> {
     /// breakpoints has Range bounds. A copy-number edit or an imprecise
     /// duplication has no Allele: see [`to_vrs_variation`](Self::to_vrs_variation).
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
+        if let crate::SequenceVariant::CisPhased(_) = var {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var} is an allele in cis, which is a VRS CisPhasedBlock, not an Allele; \
+                 use to_vrs_variation"
+            )));
+        }
         let syntax = format!("hgvs.{}", var.coordinate_type());
         let hgvs = var.to_string();
         // Breakpoints known only to ranges cannot be normalised; VRS carries
@@ -1938,14 +1973,58 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
-    /// The VRS 2.0 object of a variant: the `CopyNumberCount` of a copy-number
-    /// edit, the `CopyNumberChange` of a duplication with uncertain
-    /// breakpoints (which has no Allele), else the `Allele` of `to_vrs` (an
-    /// imprecise deletion included).
+    /// The GA4GH VRS 2.0 `CisPhasedBlock` of a cis allele, `c.[145C>T;147C>G]`:
+    /// the `Allele` of each member (`to_vrs`, so each is canonicalised on its
+    /// own), which must all lie on one sequence, that sequence as
+    /// `sequenceReference`, and the input HGVS as an expression. The
+    /// identifier does not depend on the order of the members.
+    pub fn to_vrs_cis_phased(
+        &self,
+        var: &crate::SequenceVariant,
+    ) -> Result<VrsCisPhasedBlock, HgvsError> {
+        let crate::SequenceVariant::CisPhased(cis) = var else {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "Only an allele in cis, ac:c.[a;b], renders as a CisPhasedBlock, not {var}"
+            )));
+        };
+        let members = cis
+            .members
+            .iter()
+            .map(|m| self.to_vrs(m))
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(first) = members.first() else {
+            return Err(HgvsError::ValidationError(
+                "A cis allele needs at least one member".into(),
+            ));
+        };
+        let reference = first.location.sequence_reference.clone();
+        if let Some(other) = members
+            .iter()
+            .find(|m| m.location.sequence_reference.refget_accession != reference.refget_accession)
+        {
+            return Err(HgvsError::ValidationError(format!(
+                "The members of {var} lie on different sequences, {} and {}",
+                reference.refget_accession, other.location.sequence_reference.refget_accession
+            )));
+        }
+        Ok(VrsCisPhasedBlock::new(
+            members,
+            Some(reference),
+            Some((&format!("hgvs.{}", var.coordinate_type()), &var.to_string())),
+        ))
+    }
+
+    /// The VRS 2.0 object of a variant: the `CisPhasedBlock` of a cis allele,
+    /// the `CopyNumberCount` of a copy-number edit, the `CopyNumberChange` of a
+    /// duplication with uncertain breakpoints (which has no Allele), else the
+    /// `Allele` of `to_vrs` (an imprecise deletion included).
     pub fn to_vrs_variation(
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<VrsVariation, HgvsError> {
+        if let crate::SequenceVariant::CisPhased(_) = var {
+            return Ok(VrsVariation::CisPhasedBlock(self.to_vrs_cis_phased(var)?));
+        }
         Ok(if is_copy_number(var) {
             VrsVariation::CopyNumberCount(self.to_vrs_copy_number(var)?)
         } else if is_imprecise_duplication(var) {
@@ -1994,7 +2073,8 @@ impl<'a> VariantMapper<'a> {
     /// `g.<start+1>_<end>delinsN[n]` (`N[(min_max)]` for a range of lengths);
     /// a `CopyNumberCount` comes back as `g.<start+1>_<end>copyN`, and a
     /// `CopyNumberChange` as `g.<start+1>_<end>dup` for a gain or `del` for a
-    /// loss (Range bounds as `(a_b)_(c_d)`). The sequence is identified by
+    /// loss (Range bounds as `(a_b)_(c_d)`); a `CisPhasedBlock` comes back as the
+    /// cis allele of its members, `g.[a;b]` (or `p.`). The sequence is identified by
     /// its refget accession: `accession` names it when given, else the
     /// mapper's `Refget` lookup must; the digest is checked against the
     /// sequence either way.
@@ -2008,6 +2088,9 @@ impl<'a> VariantMapper<'a> {
         }
         if vrs_type(json)? == "CopyNumberChange" {
             return self.copy_number_change_from_vrs(json, accession);
+        }
+        if vrs_type(json)? == "CisPhasedBlock" {
+            return self.cis_phased_from_vrs(json, accession);
         }
         let allele = VrsAllele::from_json(json)?;
         let (ac, kind) = self.located_sequence(&allele.location, accession)?;
@@ -2135,6 +2218,39 @@ impl<'a> VariantMapper<'a> {
             interval(start, end),
             edit,
         )))
+    }
+
+    /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`: each member read
+    /// back as the `Allele` it is, on the sequence `accession` or the first
+    /// member's refget accession names; every member must lie on it.
+    fn cis_phased_from_vrs(
+        &self,
+        json: &str,
+        accession: Option<&str>,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        let block = VrsCisPhasedBlock::from_json(json)?;
+        if let (Some(reference), Some(first)) = (&block.sequence_reference, block.members.first()) {
+            let stated = &first.location.sequence_reference.refget_accession;
+            if reference.refget_accession != *stated {
+                return Err(HgvsError::ValidationError(format!(
+                    "The CisPhasedBlock is on {} but its members on {stated}",
+                    reference.refget_accession
+                )));
+            }
+        }
+        let mut ac = accession.map(str::to_string);
+        let mut members = Vec::with_capacity(block.members.len());
+        for member in &block.members {
+            let var = self.from_vrs(&member.to_json(), ac.as_deref())?;
+            ac.get_or_insert_with(|| var.ac().to_string());
+            members.push(var);
+        }
+        let ac = ac.ok_or_else(|| {
+            HgvsError::ValidationError("A CisPhasedBlock has at least one member".into())
+        })?;
+        Ok(crate::SequenceVariant::CisPhased(
+            crate::structs::CisPhasedVariant::new(ac, None, members)?,
+        ))
     }
 
     /// `g.<start+1>_<end>copyN` from a VRS `CopyNumberCount`. HGVS has no
@@ -2310,7 +2426,7 @@ impl<'a> VariantMapper<'a> {
             SV::Coding(v) => self.tx_to_g(v, None),
             SV::NonCoding(v) => self.tx_to_g(v, None),
             SV::Rna(r) => self.r_to_g(r, None),
-            SV::Protein(_) => return None,
+            SV::Protein(_) | SV::CisPhased(_) => return None,
         })
     }
 

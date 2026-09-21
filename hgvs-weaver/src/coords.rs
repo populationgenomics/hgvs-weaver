@@ -194,7 +194,9 @@ impl From<HgvsProteinPos> for ProteinPos {
     }
 }
 
-use crate::structs::{CVariant, GVariant, MVariant, NVariant, PVariant, RVariant, Variant};
+use crate::structs::{
+    CVariant, CisPhasedVariant, GVariant, MVariant, NVariant, PVariant, RVariant, Variant,
+};
 
 /// A complete HGVS variant spanning any coordinate system.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -206,6 +208,8 @@ pub enum SequenceVariant {
     Mitochondrial(MVariant),
     NonCoding(NVariant),
     Rna(RVariant),
+    /// Changes in cis on one molecule, `c.[145C>T;147C>G]`.
+    CisPhased(CisPhasedVariant),
 }
 
 impl Variant for SequenceVariant {
@@ -217,6 +221,7 @@ impl Variant for SequenceVariant {
             SequenceVariant::Mitochondrial(v) => v.ac(),
             SequenceVariant::NonCoding(v) => v.ac(),
             SequenceVariant::Rna(v) => v.ac(),
+            SequenceVariant::CisPhased(v) => v.ac(),
         }
     }
     fn gene(&self) -> Option<&str> {
@@ -227,6 +232,7 @@ impl Variant for SequenceVariant {
             SequenceVariant::Mitochondrial(v) => v.gene(),
             SequenceVariant::NonCoding(v) => v.gene(),
             SequenceVariant::Rna(v) => v.gene(),
+            SequenceVariant::CisPhased(v) => v.gene(),
         }
     }
     fn coordinate_type(&self) -> &str {
@@ -237,6 +243,7 @@ impl Variant for SequenceVariant {
             SequenceVariant::Mitochondrial(v) => v.coordinate_type(),
             SequenceVariant::NonCoding(v) => v.coordinate_type(),
             SequenceVariant::Rna(v) => v.coordinate_type(),
+            SequenceVariant::CisPhased(v) => v.coordinate_type(),
         }
     }
     fn set_ac(&mut self, ac: String) {
@@ -247,6 +254,7 @@ impl Variant for SequenceVariant {
             SequenceVariant::Mitochondrial(v) => v.set_ac(ac),
             SequenceVariant::NonCoding(v) => v.set_ac(ac),
             SequenceVariant::Rna(v) => v.set_ac(ac),
+            SequenceVariant::CisPhased(v) => v.set_ac(ac),
         }
     }
 }

@@ -42,7 +42,10 @@ fn a_length_insertion_is_an_allele_at_the_insertion_point() {
     let vrs = mapper.to_vrs(&var).unwrap();
     assert!(vrs.id.starts_with("ga4gh:VA."), "{}", vrs.id);
     // Between bases 10 and 11: the empty interbase range at 10.
-    assert_eq!((vrs.location.start, vrs.location.end), (Exact(10), Exact(10)));
+    assert_eq!(
+        (vrs.location.start, vrs.location.end),
+        (Exact(10), Exact(10))
+    );
     assert!(matches!(
         vrs.state,
         VrsState::Length {
@@ -109,7 +112,10 @@ fn a_delins_of_a_stated_length_covers_the_deleted_range() {
     let mapper = VariantMapper::new(&hdp);
     let var = parse_hgvs_variant("NC_TEST.1:g.10_12delinsN[5]").unwrap();
     let vrs = mapper.to_vrs(&var).unwrap();
-    assert_eq!((vrs.location.start, vrs.location.end), (Exact(9), Exact(12)));
+    assert_eq!(
+        (vrs.location.start, vrs.location.end),
+        (Exact(9), Exact(12))
+    );
     assert!(matches!(
         vrs.state,
         VrsState::Length {
@@ -172,10 +178,19 @@ fn length_expressions_read_back_as_the_recommended_spelling() {
             "NC_TEST.1:g.10_11insN[(20_30)]",
             "NC_TEST.1:g.10_11insN[(20_30)]",
         ),
-        ("NC_TEST.1:g.10_11ins(20_30)", "NC_TEST.1:g.10_11insN[(20_30)]"),
+        (
+            "NC_TEST.1:g.10_11ins(20_30)",
+            "NC_TEST.1:g.10_11insN[(20_30)]",
+        ),
         ("NC_TEST.1:g.10_12delinsN[5]", "NC_TEST.1:g.10_12delinsN[5]"),
-        ("NC_TEST.1:g.10_12del3insN[5]", "NC_TEST.1:g.10_12delinsN[5]"),
-        ("NC_TEST.1:g.10delinsN[(2_3)]", "NC_TEST.1:g.10delinsN[(2_3)]"),
+        (
+            "NC_TEST.1:g.10_12del3insN[5]",
+            "NC_TEST.1:g.10_12delinsN[5]",
+        ),
+        (
+            "NC_TEST.1:g.10delinsN[(2_3)]",
+            "NC_TEST.1:g.10delinsN[(2_3)]",
+        ),
         ("NC_TEST.1:g.39_40insN[1]", "NC_TEST.1:g.39_40insN[1]"),
     ] {
         let var = parse_hgvs_variant(hgvs).unwrap();

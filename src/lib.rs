@@ -202,7 +202,7 @@ impl PyVariantTransformSettings {
 }
 
 #[pyclass(name = "Variant", module = "weaver._weaver")]
-#[doc = "Represents a parsed HGVS variant.\n\nProvides access to the variant's accession, gene symbol, and coordinate type.\nVariants can be formatted back to HGVS strings or converted to JSON/dict representations."]
+#[doc = "Represents a parsed HGVS variant.\n\nProvides access to the variant's accession, gene symbol, and coordinate type.\nVariants can be formatted back to HGVS strings or converted to JSON/dict representations.\n\nAn allele in cis, NM_004006.2:c.[145C>T;147C>G], is one Variant whose\nmembers are the plain variants written between the brackets."]
 #[derive(Clone)]
 pub struct PyVariant {
     pub inner: SequenceVariant,
@@ -223,9 +223,23 @@ impl PyVariant {
     }
 
     #[getter]
-    #[doc = "The coordinate type of the variant ('g', 'c', 'p', etc.)."]
+    #[doc = "The coordinate type of the variant ('g', 'c', 'p', etc.); for an allele in cis, its members'."]
     fn coordinate_type(&self) -> String {
         self.inner.coordinate_type().to_string()
+    }
+
+    #[getter]
+    #[doc = "The members of an allele in cis, c.[145C>T;147C>G], as plain Variants in the\norder written; None for a plain variant.\n\nMapping methods take plain variants, so map the members and rebuild the\nallele from the results with from_dict, or render the whole allele with\nVariantMapper.to_vrs."]
+    fn members(&self) -> Option<Vec<PyVariant>> {
+        match &self.inner {
+            SequenceVariant::CisPhased(cis) => Some(
+                cis.members
+                    .iter()
+                    .map(|m| PyVariant { inner: m.clone() })
+                    .collect(),
+            ),
+            _ => None,
+        }
     }
 
     #[doc = "Formats the variant back into a standard HGVS string."]
@@ -292,7 +306,7 @@ impl PyVariant {
 }
 
 #[pyfunction]
-#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), and protein (p.) variants.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    ParseError: If the HGVS string is malformed or unsupported."]
+#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    ParseError: If the HGVS string is malformed or unsupported.\n    UnsupportedOperationError: If the string describes alleles in trans."]
 fn parse(input: &str) -> PyResult<PyVariant> {
     match ::hgvs_weaver::parse_hgvs_variant(input) {
         Ok(inner) => Ok(PyVariant { inner }),
@@ -306,6 +320,13 @@ macro_rules! expect_variant {
         fn $name(var: &SequenceVariant) -> PyResult<&$ty> {
             match var {
                 SequenceVariant::$variant(v) => Ok(v),
+                SequenceVariant::CisPhased(_) => {
+                    Err(pyo3::exceptions::PyValueError::new_err(concat!(
+                        "Expected a ",
+                        $what,
+                        ", not an allele in cis; map its members (Variant.members) one by one"
+                    )))
+                }
                 _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
                     "Expected a ",
                     $what
@@ -783,7 +804,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var))]
-    #[doc = "Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, a\nCopyNumberCount for a copy-number edit, or a CopyNumberChange for a\nduplication with uncertain breakpoints.\n\nA nucleotide variant is projected to its genomic reference; a protein\nvariant stays on its protein. Either is canonicalised (fully justified\nover its region of ambiguity) and rendered with computed identifiers. The\nsequence is identified by its refget accession, from the Refget given at\nconstruction or computed from the whole sequence.\n\nA g. or m. copy-number edit, g.1000_2000copy3, becomes a CopyNumberCount\nover the range with the count as ``copies``; it is not normalised.\n\nA g. or m. duplication with uncertain breakpoints,\ng.(100_200)_(300_400)dup, has no Allele (its bases are unknown) and\nbecomes a CopyNumberChange over the Range bounds with ``copyChange``\n\"gain\" (EFO:0030070, copy number gain); a deletion with uncertain\nbreakpoints stays an Allele, as below.\n\nAn insertion of bases known only by number, c.123_124insN[20] (also the\nolder ins(20); insN[(20_30)] for a range of lengths), becomes an Allele\nover the insertion point whose state is a LengthExpression,\n``{\"type\": \"LengthExpression\", \"length\": 20}``; delinsN[20] does the\nsame over the deleted range. Unknown bases cannot slide, so neither is\nnormalised.\n\nThe dict's ``type`` says which object was returned.\n\nArgs:\n    var: A g., m., c., n. or p. Variant. Protein variants must describe a\n        sequence: frameshifts, extensions and p.? have no allele. A g. or\n        m. deletion with uncertain breakpoints, g.(?_100)_(200_?)del, is\n        rendered as given, with Range bounds ([min, max], null when\n        unbounded) and an empty literal state; it is not normalised.\n\nReturns:\n    A dict in the VRS 2.0 Allele, CopyNumberCount or CopyNumberChange\n    schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    #[doc = "Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, a\nCopyNumberCount for a copy-number edit, a CopyNumberChange for a\nduplication with uncertain breakpoints, or a CisPhasedBlock for an allele\nin cis.\n\nA nucleotide variant is projected to its genomic reference; a protein\nvariant stays on its protein. Either is canonicalised (fully justified\nover its region of ambiguity) and rendered with computed identifiers. The\nsequence is identified by its refget accession, from the Refget given at\nconstruction or computed from the whole sequence.\n\nA g. or m. copy-number edit, g.1000_2000copy3, becomes a CopyNumberCount\nover the range with the count as ``copies``; it is not normalised.\n\nA g. or m. duplication with uncertain breakpoints,\ng.(100_200)_(300_400)dup, has no Allele (its bases are unknown) and\nbecomes a CopyNumberChange over the Range bounds with ``copyChange``\n\"gain\" (EFO:0030070, copy number gain); a deletion with uncertain\nbreakpoints stays an Allele, as below.\n\nAn insertion of bases known only by number, c.123_124insN[20] (also the\nolder ins(20); insN[(20_30)] for a range of lengths), becomes an Allele\nover the insertion point whose state is a LengthExpression,\n``{\"type\": \"LengthExpression\", \"length\": 20}``; delinsN[20] does the\nsame over the deleted range. Unknown bases cannot slide, so neither is\nnormalised.\n\nAn allele in cis, c.[145C>T;147C>G], becomes a CisPhasedBlock whose\n``members`` are the members' Alleles, each canonicalised on its own and\nkept in the order written, with the shared sequence as\n``sequenceReference``. Its identifier (ga4gh:CPB.) does not depend on the\norder of the members.\n\nThe dict's ``type`` says which object was returned.\n\nArgs:\n    var: A g., m., c., n., r. or p. Variant, or an allele in cis of any of\n        them. Protein variants must describe a sequence: frameshifts,\n        extensions and p.? have no allele. A g. or m. deletion with\n        uncertain breakpoints, g.(?_100)_(200_?)del, is rendered as given,\n        with Range bounds ([min, max], null when unbounded) and an empty\n        literal state; it is not normalised.\n\nReturns:\n    A dict in the VRS 2.0 Allele, CopyNumberCount, CopyNumberChange or\n    CisPhasedBlock schema.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
     fn to_vrs(&self, py: Python, var: &PyVariant) -> PyResult<Py<PyAny>> {
         let mapper = self.mapper();
         let json_str = mapper
@@ -795,7 +816,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var))]
-    #[doc = "Returns the GA4GH VRS computed identifier of a variant: ga4gh:VA.<digest>\nfor an Allele, ga4gh:CN.<digest> for a copy-number edit, ga4gh:CX.<digest>\nfor a duplication with uncertain breakpoints.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier.\n\nArgs:\n    var: A g., m., c., n. or p. Variant, as for to_vrs.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
+    #[doc = "Returns the GA4GH VRS computed identifier of a variant: ga4gh:VA.<digest>\nfor an Allele, ga4gh:CN.<digest> for a copy-number edit, ga4gh:CX.<digest>\nfor a duplication with uncertain breakpoints, ga4gh:CPB.<digest> for an\nallele in cis.\n\nTwo variants describing the same change on the same sequence have the same\nidentifier; so do two cis alleles of the same members in either order.\n\nArgs:\n    var: A g., m., c., n., r. or p. Variant or allele in cis, as for to_vrs.\n\nRaises:\n    HGVSError: If the variant cannot be resolved against the reference."]
     fn vrs_id(&self, _py: Python, var: &PyVariant) -> PyResult<String> {
         let mapper = self.mapper();
         let variation = mapper
@@ -805,7 +826,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (allele, accession=None))]
-    #[doc = "Returns the Variant a GA4GH VRS 2.0 Allele, CopyNumberCount or\nCopyNumberChange names.\n\nAn Allele is written in HGVS on its own sequence, trimmed to the change and\nnormalised (3'-shifted): g. for a nucleotide sequence, p. for a protein.\nLiteral, ReferenceLengthExpression and LengthExpression states are read;\na LengthExpression comes back as written, g.<a>_<a+1>insN[n] over an\nempty location and g.<start+1>_<end>delinsN[n] over a non-empty one\n(N[(min_max)] for a range of lengths). Range bounds are accepted for a\ndeletion, which comes back as g.(a_b)_(c_d)del. A\nCopyNumberCount comes back as g.<start+1>_<end>copyN; its ``copies`` must\nbe an exact count, as HGVS has no syntax for a range of counts. A\nCopyNumberChange comes back as g.<start+1>_<end>dup for a gain\n(``copyChange`` gain, low-level gain or high-level gain, or the EFO codes\nEFO:0030070-72) and del for a loss (loss, low-level loss, high-level loss\nor complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range\nbounds as g.(a_b)_(c_d); other terms have no HGVS form.\n\nThe sequence behind the object's refget accession is named by ``accession``\nwhen given, else looked up through the Refget given at construction; the\ndigest is checked against the sequence either way.\n\nArgs:\n    allele: The Allele, CopyNumberCount or CopyNumberChange as a dict (as\n        to_vrs returns) or a JSON string.\n    accession: The accession of the sequence, when the provider cannot look\n        it up from the refget accession.\n\nRaises:\n    HGVSError: If the object is malformed, unsupported, or does not match the\n        sequence."]
+    #[doc = "Returns the Variant a GA4GH VRS 2.0 Allele, CopyNumberCount,\nCopyNumberChange or CisPhasedBlock names.\n\nAn Allele is written in HGVS on its own sequence, trimmed to the change and\nnormalised (3'-shifted): g. for a nucleotide sequence, p. for a protein.\nLiteral, ReferenceLengthExpression and LengthExpression states are read;\na LengthExpression comes back as written, g.<a>_<a+1>insN[n] over an\nempty location and g.<start+1>_<end>delinsN[n] over a non-empty one\n(N[(min_max)] for a range of lengths). Range bounds are accepted for a\ndeletion, which comes back as g.(a_b)_(c_d)del. A\nCopyNumberCount comes back as g.<start+1>_<end>copyN; its ``copies`` must\nbe an exact count, as HGVS has no syntax for a range of counts. A\nCopyNumberChange comes back as g.<start+1>_<end>dup for a gain\n(``copyChange`` gain, low-level gain or high-level gain, or the EFO codes\nEFO:0030070-72) and del for a loss (loss, low-level loss, high-level loss\nor complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range\nbounds as g.(a_b)_(c_d); other terms have no HGVS form. A\nCisPhasedBlock comes back as the allele in cis of its members, g.[a;b] (or\np.[a;b]), each member read as an Allele; the members must all lie on one\nsequence, which may be stated once on the block as the spec allows.\n\nThe sequence behind the object's refget accession is named by ``accession``\nwhen given, else looked up through the Refget given at construction; the\ndigest is checked against the sequence either way.\n\nArgs:\n    allele: The Allele, CopyNumberCount, CopyNumberChange or CisPhasedBlock as\n        a dict (as to_vrs returns) or a JSON string.\n    accession: The accession of the sequence, when the provider cannot look\n        it up from the refget accession.\n\nRaises:\n    HGVSError: If the object is malformed, unsupported, or does not match the\n        sequence."]
     // Public Python API: a constructor-style name on the mapper, kept as is.
     #[allow(clippy::wrong_self_convention)]
     fn from_vrs(

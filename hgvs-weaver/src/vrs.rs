@@ -7,7 +7,8 @@
 //! number of inserted bases is known. A `CopyNumberCount` is a
 //! `SequenceLocation` plus the number of copies of it; a `CopyNumberChange`
 //! is a `SequenceLocation` plus the direction of a change in copies (a gain
-//! or a loss, as an EFO copy-number term). Identifiers are
+//! or a loss, as an EFO copy-number term). A `CisPhasedBlock` is a set of
+//! `Allele`s on one molecule. Identifiers are
 //! `sha512t24u` digests of an RFC 8785 canonical JSON serialisation of each
 //! object's inherent properties, nested identifiable objects replaced by their
 //! digests.
@@ -617,24 +618,135 @@ impl VrsCopyNumberChange {
     }
 }
 
+/// A VRS 2.0 `CisPhasedBlock`: `Allele`s found in cis, on one molecule, HGVS
+/// `c.[145C>T;147C>G]`.
+///
+/// Per VRS 2.0.1 `schema/vrs/vrs-source.yaml`, `CisPhasedBlock` has prefix
+/// `CPB` and the one inherent property `members` (`type` goes into every
+/// digest by convention); `sequenceReference` is descriptive and not digested.
+/// The digest serialisation rule (`docs/source/conventions/computed_identifiers.rst`,
+/// "Digest Serialization") replaces each member with its digest and orders
+/// arrays of digests by Unicode code point, so the identifier does not depend
+/// on the order the members are written in; `members` keeps that order. The
+/// schema's `members` is `minItems: 2`; one member is accepted here because
+/// HGVS allows the degenerate `c.[145C>T]`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VrsCisPhasedBlock {
+    #[serde(default)]
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(default)]
+    pub digest: String,
+    pub members: Vec<VrsAllele>,
+    /// The sequence every member lies on, when they share one.
+    #[serde(
+        rename = "sequenceReference",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sequence_reference: Option<VrsSequenceReference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expressions: Vec<VrsExpression>,
+}
+
+/// The digest of a `CisPhasedBlock` from its members' digests, sorted by
+/// code point as the digest serialisation rule requires.
+fn cis_phased_block_digest<'a>(members: impl Iterator<Item = &'a str>) -> String {
+    let mut digests: Vec<&str> = members.collect();
+    digests.sort_unstable();
+    sha512t24u(
+        canonical_json(&json!({
+            "type": "CisPhasedBlock",
+            "members": digests,
+        }))
+        .as_bytes(),
+    )
+}
+
+impl VrsCisPhasedBlock {
+    /// The block of `members`, in the order given, on `sequence_reference`
+    /// when they share one, carrying `hgvs` (syntax such as `hgvs.c` and the
+    /// string) as an expression when given.
+    pub fn new(
+        members: Vec<VrsAllele>,
+        sequence_reference: Option<VrsSequenceReference>,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let digest = cis_phased_block_digest(members.iter().map(|m| m.digest.as_str()));
+        VrsCisPhasedBlock {
+            id: format!("ga4gh:CPB.{digest}"),
+            type_: "CisPhasedBlock".into(),
+            digest,
+            members,
+            sequence_reference,
+            expressions: expressions(hgvs),
+        }
+    }
+
+    /// Parses a VRS 2.0 CisPhasedBlock from JSON. Properties this module does
+    /// not model are ignored; the `type` must be `CisPhasedBlock` and there
+    /// must be members. A block-level `sequenceReference` "may be used to
+    /// implicitly define the `sequenceReference` attribute for each of the
+    /// CisPhasedBlock member Alleles" (schema description), so it is filled
+    /// into member locations that state none.
+    pub fn from_json(json: &str) -> Result<VrsCisPhasedBlock, HgvsError> {
+        let not_a_block =
+            |e: String| HgvsError::ValidationError(format!("Not a VRS CisPhasedBlock: {e}"));
+        let mut value: Value =
+            serde_json::from_str(json).map_err(|e| not_a_block(e.to_string()))?;
+        if let Some(reference) = value.get("sequenceReference").cloned() {
+            let members = value.get_mut("members").and_then(Value::as_array_mut);
+            for member in members.into_iter().flatten() {
+                if let Some(location) = member.get_mut("location").and_then(Value::as_object_mut) {
+                    location
+                        .entry("sequenceReference")
+                        .or_insert_with(|| reference.clone());
+                }
+            }
+        }
+        let block: VrsCisPhasedBlock =
+            serde_json::from_value(value).map_err(|e| not_a_block(e.to_string()))?;
+        if block.type_ != "CisPhasedBlock" {
+            return Err(HgvsError::ValidationError(format!(
+                "Expected a VRS CisPhasedBlock, got a {}",
+                block.type_
+            )));
+        }
+        if block.members.is_empty() {
+            return Err(HgvsError::ValidationError(
+                "A CisPhasedBlock has at least one member".into(),
+            ));
+        }
+        Ok(block)
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("serialising a VRS cis-phased block cannot fail")
+    }
+}
+
 /// The VRS object a variant renders as: an `Allele` for a sequence change, a
 /// `CopyNumberCount` for a copy-number edit, a `CopyNumberChange` for a gain
-/// or loss without a count. The JSON `type` tells them apart.
+/// or loss without a count, a `CisPhasedBlock` for alleles in cis. The JSON
+/// `type` tells them apart.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VrsVariation {
     Allele(VrsAllele),
     CopyNumberCount(VrsCopyNumberCount),
     CopyNumberChange(VrsCopyNumberChange),
+    CisPhasedBlock(VrsCisPhasedBlock),
 }
 
 impl VrsVariation {
-    /// The computed identifier, `ga4gh:VA.`, `ga4gh:CN.` or `ga4gh:CX.` plus
+    /// The computed identifier, `ga4gh:VA.`, `ga4gh:CN.`, `ga4gh:CX.` or `ga4gh:CPB.` plus
     /// the digest.
     pub fn id(&self) -> &str {
         match self {
             VrsVariation::Allele(a) => &a.id,
             VrsVariation::CopyNumberCount(c) => &c.id,
             VrsVariation::CopyNumberChange(c) => &c.id,
+            VrsVariation::CisPhasedBlock(b) => &b.id,
         }
     }
 
@@ -643,6 +755,7 @@ impl VrsVariation {
             VrsVariation::Allele(a) => a.to_json(),
             VrsVariation::CopyNumberCount(c) => c.to_json(),
             VrsVariation::CopyNumberChange(c) => c.to_json(),
+            VrsVariation::CisPhasedBlock(b) => b.to_json(),
         }
     }
 }
@@ -844,6 +957,85 @@ mod tests {
         assert!(matches!(
             VrsAllele::from_json(&literal.to_json()).unwrap().state,
             VrsState::Literal { .. }
+        ));
+    }
+
+    #[test]
+    fn cis_phased_block_digest_matches_the_spec_validation_data() {
+        // ga4gh/vrs 2.0.1 validation/models.yaml, "Simple CisPhasedBlock
+        // (order 1)" and "(order 2)": the same two members in either order
+        // serialise to {"members":["VJIUKfuj7QCxPI-bplNjh5bv2Y8nkvW7",
+        // "aYfm-2xhlRwkQdgcnJi8Wd0ILCuvsevm"],"type":"CisPhasedBlock"} and
+        // give ga4gh:CPB.YAWwnFF0e-T7fnuT4wRzZW4Lzg7jc-zQ.
+        let a = "VJIUKfuj7QCxPI-bplNjh5bv2Y8nkvW7";
+        let b = "aYfm-2xhlRwkQdgcnJi8Wd0ILCuvsevm";
+        let expected = "YAWwnFF0e-T7fnuT4wRzZW4Lzg7jc-zQ";
+        assert_eq!(cis_phased_block_digest([a, b].into_iter()), expected);
+        assert_eq!(cis_phased_block_digest([b, a].into_iter()), expected);
+    }
+
+    #[test]
+    fn a_cis_phased_block_carries_its_members_in_the_order_given() {
+        let member = |start: usize, alt: &str| {
+            VrsAllele::new(
+                &CanonicalAllele {
+                    accession: "X".into(),
+                    start,
+                    end: start + 1,
+                    reference: "A".into(),
+                    alternate: alt.into(),
+                    repeat_subunit: None,
+                },
+                "SQ.test",
+                VrsMolecule::Genomic,
+                None,
+            )
+        };
+        let (first, second) = (member(5, "C"), member(9, "G"));
+        let reference = first.location.sequence_reference.clone();
+        let block = VrsCisPhasedBlock::new(
+            vec![first.clone(), second.clone()],
+            Some(reference),
+            Some(("hgvs.g", "X:g.[6A>C;10A>G]")),
+        );
+        let reversed = VrsCisPhasedBlock::new(vec![second, first], None, None);
+        assert_eq!(block.id, format!("ga4gh:CPB.{}", block.digest));
+        assert_eq!(block.id, reversed.id);
+        assert_ne!(block.members, reversed.members);
+        assert!(reversed.sequence_reference.is_none());
+        assert_eq!(vrs_type(&block.to_json()).unwrap(), "CisPhasedBlock");
+        assert_eq!(
+            VrsCisPhasedBlock::from_json(&block.to_json()).unwrap(),
+            block
+        );
+        assert!(block
+            .to_json()
+            .contains(r#""expressions":[{"syntax":"hgvs.g","value":"X:g.[6A>C;10A>G]"}]"#));
+    }
+
+    #[test]
+    fn a_block_level_sequence_reference_is_filled_into_the_members() {
+        // The spec example: members whose locations state no sequence.
+        let json = r#"{"type":"CisPhasedBlock","members":[
+            {"type":"Allele","location":{"type":"SequenceLocation","start":601,"end":602},
+             "state":{"type":"LiteralSequenceExpression","sequence":"C"}}],
+            "sequenceReference":{"type":"SequenceReference",
+             "refgetAccession":"SQ.S_KjnFVz-FE7M0W6yoaUDgYxLPc1jyWU","residueAlphabet":"na"}}"#;
+        let block = VrsCisPhasedBlock::from_json(json).unwrap();
+        assert_eq!(
+            block.members[0]
+                .location
+                .sequence_reference
+                .refget_accession,
+            "SQ.S_KjnFVz-FE7M0W6yoaUDgYxLPc1jyWU"
+        );
+        assert!(matches!(
+            VrsCisPhasedBlock::from_json(r#"{"type":"CisPhasedBlock","members":[]}"#),
+            Err(HgvsError::ValidationError(_))
+        ));
+        assert!(matches!(
+            VrsCisPhasedBlock::from_json(r#"{"type":"Allele","members":[]}"#),
+            Err(HgvsError::ValidationError(_))
         ));
     }
 
