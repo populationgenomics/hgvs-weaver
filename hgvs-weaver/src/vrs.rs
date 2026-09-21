@@ -27,8 +27,18 @@ pub fn sha512t24u(data: &[u8]) -> String {
 }
 
 /// The refget accession of a sequence, `SQ.` plus the digest of its residues.
+///
+/// The digest is over the normalised sequence the refget specification
+/// defines: every ASCII letter uppercased, everything else (newlines, spaces,
+/// digits) dropped. A soft-masked FASTA hashes to the same accession as the
+/// uppercase one, and to the value refget servers and SeqRepo publish.
 pub fn refget_accession(sequence: &str) -> String {
-    format!("SQ.{}", sha512t24u(sequence.as_bytes()))
+    let normalised: Vec<u8> = sequence
+        .bytes()
+        .filter(u8::is_ascii_alphabetic)
+        .map(|b| b.to_ascii_uppercase())
+        .collect();
+    format!("SQ.{}", sha512t24u(&normalised))
 }
 
 /// Canonical JSON per RFC 8785 for the objects VRS digests: keys sorted, no
@@ -1037,6 +1047,19 @@ mod tests {
             VrsCisPhasedBlock::from_json(r#"{"type":"Allele","members":[]}"#),
             Err(HgvsError::ValidationError(_))
         ));
+    }
+
+    #[test]
+    fn refget_accession_is_over_the_normalised_sequence() {
+        // The specification's own example, and its normalisation rule: case
+        // and non-letters do not change the accession.
+        assert_eq!(
+            refget_accession("ACGT"),
+            "SQ.aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2"
+        );
+        assert_eq!(refget_accession("acgt"), refget_accession("ACGT"));
+        assert_eq!(refget_accession("AC\nG T\n"), refget_accession("ACGT"));
+        assert_ne!(refget_accession("ACGT"), refget_accession("ACGA"));
     }
 
     #[test]

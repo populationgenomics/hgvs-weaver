@@ -8,6 +8,9 @@ exactly what weaver needs for ``get_seq`` and for the ``Refget`` lookup, so
 transcript models from another provider) and a Refget; pass it as either or
 both: ``VariantMapper(provider, refget=provider)``.
 
+When the sequences are local there is no server to ask: :class:`DigestTable`
+computes the accessions from the FASTA once and serves them from a file.
+
 Any refget v1 or v2 server works, for example the biocommons SeqRepo REST
 service (``http://localhost:5000/seqrepo/1``) or EBI's
 (``https://www.ebi.ac.uk/ena/cram``). Which names a server knows a sequence by
@@ -17,7 +20,10 @@ is up to the server: SeqRepo lists RefSeq accessions, EBI lists INSDC ones.
 from __future__ import annotations
 
 import base64
+import csv
+import hashlib
 import json
+import pathlib
 import re
 import typing
 import urllib.error
@@ -214,3 +220,87 @@ class RefgetProvider:
         if identifier.startswith(("NC_", "NT_", "NW_", "NG_", "AC_", "SQ.")):
             return IdentifierType.GenomicAccession
         return IdentifierType.GeneSymbol
+
+
+def sequence_digest(sequence: str) -> str:
+    """The refget accession of ``sequence``: ``SQ.`` + sha512t24u over the normalised bases.
+
+    Normalised as the refget specification requires, letters uppercased and everything else
+    dropped, so a soft-masked FASTA gives the accession refget servers publish.
+    """
+    normalised = "".join(c for c in sequence if c.isascii() and c.isalpha()).upper().encode("ascii")
+    return "SQ." + base64.urlsafe_b64encode(hashlib.sha512(normalised).digest()[:24]).decode("ascii").rstrip("=")
+
+
+_TABLE_COLUMNS = ("sequence", "length", "sha512t24u")
+
+
+class DigestTable:
+    """A ``Refget`` over a table of ``sequence <tab> length <tab> sha512t24u`` rows.
+
+    The self-contained way to give a mapper refget accessions when the sequences are local:
+    compute the table once from the FASTA the provider serves (:meth:`from_fasta`), keep it beside
+    the FASTA, and load it with :meth:`from_tsv`. Its digests are of the bytes the provider reads,
+    which no lookup service can promise. Extra columns (aliases from an assembly report, an md5)
+    are carried and ignored.
+    """
+
+    def __init__(self, rows: typing.Iterable[tuple[str, int, str]]) -> None:
+        self._digest: dict[str, str] = {}
+        self._names: dict[str, list[str]] = {}
+        self._length: dict[str, int] = {}
+        for name, length, digest in rows:
+            if not digest.startswith("SQ."):
+                raise ValueError(f"{name}: {digest!r} is not a refget accession (SQ.…)")
+            self._digest[name] = digest
+            self._length[name] = length
+            self._names.setdefault(digest, []).append(name)
+
+    @classmethod
+    def from_tsv(cls, path: str | pathlib.Path) -> DigestTable:
+        """Loads a table written by :meth:`to_tsv` (or any TSV with at least its three columns)."""
+        with pathlib.Path(path).open(encoding="utf-8") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            missing = set(_TABLE_COLUMNS) - set(reader.fieldnames or ())
+            if missing:
+                raise ValueError(f"{path}: digest table lacks columns {sorted(missing)}")
+            return cls((row["sequence"], int(row["length"]), row["sha512t24u"]) for row in reader)
+
+    @classmethod
+    def from_fasta(cls, path: str | pathlib.Path) -> DigestTable:
+        """Computes the table from an indexed FASTA, one pass per sequence.
+
+        Needs ``pysam`` (the ``validation`` extra). About a minute for a human genome.
+        """
+        import pysam  # noqa: PLC0415 - optional dependency
+
+        with pysam.FastaFile(str(path)) as fasta:
+            return cls(
+                (name, length, sequence_digest(fasta.fetch(name)))
+                for name, length in zip(fasta.references, fasta.lengths, strict=True)
+            )
+
+    def to_tsv(self, path: str | pathlib.Path) -> None:
+        with pathlib.Path(path).open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+            writer.writerow(_TABLE_COLUMNS)
+            for name, digest in self._digest.items():
+                writer.writerow((name, self._length[name], digest))
+
+    def __len__(self) -> int:
+        return len(self._digest)
+
+    def length(self, ac: str) -> int | None:
+        return self._length.get(ac)
+
+    def get_refget_accession(self, ac: str) -> str | None:
+        return self._digest.get(ac)
+
+    def get_accession_for_refget(self, refget: str) -> str | None:
+        """The first name recorded for the digest; identical sequences share one."""
+        names = self._names.get(refget.removeprefix("ga4gh:"))
+        return names[0] if names else None
+
+    def accessions_for_refget(self, refget: str) -> list[str]:
+        """Every name recorded for the digest, in table order."""
+        return list(self._names.get(refget.removeprefix("ga4gh:"), ()))
