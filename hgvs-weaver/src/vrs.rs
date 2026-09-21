@@ -5,7 +5,9 @@
 //! a `state`: a literal sequence, a `ReferenceLengthExpression` when the
 //! alternate is the reference repeated, or a `LengthExpression` when only the
 //! number of inserted bases is known. A `CopyNumberCount` is a
-//! `SequenceLocation` plus the number of copies of it. Identifiers are
+//! `SequenceLocation` plus the number of copies of it; a `CopyNumberChange`
+//! is a `SequenceLocation` plus the direction of a change in copies (a gain
+//! or a loss, as an EFO copy-number term). Identifiers are
 //! `sha512t24u` digests of an RFC 8785 canonical JSON serialisation of each
 //! object's inherent properties, nested identifiable objects replaced by their
 //! digests.
@@ -417,20 +419,222 @@ impl VrsCopyNumberCount {
     }
 }
 
+/// The direction and degree of a `CopyNumberChange`: the EFO copy-number
+/// terms VRS 2.0.1 enumerates by label (vrs-source.yaml,
+/// `CopyNumberChange.properties.copyChange.enum`). VRS 2.0.0 gave the same
+/// terms as EFO codes in a `MappableConcept`; both forms are read, the label
+/// is written. `Other` keeps a term this module does not know.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VrsCopyChange {
+    /// EFO:0030069, complete genomic deletion.
+    CompleteGenomicLoss,
+    /// EFO:0020073, high-level copy number loss.
+    HighLevelLoss,
+    /// EFO:0030068, low-level copy number loss.
+    LowLevelLoss,
+    /// EFO:0030067, copy number loss.
+    Loss,
+    /// EFO:0030064, regional base ploidy.
+    RegionalBasePloidy,
+    /// EFO:0030070, copy number gain.
+    Gain,
+    /// EFO:0030071, low-level copy number gain.
+    LowLevelGain,
+    /// EFO:0030072, high-level copy number gain.
+    HighLevelGain,
+    Other(String),
+}
+
+impl VrsCopyChange {
+    const KNOWN: [VrsCopyChange; 8] = [
+        VrsCopyChange::CompleteGenomicLoss,
+        VrsCopyChange::HighLevelLoss,
+        VrsCopyChange::LowLevelLoss,
+        VrsCopyChange::Loss,
+        VrsCopyChange::RegionalBasePloidy,
+        VrsCopyChange::Gain,
+        VrsCopyChange::LowLevelGain,
+        VrsCopyChange::HighLevelGain,
+    ];
+
+    /// The label VRS 2.0.1 serialises, or the unknown term as given.
+    pub fn label(&self) -> &str {
+        match self {
+            VrsCopyChange::CompleteGenomicLoss => "complete genomic loss",
+            VrsCopyChange::HighLevelLoss => "high-level loss",
+            VrsCopyChange::LowLevelLoss => "low-level loss",
+            VrsCopyChange::Loss => "loss",
+            VrsCopyChange::RegionalBasePloidy => "regional base ploidy",
+            VrsCopyChange::Gain => "gain",
+            VrsCopyChange::LowLevelGain => "low-level gain",
+            VrsCopyChange::HighLevelGain => "high-level gain",
+            VrsCopyChange::Other(term) => term,
+        }
+    }
+
+    /// The EFO code, `None` for an unknown term.
+    pub fn efo(&self) -> Option<&'static str> {
+        Some(match self {
+            VrsCopyChange::CompleteGenomicLoss => "EFO:0030069",
+            VrsCopyChange::HighLevelLoss => "EFO:0020073",
+            VrsCopyChange::LowLevelLoss => "EFO:0030068",
+            VrsCopyChange::Loss => "EFO:0030067",
+            VrsCopyChange::RegionalBasePloidy => "EFO:0030064",
+            VrsCopyChange::Gain => "EFO:0030070",
+            VrsCopyChange::LowLevelGain => "EFO:0030071",
+            VrsCopyChange::HighLevelGain => "EFO:0030072",
+            VrsCopyChange::Other(_) => return None,
+        })
+    }
+
+    /// Whether the term is a gain of copies: a duplication in HGVS.
+    pub fn is_gain(&self) -> bool {
+        matches!(
+            self,
+            VrsCopyChange::Gain | VrsCopyChange::LowLevelGain | VrsCopyChange::HighLevelGain
+        )
+    }
+
+    /// Whether the term is a loss of copies: a deletion in HGVS.
+    pub fn is_loss(&self) -> bool {
+        matches!(
+            self,
+            VrsCopyChange::Loss
+                | VrsCopyChange::LowLevelLoss
+                | VrsCopyChange::HighLevelLoss
+                | VrsCopyChange::CompleteGenomicLoss
+        )
+    }
+
+    /// The term whose label or EFO code is `text`; `Other` when neither.
+    pub fn parse(text: &str) -> VrsCopyChange {
+        Self::KNOWN
+            .iter()
+            .find(|c| c.label() == text || c.efo() == Some(text))
+            .cloned()
+            .unwrap_or_else(|| VrsCopyChange::Other(text.to_string()))
+    }
+}
+
+impl Serialize for VrsCopyChange {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.label())
+    }
+}
+
+impl<'de> Deserialize<'de> for VrsCopyChange {
+    /// A label or EFO code as a string (VRS 2.0.1), or a `MappableConcept`
+    /// whose `primaryCoding.code` (or `primaryCode`) is the EFO code (VRS
+    /// 2.0.0).
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let text = match &value {
+            Value::String(s) => Some(s.as_str()),
+            Value::Object(concept) => concept
+                .get("primaryCoding")
+                .and_then(|coding| coding.get("code"))
+                .or_else(|| concept.get("primaryCode"))
+                .and_then(Value::as_str),
+            _ => None,
+        };
+        text.map(VrsCopyChange::parse).ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "copyChange must be a copy-number term or a MappableConcept, not {value}"
+            ))
+        })
+    }
+}
+
+/// A VRS 2.0 `CopyNumberChange`: a gain or loss of copies of a location
+/// relative to the baseline ploidy, without a count. HGVS
+/// `g.(a_b)_(c_d)dup` (a gain) or `del` (a loss).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VrsCopyNumberChange {
+    #[serde(default)]
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(default)]
+    pub digest: String,
+    pub location: VrsSequenceLocation,
+    #[serde(rename = "copyChange")]
+    pub copy_change: VrsCopyChange,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expressions: Vec<VrsExpression>,
+}
+
+impl VrsCopyNumberChange {
+    /// A `copy_change` of interbase `[start, end)` of the sequence `refget`,
+    /// carrying `hgvs` (syntax such as `hgvs.g` and the string) as an
+    /// expression when given.
+    pub fn new(
+        refget: &str,
+        start: VrsBound,
+        end: VrsBound,
+        copy_change: VrsCopyChange,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let location = sequence_location(refget, start, end, molecule);
+        // The inherent properties of CopyNumberChange are `location` and
+        // `copyChange` (VRS 2.0.1 vrs-source.yaml,
+        // `CopyNumberChange.ga4gh.inherent`, prefix `CX`); `type` goes into
+        // every digest by the computed identifier convention.
+        let digest = sha512t24u(
+            canonical_json(&json!({
+                "type": "CopyNumberChange",
+                "location": location.digest,
+                "copyChange": copy_change,
+            }))
+            .as_bytes(),
+        );
+        VrsCopyNumberChange {
+            id: format!("ga4gh:CX.{digest}"),
+            type_: "CopyNumberChange".into(),
+            digest,
+            location,
+            copy_change,
+            expressions: expressions(hgvs),
+        }
+    }
+
+    /// Parses a VRS 2.0 CopyNumberChange from JSON. Properties this module
+    /// does not model are ignored; the `type` must be `CopyNumberChange`.
+    pub fn from_json(json: &str) -> Result<VrsCopyNumberChange, HgvsError> {
+        let change: VrsCopyNumberChange = serde_json::from_str(json)
+            .map_err(|e| HgvsError::ValidationError(format!("Not a VRS CopyNumberChange: {e}")))?;
+        if change.type_ != "CopyNumberChange" {
+            return Err(HgvsError::ValidationError(format!(
+                "Expected a VRS CopyNumberChange, got a {}",
+                change.type_
+            )));
+        }
+        Ok(change)
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("serialising a VRS copy number change cannot fail")
+    }
+}
+
 /// The VRS object a variant renders as: an `Allele` for a sequence change, a
-/// `CopyNumberCount` for a copy-number edit. The JSON `type` tells them apart.
+/// `CopyNumberCount` for a copy-number edit, a `CopyNumberChange` for a gain
+/// or loss without a count. The JSON `type` tells them apart.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VrsVariation {
     Allele(VrsAllele),
     CopyNumberCount(VrsCopyNumberCount),
+    CopyNumberChange(VrsCopyNumberChange),
 }
 
 impl VrsVariation {
-    /// The computed identifier, `ga4gh:VA.` or `ga4gh:CN.` plus the digest.
+    /// The computed identifier, `ga4gh:VA.`, `ga4gh:CN.` or `ga4gh:CX.` plus
+    /// the digest.
     pub fn id(&self) -> &str {
         match self {
             VrsVariation::Allele(a) => &a.id,
             VrsVariation::CopyNumberCount(c) => &c.id,
+            VrsVariation::CopyNumberChange(c) => &c.id,
         }
     }
 
@@ -438,6 +642,7 @@ impl VrsVariation {
         match self {
             VrsVariation::Allele(a) => a.to_json(),
             VrsVariation::CopyNumberCount(c) => c.to_json(),
+            VrsVariation::CopyNumberChange(c) => c.to_json(),
         }
     }
 }
@@ -498,6 +703,82 @@ mod tests {
             VrsCopyNumberCount::from_json(&count.to_json()).unwrap(),
             count
         );
+    }
+
+    #[test]
+    fn copy_number_change_digests_the_label_over_the_location() {
+        // https://vrs.ga4gh.org/en/stable/concepts/SystemicVariation/CopyNumberChange.html
+        // shows a low-level gain of [44905795, 44909393) of
+        // SQ.jdEWLvLvT8827O59m1Agh5H3n6kTzBsJ with `"copyChange": "low-level
+        // gain"`, the VRS 2.0.1 label enum (vrs-source.yaml, vrs-python
+        // `CopyChange`), which is what is digested here.
+        let change = VrsCopyNumberChange::new(
+            "SQ.jdEWLvLvT8827O59m1Agh5H3n6kTzBsJ",
+            VrsBound::Exact(44905795),
+            VrsBound::Exact(44909393),
+            VrsCopyChange::LowLevelGain,
+            VrsMolecule::Genomic,
+            None,
+        );
+        assert_eq!(change.location.digest, "d9h3FkfTWFkJSH56L1A26y-N2oq_SSuB");
+        assert_eq!(change.id, "ga4gh:CX._rPTdFeOE9elAozZsakJGTqCvlaiEyr6");
+        assert!(
+            change
+                .to_json()
+                .contains(r#""copyChange":"low-level gain""#),
+            "{}",
+            change.to_json()
+        );
+        assert_eq!(vrs_type(&change.to_json()).unwrap(), "CopyNumberChange");
+        assert_eq!(
+            VrsCopyNumberChange::from_json(&change.to_json()).unwrap(),
+            change
+        );
+        // The identifier the page prints, ga4gh:CX.2_fT_6-IpUm5aS0wp8ZAkJ01MCE569L2,
+        // predates the enum: it is the digest with the bare EFO code as the
+        // `copyChange` string. Reproduced here so that the digest machinery
+        // is pinned to a published value.
+        let pre_release = VrsCopyNumberChange::new(
+            "SQ.jdEWLvLvT8827O59m1Agh5H3n6kTzBsJ",
+            VrsBound::Exact(44905795),
+            VrsBound::Exact(44909393),
+            VrsCopyChange::Other("EFO:0030071".into()),
+            VrsMolecule::Genomic,
+            None,
+        );
+        assert_eq!(pre_release.id, "ga4gh:CX.2_fT_6-IpUm5aS0wp8ZAkJ01MCE569L2");
+    }
+
+    #[test]
+    fn copy_change_terms_are_read_by_label_or_efo_code() {
+        for term in VrsCopyChange::KNOWN {
+            assert_eq!(VrsCopyChange::parse(term.label()), term);
+            assert_eq!(VrsCopyChange::parse(term.efo().unwrap()), term);
+        }
+        assert!(VrsCopyChange::Gain.is_gain() && !VrsCopyChange::Gain.is_loss());
+        assert!(VrsCopyChange::CompleteGenomicLoss.is_loss());
+        assert!(!VrsCopyChange::RegionalBasePloidy.is_gain());
+        assert!(!VrsCopyChange::RegionalBasePloidy.is_loss());
+        assert_eq!(
+            VrsCopyChange::parse("EFO:0000001"),
+            VrsCopyChange::Other("EFO:0000001".into())
+        );
+        // The VRS 2.0.0 MappableConcept form is read too.
+        let json = r#"{"type":"CopyNumberChange","copyChange":{"primaryCoding":{"code":"EFO:0030067","system":"https://www.ebi.ac.uk/efo/"}},"location":{"type":"SequenceLocation","sequenceReference":{"type":"SequenceReference","refgetAccession":"SQ.x"},"start":1,"end":2}}"#;
+        let change = VrsCopyNumberChange::from_json(json).unwrap();
+        assert_eq!(change.copy_change, VrsCopyChange::Loss);
+        let json = json.replace(
+            r#"{"primaryCoding":{"code":"EFO:0030067","system":"https://www.ebi.ac.uk/efo/"}}"#,
+            r#"{"primaryCode":"EFO:0030072"}"#,
+        );
+        assert_eq!(
+            VrsCopyNumberChange::from_json(&json).unwrap().copy_change,
+            VrsCopyChange::HighLevelGain
+        );
+        assert!(VrsCopyNumberChange::from_json(
+            &json.replace(r#"{"primaryCode":"EFO:0030072"}"#, "7")
+        )
+        .is_err());
     }
 
     #[test]
