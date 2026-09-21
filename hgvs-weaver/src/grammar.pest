@@ -45,21 +45,27 @@ p_posedit_special = {
 dna_edit = { dna_subst | dna_delins | dna_del | dna_ins | dna_dup | dna_inv | dna_con | dna_repeat | dna_copy | dna_ident }
 dna_ident  = { dna? ~ "=" }
 dna_subst  = { dna ~ ">" ~ dna }
-dna_delins = { "del" ~ (num | dna)? ~ "ins" ~ dna }
+dna_delins = { "del" ~ (num | dna)? ~ "ins" ~ (ins_length | dna) }
 dna_del    = { "del" ~ (num | dna)? }
-dna_ins    = { "ins" ~ dna }
+dna_ins    = { "ins" ~ (ins_length | dna) }
 dna_dup    = { "dup" ~ dna? }
 dna_inv    = { "inv" ~ (num | dna)? }
 dna_con    = { "con" ~ hgvs_position }
 dna_copy   = { "copy" ~ num }
 dna_repeat = { dna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+// Inserted bases known only by number: insN[20] and insN[(20_30)] as HGVS
+// recommends (varnomen.hgvs.org, "insertion"), and the older ins(20),
+// ins(20_30) and insN[20_30]. Tried before a base string so that the N is
+// not read as one inserted base.
+ins_length   = { (("N" | "n") ~ "[" ~ length_range ~ "]") | ("(" ~ length_range ~ ")") }
+length_range = { ("(" ~ num ~ "_" ~ num ~ ")") | (num ~ ("_" ~ num)?) }
 
 rna_edit = { rna_subst | rna_delins | rna_del | rna_ins | rna_dup | rna_inv | rna_con | rna_repeat | rna_ident }
 rna_ident  = { rna? ~ "=" }
 rna_subst  = { rna ~ ">" ~ rna }
-rna_delins = { "del" ~ (num | rna)? ~ "ins" ~ rna }
+rna_delins = { "del" ~ (num | rna)? ~ "ins" ~ (ins_length | rna) }
 rna_del    = { "del" ~ (num | rna)? }
-rna_ins    = { "ins" ~ rna }
+rna_ins    = { "ins" ~ (ins_length | rna) }
 rna_dup    = { "dup" ~ rna? }
 rna_inv    = { "inv" ~ (num | rna)? }
 rna_con    = { "con" ~ hgvs_position }

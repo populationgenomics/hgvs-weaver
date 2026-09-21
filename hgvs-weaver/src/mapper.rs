@@ -632,6 +632,17 @@ fn relettered(edit: &crate::edits::NaEdit, letters: Letters) -> crate::edits::Na
             ref_: opt(ref_),
             uncertain: *uncertain,
         },
+        NaEdit::DelInsLength {
+            ref_,
+            min,
+            max,
+            uncertain,
+        } => NaEdit::DelInsLength {
+            ref_: opt(ref_),
+            min: *min,
+            max: *max,
+            uncertain: *uncertain,
+        },
         NaEdit::Repeat {
             ref_,
             min,
@@ -1637,6 +1648,8 @@ impl<'a> VariantMapper<'a> {
                 | crate::edits::NaEdit::Con { .. }
                 | crate::edits::NaEdit::NACopy { .. }
                 | crate::edits::NaEdit::Special { .. }
+                | crate::edits::NaEdit::InsLength { .. }
+                | crate::edits::NaEdit::DelInsLength { .. }
         ) {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "Edit type {:?} has no canonical allele",

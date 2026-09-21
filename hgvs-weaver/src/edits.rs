@@ -23,6 +23,21 @@ pub enum NaEdit {
         alt: Option<String>,
         uncertain: bool,
     },
+    /// Insertion of bases known only by number, `insN[20]`, or by a range,
+    /// `insN[(20_30)]`; `min == max` when the number is exact.
+    InsLength {
+        min: usize,
+        max: usize,
+        uncertain: bool,
+    },
+    /// Deletion-insertion whose inserted bases are known only by number,
+    /// `delinsN[20]`; `ref_` is the deleted bases or their count, if stated.
+    DelInsLength {
+        ref_: Option<String>,
+        min: usize,
+        max: usize,
+        uncertain: bool,
+    },
     /// Duplication of a sequence.
     Dup {
         ref_: Option<String>,
@@ -167,6 +182,7 @@ impl NaEdit {
             NaEdit::RefAlt { ref_: Some(r), .. }
             | NaEdit::Del { ref_: Some(r), .. }
             | NaEdit::Dup { ref_: Some(r), .. }
+            | NaEdit::DelInsLength { ref_: Some(r), .. }
                 if !is_length(r) =>
             {
                 Some(r)
@@ -261,7 +277,12 @@ impl NaEdit {
                 let r = fetch(start, end)?;
                 (r.clone(), r)
             }
-            NaEdit::Con { .. } | NaEdit::NACopy { .. } | NaEdit::Special { .. } => {
+            // A number of unspecified bases has no alternate to spell out.
+            NaEdit::InsLength { .. }
+            | NaEdit::DelInsLength { .. }
+            | NaEdit::Con { .. }
+            | NaEdit::NACopy { .. }
+            | NaEdit::Special { .. } => {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "Edit type {:?} cannot be resolved to reference and alternate bases",
                     self
@@ -305,6 +326,17 @@ impl NaEdit {
             },
             NaEdit::Inv { ref_, uncertain } => NaEdit::Inv {
                 ref_: ref_.map(|s| f(&s)),
+                uncertain,
+            },
+            NaEdit::DelInsLength {
+                ref_,
+                min,
+                max,
+                uncertain,
+            } => NaEdit::DelInsLength {
+                ref_: ref_.map(|s| f(&s)),
+                min,
+                max,
                 uncertain,
             },
             NaEdit::Repeat {

@@ -238,6 +238,16 @@ impl fmt::Display for AAPosition {
     }
 }
 
+/// `N[n]` for an exact number of unspecified bases, `N[(min_max)]` for a
+/// range: the spelling HGVS recommends for an insertion of unknown sequence.
+fn write_length(f: &mut fmt::Formatter, min: usize, max: usize) -> fmt::Result {
+    if min == max {
+        write!(f, "N[{}]", min)
+    } else {
+        write!(f, "N[({}_{})]", min, max)
+    }
+}
+
 impl fmt::Display for NaEdit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -286,6 +296,35 @@ impl fmt::Display for NaEdit {
                 if let Some(a) = alt {
                     write!(f, "{}", a)?;
                 }
+                if *uncertain {
+                    write!(f, "?")?;
+                }
+                Ok(())
+            }
+            NaEdit::InsLength {
+                min,
+                max,
+                uncertain,
+            } => {
+                write!(f, "ins")?;
+                write_length(f, *min, *max)?;
+                if *uncertain {
+                    write!(f, "?")?;
+                }
+                Ok(())
+            }
+            NaEdit::DelInsLength {
+                ref_,
+                min,
+                max,
+                uncertain,
+            } => {
+                write!(f, "del")?;
+                if let Some(r) = ref_ {
+                    write!(f, "{}", r)?;
+                }
+                write!(f, "ins")?;
+                write_length(f, *min, *max)?;
                 if *uncertain {
                     write!(f, "?")?;
                 }

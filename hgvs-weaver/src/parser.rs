@@ -362,18 +362,62 @@ fn repeat_parts(pair: Pair<Rule>, is_unit: fn(Rule) -> bool) -> (Option<String>,
     (unit, min, max)
 }
 
-/// `delins` carries the inserted bases and, optionally, the deleted bases or
-/// their count before them.
+/// `N[20]`, `N[(20_30)]`, `(20)` or `(20_30)`: the number of inserted bases,
+/// as `(min, max)`, equal when exact.
+fn ins_length(pair: Pair<Rule>) -> (usize, usize) {
+    let counts: Vec<usize> = pair
+        .into_inner()
+        .flatten()
+        .filter(|p| p.as_rule() == Rule::num)
+        .map(|p| p.as_str().parse().unwrap_or(0))
+        .collect();
+    let min = counts.first().copied().unwrap_or(0);
+    let max = counts.get(1).copied().unwrap_or(min);
+    (min, max)
+}
+
+/// `ins` carries the inserted bases, or their number alone.
+fn na_ins(pair: Pair<Rule>) -> NaEdit {
+    let uncertain = false;
+    match pair.into_inner().next() {
+        Some(p) if p.as_rule() == Rule::ins_length => {
+            let (min, max) = ins_length(p);
+            NaEdit::InsLength {
+                min,
+                max,
+                uncertain,
+            }
+        }
+        p => NaEdit::Ins {
+            alt: p.map(text),
+            uncertain,
+        },
+    }
+}
+
+/// `delins` carries the inserted bases (or their number alone) and,
+/// optionally, the deleted bases or their count before them.
 fn na_delins(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
-    let parts: Vec<String> = pair.into_inner().map(text).collect();
-    let (ref_, alt) = match parts.as_slice() {
-        [alt] => (String::new(), alt.clone()),
-        [ref_, alt] => (ref_.clone(), alt.clone()),
-        _ => return Err(HgvsError::PestError("Malformed delins".into())),
-    };
+    let mut parts: Vec<Pair<Rule>> = pair.into_inner().collect();
+    let inserted = parts
+        .pop()
+        .ok_or_else(|| HgvsError::PestError("Malformed delins".into()))?;
+    if parts.len() > 1 {
+        return Err(HgvsError::PestError("Malformed delins".into()));
+    }
+    let deleted = parts.pop().map(text);
+    if inserted.as_rule() == Rule::ins_length {
+        let (min, max) = ins_length(inserted);
+        return Ok(NaEdit::DelInsLength {
+            ref_: deleted,
+            min,
+            max,
+            uncertain: false,
+        });
+    }
     Ok(NaEdit::RefAlt {
-        ref_: Some(ref_),
-        alt: Some(alt),
+        ref_: Some(deleted.unwrap_or_default()),
+        alt: Some(text(inserted)),
         uncertain: false,
     })
 }
@@ -410,10 +454,7 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
             ref_: first_child_text(edit),
             uncertain,
         },
-        Rule::dna_ins | Rule::rna_ins => NaEdit::Ins {
-            alt: first_child_text(edit),
-            uncertain,
-        },
+        Rule::dna_ins | Rule::rna_ins => na_ins(edit),
         Rule::dna_delins | Rule::rna_delins => na_delins(edit)?,
         Rule::dna_dup | Rule::rna_dup => NaEdit::Dup {
             ref_: first_child_text(edit),
@@ -586,6 +627,110 @@ mod tests {
             },
             _ => panic!("Expected Protein variant"),
         }
+    }
+
+    #[test]
+    fn insertions_of_a_stated_length_keep_the_length_not_letters() {
+        use crate::edits::NaEdit;
+        // Both the recommended and the older spellings parse to the same
+        // edit and print in the recommended spelling.
+        for (input, expected) in [
+            (
+                "NC_000001.11:g.123_124insN[20]",
+                "NC_000001.11:g.123_124insN[20]",
+            ),
+            (
+                "NC_000001.11:g.123_124ins(20)",
+                "NC_000001.11:g.123_124insN[20]",
+            ),
+            (
+                "NC_000001.11:g.123_124insN[(20_30)]",
+                "NC_000001.11:g.123_124insN[(20_30)]",
+            ),
+            (
+                "NC_000001.11:g.123_124insN[20_30]",
+                "NC_000001.11:g.123_124insN[(20_30)]",
+            ),
+            (
+                "NC_000001.11:g.123_124ins(20_30)",
+                "NC_000001.11:g.123_124insN[(20_30)]",
+            ),
+            (
+                "NM_004006.2:c.761_762insN[5]",
+                "NM_004006.2:c.761_762insN[5]",
+            ),
+            (
+                "NM_004006.2:r.761_762insn[5]",
+                "NM_004006.2:r.761_762insN[5]",
+            ),
+        ] {
+            let v = parse_hgvs_variant(input).unwrap();
+            assert_eq!(v.to_string(), expected, "{input}");
+        }
+        let v = parse_hgvs_variant("NC_000001.11:g.123_124insN[(20_30)]").unwrap();
+        let crate::coords::SequenceVariant::Genomic(g) = v else {
+            panic!("expected a g. variant");
+        };
+        assert_eq!(
+            g.posedit.edit,
+            NaEdit::InsLength {
+                min: 20,
+                max: 30,
+                uncertain: false
+            }
+        );
+        // A single N is still one inserted base.
+        let v = parse_hgvs_variant("NC_000001.11:g.123_124insN").unwrap();
+        let crate::coords::SequenceVariant::Genomic(g) = v else {
+            panic!("expected a g. variant");
+        };
+        assert_eq!(
+            g.posedit.edit,
+            NaEdit::Ins {
+                alt: Some("N".into()),
+                uncertain: false
+            }
+        );
+    }
+
+    #[test]
+    fn delins_of_a_stated_length_keeps_the_deleted_part() {
+        use crate::edits::NaEdit;
+        for (input, expected) in [
+            (
+                "NM_004006.2:c.812_829delinsN[12]",
+                "NM_004006.2:c.812_829delinsN[12]",
+            ),
+            (
+                "NM_004006.2:c.812_829del18insN[12]",
+                "NM_004006.2:c.812_829del18insN[12]",
+            ),
+            (
+                "NC_000001.11:g.812_814delACGins(2)",
+                "NC_000001.11:g.812_814delACGinsN[2]",
+            ),
+            (
+                "NC_000001.11:g.812_814delinsN[(2_4)]",
+                "NC_000001.11:g.812_814delinsN[(2_4)]",
+            ),
+        ] {
+            let v = parse_hgvs_variant(input).unwrap();
+            assert_eq!(v.to_string(), expected, "{input}");
+        }
+        let v = parse_hgvs_variant("NC_000001.11:g.812_814delACGinsN[2]").unwrap();
+        let crate::coords::SequenceVariant::Genomic(g) = v else {
+            panic!("expected a g. variant");
+        };
+        assert_eq!(
+            g.posedit.edit,
+            NaEdit::DelInsLength {
+                ref_: Some("ACG".into()),
+                min: 2,
+                max: 2,
+                uncertain: false
+            }
+        );
+        assert_eq!(g.posedit.edit.stated_ref(), Some("ACG"));
     }
 
     #[test]
