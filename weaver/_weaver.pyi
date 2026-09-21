@@ -403,8 +403,16 @@ class VariantMapper:
         construction or computed from the whole sequence.
 
         A g. or m. copy-number edit, g.1000_2000copy3, becomes a CopyNumberCount
-        over the range with the count as ``copies``; it is not normalised. The
-        dict's ``type`` says which object was returned.
+        over the range with the count as ``copies``; it is not normalised.
+
+        An insertion of bases known only by number, c.123_124insN[20] (also the
+        older ins(20); insN[(20_30)] for a range of lengths), becomes an Allele
+        over the insertion point whose state is a LengthExpression,
+        ``{"type": "LengthExpression", "length": 20}``; delinsN[20] does the
+        same over the deleted range. Unknown bases cannot slide, so neither is
+        normalised.
+
+        The dict's ``type`` says which object was returned.
 
         Args:
             var: A g., m., c., n. or p. Variant. Protein variants must describe a
@@ -438,8 +446,11 @@ class VariantMapper:
 
         An Allele is written in HGVS on its own sequence, trimmed to the change and
         normalised (3'-shifted): g. for a nucleotide sequence, p. for a protein.
-        Literal and ReferenceLengthExpression states are read; Range bounds are
-        accepted for a deletion, which comes back as g.(a_b)_(c_d)del. A
+        Literal, ReferenceLengthExpression and LengthExpression states are read;
+        a LengthExpression comes back as written, g.<a>_<a+1>insN[n] over an
+        empty location and g.<start+1>_<end>delinsN[n] over a non-empty one
+        (N[(min_max)] for a range of lengths). Range bounds are accepted for a
+        deletion, which comes back as g.(a_b)_(c_d)del. A
         CopyNumberCount comes back as g.<start+1>_<end>copyN; its ``copies`` must
         be an exact count, as HGVS has no syntax for a range of counts.
 

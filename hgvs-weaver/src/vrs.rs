@@ -2,8 +2,9 @@
 //! count, with computed identifiers.
 //!
 //! A VRS `Allele` is a `SequenceLocation` on a refget-identified sequence plus
-//! a `state`: a literal sequence, or a `ReferenceLengthExpression` when the
-//! alternate is the reference repeated. A `CopyNumberCount` is a
+//! a `state`: a literal sequence, a `ReferenceLengthExpression` when the
+//! alternate is the reference repeated, or a `LengthExpression` when only the
+//! number of inserted bases is known. A `CopyNumberCount` is a
 //! `SequenceLocation` plus the number of copies of it. Identifiers are
 //! `sha512t24u` digests of an RFC 8785 canonical JSON serialisation of each
 //! object's inherent properties, nested identifiable objects replaced by their
@@ -135,6 +136,13 @@ pub enum VrsState {
         type_: String,
         sequence: String,
     },
+    /// A sequence known only by its length, HGVS `insN[20]`. Last of the
+    /// untagged variants: it needs `length` alone, which the others also have.
+    Length {
+        #[serde(rename = "type")]
+        type_: String,
+        length: VrsBound,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -234,6 +242,25 @@ impl VrsAllele {
         )
     }
 
+    /// An insertion of bases known only by number, HGVS `insN[20]` or
+    /// `delinsN[20]`: interbase `[start, end)` (empty for a pure insertion)
+    /// becomes `length` unspecified bases, a `LengthExpression` state. Unknown
+    /// bases cannot slide, so the allele is rendered where it was written.
+    pub fn length_expression(
+        refget: &str,
+        start: VrsBound,
+        end: VrsBound,
+        length: VrsBound,
+        molecule: VrsMolecule,
+        hgvs: Option<(&str, &str)>,
+    ) -> Self {
+        let state = VrsState::Length {
+            type_: "LengthExpression".into(),
+            length,
+        };
+        Self::build(refget, start, end, state, molecule, hgvs)
+    }
+
     /// A deletion whose breakpoints are only known to lie within ranges, HGVS
     /// `g.(a_b)_(c_d)del`. The location carries the ranges and the state is
     /// the empty literal sequence. Such an allele cannot be normalised, so it
@@ -274,6 +301,12 @@ impl VrsAllele {
                 "length": length,
                 "repeatSubunitLength": repeat_subunit_length,
             }),
+            // The inherent property of LengthExpression is `length` (VRS 2.0
+            // vrs-source.yaml, `LengthExpression.ga4gh.inherent`), plus `type`
+            // like every digested object.
+            VrsState::Length { length, .. } => {
+                json!({"type": "LengthExpression", "length": length})
+            }
         };
         let allele_digest = sha512t24u(
             canonical_json(&json!({
@@ -465,6 +498,72 @@ mod tests {
             VrsCopyNumberCount::from_json(&count.to_json()).unwrap(),
             count
         );
+    }
+
+    #[test]
+    fn a_length_expression_state_carries_the_number_of_bases() {
+        let exact = VrsAllele::length_expression(
+            "SQ.test",
+            VrsBound::Exact(10),
+            VrsBound::Exact(10),
+            VrsBound::Exact(20),
+            VrsMolecule::Genomic,
+            Some(("hgvs.g", "X:g.10_11insN[20]")),
+        );
+        assert!(exact.id.starts_with("ga4gh:VA."), "{}", exact.id);
+        assert!(
+            exact
+                .to_json()
+                .contains(r#""state":{"type":"LengthExpression","length":20}"#),
+            "{}",
+            exact.to_json()
+        );
+        assert_eq!(VrsAllele::from_json(&exact.to_json()).unwrap(), exact);
+        assert!(matches!(
+            VrsAllele::from_json(&exact.to_json()).unwrap().state,
+            VrsState::Length {
+                length: VrsBound::Exact(20),
+                ..
+            }
+        ));
+        // The digest is over the inherent properties only: the same allele
+        // without the expression has the same identifier.
+        let bare = VrsAllele::length_expression(
+            "SQ.test",
+            VrsBound::Exact(10),
+            VrsBound::Exact(10),
+            VrsBound::Exact(20),
+            VrsMolecule::Genomic,
+            None,
+        );
+        assert_eq!(bare.id, exact.id);
+        // A range of lengths serialises as [min, max] and changes the digest.
+        let ranged = VrsAllele::length_expression(
+            "SQ.test",
+            VrsBound::Exact(10),
+            VrsBound::Exact(10),
+            VrsBound::Range(Some(20), Some(30)),
+            VrsMolecule::Genomic,
+            None,
+        );
+        assert!(
+            ranged.to_json().contains(r#""length":[20,30]"#),
+            "{}",
+            ranged.to_json()
+        );
+        assert_ne!(ranged.id, exact.id);
+        // The other states are still read as themselves.
+        let literal = VrsAllele::imprecise_deletion(
+            "SQ.test",
+            VrsBound::Exact(10),
+            VrsBound::Exact(12),
+            VrsMolecule::Genomic,
+            None,
+        );
+        assert!(matches!(
+            VrsAllele::from_json(&literal.to_json()).unwrap().state,
+            VrsState::Literal { .. }
+        ));
     }
 
     #[test]
