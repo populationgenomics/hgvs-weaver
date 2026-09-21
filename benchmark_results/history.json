@@ -6,8 +6,9 @@
     "ref_identity": 93352,
     "ref_analogous": 4890,
     "commit": "edf5a92",
-    "date": "2026-09-20",
-    "message": "Equivalence judges by allele and by the protein left behind (#21)"
+    "date": "2026-09-21",
+    "message": "Release 0.5.0",
+    "version": "0.5.0"
   },
   {
     "total": 100000,
