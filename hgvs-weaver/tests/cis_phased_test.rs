@@ -7,6 +7,8 @@ mod support;
 use hgvs_weaver::data::Strand;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
+use hgvs_weaver::vrs::VrsBound::Exact;
+use hgvs_weaver::vrs::{refget_accession, VrsExpression, VrsVariation};
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant, Variant};
 use support::{single_exon_transcript, Provider};
 
@@ -30,6 +32,7 @@ fn provider() -> Provider {
     let transcript = transcript();
     Provider::new()
         .sequence("NC_X.1", &genome())
+        .sequence("NC_OTHER.1", "GATTACAGATTACAGATTACAGATTACAGATTACAGATTACA")
         .sequence("NM_X.1", &transcript)
         .sequence("NP_X.1", PROTEIN)
         .transcript(single_exon_transcript(
@@ -201,4 +204,211 @@ fn a_cis_allele_has_no_single_canonical_allele_or_spdi() {
         mapper.to_spdi_unambiguous(&c.members[0]).unwrap(),
         "NC_X.1:21:C:T"
     );
+}
+
+#[test]
+fn a_cis_allele_is_a_cis_phased_block_of_its_members_alleles() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let var = parse_hgvs_variant("NM_X.1:c.[7C>T;13T>G]").unwrap();
+    let block = mapper.to_vrs_cis_phased(&var).unwrap();
+    assert_eq!(block.type_, "CisPhasedBlock");
+    assert!(block.id.starts_with("ga4gh:CPB."), "{}", block.id);
+    assert_eq!(block.id, format!("ga4gh:CPB.{}", block.digest));
+
+    // Each member is the Allele the member variant renders as on its own.
+    let c = cis("NM_X.1:c.[7C>T;13T>G]");
+    assert_eq!(block.members.len(), 2);
+    for (allele, member) in block.members.iter().zip(&c.members) {
+        assert_eq!(*allele, mapper.to_vrs(member).unwrap());
+        assert_eq!(allele.expressions[0].value, member.to_string());
+    }
+    // c.7 is g.22, interbase [21, 22); c.13 is g.28.
+    let location = &block.members[0].location;
+    assert_eq!((location.start, location.end), (Exact(21), Exact(22)));
+    let location = &block.members[1].location;
+    assert_eq!((location.start, location.end), (Exact(27), Exact(28)));
+
+    // All on the genome, which the block names too.
+    let refget = refget_accession(&genome());
+    let reference = block.sequence_reference.as_ref().unwrap();
+    assert_eq!(reference.refget_accession, refget);
+    assert_eq!(reference.residue_alphabet, "na");
+    assert_eq!(*reference, block.members[0].location.sequence_reference);
+    assert_eq!(
+        block.expressions,
+        vec![VrsExpression {
+            syntax: "hgvs.c".into(),
+            value: "NM_X.1:c.[7C>T;13T>G]".into(),
+        }]
+    );
+
+    let variation = mapper.to_vrs_variation(&var).unwrap();
+    assert_eq!(variation.id(), block.id);
+    match variation {
+        VrsVariation::CisPhasedBlock(b) => assert_eq!(b, block),
+        other => panic!("expected a CisPhasedBlock, got {other:?}"),
+    }
+
+    let json = block.to_json();
+    for field in [
+        r#""type":"CisPhasedBlock""#,
+        r#""members":[{"id":"ga4gh:VA."#,
+        r#""sequenceReference":{"type":"SequenceReference","refgetAccession":"SQ."#,
+        r#""expressions":[{"syntax":"hgvs.c","value":"NM_X.1:c.[7C>T;13T>G]"}]"#,
+    ] {
+        assert!(json.contains(field), "{field} missing from {json}");
+    }
+}
+
+#[test]
+fn the_identifier_is_the_same_whichever_way_the_members_are_written() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = |hgvs: &str| {
+        mapper
+            .to_vrs_cis_phased(&parse_hgvs_variant(hgvs).unwrap())
+            .unwrap()
+    };
+    let forward = block("NM_X.1:c.[7C>T;13T>G]");
+    let reversed = block("NM_X.1:c.[13T>G;7C>T]");
+    assert_eq!(forward.id, reversed.id);
+    // The members array keeps the order written, only the digest sorts.
+    assert_eq!(forward.members[0], reversed.members[1]);
+    assert_ne!(forward.to_json(), reversed.to_json());
+    // The same changes spelled on the genome, or written unnormalised.
+    assert_eq!(block("NC_X.1:g.[22C>T;28T>G]").id, forward.id);
+    assert_eq!(
+        block("NM_X.1:c.[4del;13T>G]").id,
+        block("NC_X.1:g.[21del;28T>G]").id
+    );
+    // Different members, different block.
+    assert_ne!(block("NM_X.1:c.[7C>T;13T>A]").id, forward.id);
+}
+
+#[test]
+fn to_vrs_is_for_alleles_and_to_vrs_cis_phased_for_cis_alleles() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let cis = parse_hgvs_variant("NM_X.1:c.[7C>T;13T>G]").unwrap();
+    let err = mapper.to_vrs(&cis).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("to_vrs_variation")),
+        "{err}"
+    );
+    let plain = parse_hgvs_variant("NM_X.1:c.7C>T").unwrap();
+    assert!(matches!(
+        mapper.to_vrs_cis_phased(&plain),
+        Err(HgvsError::UnsupportedOperation(_))
+    ));
+    // A member without an allele fails the block.
+    let with_copy = parse_hgvs_variant("NC_X.1:g.[22C>T;20_30copy3]").unwrap();
+    assert!(matches!(
+        mapper.to_vrs_cis_phased(&with_copy),
+        Err(HgvsError::UnsupportedOperation(_))
+    ));
+}
+
+#[test]
+fn cis_phased_blocks_read_back_as_cis_alleles_on_their_own_sequence() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    for (hgvs, expected) in [
+        ("NM_X.1:c.[7C>T;13T>G]", "NC_X.1:g.[22C>T;28T>G]"),
+        // Each member comes back 3'-normalised.
+        ("NM_X.1:c.[4del;13T>G]", "NC_X.1:g.[21del;28T>G]"),
+        ("NC_X.1:g.[19del;28T>G]", "NC_X.1:g.[21del;28T>G]"),
+        ("NC_X.1:m.[22C>T;28T>G]", "NC_X.1:g.[22C>T;28T>G]"),
+        ("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Lys2Leu;Ala4del]"),
+        ("NM_X.1:c.[7C>T]", "NC_X.1:g.[22C>T]"),
+    ] {
+        let var = parse_hgvs_variant(hgvs).unwrap();
+        let block = mapper.to_vrs_cis_phased(&var).unwrap();
+        let back = mapper.from_vrs(&block.to_json(), None).unwrap();
+        assert_eq!(back.to_string(), expected, "{hgvs}");
+        assert_eq!(
+            mapper.to_vrs_cis_phased(&back).unwrap().id,
+            block.id,
+            "{hgvs}"
+        );
+    }
+    // Without a refget lookup the accession is passed, and checked.
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NM_X.1:c.[7C>T;13T>G]").unwrap();
+    let json = mapper.to_vrs_cis_phased(&var).unwrap().to_json();
+    assert!(matches!(
+        mapper.from_vrs(&json, None),
+        Err(HgvsError::DataProviderError(_))
+    ));
+    assert_eq!(
+        mapper.from_vrs(&json, Some("NC_X.1")).unwrap().to_string(),
+        "NC_X.1:g.[22C>T;28T>G]"
+    );
+    assert!(matches!(
+        mapper.from_vrs(&json, Some("NC_OTHER.1")),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn blocks_from_other_producers_parse() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let refget = refget_accession(&genome());
+    let allele = |start: usize, alt: &str, reference: &str| {
+        format!(
+            r#"{{"type":"Allele","location":{{"type":"SequenceLocation"{reference},
+                "start":{start},"end":{}}},
+                "state":{{"type":"LiteralSequenceExpression","sequence":"{alt}"}}}}"#,
+            start + 1
+        )
+    };
+    // The spec's shape: the sequence stated once on the block, no ids.
+    let json = format!(
+        r#"{{"type":"CisPhasedBlock","members":[{},{}],
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}}}}"#,
+        allele(21, "T", ""),
+        allele(27, "G", ""),
+    );
+    assert_eq!(
+        mapper.from_vrs(&json, None).unwrap().to_string(),
+        "NC_X.1:g.[22C>T;28T>G]"
+    );
+    // The same with the sequence on each member and none on the block.
+    let on_member = format!(
+        r#","sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}}"#
+    );
+    let json = format!(
+        r#"{{"type":"CisPhasedBlock","members":[{},{}]}}"#,
+        allele(21, "T", &on_member),
+        allele(27, "G", &on_member),
+    );
+    assert_eq!(
+        mapper.from_vrs(&json, None).unwrap().to_string(),
+        "NC_X.1:g.[22C>T;28T>G]"
+    );
+    // A member on another sequence is refused.
+    let other = format!(
+        r#","sequenceReference":{{"type":"SequenceReference","refgetAccession":"{}"}}"#,
+        refget_accession("GATTACAGATTACAGATTACAGATTACAGATTACAGATTACA")
+    );
+    let json = format!(
+        r#"{{"type":"CisPhasedBlock","members":[{},{}]}}"#,
+        allele(21, "T", &on_member),
+        allele(3, "C", &other),
+    );
+    assert!(matches!(
+        mapper.from_vrs(&json, None),
+        Err(HgvsError::ValidationError(_))
+    ));
+    // As is a block whose stated sequence is not its members'.
+    let json = format!(
+        r#"{{"type":"CisPhasedBlock","members":[{}],
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"SQ.x"}}}}"#,
+        allele(21, "T", &on_member),
+    );
+    assert!(matches!(
+        mapper.from_vrs(&json, None),
+        Err(HgvsError::ValidationError(_))
+    ));
 }
