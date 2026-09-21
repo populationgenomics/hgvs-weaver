@@ -393,8 +393,9 @@ class VariantMapper:
         """
 
     def to_vrs(self, var: Variant) -> dict[str, Any]:
-        """Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, or a
-        CopyNumberCount for a copy-number edit.
+        """Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, a
+        CopyNumberCount for a copy-number edit, or a CopyNumberChange for a
+        duplication with uncertain breakpoints.
 
         A nucleotide variant is projected to its genomic reference; a protein
         variant stays on its protein. Either is canonicalised (fully justified
@@ -404,6 +405,12 @@ class VariantMapper:
 
         A g. or m. copy-number edit, g.1000_2000copy3, becomes a CopyNumberCount
         over the range with the count as ``copies``; it is not normalised.
+
+        A g. or m. duplication with uncertain breakpoints,
+        g.(100_200)_(300_400)dup, has no Allele (its bases are unknown) and
+        becomes a CopyNumberChange over the Range bounds with ``copyChange``
+        "gain" (EFO:0030070, copy number gain); a deletion with uncertain
+        breakpoints stays an Allele, as below.
 
         An insertion of bases known only by number, c.123_124insN[20] (also the
         older ins(20); insN[(20_30)] for a range of lengths), becomes an Allele
@@ -422,7 +429,8 @@ class VariantMapper:
                 unbounded) and an empty literal state; it is not normalised.
 
         Returns:
-            A dict in the VRS 2.0 Allele or CopyNumberCount schema.
+            A dict in the VRS 2.0 Allele, CopyNumberCount or CopyNumberChange
+            schema.
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
@@ -430,7 +438,8 @@ class VariantMapper:
 
     def vrs_id(self, var: Variant) -> str:
         """Returns the GA4GH VRS computed identifier of a variant: ga4gh:VA.<digest>
-        for an Allele, ga4gh:CN.<digest> for a copy-number edit.
+        for an Allele, ga4gh:CN.<digest> for a copy-number edit, ga4gh:CX.<digest>
+        for a duplication with uncertain breakpoints.
 
         Two variants describing the same change on the same sequence have the same
         identifier.
@@ -442,7 +451,8 @@ class VariantMapper:
             HGVSError: If the variant cannot be resolved against the reference.
         """
     def from_vrs(self, allele: dict[str, Any] | str, accession: str | None = ...) -> Variant:
-        """Returns the Variant a GA4GH VRS 2.0 Allele or CopyNumberCount names.
+        """Returns the Variant a GA4GH VRS 2.0 Allele, CopyNumberCount or
+        CopyNumberChange names.
 
         An Allele is written in HGVS on its own sequence, trimmed to the change and
         normalised (3'-shifted): g. for a nucleotide sequence, p. for a protein.
@@ -452,15 +462,20 @@ class VariantMapper:
         (N[(min_max)] for a range of lengths). Range bounds are accepted for a
         deletion, which comes back as g.(a_b)_(c_d)del. A
         CopyNumberCount comes back as g.<start+1>_<end>copyN; its ``copies`` must
-        be an exact count, as HGVS has no syntax for a range of counts.
+        be an exact count, as HGVS has no syntax for a range of counts. A
+        CopyNumberChange comes back as g.<start+1>_<end>dup for a gain
+        (``copyChange`` gain, low-level gain or high-level gain, or the EFO codes
+        EFO:0030070-72) and del for a loss (loss, low-level loss, high-level loss
+        or complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range
+        bounds as g.(a_b)_(c_d); other terms have no HGVS form.
 
         The sequence behind the object's refget accession is named by ``accession``
         when given, else looked up through the Refget given at construction; the
         digest is checked against the sequence either way.
 
         Args:
-            allele: The Allele or CopyNumberCount as a dict (as to_vrs returns) or a
-                JSON string.
+            allele: The Allele, CopyNumberCount or CopyNumberChange as a dict (as
+                to_vrs returns) or a JSON string.
             accession: The accession of the sequence, when the provider cannot look
                 it up from the refget accession.
 
