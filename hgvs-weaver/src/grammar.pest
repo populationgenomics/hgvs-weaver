@@ -2,7 +2,7 @@ WHITESPACE = _{
     " " | "\t"
 }
 
-hgvs_variant = { SOI ~ (g_variant | m_variant | c_variant | n_variant | r_variant | p_variant) ~ EOI }
+hgvs_variant = { SOI ~ (trans_alleles | g_variant | m_variant | c_variant | n_variant | r_variant | p_variant | g_cis_variant | m_cis_variant | c_cis_variant | n_cis_variant | r_cis_variant | p_cis_variant) ~ EOI }
 
 c_variant = { accn ~ opt_gene_expr ~ ":" ~ "c" ~ "." ~ c_posedit }
 g_variant = { accn ~ opt_gene_expr ~ ":" ~ "g" ~ "." ~ g_posedit }
@@ -10,6 +10,20 @@ m_variant = { accn ~ opt_gene_expr ~ ":" ~ "m" ~ "." ~ m_posedit }
 n_variant = { accn ~ opt_gene_expr ~ ":" ~ "n" ~ "." ~ n_posedit }
 r_variant = { accn ~ opt_gene_expr ~ ":" ~ "r" ~ "." ~ r_posedit }
 p_variant = { accn ~ opt_gene_expr ~ ":" ~ "p" ~ "." ~ p_posedit }
+
+// Changes in cis, on one molecule: `c.[145C>T;147C>G]`. Members share the
+// accession and coordinate system; one member is accepted as a degenerate
+// allele. The trans form `c.[145C>T];[147C>G]` names two molecules, so it is
+// not one variant: it is matched only to be rejected with a clear message,
+// and must be tried first because PEG choice commits to the first match.
+c_cis_variant = { accn ~ opt_gene_expr ~ ":" ~ "c" ~ "." ~ "[" ~ c_posedit ~ (";" ~ c_posedit)* ~ "]" }
+g_cis_variant = { accn ~ opt_gene_expr ~ ":" ~ "g" ~ "." ~ "[" ~ g_posedit ~ (";" ~ g_posedit)* ~ "]" }
+m_cis_variant = { accn ~ opt_gene_expr ~ ":" ~ "m" ~ "." ~ "[" ~ m_posedit ~ (";" ~ m_posedit)* ~ "]" }
+n_cis_variant = { accn ~ opt_gene_expr ~ ":" ~ "n" ~ "." ~ "[" ~ n_posedit ~ (";" ~ n_posedit)* ~ "]" }
+r_cis_variant = { accn ~ opt_gene_expr ~ ":" ~ "r" ~ "." ~ "[" ~ r_posedit ~ (";" ~ r_posedit)* ~ "]" }
+p_cis_variant = { accn ~ opt_gene_expr ~ ":" ~ "p" ~ "." ~ "[" ~ p_posedit ~ (";" ~ p_posedit)* ~ "]" }
+trans_alleles = { accn ~ opt_gene_expr ~ ":" ~ ASCII_ALPHA ~ "." ~ bracket_group ~ (";" ~ bracket_group)+ }
+bracket_group = { "[" ~ (!"]" ~ ANY)* ~ "]" }
 
 // PosEdits
 c_posedit = { c_interval ~ dna_edit }

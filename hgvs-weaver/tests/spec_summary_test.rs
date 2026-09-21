@@ -18,6 +18,10 @@ fn test_spec_summary_variants() {
         "NC_000014.8:g.88401076_88459508copy4",
         "NC_012920.1:m.1000_2000copy3",
         "NG_012232.1(NM_004006.2):c.93+1G>T",
+        // Alleles in cis
+        "NM_004006.2:c.[145C>T;147C>G]",
+        "NC_000023.10:g.[33038255C>A;33038260del]",
+        "NP_003997.1:p.[Trp24Cys;Lys23_Val25del]",
         // RNA
         "NM_004006.3:r.123_124insauc",
         "NM_004006.3:r.123_127del",

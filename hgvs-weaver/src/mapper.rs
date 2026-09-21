@@ -190,7 +190,7 @@ fn na_edit(var: &crate::SequenceVariant) -> Option<&crate::edits::NaEdit> {
         SV::Coding(v) => &v.posedit.edit,
         SV::NonCoding(v) => &v.posedit.edit,
         SV::Rna(v) => &v.posedit.edit,
-        SV::Protein(_) => return None,
+        SV::Protein(_) | SV::CisPhased(_) => return None,
     })
 }
 
@@ -1473,6 +1473,15 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
             crate::SequenceVariant::Protein(v) => self.validate_protein(v),
             crate::SequenceVariant::Rna(r) => self.validate(&self.r_as_transcript(r)?),
+            // A cis allele holds when every member does.
+            crate::SequenceVariant::CisPhased(cis) => {
+                for m in &cis.members {
+                    if !self.validate(m)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
         }
     }
 
@@ -1585,6 +1594,19 @@ impl<'a> VariantMapper<'a> {
                 let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
                 SV::Rna(self.tx_to_r(&normalised)?)
             }
+            // Each member normalises on its own; the allele keeps their order.
+            SV::CisPhased(cis) => {
+                let members = cis
+                    .members
+                    .into_iter()
+                    .map(|m| self.normalize_variant(m))
+                    .collect::<Result<Vec<_>, _>>()?;
+                SV::CisPhased(crate::structs::CisPhasedVariant {
+                    ac: cis.ac,
+                    gene: cis.gene,
+                    members,
+                })
+            }
             other => other,
         })
     }
@@ -1672,6 +1694,13 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        if let crate::SequenceVariant::CisPhased(cis) = var {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "A cis allele has one canonical allele per member, not one of its own; \
+                 take canonical_allele of each of the {} members of {var}, or to_vrs_variation",
+                cis.members.len()
+            )));
+        }
         if let crate::SequenceVariant::Protein(vp) = var {
             let pos = vp
                 .posedit
@@ -2310,7 +2339,7 @@ impl<'a> VariantMapper<'a> {
             SV::Coding(v) => self.tx_to_g(v, None),
             SV::NonCoding(v) => self.tx_to_g(v, None),
             SV::Rna(r) => self.r_to_g(r, None),
-            SV::Protein(_) => return None,
+            SV::Protein(_) | SV::CisPhased(_) => return None,
         })
     }
 
