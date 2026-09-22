@@ -103,6 +103,15 @@ fn a_projection_states_the_genomes_bases_not_the_records() {
         c_to_g(&mapper, "NM_PLUS.1:c.11_12delCCinsTT"),
         "NC_D.1:g.21_22delACinsTT"
     );
+    // No change on the record is a change on the genome where they differ,
+    // and no change where they agree.
+    assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.11="), "NC_D.1:g.21A>C");
+    assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.12="), "NC_D.1:g.22=");
+    assert_eq!(
+        g_to_c(&mapper, "NC_D.1:g.21=", "NM_PLUS.1"),
+        "NM_PLUS.1:c.11C>A"
+    );
+    assert_eq!(c_to_g(&mapper, "NM_MINUS.1:c.11="), "NC_D.1:g.80T>C");
     // Where record and genome agree nothing changes, and unstated bases are
     // never filled in.
     assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.12C>T"), "NC_D.1:g.22C>T");

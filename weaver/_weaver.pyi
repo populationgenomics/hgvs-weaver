@@ -154,7 +154,8 @@ class VariantMapper:
 
         The edit is re-read against the genome: a stated reference the record has
         but the genome does not becomes the genome's base, and a change the genome
-        already carries is written =.
+        already carries is written =; no change on the record (c.123=) is the
+        genome's base becoming the record's where the two differ.
 
         Args:
             var_c: The coding Variant to map.
@@ -225,7 +226,8 @@ class VariantMapper:
 
         The edit is re-read against the transcript: a stated reference the genome has
         but the record does not becomes the record's base, and a change the record
-        already carries is written =. An intronic position has no transcript base and
+        already carries is written =; no change on the genome (g.123=) is the
+        record's base becoming the genome's where the two differ. An intronic position has no transcript base and
         is carried as given.
 
         Args:

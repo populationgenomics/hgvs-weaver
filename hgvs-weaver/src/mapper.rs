@@ -89,6 +89,33 @@ fn replace_reference(edit: crate::edits::NaEdit, actual: &str) -> crate::edits::
     }
 }
 
+/// A bare `=` states no bases but means the source's own: over a projection
+/// they are what the target must end up holding, so they are written out
+/// before the reference is re-read. Where source and target agree the
+/// re-read collapses it back to `=`; where they differ, SHANK3's `c.1568=`
+/// over a genomic T is `g.…T>C`.
+fn identity_with_source_bases(
+    edit: crate::edits::NaEdit,
+    source: Option<String>,
+) -> crate::edits::NaEdit {
+    use crate::edits::NaEdit;
+    match (edit, source) {
+        (
+            NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                uncertain,
+            },
+            Some(bases),
+        ) => NaEdit::RefAlt {
+            ref_: Some(bases.clone()),
+            alt: Some(bases),
+            uncertain,
+        },
+        (edit, _) => edit,
+    }
+}
+
 /// Whether `replace_reference` would change anything: the edit states bases.
 fn states_bases(edit: &crate::edits::NaEdit) -> bool {
     use crate::edits::{is_length, NaEdit};
@@ -964,10 +991,25 @@ impl<'a> VariantMapper<'a> {
             None => None,
         };
 
+        // A bare `=` means the genome's bases; read them while the range is
+        // still the genome's.
+        let exonic = off_lo.0 == 0 && off_hi.0 == 0 && n_lo.0 >= 0;
+        let genome_bases = match &var_g.posedit.edit {
+            crate::edits::NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                ..
+            } if exonic => {
+                let (g_lo, g_hi) = simple_interval_range(pos)?;
+                Some(self.target_bases(&var_g.ac, IdentifierType::GenomicAccession, g_lo, g_hi)?)
+            }
+            _ => None,
+        };
+        let edit = identity_with_source_bases(var_g.posedit.edit.clone(), genome_bases);
+
         // The edit in transcript orientation, then against the transcript's
         // bases: an intronic position has none, so it is left as given.
-        let mut edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
-        let exonic = off_lo.0 == 0 && off_hi.0 == 0 && n_lo.0 >= 0;
+        let mut edit = apply_strand_complement(edit, am.transcript.strand);
         if states_bases(&edit) && exonic {
             let actual = self.target_bases(
                 transcript_ac,
@@ -1100,22 +1142,46 @@ impl<'a> VariantMapper<'a> {
             }
             None => pos,
         };
-        let project = |p: &BaseOffsetPosition| -> Result<GenomicPos, HgvsError> {
+        let zero = crate::structs::IntronicOffset(0);
+        let project = |p: &BaseOffsetPosition| -> Result<(TranscriptPos, GenomicPos), HgvsError> {
             let n = am.c_to_n(p.base.to_index(), p.anchor)?;
-            am.n_to_g(n, p.offset.unwrap_or(crate::structs::IntronicOffset(0)))
+            Ok((n, am.n_to_g(n, p.offset.unwrap_or(zero))?))
         };
-        let mut lo = project(&pos.start)?;
-        let mut hi = match &pos.end {
+        let (n_start, mut lo) = project(&pos.start)?;
+        let (n_end, mut hi) = match &pos.end {
             Some(end) => project(end)?,
-            None => lo,
+            None => (n_start, lo),
         };
         if lo.0 > hi.0 {
             std::mem::swap(&mut lo, &mut hi);
         }
 
+        // A bare `=` means the record's bases; read them while the range is
+        // still the transcript's (an intronic position has none).
+        let exonic = pos.start.offset.unwrap_or(zero).0 == 0
+            && pos
+                .end
+                .as_ref()
+                .is_none_or(|e| e.offset.unwrap_or(zero).0 == 0)
+            && n_start.0 >= 0;
+        let record_bases = match &var_c.posedit().edit {
+            crate::edits::NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                ..
+            } if exonic => Some(self.target_bases(
+                var_c.ac(),
+                IdentifierType::TranscriptAccession,
+                n_start.0.min(n_end.0) as usize,
+                n_start.0.max(n_end.0) as usize + 1,
+            )?),
+            _ => None,
+        };
+        let edit = identity_with_source_bases(var_c.posedit().edit.clone(), record_bases);
+
         // The edit in genome orientation, then against the genome's bases:
         // the transcript record may not agree with the genome here.
-        let mut edit = apply_strand_complement(var_c.posedit().edit.clone(), am.transcript.strand);
+        let mut edit = apply_strand_complement(edit, am.transcript.strand);
         if states_bases(&edit) && lo.0 >= 0 {
             let actual = self.target_bases(
                 &target_ac,
