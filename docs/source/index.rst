@@ -18,5 +18,6 @@ weaver documentation
    :caption: Contents:
 
    readme
+   choices
    equivalence_logic
    api
