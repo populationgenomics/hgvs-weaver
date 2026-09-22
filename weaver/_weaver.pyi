@@ -152,6 +152,10 @@ class VariantMapper:
         """
         Maps a coding cDNA variant (c.) to a genomic variant (g.).
 
+        The edit is re-read against the genome: a stated reference the record has
+        but the genome does not becomes the genome's base, and a change the genome
+        already carries is written =.
+
         Args:
             var_c: The coding Variant to map.
             reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript
@@ -218,6 +222,11 @@ class VariantMapper:
     def g_to_c(self, var_g: Variant, transcript_ac: str) -> Variant:
         """
         Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.
+
+        The edit is re-read against the transcript: a stated reference the genome has
+        but the record does not becomes the record's base, and a change the record
+        already carries is written =. An intronic position has no transcript base and
+        is carried as given.
 
         Args:
             var_g: The genomic Variant to map.

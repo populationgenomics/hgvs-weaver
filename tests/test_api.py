@@ -30,12 +30,13 @@ class MockProvider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str) -> str:
-        """Returns a mock sequence."""
-        # Mock sequence: just enough to handle translation or normalization
-        # Index 10 is c.1.
-        # ATG GGG CCC AAA ...
-        return ("A" * 10 + "ATGGGGCCCAAA" + "A" * 100)[start:end]
+    def get_seq(self, ac: str, start: int, end: int | None, _kind: str) -> str:
+        """Returns a mock sequence: the transcript, and the genome carrying it at index 1000."""
+        # Index 10 is c.1: ATG GGG CCC AAA ...
+        seq = "A" * 10 + "ATGGGGCCCAAA" + "A" * 100
+        if ac.startswith("NC_"):
+            seq = "N" * 1000 + seq
+        return seq[start:end]
 
     def get_symbol_accessions(self, symbol: str, _s: str, t: str) -> list[tuple[weaver.IdentifierType, str]]:
         """Maps mock symbols."""
@@ -125,9 +126,9 @@ class MockMinusProvider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str) -> str:
-        """Returns a mock sequence."""
-        return ("A" * 1000)[start:end]
+    def get_seq(self, ac: str, start: int, end: int | None, _kind: str) -> str:
+        """Returns a mock sequence: an all-A transcript, read from an all-T genome on the minus strand."""
+        return (("T" if ac.startswith("NC_") else "A") * 1200)[start:end]
 
     def get_symbol_accessions(self, symbol: str, _s: str, _t: str) -> list[tuple[weaver.IdentifierType, str]]:
         """Maps mock symbols."""

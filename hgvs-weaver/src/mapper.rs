@@ -1,4 +1,5 @@
 use crate::allele::CanonicalAllele;
+use crate::coords::TranscriptPos;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
 use crate::normalize::{self, PlacedEdit};
@@ -37,6 +38,66 @@ fn make_simple_position(base: crate::coords::HgvsGenomicPos) -> crate::structs::
         base,
         end: None,
         uncertain: false,
+    }
+}
+
+/// `edit` rewritten against `actual`, the bases the target sequence holds
+/// over the projected range. A transcript record and its genome can differ
+/// at a base (RefSeq transcripts are curated against submitted mRNAs), and a
+/// projection that copies the stated bases across then names bases the
+/// target does not have: MUC2 c.12468C>A over a genomic G read g.…C>A where
+/// the genome says G>A. So the stated reference becomes the target's, and a
+/// change whose alternate is what the target already holds collapses to
+/// `=`, as biocommons hgvs's replace_reference does. Edits that state no
+/// bases, or state a length, are left as given.
+fn replace_reference(edit: crate::edits::NaEdit, actual: &str) -> crate::edits::NaEdit {
+    use crate::edits::{is_length, NaEdit};
+    let stated = |r: &Option<String>| r.as_deref().is_some_and(|r| !is_length(r));
+    match edit {
+        NaEdit::RefAlt {
+            ref_,
+            alt,
+            uncertain,
+        } if stated(&ref_) => {
+            if alt.as_deref() == Some(actual) {
+                NaEdit::RefAlt {
+                    ref_: None,
+                    alt: None,
+                    uncertain,
+                }
+            } else {
+                NaEdit::RefAlt {
+                    ref_: Some(actual.to_string()),
+                    alt,
+                    uncertain,
+                }
+            }
+        }
+        NaEdit::Del { ref_, uncertain } if stated(&ref_) => NaEdit::Del {
+            ref_: Some(actual.to_string()),
+            uncertain,
+        },
+        NaEdit::Dup { ref_, uncertain } if stated(&ref_) => NaEdit::Dup {
+            ref_: Some(actual.to_string()),
+            uncertain,
+        },
+        NaEdit::Inv { ref_, uncertain } if stated(&ref_) => NaEdit::Inv {
+            ref_: Some(actual.to_string()),
+            uncertain,
+        },
+        other => other,
+    }
+}
+
+/// Whether `replace_reference` would change anything: the edit states bases.
+fn states_bases(edit: &crate::edits::NaEdit) -> bool {
+    use crate::edits::{is_length, NaEdit};
+    match edit {
+        NaEdit::RefAlt { ref_: Some(r), .. }
+        | NaEdit::Del { ref_: Some(r), .. }
+        | NaEdit::Dup { ref_: Some(r), .. }
+        | NaEdit::Inv { ref_: Some(r), .. } => !is_length(r),
+        _ => false,
     }
 }
 
@@ -880,60 +941,50 @@ impl<'a> VariantMapper<'a> {
             }
             None => pos,
         };
-        let g_start_0 = pos.start.base.to_index();
-        let (mut n_pos, mut offset) = am.g_to_n(g_start_0)?;
-
-        if let Some(end_g_simple) = &pos.end {
-            let g_end_0 = end_g_simple.base.to_index();
-            let (mut n_pos_e, mut offset_e) = am.g_to_n(g_end_0)?;
-
-            if n_pos.0 > n_pos_e.0 {
-                std::mem::swap(&mut n_pos, &mut n_pos_e);
-                std::mem::swap(&mut offset, &mut offset_e);
-            }
-
-            let (c_pos_index, c_offset, anchor) = am.n_to_c(n_pos)?;
-            let (c_pos_e_index, c_offset_e, anchor_e) = am.n_to_c(n_pos_e)?;
-
-            let pos_c =
-                make_base_offset_position(c_pos_index.to_hgvs(), c_offset.0 + offset.0, anchor);
-
-            let pos_c_e = make_base_offset_position(
-                c_pos_e_index.to_hgvs(),
-                c_offset_e.0 + offset_e.0,
-                anchor_e,
-            );
-
-            let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
-
-            return Ok(CVariant {
-                ac: transcript_ac.to_string(),
-                gene: var_g.gene.clone(),
-                posedit: crate::structs::PosEdit {
-                    pos: Some(crate::structs::BaseOffsetInterval {
-                        start: pos_c,
-                        end: Some(pos_c_e),
-                        uncertain: false,
-                    }),
-                    edit,
-                    uncertain: var_g.posedit.uncertain,
-                    predicted: var_g.posedit.predicted,
-                },
-            });
+        let (mut n_lo, mut off_lo) = am.g_to_n(pos.start.base.to_index())?;
+        let (mut n_hi, mut off_hi) = match &pos.end {
+            Some(end) => am.g_to_n(end.base.to_index())?,
+            None => (n_lo, off_lo),
+        };
+        if n_lo.0 > n_hi.0 {
+            std::mem::swap(&mut n_lo, &mut n_hi);
+            std::mem::swap(&mut off_lo, &mut off_hi);
         }
+        let position = |n: TranscriptPos, off: crate::structs::IntronicOffset| {
+            let (c, c_off, anchor) = am.n_to_c(n)?;
+            Ok::<_, HgvsError>(make_base_offset_position(
+                c.to_hgvs(),
+                c_off.0 + off.0,
+                anchor,
+            ))
+        };
+        let start = position(n_lo, off_lo)?;
+        let end = match &pos.end {
+            Some(_) => Some(position(n_hi, off_hi)?),
+            None => None,
+        };
 
-        let (c_pos_index, c_offset, anchor) = am.n_to_c(n_pos)?;
-        let pos_c = make_base_offset_position(c_pos_index.to_hgvs(), c_offset.0 + offset.0, anchor);
-
-        let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
+        // The edit in transcript orientation, then against the transcript's
+        // bases: an intronic position has none, so it is left as given.
+        let mut edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
+        let exonic = off_lo.0 == 0 && off_hi.0 == 0 && n_lo.0 >= 0;
+        if states_bases(&edit) && exonic {
+            let actual = self.target_bases(
+                transcript_ac,
+                IdentifierType::TranscriptAccession,
+                n_lo.0 as usize,
+                n_hi.0 as usize + 1,
+            )?;
+            edit = replace_reference(edit, &actual);
+        }
 
         Ok(CVariant {
             ac: transcript_ac.to_string(),
             gene: var_g.gene.clone(),
             posedit: crate::structs::PosEdit {
                 pos: Some(crate::structs::BaseOffsetInterval {
-                    start: pos_c,
-                    end: None,
+                    start,
+                    end,
                     uncertain: false,
                 }),
                 edit,
@@ -1032,6 +1083,9 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<GVariant, HgvsError> {
         let transcript = self.provider().get_transcript(var_c.ac(), reference_ac)?;
         let am = TranscriptMapper::new(transcript)?;
+        let target_ac = reference_ac
+            .unwrap_or(am.transcript.reference_accession.as_str())
+            .to_string();
 
         let pos = var_c
             .posedit()
@@ -1046,59 +1100,39 @@ impl<'a> VariantMapper<'a> {
             }
             None => pos,
         };
-        let n_pos = am.c_to_n(pos.start.base.to_index(), pos.start.anchor)?;
-        let g_pos = am.n_to_g(
-            n_pos,
-            pos.start
-                .offset
-                .unwrap_or(crate::structs::IntronicOffset(0)),
-        )?;
-
-        if let Some(end_c) = &pos.end {
-            let n_pos_e = am.c_to_n(end_c.base.to_index(), end_c.anchor)?;
-            let g_pos_e = am.n_to_g(
-                n_pos_e,
-                end_c.offset.unwrap_or(crate::structs::IntronicOffset(0)),
-            )?;
-            let mut pos_g = make_simple_position(g_pos.to_hgvs());
-            let mut pos_g_e = make_simple_position(g_pos_e.to_hgvs());
-
-            if pos_g.base.0 > pos_g_e.base.0 {
-                std::mem::swap(&mut pos_g, &mut pos_g_e);
-            }
-
-            let edit = apply_strand_complement(var_c.posedit().edit.clone(), am.transcript.strand);
-
-            return Ok(GVariant {
-                ac: reference_ac
-                    .unwrap_or(am.transcript.reference_accession.as_str())
-                    .to_string(),
-                gene: var_c.gene().map(str::to_string),
-                posedit: crate::structs::PosEdit {
-                    pos: Some(crate::structs::SimpleInterval {
-                        start: pos_g,
-                        end: Some(pos_g_e),
-                        uncertain: false,
-                    }),
-                    edit,
-                    uncertain: var_c.posedit().uncertain,
-                    predicted: var_c.posedit().predicted,
-                },
-            });
+        let project = |p: &BaseOffsetPosition| -> Result<GenomicPos, HgvsError> {
+            let n = am.c_to_n(p.base.to_index(), p.anchor)?;
+            am.n_to_g(n, p.offset.unwrap_or(crate::structs::IntronicOffset(0)))
+        };
+        let mut lo = project(&pos.start)?;
+        let mut hi = match &pos.end {
+            Some(end) => project(end)?,
+            None => lo,
+        };
+        if lo.0 > hi.0 {
+            std::mem::swap(&mut lo, &mut hi);
         }
 
-        let pos_g = make_simple_position(g_pos.to_hgvs());
-        let edit = apply_strand_complement(var_c.posedit().edit.clone(), am.transcript.strand);
+        // The edit in genome orientation, then against the genome's bases:
+        // the transcript record may not agree with the genome here.
+        let mut edit = apply_strand_complement(var_c.posedit().edit.clone(), am.transcript.strand);
+        if states_bases(&edit) && lo.0 >= 0 {
+            let actual = self.target_bases(
+                &target_ac,
+                IdentifierType::GenomicAccession,
+                lo.0 as usize,
+                hi.0 as usize + 1,
+            )?;
+            edit = replace_reference(edit, &actual);
+        }
 
         Ok(GVariant {
-            ac: reference_ac
-                .unwrap_or(am.transcript.reference_accession.as_str())
-                .to_string(),
+            ac: target_ac,
             gene: var_c.gene().map(str::to_string),
             posedit: crate::structs::PosEdit {
                 pos: Some(crate::structs::SimpleInterval {
-                    start: pos_g,
-                    end: None,
+                    start: make_simple_position(lo.to_hgvs()),
+                    end: pos.end.as_ref().map(|_| make_simple_position(hi.to_hgvs())),
                     uncertain: false,
                 }),
                 edit,
@@ -1106,6 +1140,25 @@ impl<'a> VariantMapper<'a> {
                 predicted: var_c.posedit().predicted,
             },
         })
+    }
+
+    /// The bases of `ac` over `[start, end)`, which must all exist: a projected
+    /// range past the end of the target is a data error, not a shorter edit.
+    fn target_bases(
+        &self,
+        ac: &str,
+        kind: IdentifierType,
+        start: usize,
+        end: usize,
+    ) -> Result<String, HgvsError> {
+        let bases = self.refs.reference(ac, kind).slice(start, end)?;
+        if bases.len() != end - start {
+            return Err(HgvsError::ValidationError(format!(
+                "{ac} has {} bases over [{start}, {end}); the projected range runs past its end",
+                bases.len()
+            )));
+        }
+        Ok(bases)
     }
 
     /// Discovers all possible cDNA consequences for a genomic variant.
