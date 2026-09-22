@@ -5,6 +5,17 @@
     "w_analogous": 4928,
     "ref_identity": 93352,
     "ref_analogous": 4890,
+    "commit": "a7e0cdb",
+    "date": "2026-09-22",
+    "message": "Release 0.5.1",
+    "version": "0.5.1"
+  },
+  {
+    "total": 100000,
+    "w_identity": 93902,
+    "w_analogous": 4928,
+    "ref_identity": 93352,
+    "ref_analogous": 4890,
     "commit": "edf5a92",
     "date": "2026-09-21",
     "message": "Release 0.5.0",
