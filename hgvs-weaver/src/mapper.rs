@@ -41,91 +41,75 @@ fn make_simple_position(base: crate::coords::HgvsGenomicPos) -> crate::structs::
     }
 }
 
-/// `edit` rewritten against `actual`, the bases the target sequence holds
-/// over the projected range. A transcript record and its genome can differ
-/// at a base (RefSeq transcripts are curated against submitted mRNAs), and a
-/// projection that copies the stated bases across then names bases the
-/// target does not have: MUC2 c.12468C>A over a genomic G read g.…C>A where
-/// the genome says G>A. So the stated reference becomes the target's, and a
-/// change whose alternate is what the target already holds collapses to
-/// `=`, as biocommons hgvs's replace_reference does. Edits that state no
-/// bases, or state a length, are left as given.
-fn replace_reference(edit: crate::edits::NaEdit, actual: &str) -> crate::edits::NaEdit {
-    use crate::edits::{is_length, NaEdit};
-    let stated = |r: &Option<String>| r.as_deref().is_some_and(|r| !is_length(r));
-    match edit {
-        NaEdit::RefAlt {
-            ref_,
-            alt,
-            uncertain,
-        } if stated(&ref_) => {
-            if alt.as_deref() == Some(actual) {
-                NaEdit::RefAlt {
-                    ref_: None,
-                    alt: None,
-                    uncertain,
-                }
-            } else {
-                NaEdit::RefAlt {
-                    ref_: Some(actual.to_string()),
-                    alt,
-                    uncertain,
-                }
-            }
-        }
-        NaEdit::Del { ref_, uncertain } if stated(&ref_) => NaEdit::Del {
-            ref_: Some(actual.to_string()),
-            uncertain,
-        },
-        NaEdit::Dup { ref_, uncertain } if stated(&ref_) => NaEdit::Dup {
-            ref_: Some(actual.to_string()),
-            uncertain,
-        },
-        NaEdit::Inv { ref_, uncertain } if stated(&ref_) => NaEdit::Inv {
-            ref_: Some(actual.to_string()),
-            uncertain,
-        },
-        other => other,
-    }
-}
-
-/// A bare `=` states no bases but means the source's own: over a projection
-/// they are what the target must end up holding, so they are written out
-/// before the reference is re-read. Where source and target agree the
-/// re-read collapses it back to `=`; where they differ, SHANK3's `c.1568=`
-/// over a genomic T is `g.…T>C`.
-fn identity_with_source_bases(
-    edit: crate::edits::NaEdit,
-    source: Option<String>,
-) -> crate::edits::NaEdit {
+/// The edits whose meaning is bases over a range: a substitution, delins or
+/// identity, a deletion, a duplication, an inversion. An insertion is placed
+/// between bases and a repeat is read against its run; neither is rewritten.
+fn resolves_over_range(edit: &crate::edits::NaEdit) -> bool {
     use crate::edits::NaEdit;
-    match (edit, source) {
-        (
-            NaEdit::RefAlt {
-                ref_: None,
-                alt: None,
-                uncertain,
-            },
-            Some(bases),
-        ) => NaEdit::RefAlt {
-            ref_: Some(bases.clone()),
-            alt: Some(bases),
-            uncertain,
-        },
-        (edit, _) => edit,
-    }
+    matches!(
+        edit,
+        NaEdit::RefAlt { .. } | NaEdit::Del { .. } | NaEdit::Dup { .. } | NaEdit::Inv { .. }
+    )
 }
 
-/// Whether `replace_reference` would change anything: the edit states bases.
-fn states_bases(edit: &crate::edits::NaEdit) -> bool {
-    use crate::edits::{is_length, NaEdit};
-    match edit {
-        NaEdit::RefAlt { ref_: Some(r), .. }
-        | NaEdit::Del { ref_: Some(r), .. }
-        | NaEdit::Dup { ref_: Some(r), .. }
-        | NaEdit::Inv { ref_: Some(r), .. } => !is_length(r),
-        _ => false,
+/// The edit to write on the target of a projection, and the target range to
+/// write it over, half-open.
+///
+/// The edit is resolved on the source to the bases it removes and the bases it
+/// puts there, and those are what the target must end up holding. Where the
+/// target's bases over the projected range are the source's, the edit is
+/// carried as given, complemented across strands. Where they differ, the
+/// minimal edit that turns the target's bases into the alternate is written:
+/// MUC2's `c.12468dup` over a record C and a genomic G is `g.…delinsCC`, as
+/// VariantValidator writes it, since the duplicated bases are the record's;
+/// `c.12468C>A` is `g.…G>A`; the record's `c.1568=` over a genomic T is
+/// `g.…T>C`. This is biocommons hgvs's replace_reference, extended to the
+/// edits whose alternate is derived from the source's bases.
+fn project_edit(
+    edit: &crate::edits::NaEdit,
+    source: Option<(&crate::reference::Reference<'_, '_>, (usize, usize))>,
+    target: &crate::reference::Reference<'_, '_>,
+    target_kind: IdentifierType,
+    target_range: (usize, usize),
+    strand: crate::data::Strand,
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    let (t_lo, t_hi) = target_range;
+    let carried = || (apply_strand_complement(edit.clone(), strand), t_lo, t_hi);
+    if !resolves_over_range(edit) {
+        return Ok(carried());
     }
+    let resolved = match source {
+        Some((source, (s_lo, s_hi))) => edit.resolve(source, s_lo, s_hi)?,
+        // No source bases (an intronic position of a transcript): only the
+        // bases the edit states can be checked, and an inversion states none.
+        None if edit.stated_ref().is_some()
+            && !matches!(edit, crate::edits::NaEdit::Inv { .. }) =>
+        {
+            edit.resolve_with(t_lo, t_hi, |_, _| {
+                Err(HgvsError::ValidationError(
+                    "no source bases at an intronic position".into(),
+                ))
+            })?
+        }
+        None => return Ok(carried()),
+    };
+    let orient = |b: &str| match strand {
+        crate::data::Strand::Minus => crate::utils::reverse_complement(b),
+        crate::data::Strand::Plus => b.to_string(),
+    };
+    let (source_ref, alt) = (orient(&resolved.ref_), orient(&resolved.alt));
+    let target_ref = target.slice(t_lo, t_hi)?;
+    if target_ref.len() != t_hi - t_lo {
+        return Err(HgvsError::ValidationError(format!(
+            "{} has {} bases over [{t_lo}, {t_hi}); the projected range runs past its end",
+            target.accession(),
+            target_ref.len()
+        )));
+    }
+    if target_ref == source_ref {
+        return Ok(carried());
+    }
+    hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
 }
 
 fn apply_strand_complement(
@@ -985,40 +969,47 @@ impl<'a> VariantMapper<'a> {
                 anchor,
             ))
         };
-        let start = position(n_lo, off_lo)?;
-        let end = match &pos.end {
-            Some(_) => Some(position(n_hi, off_hi)?),
-            None => None,
-        };
 
-        // A bare `=` means the genome's bases; read them while the range is
-        // still the genome's.
+        // An intronic position has no transcript base: the edit is carried as
+        // given. An exonic one is read on the genome and written for the record.
         let exonic = off_lo.0 == 0 && off_hi.0 == 0 && n_lo.0 >= 0;
-        let genome_bases = match &var_g.posedit.edit {
-            crate::edits::NaEdit::RefAlt {
-                ref_: None,
-                alt: None,
-                ..
-            } if exonic => {
-                let (g_lo, g_hi) = simple_interval_range(pos)?;
-                Some(self.target_bases(&var_g.ac, IdentifierType::GenomicAccession, g_lo, g_hi)?)
-            }
-            _ => None,
-        };
-        let edit = identity_with_source_bases(var_g.posedit.edit.clone(), genome_bases);
-
-        // The edit in transcript orientation, then against the transcript's
-        // bases: an intronic position has none, so it is left as given.
-        let mut edit = apply_strand_complement(edit, am.transcript.strand);
-        if states_bases(&edit) && exonic {
-            let actual = self.target_bases(
-                transcript_ac,
+        let (edit, start, end) = if exonic {
+            let (g_lo, g_hi) = simple_interval_range(pos)?;
+            let source = self
+                .refs
+                .reference(&var_g.ac, IdentifierType::GenomicAccession);
+            let target = self
+                .refs
+                .reference(transcript_ac, IdentifierType::TranscriptAccession);
+            let (edit, s, e) = project_edit(
+                &var_g.posedit.edit,
+                Some((&source, (g_lo, g_hi))),
+                &target,
                 IdentifierType::TranscriptAccession,
-                n_lo.0 as usize,
-                n_hi.0 as usize + 1,
+                (n_lo.0 as usize, n_hi.0 as usize + 1),
+                am.transcript.strand,
             )?;
-            edit = replace_reference(edit, &actual);
-        }
+            let unchanged_range = (s, e) == (n_lo.0 as usize, n_hi.0 as usize + 1);
+            let end = if unchanged_range {
+                pos.end
+                    .as_ref()
+                    .map(|_| position(n_hi, off_hi))
+                    .transpose()?
+            } else {
+                (e > s + 1)
+                    .then(|| position(TranscriptPos(e as i32 - 1), off_hi))
+                    .transpose()?
+            };
+            (edit, position(TranscriptPos(s as i32), off_lo)?, end)
+        } else {
+            let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
+            let end = pos
+                .end
+                .as_ref()
+                .map(|_| position(n_hi, off_hi))
+                .transpose()?;
+            (edit, position(n_lo, off_lo)?, end)
+        };
 
         Ok(CVariant {
             ac: transcript_ac.to_string(),
@@ -1147,58 +1138,64 @@ impl<'a> VariantMapper<'a> {
             let n = am.c_to_n(p.base.to_index(), p.anchor)?;
             Ok((n, am.n_to_g(n, p.offset.unwrap_or(zero))?))
         };
-        let (n_start, mut lo) = project(&pos.start)?;
-        let (n_end, mut hi) = match &pos.end {
+        let (n_start, g_start) = project(&pos.start)?;
+        let (n_end, g_end) = match &pos.end {
             Some(end) => project(end)?,
-            None => (n_start, lo),
+            None => (n_start, g_start),
         };
-        if lo.0 > hi.0 {
-            std::mem::swap(&mut lo, &mut hi);
+        let (g_lo, g_hi) = (g_start.0.min(g_end.0), g_start.0.max(g_end.0));
+        if g_lo < 0 {
+            return Err(HgvsError::ValidationError(format!(
+                "{}:{} projects before the start of {target_ac}",
+                var_c.ac(),
+                var_c.posedit()
+            )));
         }
 
-        // A bare `=` means the record's bases; read them while the range is
-        // still the transcript's (an intronic position has none).
+        // An exonic edit is read on the record and written for the genome. An
+        // intronic one has no record bases; only what it states is checked.
         let exonic = pos.start.offset.unwrap_or(zero).0 == 0
             && pos
                 .end
                 .as_ref()
                 .is_none_or(|e| e.offset.unwrap_or(zero).0 == 0)
             && n_start.0 >= 0;
-        let record_bases = match &var_c.posedit().edit {
-            crate::edits::NaEdit::RefAlt {
-                ref_: None,
-                alt: None,
-                ..
-            } if exonic => Some(self.target_bases(
-                var_c.ac(),
-                IdentifierType::TranscriptAccession,
-                n_start.0.min(n_end.0) as usize,
-                n_start.0.max(n_end.0) as usize + 1,
-            )?),
-            _ => None,
-        };
-        let edit = identity_with_source_bases(var_c.posedit().edit.clone(), record_bases);
-
-        // The edit in genome orientation, then against the genome's bases:
-        // the transcript record may not agree with the genome here.
-        let mut edit = apply_strand_complement(edit, am.transcript.strand);
-        if states_bases(&edit) && lo.0 >= 0 {
-            let actual = self.target_bases(
-                &target_ac,
-                IdentifierType::GenomicAccession,
-                lo.0 as usize,
-                hi.0 as usize + 1,
-            )?;
-            edit = replace_reference(edit, &actual);
-        }
+        let target = self
+            .refs
+            .reference(&target_ac, IdentifierType::GenomicAccession);
+        let source = self
+            .refs
+            .reference(var_c.ac(), IdentifierType::TranscriptAccession);
+        let (n_lo, n_hi) = (
+            n_start.0.min(n_end.0) as usize,
+            n_start.0.max(n_end.0) as usize,
+        );
+        let (edit, s, e) = project_edit(
+            &var_c.posedit().edit,
+            exonic.then_some((&source, (n_lo, n_hi + 1))),
+            &target,
+            IdentifierType::GenomicAccession,
+            (g_lo as usize, g_hi as usize + 1),
+            am.transcript.strand,
+        )?;
+        let unchanged_range = (s, e) == (g_lo as usize, g_hi as usize + 1);
 
         Ok(GVariant {
             ac: target_ac,
             gene: var_c.gene().map(str::to_string),
             posedit: crate::structs::PosEdit {
                 pos: Some(crate::structs::SimpleInterval {
-                    start: make_simple_position(lo.to_hgvs()),
-                    end: pos.end.as_ref().map(|_| make_simple_position(hi.to_hgvs())),
+                    start: make_simple_position(GenomicPos(s as i32).to_hgvs()),
+                    // The writer's form survives an edit carried as given; a
+                    // rewritten one names exactly the bases it covers.
+                    end: if unchanged_range {
+                        pos.end
+                            .as_ref()
+                            .map(|_| make_simple_position(GenomicPos(e as i32 - 1).to_hgvs()))
+                    } else {
+                        (e > s + 1)
+                            .then(|| make_simple_position(GenomicPos(e as i32 - 1).to_hgvs()))
+                    },
                     uncertain: false,
                 }),
                 edit,
@@ -1206,25 +1203,6 @@ impl<'a> VariantMapper<'a> {
                 predicted: var_c.posedit().predicted,
             },
         })
-    }
-
-    /// The bases of `ac` over `[start, end)`, which must all exist: a projected
-    /// range past the end of the target is a data error, not a shorter edit.
-    fn target_bases(
-        &self,
-        ac: &str,
-        kind: IdentifierType,
-        start: usize,
-        end: usize,
-    ) -> Result<String, HgvsError> {
-        let bases = self.refs.reference(ac, kind).slice(start, end)?;
-        if bases.len() != end - start {
-            return Err(HgvsError::ValidationError(format!(
-                "{ac} has {} bases over [{start}, {end}); the projected range runs past its end",
-                bases.len()
-            )));
-        }
-        Ok(bases)
     }
 
     /// Discovers all possible cDNA consequences for a genomic variant.

@@ -155,7 +155,9 @@ class VariantMapper:
         The edit is re-read against the genome: a stated reference the record has
         but the genome does not becomes the genome's base, and a change the genome
         already carries is written =; no change on the record (c.123=) is the
-        genome's base becoming the record's where the two differ.
+        genome's base becoming the record's where the two differ, and a duplication
+        or inversion carries the record's bases (c.123dup over a differing genomic
+        base is g.…delinsCC, as VariantValidator writes it).
 
         Args:
             var_c: The coding Variant to map.
@@ -227,7 +229,8 @@ class VariantMapper:
         The edit is re-read against the transcript: a stated reference the genome has
         but the record does not becomes the record's base, and a change the record
         already carries is written =; no change on the genome (g.123=) is the
-        record's base becoming the genome's where the two differ. An intronic position has no transcript base and
+        record's base becoming the genome's where the two differ, and a duplication
+        or inversion carries the genome's bases. An intronic position has no transcript base and
         is carried as given.
 
         Args:

@@ -7,9 +7,9 @@ use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use support::{exon, transcript, Provider};
 
-/// 4000 N's with `bases` set at the given indices.
+/// 4001 N's (the exons reach genomic index 4000) with `bases` set at the given indices.
 fn placed(bases: &[(usize, u8)]) -> String {
-    let mut seq = vec![b'N'; 4000];
+    let mut seq = vec![b'N'; 4001];
     for &(index, base) in bases {
         seq[index] = base;
     }
@@ -20,7 +20,7 @@ fn provider() -> Provider {
     // Case 9: c.35 is transcript index 34, genomic 3966 (A). The base after it
     // must differ so the insertion cannot shift further.
     // Case 15: c.2673 is transcript index 2672, genomic 1328 (T).
-    let cases = placed(&[(3966, b'A'), (34, b'A'), (1328, b'T'), (2672, b'T')]);
+    let cases = placed(&[(3966, b'A'), (1328, b'T')]);
     // BRAF Val600 is GTG at transcript indices 1797..=1799.
     let braf = placed(&[(1797, b'G'), (1798, b'T'), (1799, b'G')]);
     let mut provider = Provider::new()
@@ -35,9 +35,22 @@ fn provider() -> Provider {
             Some((0, 3000)),
             vec![],
         ));
+    // One minus-strand exon: transcript index i is genomic index 4000 - i, so
+    // the record is the reverse complement of genome[1000..=4000]: c.35 is a T
+    // (over the genome's A) and c.2673 an A (over the genome's T).
+    let record: String = cases[1000..=4000]
+        .chars()
+        .rev()
+        .map(|c| match c {
+            'A' => 'T',
+            'T' => 'A',
+            'C' => 'G',
+            'G' => 'C',
+            other => other,
+        })
+        .collect();
     for ac in ["NM_001166478.1", "NM_005813.3"] {
-        // One minus-strand exon: transcript index i is genomic index 4000 - i.
-        provider = provider.sequence(ac, &cases).transcript(transcript(
+        provider = provider.sequence(ac, &record).transcript(transcript(
             ac,
             "NC_000001.1",
             Strand::Minus,

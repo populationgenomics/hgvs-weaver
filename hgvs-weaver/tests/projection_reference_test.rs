@@ -97,11 +97,13 @@ fn a_projection_states_the_genomes_bases_not_the_records() {
     assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.11C>G"), "NC_D.1:g.21A>G");
     // The genome already holds the alternate: nothing changes on the genome.
     assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.11C>A"), "NC_D.1:g.21=");
-    // Stated bases on a deletion, delins and inversion are re-read too.
-    assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.11delC"), "NC_D.1:g.21delA");
+    // A rewritten deletion or delins is written bare, as normalisation writes
+    // them; the record's bases are wrong for the genome and the genome's are
+    // implied.
+    assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.11delC"), "NC_D.1:g.21del");
     assert_eq!(
         c_to_g(&mapper, "NM_PLUS.1:c.11_12delCCinsTT"),
-        "NC_D.1:g.21_22delACinsTT"
+        "NC_D.1:g.21_22delinsTT"
     );
     // No change on the record is a change on the genome where they differ,
     // and no change where they agree.
@@ -112,6 +114,19 @@ fn a_projection_states_the_genomes_bases_not_the_records() {
         "NM_PLUS.1:c.11C>A"
     );
     assert_eq!(c_to_g(&mapper, "NM_MINUS.1:c.11="), "NC_D.1:g.80T>C");
+    // A duplication or inversion carries the record's bases: the genome's A
+    // is replaced by what the record becomes, written as the minimal edit.
+    assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.11dup"), "NC_D.1:g.21delinsCC");
+    assert_eq!(
+        c_to_g(&mapper, "NM_PLUS.1:c.11_12inv"),
+        "NC_D.1:g.21_22delinsGG"
+    );
+    assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.12dup"), "NC_D.1:g.22dup");
+    assert_eq!(
+        g_to_c(&mapper, "NC_D.1:g.21dup", "NM_PLUS.1"),
+        "NM_PLUS.1:c.11delinsAA"
+    );
+    assert_eq!(c_to_g(&mapper, "NM_MINUS.1:c.11dup"), "NC_D.1:g.80delinsCC");
     // Where record and genome agree nothing changes, and unstated bases are
     // never filled in.
     assert_eq!(c_to_g(&mapper, "NM_PLUS.1:c.12C>T"), "NC_D.1:g.22C>T");
