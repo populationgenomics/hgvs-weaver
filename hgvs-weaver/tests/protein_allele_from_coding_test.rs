@@ -254,3 +254,16 @@ fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
     assert!(pp("NP_X.1:p.Lys2AsnfsTer9", "NP_X.1:p.Lys2fs"));
     assert!(!pp("NP_X.1:p.Lys2Gln", "NP_Y.1:p.Lys2Gln"));
 }
+
+#[test]
+fn edits_around_the_cds_start_are_statements_not_predictions() {
+    // Entirely in the 5'UTR: nothing can be said. Reaching into the CDS from
+    // the 5'UTR: the start codon is disrupted. Covering the whole CDS: no
+    // protein is expected.
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let p = |c: &str| mapper.c_to_p(&coding(c), None).unwrap().to_string();
+    assert_eq!(p("NM_X.1:c.-3G>A"), "NP_X.1:p.?");
+    assert_eq!(p("NM_X.1:c.-3_2del"), "NP_X.1:p.Met1?");
+    assert_eq!(p("NM_X.1:c.-5_*14del"), "NP_X.1:p.0?");
+}
