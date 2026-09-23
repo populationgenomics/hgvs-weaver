@@ -4,13 +4,14 @@ use hgvs_weaver::data::Strand;
 use hgvs_weaver::*;
 use support::{exon, transcript, Provider};
 
-/// Ten A's, then ATG (n.11 is c.1), then ATGC repeated; the same string is
-/// the transcript and the genome. The CDS is transcript indices 10..=50.
+/// Ten A's, then ATG (n.11 is c.1), then ATGC repeated; the genome carries the
+/// same string at index 1000, where the exon puts it. The CDS is transcript
+/// indices 10..=50.
 fn provider() -> Provider {
     let seq = format!("AAAAAAAAAAATG{}", "ATGC".repeat(25));
     Provider::new()
         .sequence("NM_0001.3", &seq)
-        .sequence("NC_0001.10", &seq)
+        .sequence("NC_0001.10", &format!("{}{seq}", "N".repeat(1000)))
         .transcript(transcript(
             "NM_0001.3",
             "NC_0001.10",
@@ -92,11 +93,11 @@ fn test_mapper_g_to_c_3utr() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
-    // Genomic 1052 (index 1051) -> n.52 -> c.*1
-    let var_g = parse_hgvs_variant("NC_0001.10:g.1052A>T").unwrap();
+    // Genomic 1052 (index 1051) -> n.52 -> c.*1, a G in both sequences.
+    let var_g = parse_hgvs_variant("NC_0001.10:g.1052G>T").unwrap();
     if let SequenceVariant::Genomic(v) = var_g {
         let var_c = mapper.g_to_c(&v, "NM_0001.3").unwrap();
-        assert_eq!(var_c.to_string(), "NM_0001.3:c.*1A>T");
+        assert_eq!(var_c.to_string(), "NM_0001.3:c.*1G>T");
     }
 }
 
@@ -105,9 +106,9 @@ fn test_mapper_c_to_g_3utr() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
-    let var_c = parse_hgvs_variant("NM_0001.3:c.*1A>T").unwrap();
+    let var_c = parse_hgvs_variant("NM_0001.3:c.*1G>T").unwrap();
     if let SequenceVariant::Coding(v) = var_c {
         let var_g = mapper.c_to_g(&v, Some("NC_0001.10")).unwrap();
-        assert_eq!(var_g.to_string(), "NC_0001.10:g.1052A>T");
+        assert_eq!(var_g.to_string(), "NC_0001.10:g.1052G>T");
     }
 }

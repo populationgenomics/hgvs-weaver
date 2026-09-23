@@ -49,17 +49,17 @@ fn test_toy_plus_strand_missense() {
 fn test_toy_minus_strand_mapping() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-
-    let var_g = parse_hgvs_variant("NC_TOY.1:g.236T>G").unwrap();
+    // NM_MINUS.1's first exon is genome 200..=235 read on the minus strand, so
+    // c.32 (transcript index 35) is genome index 200, g.201: an A on the
+    // genome, a T on the transcript.
+    let var_g = parse_hgvs_variant("NC_TOY.1:g.201A>G").unwrap();
     if let SequenceVariant::Genomic(v) = var_g {
         let var_c = mapper.g_to_c(&v, "NM_MINUS.1").unwrap();
-        assert_eq!(var_c.to_string(), "NM_MINUS.1:c.32A>C");
+        assert_eq!(var_c.to_string(), "NM_MINUS.1:c.32T>C");
     }
-
-    // Test c. to g. on minus strand
-    let var_c = parse_hgvs_variant("NM_MINUS.1:c.32A>C").unwrap();
+    let var_c = parse_hgvs_variant("NM_MINUS.1:c.32T>C").unwrap();
     if let SequenceVariant::Coding(v) = var_c {
         let var_g = mapper.c_to_g(&v, Some("NC_TOY.1")).unwrap();
-        assert_eq!(var_g.to_string(), "NC_TOY.1:g.236T>G");
+        assert_eq!(var_g.to_string(), "NC_TOY.1:g.201A>G");
     }
 }

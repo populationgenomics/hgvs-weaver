@@ -196,7 +196,8 @@ fn r_projects_to_the_genome_within_one_exon_only() {
         g("NM_R.1:r.45+2u>a").unwrap(),
         g("NM_R.1:c.45+2T>A").unwrap()
     );
-    assert_eq!(g("NR_R.1:r.10c>g").unwrap(), "NC_R.1:g.20C>G");
+    // n.10 is genome index 19, a G in both; the base stated must be the real one.
+    assert_eq!(g("NR_R.1:r.10g>a").unwrap(), "NC_R.1:g.20G>A");
 }
 
 #[test]

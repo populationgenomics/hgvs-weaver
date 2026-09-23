@@ -33,8 +33,10 @@ class Provider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str) -> str:
-        return SEQUENCE[start:end]
+    def get_seq(self, ac: str, start: int, end: int | None, _kind: str) -> str:
+        # The exon puts the transcript at genome index 1000.
+        seq = "N" * 1000 + SEQUENCE if ac.startswith("NC_") else SEQUENCE
+        return seq[start:end]
 
     def get_symbol_accessions(self, symbol: str, _s: str, t: str) -> list[tuple[weaver.IdentifierType, str]]:
         if t == "p":

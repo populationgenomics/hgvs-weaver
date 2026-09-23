@@ -2,7 +2,7 @@
   "sequences": {
     "NC_TOY.1": "AAAAAAAAAAAAAAAAAAAAAAAAAATGCGTACGTAGCTAGCTAGCTAGCTAGTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGCGCTAGCTAGCTAGCTAGCTACGTACTGCATAAAAAAAAAAAAAAAAAAAA",
     "NM_PLUS.1": "AAAAATGCGTACGTAGCTAGCTAGCTAGCTAGTAAGCGCTAGCTAGCTAGCTAGCTACGTACTGCATAAAAA",
-    "NM_MINUS.1": "AAAAATGCGTACGTAGCTAGCTAGCTAGCTAGTAAGCGCTAGCTAGCTAGCTAGCTACGTACTGCATAAAAA",
+    "NM_MINUS.1": "AGCGCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTACTAGCTAGCTAGCTAGCTACGTACGCATTTTTT",
     "NM_999999.1": "AAAATCAAAATGAAAGCGAAAGCGTTTCGCGCGAAATAGGGG",
     "NM_999998.1": "AAAATCAAAATGAAAGCGAAAGCGTTTCGCGCGAAATAGAGGAGGTAGTTTCGC",
     "NM_999997.1": "AAAATCAAAATGAAAGCGAAAGCGTTTCGCGTAGAATAGAGGAGGCAGTTTCGC",
@@ -27,7 +27,7 @@
           "transcript_start": 0,
           "transcript_end": 36,
           "reference_start": 20,
-          "reference_end": 56,
+          "reference_end": 55,
           "cigar": "36=",
           "alt_strand": 1
         },
@@ -35,7 +35,7 @@
           "transcript_start": 36,
           "transcript_end": 72,
           "reference_start": 200,
-          "reference_end": 236,
+          "reference_end": 235,
           "cigar": "36=",
           "alt_strand": 1
         }
@@ -54,17 +54,17 @@
           "transcript_start": 0,
           "transcript_end": 36,
           "reference_start": 200,
-          "reference_end": 236,
+          "reference_end": 235,
           "cigar": "36=",
-          "alt_strand": 1
+          "alt_strand": -1
         },
         {
           "transcript_start": 36,
           "transcript_end": 72,
           "reference_start": 20,
-          "reference_end": 56,
+          "reference_end": 55,
           "cigar": "36=",
-          "alt_strand": 1
+          "alt_strand": -1
         }
       ]
     },
