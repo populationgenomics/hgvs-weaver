@@ -13,7 +13,7 @@ Every choice has the same shape.
 | :--- | :--- |
 | **Example** | Input on the left, weaver's output on the right, taken from the test that asserts it. `→` reads "becomes". |
 | **Agrees** / **Differs** | Only where the other tool was actually checked: by running it (VariantValidator's REST API, the biocommons `hgvs` grammar and regression tables, ClinVar's 100,000-variant sample) or by reading its code. Anything else is marked *not checked*. |
-| **Spec** | The [HGVS nomenclature](https://hgvs-nomenclature.org/stable/) page (or the VRS or refget specification) the choice rests on, or "none". |
+| **Spec** | The [HGVS nomenclature](https://hgvs-nomenclature.org/stable/) page (or the VRS or refget specification) the choice rests on, with a verdict: *agrees* when the specification says or clearly implies the same, *differs* when weaver departs from what it recommends, *silent* when it says nothing. Departures are few and each says why. |
 | **Tests** | The tests that assert it, as `file::function`. Files are under `hgvs-weaver/tests/` unless written as `src/…` (unit tests) or `tests/…py` (Python); property tests live in `hgvs-weaver/tests/properties/main.rs`. |
 
 The tools referred to: **biocommons** is the Python `hgvs` package weaver was originally a port
@@ -22,53 +22,54 @@ summary; **VRS** is the GA4GH Variation Representation Specification 2.0.1.
 
 ## At a glance
 
-| Choice | biocommons | VariantValidator | ClinVar |
-| :--- | :---: | :---: | :---: |
-| [A projection states the bases of the target](#a-projection-states-the-bases-of-the-target) | agrees | agrees | – |
-| [A change across a splice junction has no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form) | – | differs | – |
-| [No normalisation before projecting](#no-normalisation-before-projecting) | – | differs | – |
-| [Gapped exons are projected locally](#gapped-exons-are-projected-locally) | – | differs | – |
-| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run) | – | – | – |
-| [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error) | differs | – | – |
-| [Intronic positions are carried as given](#intronic-positions-are-carried-as-given) | – | – | – |
-| [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery) | – | differs | – |
-| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats) | agrees | agrees | agrees |
-| [A delins is not shifted](#a-delins-is-not-shifted) | agrees | – | – |
-| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare) | differs | agrees | – |
-| [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run) | – | – | agrees |
-| [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop) | differs | – | – |
-| [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension) | agrees | – | agrees |
-| [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change) | – | – | – |
-| [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter) | – | – | – |
-| [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most) | – | – | spelling differs |
-| [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically) | differs | differs | – |
-| [Edits around the CDS start are statements](#edits-around-the-cds-start-are-statements) | agrees | differs | differs |
-| [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop) | – | – | – |
-| [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change) | – | – | – |
-| [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else) | – | – | – |
-| [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind) | differs | – | – |
-| [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing) | – | – | differs |
-| [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error) | – | – | – |
-| [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours) | – | – | – |
-| [A cis allele compares as a set](#a-cis-allele-compares-as-a-set) | – | – | – |
-| [The canonical allele is fully justified](#the-canonical-allele-is-fully-justified) | – | – | – |
-| [Refget accessions are computed over the normalised sequence](#refget-accessions-are-computed-over-the-normalised-sequence) | – | – | – |
-| [Uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds) | – | – | – |
-| [copyChange is a label](#copychange-is-a-label) | – | – | – |
-| [CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting) | – | – | – |
-| [Reading back gives the normalised variant](#reading-back-gives-the-normalised-variant) | – | – | – |
-| [Breakends and fusions are not rendered](#breakends-and-fusions-are-not-rendered) | – | – | – |
-| [The grammar is checked against the biocommons table](#the-grammar-is-checked-against-the-biocommons-table) | one difference | – | agrees |
-| [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons) | differs | – | – |
-| [Recommended spellings on output](#recommended-spellings-on-output) | – | differs | – |
-| [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed) | differs | agrees | – |
-| [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) | – | – | – |
-| [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based) | – | – | – |
-| [A mapper keeps its cache](#a-mapper-keeps-its-cache) | – | – | – |
-| [Refget is its own seam](#refget-is-its-own-seam) | – | – | – |
+| Choice | Spec | biocommons | VariantValidator | ClinVar |
+| :--- | :---: | :---: | :---: | :---: |
+| [A projection states the bases of the target](#a-projection-states-the-bases-of-the-target) | agrees | agrees | agrees | – |
+| [A change across a splice junction has no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form) | agrees | – | differs | – |
+| [No normalisation before projecting](#no-normalisation-before-projecting) | – | – | differs | – |
+| [Gapped exons are projected locally](#gapped-exons-are-projected-locally) | – | – | differs | – |
+| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run) | agrees | – | – | – |
+| [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error) | agrees | differs | – | – |
+| [Intronic positions are carried as given](#intronic-positions-are-carried-as-given) | agrees | – | – | – |
+| [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery) | agrees | – | differs | – |
+| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats) | agrees | agrees | agrees | agrees |
+| [A delins is not shifted](#a-delins-is-not-shifted) | – | agrees | – | – |
+| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare) | agrees | differs | agrees | – |
+| [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run) | agrees | – | – | agrees |
+| [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop) | – | differs | – | – |
+| [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension) | agrees | agrees | – | agrees |
+| [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change) | agrees | – | – | – |
+| [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter) | agrees | – | – | – |
+| [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most) | agrees | – | – | spelling differs |
+| [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically) | **differs** | differs | differs | – |
+| [Edits around the CDS start are statements](#edits-around-the-cds-start-are-statements) | agrees | agrees | differs | differs |
+| [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop) | agrees | – | – | – |
+| [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change) | agrees | – | – | – |
+| [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else) | agrees | – | – | – |
+| [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind) | – | differs | – | – |
+| [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing) | agrees | – | – | differs |
+| [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error) | – | – | – | – |
+| [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours) | – | – | – | – |
+| [A cis allele compares as a set](#a-cis-allele-compares-as-a-set) | agrees | – | – | – |
+| [The canonical allele is fully justified](#the-canonical-allele-is-fully-justified) | agrees | – | – | – |
+| [Refget accessions are computed over the normalised sequence](#refget-accessions-are-computed-over-the-normalised-sequence) | agrees | – | – | – |
+| [Uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds) | agrees | – | – | – |
+| [copyChange is a label](#copychange-is-a-label) | agrees | – | – | – |
+| [CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting) | **differs** | – | – | – |
+| [Reading back gives the normalised variant](#reading-back-gives-the-normalised-variant) | agrees | – | – | – |
+| [Breakends and fusions are not rendered](#breakends-and-fusions-are-not-rendered) | – | – | – | – |
+| [The grammar is checked against the biocommons table](#the-grammar-is-checked-against-the-biocommons-table) | – | one difference | – | agrees |
+| [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons) | agrees | differs | – | – |
+| [Recommended spellings on output](#recommended-spellings-on-output) | agrees | – | differs | – |
+| [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed) | agrees | differs | agrees | – |
+| [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) | – | – | – | – |
+| [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based) | agrees | – | – | – |
+| [A mapper keeps its cache](#a-mapper-keeps-its-cache) | – | – | – | – |
+| [Refget is its own seam](#refget-is-its-own-seam) | agrees | – | – | – |
 
-A dash means the tool was not checked, or the choice does not apply to it. The VRS and refget
-specifications are cited in the choices that follow them.
+**Spec** is the HGVS nomenclature, or VRS or refget where the choice is about them; a dash means
+it is silent. For a tool, a dash means it was not checked or the choice does not apply to it.
+The two departures from a specification are in bold.
 
 ## Projection between sequences
 
@@ -99,7 +100,7 @@ NM_001372044.2:c.1568C>T     →  NC_000022.11:g.50697558=
 
 - **Agrees:** biocommons (`replace_reference`); VariantValidator on substitution, identity,
   duplication and deletion at the MUC2 base.
-- **Spec:** [general](https://hgvs-nomenclature.org/stable/recommendations/general/):
+- **Spec (agrees):** [general](https://hgvs-nomenclature.org/stable/recommendations/general/):
   "descriptions on RNA/protein level should describe the changes observed on that level"; a
   description is of the sequence it is on.
 - **Tests:** `projection_reference_test::a_projection_states_the_genomes_bases_not_the_records`,
@@ -129,7 +130,7 @@ NM_R.1:r.45del      → genome    projects: one exon
 
 - **Differs:** VariantValidator projects the `c.` reading with the warning "spans at least one
   intron".
-- **Spec:** [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/)
+- **Spec (agrees):** [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/)
   and [RNA splicing](https://hgvs-nomenclature.org/stable/recommendations/RNA/splicing/), where exon
   skipping is written as an `r.` deletion across the junction (`r.(3277_3432del)`), an RNA event.
 - **Tests:** `rna_test::r_projects_to_the_genome_within_one_exon_only`,
@@ -150,7 +151,7 @@ NM_001372044.2:c.1568dup  →  NC_000022.11:g.50697558delinsCC      weaver, at t
 ```
 
 - **Differs:** VariantValidator 3'-shifts on the transcript first and reports the automapping.
-- **Spec:** none; the [3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/)
+- **Spec (silent):** none; the [3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/)
   says how to write a variant, not that a tool must rewrite what it is given.
 - **Tests:** `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases`
   (positions come back as given).
@@ -168,7 +169,7 @@ NM_001372044.2:c.1568dup  →  NC_000022.11:g.50697558delinsCC                  
 ```
 
 - **Differs:** VariantValidator falls back to a whole-region delins on heavily gapped exons.
-- **Spec:** none.
+- **Spec (silent):** none.
 - **Tests:** `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases`
   (the SHANK3 dup case); `src/transcript_mapper.rs::test_g_to_n_cigar`.
 
@@ -188,7 +189,7 @@ NC_REP.1:g.6GCCATT[4]         →  NM_REP_MINUS.1:c.78_95AATGGC[4]
 ```
 
 - **Others:** not checked.
-- **Spec:** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/):
+- **Spec (agrees):** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/):
   the count is the total number of units in the run.
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`.
 
@@ -207,7 +208,7 @@ NM_PLUS10.1:c.*61A>G   →  ValidationError, from c_to_g, validate and to_spdi_u
 ```
 
 - **Differs:** biocommons extrapolates in some paths.
-- **Spec:** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not
   allowed to describe variants in nucleotides beyond the boundaries of a reference sequence".
 - **Tests:** `transcript_coordinates_test::a_position_in_no_exon_is_an_error_not_an_extrapolation`;
   `transcript_coordinates_round_trip` (property) covers every in-exon position.
@@ -229,7 +230,7 @@ normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
 ```
 
 - **Others:** not checked.
-- **Spec:** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): RNA and coding
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): RNA and coding
   reference sequences "do not contain intron sequences and can therefore not be used to describe
   variants affecting these sequences".
 - **Tests:** `projection_reference_test::an_intronic_position_has_no_transcript_base_to_re_read`;
@@ -260,7 +261,7 @@ NM_R.1:r.0              →  NP_R.1:p.0
 - **Agrees:** HGVS, on the numbering.
 - **Differs:** VariantValidator accepts `r.` in exons but rejects `r.*10`, intronic `r.`, `r.spl`
   and `r.0`, all of which HGVS allows.
-- **Spec:** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotide
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotide
   `r.123` relates to `c.123` or `n.123`";
   [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/) for
   `r.0`, `r.spl`, `r.?`, `r.=`.
@@ -293,7 +294,7 @@ on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base
 ```
 
 - **Agrees:** HGVS, biocommons, VariantValidator and ClinVar.
-- **Spec:** [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
+- **Spec (agrees):** [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/): "tandem
   duplications are described as a duplication, not an insertion".
 - **Tests:** `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
@@ -319,7 +320,7 @@ g.3C>T          →  g.3C>T
 ```
 
 - **Agrees:** biocommons.
-- **Spec:** [deletion-insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/delins/)
+- **Spec (silent):** [deletion-insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/delins/)
   gives no shift rule for delins; the 3' rule is stated for the equivalent placements of one
   change.
 - **Tests:** `src/normalize.rs::delins_is_not_shifted`, `::substitution_is_left_alone` (read from
@@ -343,7 +344,7 @@ on TTCAGCAGTT:  g.3_5delCAG    →  g.6_8del                       moved, so the
 
 - **Agrees:** HGVS and VariantValidator.
 - **Differs:** biocommons fills the deleted bases in.
-- **Spec:** [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/): "the
+- **Spec (agrees):** [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/): "the
   recommendation is not to describe the variant as `g.33344591delA`".
 - **Tests:** `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`;
   `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;
@@ -366,7 +367,7 @@ NC_REP.1:g.23_24insGCCATT
 ```
 
 - **Agrees:** ClinVar, on those rows.
-- **Spec:** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/):
+- **Spec (agrees):** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/):
   the bracketed number "represents the total count of repeat units".
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`;
   `protein_allele_test::substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein`;
@@ -399,7 +400,7 @@ toy c.10C>G            →  p.Leu4Val                      codon 4 is after the 
 
 - **Differs:** biocommons.
 - **Not checked:** VariantValidator.
-- **Spec:** none; the nomenclature assumes the reference protein is known.
+- **Spec (silent):** none; the nomenclature assumes the reference protein is known.
 - **Tests:** `src/protein.rs::a_selenocysteine_codon_is_not_the_stop`;
   `real_transcripts_test::biocommons_real_transcript_cases` (MULTISTOP01, a recorded difference).
 
@@ -419,7 +420,7 @@ toy c.17_18del                 →  p.Arg6LeufsTer4        two bases earlier, Ar
 ```
 
 - **Agrees:** HGVS, biocommons, ClinVar.
-- **Spec:** [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/):
+- **Spec (agrees):** [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/):
   "the variant extends the amino acid sequence at the C-terminal end and is therefore by
   definition an extension".
 - **Tests:** `src/protein.rs::a_frameshift_in_the_stop_codon_is_an_extension`,
@@ -439,7 +440,7 @@ toy c.16_18del     →  p.Arg6del               the stop shifts left but is the 
 ```
 
 - **Others:** not checked.
-- **Spec:** [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/),
+- **Spec (agrees):** [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/),
   the same definition: the stop codon is what changes.
 - **Tests:** `src/protein.rs::an_insertion_before_the_stop_that_repeats_the_last_residue_is_not_an_extension`,
   `::an_in_frame_deletion_reaching_the_stop_keeps_it_original`.
@@ -458,7 +459,7 @@ NM_1.1:c.1_2delinsTA       →  NP_1.1:p.(Lys1Ter)         not p.Lys1fsTer1
 ```
 
 - **Others:** not checked.
-- **Spec:** [frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/):
+- **Spec (agrees):** [frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/):
   "variants which introduce an immediate translation termination (stop) codon are described as
   nonsense variant", not a frameshift.
 - **Tests:** `src/protein.rs::a_stop_inside_the_inserted_bases_is_a_delins_not_a_frameshift`;
@@ -480,7 +481,7 @@ c.4_6dup   →  p.Lys3dup
 - **Differs:** ClinVar, in spelling: it writes `Xxx_Yyyins…` at the 3' end of a run where weaver
   writes `dup`, and one-letter repeat forms such as `p.490PRS[1]`; 170 rows in 100,000 are the
   same protein in another spelling, and equivalence judges them Analogous.
-- **Spec:** [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/):
+- **Spec (agrees):** [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/):
   "the most C-terminal position possible of the reference sequence is arbitrarily assigned to have
   been changed".
 - **Tests:** `src/protein.rs::in_frame_deletion_and_duplication_take_the_3_prime_position`;
@@ -492,7 +493,12 @@ c.4_6dup   →  p.Lys3dup
 **`c.1A>G` is `p.(Met1Val)`, not `p.Met1?`, because the specific prediction carries more
 information.**
 
-`VariantTransformSettings` with `StartCodonConvention::HgvsQuestion` rewrites it on request.
+This is the one choice on this page where weaver's default output departs from an explicit
+recommendation, and it is a contentious one. The nomenclature's reasoning is that translation may
+initiate elsewhere, so the consequence cannot be predicted; weaver's is that `p.(Met1Val)` says
+which codon changed and how, is written as a prediction, and can be reduced to `p.Met1?` but not
+recovered from it. `VariantTransformSettings` with `StartCodonConvention::HgvsQuestion` rewrites
+it on request.
 
 **Example:**
 
@@ -504,8 +510,9 @@ NM_007199.2:c.1A>G        →  NP_009130.2:p.(Met1Val)     weaver
 transform NP_000051.2:p.(Met1Val)  →  NP_000051.2:p.Met1?    with start_codon = HgvsQuestion
 ```
 
-- **Differs:** HGVS, biocommons and VariantValidator prefer `p.Met1?`. A recorded difference.
-- **Spec:** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
+- **Differs:** biocommons and VariantValidator write `p.Met1?`, as the nomenclature recommends. A
+  recorded difference.
+- **Spec (differs):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
   `p.Met1?` when "the consequence, on the protein level, of a variant affecting the translation
   initiation codon can not be predicted".
 - **Tests:** `mapping_test::test_mapper_c_to_p_start_codon_subst`;
@@ -535,7 +542,7 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.Met1?
 - **Differs:** ClinVar writes `Met1fs`, `Met1_Glu2insGly…`, committing to a consequence. For a
   substitution entirely in the 5'UTR VariantValidator writes `p.(=)` where weaver writes `p.?`;
   both are defensible.
-- **Spec:** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
+- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
   `p.0?` "when you predict that no protein is produced"; `p.Met1?` as above; `p.Met1ext-5` shows
   a 5'UTR change can activate an upstream initiation site.
 - **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements_not_predictions`,
@@ -558,7 +565,7 @@ toy c.6A>G       →  p.Lys2=            AAA → AAG
 ```
 
 - **Agrees:** HGVS.
-- **Spec:** [frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/):
+- **Spec (agrees):** [frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/):
   the stop position is counted "starting from the first changed amino acid as codon 1"; "the
   shortest frameshift variant possible contains `fsTer2`".
 - **Tests:** `src/protein.rs::a_frameshift_in_the_stop_codon_is_an_extension`,
@@ -589,7 +596,7 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
            with NP_X.1 served as MKLAYQ  →  ValidationError: the CDS does not translate to NP_X.1, differing from residue 6
 ```
 
-- **Spec:** VRS 2.0.1 `Allele` on a protein `SequenceReference`; none in HGVS.
+- **Spec (agrees):** VRS 2.0.1 `Allele` on a protein `SequenceReference`; none in HGVS.
 - **Tests:** `protein_allele_test::consequences_have_no_allele`;
   `protein_allele_from_coding_test::consequences_without_a_p_sequence_still_have_an_allele`,
   `::definite_changes_give_the_same_allele_by_either_route`,
@@ -619,7 +626,7 @@ allele of g.4G>A on TTCAGCAGTT →  X:3:A:A                   the sequence has A
 ```
 
 - **Agrees:** VRS.
-- **Spec:** VRS 2.0.1: an `Allele` is a `SequenceLocation` and a state; the reference is the
+- **Spec (agrees):** VRS 2.0.1: an `Allele` is a `SequenceLocation` and a state; the reference is the
   sequence's.
 - **Tests:** `src/allele.rs::a_stated_reference_that_disagrees_with_the_sequence_is_ignored`;
   `transcript_coordinates_test::validate_checks_stated_reference_through_transcript_coordinates`;
@@ -649,7 +656,7 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 ```
 
 - **Differs:** biocommons compares normalised text.
-- **Spec:** none; HGVS describes, it does not compare.
+- **Spec (silent):** none; HGVS describes, it does not compare.
 - **Tests:** `transcript_coordinates_test::canonical_alleles_make_spdi_vrs_and_equivalence_one_value`;
   `equivalence_cases_test::test_clinvar_regression_tyr165ter`,
   `::test_analogous_fs_wildcard_unification`;
@@ -673,7 +680,7 @@ NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
 ```
 
 - **Differs:** ClinVar commits.
-- **Spec:** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
+- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
   defines `p.?` and `p.Met1?` as statements of what is not known.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`.
 
@@ -691,7 +698,7 @@ NP_0001.1:p.Ala201_Val202insGlyProGlyAla  vs  NP_0001.1:p.Gly198_Ala201dup
     → Err, not Unknown: residues 199 and 200 are named by neither, and may well make these one change
 ```
 
-- **Spec:** none.
+- **Spec (silent):** none.
 - **Tests:** `equivalence_test::equivalence_needs_the_sequence`.
 
 ### Versions of one protein accession compare on ours
@@ -706,7 +713,7 @@ NP_X.1:p.(Lys2Gln)   vs  NP_X.0:p.Lys2Gln   equivalent
 NP_X.1:p.Lys2Gln     vs  NP_Y.1:p.Lys2Gln   not equivalent
 ```
 
-- **Spec:** none.
+- **Spec (silent):** none.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`.
 
 ### A cis allele compares as a set
@@ -724,7 +731,7 @@ NM_X.1:c.[7C>T]         vs  NM_X.1:c.7C>T                Identity
 NM_X.1:c.[7C>T;13T>G]   vs  NM_X.1:c.7C>T                Different
 ```
 
-- **Spec:** [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/): variants
+- **Spec (agrees):** [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/): variants
   "should be listed in genomic order", which is a writing convention, not a different allele.
 - **Tests:** `cis_phased_test::cis_alleles_compare_as_sets_of_their_members_alleles`.
 
@@ -751,7 +758,7 @@ plain to_spdi NC_TEST.1:g.1013A>G          →  NC_TEST.1:1012:A:G
 ```
 
 - **Agrees:** VRS and VOCA; this is their normalisation.
-- **Spec:** VRS 2.0.1 "Normalization" (fully justified alleles); refget/SPDI interbase
+- **Spec (agrees):** VRS 2.0.1 "Normalization" (fully justified alleles); refget/SPDI interbase
   coordinates.
 - **Tests:** `src/allele.rs::deletion_anywhere_in_a_run_is_the_same_allele`,
   `::duplication_and_insertion_of_the_unit_are_the_same_allele`,
@@ -775,7 +782,7 @@ AC⏎G T⏎          →  the same
 chr19 of the NCBI GRCh38 FASTA  →  SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl, the specification's published value
 ```
 
-- **Spec:** [refget](https://samtools.github.io/hts-specs/refget.html), "Sequence Normalization"
+- **Spec (agrees):** [refget](https://samtools.github.io/hts-specs/refget.html), "Sequence Normalization"
   and the `ga4gh` identifier.
 - **Tests:** `src/vrs.rs::refget_accession_is_over_the_normalised_sequence`,
   `::digest_and_identifier_match_the_spec_example`;
@@ -800,7 +807,7 @@ NC_TEST.1:g.(3_5)_(10_12)dup     →  CopyNumberChange  "copyChange":"gain"  sta
 NC_TEST.1:g.(3_5)_(10_12)inv     →  UnsupportedOperation
 ```
 
-- **Spec:** [uncertain positions](https://hgvs-nomenclature.org/stable/recommendations/uncertain/):
+- **Spec (agrees):** [uncertain positions](https://hgvs-nomenclature.org/stable/recommendations/uncertain/):
   `(A_B)_(C_D)` "where `B_C` describes the minimal extent and `A_D` the maximal", `?` for
   unknown; VRS 2.0.1 `Range` and `CopyNumberChange`.
 - **Tests:** `vrs_range_test::uncertain_breakpoints_become_ranges`,
@@ -833,7 +840,7 @@ read back:
 ```
 
 - **Agrees:** VRS 2.0.1; 2.0.0 used EFO codes in a `MappableConcept`.
-- **Spec:** VRS 2.0.1 `vrs-source.yaml`, `CopyNumberChange.properties.copyChange.enum`.
+- **Spec (agrees):** VRS 2.0.1 `vrs-source.yaml`, `CopyNumberChange.properties.copyChange.enum`.
 - **Tests:** `src/vrs.rs::copy_number_change_digests_the_label_over_the_location`,
   `::copy_change_terms_are_read_by_label_or_efo_code`;
   `vrs_copy_change_test::the_whole_gain_family_is_a_dup_and_the_loss_family_a_del`.
@@ -843,8 +850,9 @@ read back:
 **The identifier does not depend on the order the members are written; the `members` array keeps
 that order.**
 
-The schema's `minItems: 2` is relaxed to one because HGVS allows the degenerate `c.[145C>T]`. The
-in-trans form `[..];[..]` is rejected: it describes two molecules.
+The schema's `minItems: 2` is relaxed to one, a departure from VRS, because HGVS allows the
+degenerate `c.[145C>T]` and a parser that accepts it needs somewhere to put it. The in-trans form
+`[..];[..]` is rejected: it describes two molecules.
 
 **Example:**
 
@@ -855,7 +863,7 @@ NM_X.1:c.[7C>T]                                        →  a block of one
 NM_X.1:c.[7C>T];[13T>G] →  UnsupportedOperation: describes two molecules (alleles in trans); parse each [..] as a cis allele instead
 ```
 
-- **Spec:** VRS 2.0.1 computed identifiers, "order arrays of digests and ids by Unicode Character
+- **Spec (differs on minItems):** VRS 2.0.1 computed identifiers, "order arrays of digests and ids by Unicode Character
   Set values"; [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for
   cis `[a;b]` against trans `[a];[b]`.
 - **Tests:** `src/vrs.rs::cis_phased_block_digest_matches_the_spec_validation_data`,
@@ -886,7 +894,7 @@ from_spdi NP_TEST.1:1:K:L       →  NP_TEST.1:p.Lys2Leu
 "copies":[3,null]               →  UnsupportedOperation
 ```
 
-- **Spec:** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/) (no position
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/) (no position
   before 1); [inversion](https://hgvs-nomenclature.org/stable/recommendations/DNA/inversion/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/) for `insN[n]`.
 - **Tests:** `vrs_round_trip_test::nucleotide_variants_round_trip_to_their_normalised_form`,
@@ -903,7 +911,7 @@ has no input for.**
 
 **Example:** none; there is no HGVS input that would produce them.
 
-- **Spec:** VRS 2.0.1.
+- **Spec (silent):** VRS 2.0.1.
 - **Tests:** none.
 
 ## Parsing
@@ -924,7 +932,7 @@ NP_…:p.Glu26_Glu27insTerGlu         →  parses; ClinVar writes it
 
 - **Differs:** biocommons, on that one input.
 - **Agrees:** ClinVar.
-- **Spec:** the nomenclature pages above; the table is biocommons's reading of them.
+- **Spec (silent):** the nomenclature pages above; the table is biocommons's reading of them.
 - **Tests:** `grammar_test::biocommons_grammar_table` (the difference is listed in
   `KNOWN_DIFFERENCES`); `parser_round_trips_canonical_hgvs` and `parser_never_panics`
   (properties).
@@ -948,7 +956,7 @@ NM_R.1:r.*5u>a
 ```
 
 - **Differs:** biocommons rejects these.
-- **Spec:** [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/);
+- **Spec (agrees):** [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/);
   [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/);
   [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/);
   [uncertain positions](https://hgvs-nomenclature.org/stable/recommendations/uncertain/);
@@ -971,7 +979,7 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
 ```
 
 - **Differs:** VariantValidator and biocommons write `ext*`.
-- **Spec:** [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/);
+- **Spec (agrees):** [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/);
   [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/), where
   "both notations are acceptable";
   [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/).
@@ -999,7 +1007,7 @@ NM_X.1:c.-5_10del          →  parses
 
 - **Differs:** biocommons parses such a range and refuses it only in its intrinsic validator.
 - **Agrees:** VariantValidator refuses it.
-- **Spec:** [general recommendations](https://hgvs-nomenclature.org/stable/recommendations/general/),
+- **Spec (agrees):** [general recommendations](https://hgvs-nomenclature.org/stable/recommendations/general/),
   positions in a range are given 5' to 3'.
 - **Tests:** `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
   `::a_range_built_backwards_is_an_error_wherever_it_is_resolved` (both arrive with #33).
@@ -1020,7 +1028,7 @@ get_seq(ac, 35, 100)   →  the last five bases
 get_seq(ac, 100, 110)  →  ""
 ```
 
-- **Spec:** none; weaver's own interface.
+- **Spec (silent):** none; weaver's own interface.
 - **Tests:** `reference_store_agrees_with_direct_slicing` (property);
   `tests/test_refget.py::test_sequences_come_from_the_server_with_ranges_clamped`.
 
@@ -1039,7 +1047,7 @@ NM_MINUS10.1:c.1A>G     →  (1089, 1090)
 NM_MINUS10.1:c.1_3del   →  (1087, 1090)     low to high on the genome
 ```
 
-- **Spec:** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "there is no
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "there is no
   nucleotide `c.0`".
 - **Tests:** `transcript_coordinates_round_trip` and `intron_offsets_agree_from_either_exon`
   (properties); `transcript_coordinates_test::spdi_interval_honours_cds_end_anchor`,
@@ -1059,7 +1067,7 @@ mapper.c_to_p(weaver.parse("NM_TEST.1:c.4G>A"))   # no new fetch
 weaver.VariantMapper(provider).c_to_p(...)         # a new mapper starts cold
 ```
 
-- **Spec:** none.
+- **Spec (silent):** none.
 - **Tests:** `tests/test_mapper_cache.py::test_sequences_are_fetched_once_per_mapper`,
   `::test_a_refget_lookup_is_asked_before_the_sequence_is_hashed`.
 
@@ -1080,7 +1088,7 @@ weaver.VariantMapper(provider).from_vrs(allele)                        # DataPro
 weaver.VariantMapper(provider).from_vrs(allele, "NC_TEST.1")           # works: the caller names the sequence
 ```
 
-- **Spec:** [refget](https://samtools.github.io/hts-specs/refget.html).
+- **Spec (agrees):** [refget](https://samtools.github.io/hts-specs/refget.html).
 - **Tests:** `vrs_round_trip_test::the_sequence_is_named_by_the_caller_or_looked_up_and_always_checked`;
   `tests/test_refget.py::test_refget_lookups_both_ways`;
   `tests/test_digest_table.py::test_the_table_agrees_with_what_the_mapper_computes_and_names_the_sequence_back`.
