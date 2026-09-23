@@ -181,6 +181,11 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
         protein_ac: &change.protein_ac,
     };
     if t.unchanged() {
+        // A difference entirely past the stop is no change to the protein;
+        // it is not written against a residue the protein does not have.
+        if t.first_codon > t.stop {
+            return out.variant(None, AaEdit::Identity { uncertain: false });
+        }
         return out.identity(t.first_codon, t.last_codon);
     }
     if t.in_frame {
@@ -584,8 +589,10 @@ mod tests {
     }
 
     #[test]
-    fn a_change_past_the_stop_is_silent() {
-        // Written against the codon it touches, as the previous implementation did.
-        assert_eq!(p(CDS, UTR, sub("C", "G"), 21, 22), "NP:p.Pro8=");
+    fn a_change_past_the_stop_is_no_change_to_the_protein() {
+        // c.22C>G lies in the 3'UTR: the protein has no residue 8 to name.
+        assert_eq!(p(CDS, UTR, sub("C", "G"), 21, 22), "NP:p.=");
+        // A silent change in the stop codon itself is named at the stop.
+        assert_eq!(p(CDS, UTR, sub("A", "G"), 20, 21), "NP:p.Ter7=");
     }
 }

@@ -42,7 +42,7 @@ summary; **VRS** is the GA4GH Variation Representation Specification 2.0.1.
 | [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter) | agrees | – | – | – |
 | [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most) | agrees | – | – | spelling differs |
 | [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically) | **differs** | differs | differs | – |
-| [Edits around the CDS start are statements](#edits-around-the-cds-start-are-statements) | agrees | agrees | differs | differs |
+| [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements) | agrees | agrees | differs | differs |
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop) | agrees | – | – | – |
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change) | agrees | – | – | – |
 | [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else) | agrees | – | – | – |
@@ -519,13 +519,14 @@ transform NP_000051.2:p.(Met1Val)  →  NP_000051.2:p.Met1?    with start_codon 
   `real_transcripts_test::biocommons_real_transcript_cases` (INITMET01, recorded);
   `src/transform.rs::test_transform_met1_to_question`.
 
-### Edits around the CDS start are statements
+### Edits outside the CDS are statements
 
 **A deletion of the whole CDS is `p.0?`; an edit that starts in the 5'UTR and reaches into the CDS
-is `p.Met1?`; an edit entirely upstream is `p.?`.**
+is `p.Met1?`; an edit entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`.**
 
-weaver does not commit to a consequence because the initiation site is not predictable: a 5'UTR
-change can create an upstream start.
+weaver does not commit to a consequence upstream because the initiation site is not predictable: a
+5'UTR change can create an upstream start. Downstream of the stop codon nothing can change the
+protein, so the prediction is no change, and no residue past the end of the protein is named.
 
 **Example** (`NM_X.1` has a five-base 5'UTR and a fourteen-base 3'UTR):
 
@@ -533,12 +534,16 @@ change can create an upstream start.
 NM_X.1:c.-3G>A             →  NP_X.1:p.?         entirely upstream
 NM_X.1:c.-3_2del           →  NP_X.1:p.Met1?     reaches into the start codon
 NM_X.1:c.-5_*14del         →  NP_X.1:p.0?        the whole CDS
+NM_X.1:c.*3A>G             →  NP_X.1:p.(=)       entirely downstream
+NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silently
 
 NM_000249.3:c.-7_*46del    →  NP_000240.1:p.0?
 NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.Met1?
 ```
 
 - **Agrees:** biocommons, on `p.Met1?` and `p.0?` (its own test table).
+- **Agrees:** VariantValidator, on `p.(=)` for the 3'UTR (older versions wrote `p.?`); ClinVar
+  writes a 3'UTR change as silent at the stop, `p.Ter1648=`, which leaves the same protein.
 - **Differs:** ClinVar writes `Met1fs`, `Met1_Glu2insGly…`, committing to a consequence. For a
   substitution entirely in the 5'UTR VariantValidator writes `p.(=)` where weaver writes `p.?`;
   both are defensible.
@@ -546,6 +551,7 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.Met1?
   `p.0?` "when you predict that no protein is produced"; `p.Met1?` as above; `p.Met1ext-5` shows
   a 5'UTR change can activate an upstream initiation site.
 - **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements_not_predictions`,
+  `::a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged`,
   `::statements_have_no_allele_and_a_wrong_protein_is_an_error`,
   `::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
   `real_transcripts_test::biocommons_real_transcript_cases` (WHOLEGENE01/02, INITMET02/03).
