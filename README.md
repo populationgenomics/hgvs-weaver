@@ -46,6 +46,9 @@ exceptions and protocol-based data access, so it needs no database.
   protein ones, so `p.Tyr165Ter`, `p.Ala164_Tyr165insTer` and the `c.` deletion that causes them
   agree. [How it decides](docs/source/equivalence_logic.md).
 
+[The choices weaver makes](docs/source/choices.md), and which tools agree with each, are
+listed in one place.
+
 ### Correctness through types
 
 Positions are tagged integers: `GenomicPos`, `TranscriptPos` and `ProteinPos` are 0-based indices,
