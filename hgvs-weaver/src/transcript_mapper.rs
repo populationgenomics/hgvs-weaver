@@ -84,20 +84,20 @@ impl TranscriptMapper {
             let d = d_start.min(d_end);
             if d < best_dist {
                 best_dist = d;
-                best_offset = if g_pos.0 < e_start.0 {
-                    if exon.alt_strand == crate::data::Strand::Plus {
-                        g_pos.0 - e_start.0
-                    } else {
-                        e_start.0 - g_pos.0
-                    }
-                } else {
-                    if exon.alt_strand == crate::data::Strand::Plus {
-                        g_pos.0 - e_end.0
-                    } else {
-                        e_end.0 - g_pos.0
-                    }
+                let minus = exon.alt_strand == crate::data::Strand::Minus;
+                let below = g_pos.0 < e_start.0;
+                // The offset is signed in transcript direction: negative before
+                // the exon's first base, positive after its last. On the minus
+                // strand the genome runs the other way, so a position below
+                // the exon's genomic start lies after its last transcript base.
+                best_offset = match (below, minus) {
+                    (true, false) => g_pos.0 - e_start.0,
+                    (true, true) => e_start.0 - g_pos.0,
+                    (false, false) => g_pos.0 - e_end.0,
+                    (false, true) => e_end.0 - g_pos.0,
                 };
-                best_n = if g_pos.0 < e_start.0 {
+                let before_first_base = below != minus;
+                best_n = if before_first_base {
                     TranscriptPos(curr_n)
                 } else {
                     let e_tgt_len = if let Some(cm) = &self.cigar_mappers[i] {
