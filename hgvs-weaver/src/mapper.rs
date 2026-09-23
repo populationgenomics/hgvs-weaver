@@ -957,7 +957,9 @@ impl<'a> VariantMapper<'a> {
             Some(end) => am.g_to_n(end.base.to_index())?,
             None => (n_lo, off_lo),
         };
-        if n_lo.0 > n_hi.0 {
+        // Two intronic ends anchored on one exon boundary share n and differ
+        // only in offset, so the order is by (base, offset).
+        if (n_lo.0, off_lo.0) > (n_hi.0, off_hi.0) {
             std::mem::swap(&mut n_lo, &mut n_hi);
             std::mem::swap(&mut off_lo, &mut off_hi);
         }

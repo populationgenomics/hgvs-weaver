@@ -240,6 +240,14 @@ proptest! {
                 let (c, _, anchor) = am.n_to_c(TranscriptPos(last as i32)).unwrap();
                 let pos = BaseOffsetPosition { base: c.to_hgvs(), offset: Some(IntronicOffset(i as i32)), anchor, uncertain: false };
                 prop_assert_eq!(am.position_to_g(&pos).unwrap(), from_left);
+                // And back from the genome: the base is counted from the nearer
+                // exon boundary, from the earlier exon on a tie, on either strand.
+                let expected = if i <= len + 1 - i {
+                    (TranscriptPos(last as i32), IntronicOffset(i as i32))
+                } else {
+                    (TranscriptPos(first as i32), IntronicOffset(-((len + 1 - i) as i32)))
+                };
+                prop_assert_eq!(am.g_to_n(from_left).unwrap(), expected, "intron {} base {} maps back wrongly", k, i);
             }
         }
     }
