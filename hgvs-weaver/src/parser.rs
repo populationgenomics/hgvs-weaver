@@ -132,6 +132,11 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
                     .ok_or_else(|| HgvsError::PestError("Missing start position".into()))?,
             )?;
             let end = parts.next().map(parse_simple_pos).transpose()?;
+            if let Some(end) = &end {
+                if !start.base.is_unknown() && !end.base.is_unknown() {
+                    ordered(start.base.0, end.base.0, s)?;
+                }
+            }
             Ok(SimpleInterval {
                 start,
                 end,
@@ -238,11 +243,26 @@ pub fn parse_base_offset_interval(
         .next()
         .map(|p| parse_base_offset_pos_with_default(p, default_anchor))
         .transpose()?;
+    if let Some(end) = &end {
+        ordered(start.order_key(), end.order_key(), s)?;
+    }
     Ok(BaseOffsetInterval {
         start,
         end,
         uncertain,
     })
+}
+
+/// An HGVS range runs from its start to its end; `c.100_50del` names nothing.
+/// Papers write such ranges (a typo, an OCR slip), and letting one through
+/// used to panic when its bases were sliced.
+fn ordered<K: Ord>(start: K, end: K, text: &str) -> Result<(), HgvsError> {
+    if end < start {
+        return Err(HgvsError::PestError(format!(
+            "range {text} runs backwards: its start is after its end"
+        )));
+    }
+    Ok(())
 }
 
 pub fn parse_base_offset_pos(pair: Pair<Rule>) -> Result<BaseOffsetPosition, HgvsError> {
@@ -305,6 +325,9 @@ pub fn parse_aa_interval(pair: Pair<Rule>) -> Result<AaInterval, HgvsError> {
             .ok_or_else(|| HgvsError::PestError("Missing start AA position".into()))?,
     )?;
     let end = p_inner.next().map(parse_aa_pos).transpose()?;
+    if let Some(end) = &end {
+        ordered(start.base.0, end.base.0, s)?;
+    }
     Ok(AaInterval {
         start,
         end,

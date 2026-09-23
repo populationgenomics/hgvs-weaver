@@ -518,6 +518,21 @@ pub struct BaseOffsetPosition {
     pub uncertain: bool,
 }
 
+impl BaseOffsetPosition {
+    /// Where the position falls along the transcript, for ordering two
+    /// positions of one system: the 5'UTR and CDS (negative and positive
+    /// `c.` bases) come before the 3'UTR (`c.*`), then the base, then the
+    /// intronic offset (`c.88-1` before `c.88` before `c.88+1`).
+    pub fn order_key(&self) -> (u8, i32, i32) {
+        let region = match self.anchor {
+            Anchor::TranscriptStart => 0,
+            Anchor::CdsStart => 1,
+            Anchor::CdsEnd => 2,
+        };
+        (region, self.base.0, self.offset.map_or(0, |o| o.0))
+    }
+}
+
 /// An interval spanning amino acid positions.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct AaInterval {
