@@ -124,11 +124,13 @@ fn apply_strand_complement(
 }
 
 /// True unless the edit states literal reference bases that differ from `actual`.
+/// Whether the bases an edit states as its reference (`c.4G>A`'s G, `c.4delC`'s
+/// C, `c.4dupT`'s T, `c.4_5delGCinsTT`'s GC) are what the sequence holds over
+/// the edit's range. An edit that states none, or only a count (`del3insTT`),
+/// has nothing to check.
 fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
-    match edit {
-        crate::edits::NaEdit::RefAlt { .. } => edit.stated_ref().is_none_or(|r| r == actual),
-        _ => true,
-    }
+    edit.stated_ref()
+        .is_none_or(|stated| stated.eq_ignore_ascii_case(actual))
 }
 
 /// The 0-based half-open residue range a p. interval names.

@@ -613,8 +613,9 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
 
 ### Stated bases are checked by validate and nowhere else
 
-**A variant's stated reference is compared with the sequence by `validate`, and by `c_to_p`;
-canonical alleles, SPDI and VRS use the sequence's own bases and ignore what was stated.**
+**A variant's stated reference, whether a substitution's base or the bases written after `del`,
+`dup` or the deleted part of a `delins`, is compared with the sequence by `validate`, and by
+`c_to_p`; canonical alleles, SPDI and VRS use the sequence's own bases and ignore what was stated.**
 
 The allele describes the sequence, not the description. This holds for nucleotides and for
 protein residues alike.
@@ -624,6 +625,8 @@ protein residues alike.
 ```text
 validate NM_PLUS10.1:c.1G>A   →  true
 validate NM_PLUS10.1:c.1A>G   →  false                     the stated A is not there
+validate NM_PLUS10.1:c.1delC  →  false                     so is a base stated after del or dup
+validate NM_PLUS10.1:c.1_3del3insAA →  true                a count states no bases
 validate NM_MINUS10.1:c.1+5T>A →  true                     intronic: accepted unchecked
 validate NP_TEST.1:p.Arg2Leu  →  false                     residue 2 is Lys
 validate NP_TEST.1:p.Trp3fs   →  false                     a frameshift's named residue is still checked
@@ -631,7 +634,8 @@ validate NP_TEST.1:p.Trp3fs   →  false                     a frameshift's name
 allele of g.4G>A on TTCAGCAGTT →  X:3:A:A                   the sequence has A: nothing changes, and the allele says so
 ```
 
-- **Agrees:** VRS.
+- **Agrees:** VRS; VariantValidator, which reports a reference mismatch for `delC` on a record
+  without the C.
 - **Spec (agrees):** VRS 2.0.1: an `Allele` is a `SequenceLocation` and a state; the reference is the
   sequence's.
 - **Tests:** `src/allele.rs::a_stated_reference_that_disagrees_with_the_sequence_is_ignored`;

@@ -179,6 +179,24 @@ fn validate_checks_stated_reference_through_transcript_coordinates() {
     assert!(ok("NM_MINUS10.1:c.1+5T>A"));
     assert!(ok("NC_TEST.1:g.1011G>A"));
     assert!(!ok("NC_TEST.1:g.1011A>G"));
+
+    // Issue #38: bases stated after del, dup and the deleted part of a delins
+    // are checked like a substitution's reference. c.1_2 of NM_PLUS10.1 is GT.
+    assert!(ok("NM_PLUS10.1:c.1delG"));
+    assert!(!ok("NM_PLUS10.1:c.1delC"));
+    assert!(ok("NM_PLUS10.1:c.1_2delGT"));
+    assert!(!ok("NM_PLUS10.1:c.1_2delAA"));
+    assert!(ok("NM_PLUS10.1:c.1dupG"));
+    assert!(!ok("NM_PLUS10.1:c.1dupT"));
+    assert!(ok("NM_PLUS10.1:c.1_2delGTinsAA"));
+    assert!(!ok("NM_PLUS10.1:c.1_2delAAinsTT"));
+    // A count is not a statement of bases.
+    assert!(ok("NM_PLUS10.1:c.1_3del3insAA"));
+    // On the minus strand the stated bases are the transcript's.
+    assert!(ok("NM_MINUS10.1:c.1delG"));
+    assert!(!ok("NM_MINUS10.1:c.1delC"));
+    assert!(ok("NC_TEST.1:g.1011delG"));
+    assert!(!ok("NC_TEST.1:g.1011delA"));
 }
 
 #[test]
