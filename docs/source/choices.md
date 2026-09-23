@@ -420,6 +420,19 @@ Spec: [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/inser
 Tests: `vrs_length_test::length_expressions_read_back_as_the_recommended_spelling`;
 `real_transcripts_test::biocommons_real_transcript_cases` (`ext*` compared equal to `extTer`).
 
+**A range written backwards is refused when parsed.** `c.100_50del`, `g.1100_1050del`,
+`p.Lys10_Leu5del` and `c.88-1_87+1del` are a `ParseError`, not a variant that projects to a
+plausible-looking genomic range and panics when its bases are sliced. Transcript positions order by
+region (5'UTR and CDS before the 3'UTR), then base, then intronic offset, so `c.-5_10` and
+`c.87+1_88-1` are fine. A range built in code that runs backwards is a `ValidationError` where it
+is resolved. *biocommons parses such a range* and refuses it only in its intrinsic validator;
+*VariantValidator refuses it*. Published variants do contain them (`c.8559_2A>G`,
+`c.6331_6232insG`), as typos.
+Spec: [general recommendations](https://hgvs-nomenclature.org/stable/recommendations/general/),
+positions in a range are given 5' to 3'.
+Tests: `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
+`::a_range_built_backwards_is_an_error_wherever_it_is_resolved` (both arrive with #33).
+
 ## The data contract
 
 **A range past the end of a sequence returns the bases that exist.** `get_seq` must return what is
