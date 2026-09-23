@@ -14,12 +14,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      # maturin invokes cargo inside cibuildwheel, so --locked has to reach
-      # it through the build environment; without it the released wheel is
-      # built from a freshly resolved graph, not the committed Cargo.lock.
-      CIBW_ENVIRONMENT: MATURIN_PEP517_ARGS="--locked"
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

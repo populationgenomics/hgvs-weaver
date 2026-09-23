@@ -103,12 +103,27 @@ ignore_missing_imports = true
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"
 skip = "*-musllinux*"
+# maturin invokes cargo inside cibuildwheel, so --locked has to reach it
+# through the build environment; without it the wheel is built from a freshly
+# resolved graph, not the committed Cargo.lock.
+environment = { MATURIN_PEP517_ARGS = "--locked" }
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64", "aarch64"]
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
+
+# The oldest macOS each architecture's wheel can run on. Left unset, the
+# x86_64 wheel is tagged 10.9 and delocate refuses the Rust library's higher
+# minimum; set below these, cibuildwheel raises it and warns on every build.
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+environment = { MATURIN_PEP517_ARGS = "--locked", MACOSX_DEPLOYMENT_TARGET = "10.13" }
+
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_arm64"
+environment = { MATURIN_PEP517_ARGS = "--locked", MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
