@@ -267,3 +267,19 @@ fn edits_around_the_cds_start_are_statements_not_predictions() {
     assert_eq!(p("NM_X.1:c.-3_2del"), "NP_X.1:p.Met1?");
     assert_eq!(p("NM_X.1:c.-5_*14del"), "NP_X.1:p.0?");
 }
+
+#[test]
+fn a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged() {
+    // Issue #37: c.*N was read as CDS-relative and named a residue past the
+    // end of the protein. Nothing after the stop codon changes the protein.
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let p = |c: &str| mapper.c_to_p(&coding(c), None).unwrap().to_string();
+    assert_eq!(p("NM_X.1:c.*3A>G"), "NP_X.1:p.(=)");
+    assert_eq!(p("NM_X.1:c.*1_*14del"), "NP_X.1:p.(=)");
+    assert_eq!(p("NM_X.1:c.*5_*6insTTT"), "NP_X.1:p.(=)");
+    // The stop codon itself, changed silently, is named at the stop; changed
+    // to read through, it is an extension.
+    assert_eq!(p("NM_X.1:c.21A>G"), "NP_X.1:p.(Ter7=)");
+    assert!(p("NM_X.1:c.19T>C").contains("ext"));
+}

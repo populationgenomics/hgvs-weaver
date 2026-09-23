@@ -386,10 +386,12 @@ enum CodingOutcome {
     Change(crate::protein::CodingChange),
 }
 
-/// `p.?`, `p.Met1?` or `p.0?` for an edit whose codons cannot be read: an
-/// intronic position, or a start in the 5'UTR (deleting the whole CDS predicts
-/// no protein, reaching into it disrupts the start codon, staying upstream
-/// says nothing). `None` when the edit is a change to read.
+/// `p.?`, `p.Met1?`, `p.0?` or `p.(=)` for an edit whose codons cannot be
+/// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
+/// predicts no protein, reaching into it disrupts the start codon, staying
+/// upstream says nothing, since an upstream start may be created), or an
+/// edit entirely in the 3'UTR, which cannot change the protein. `None` when
+/// the edit is a change to read.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
@@ -407,11 +409,16 @@ fn statement_about_transcript(
                 uncertain: false,
             },
             uncertain: false,
-            predicted: false,
+            // `p.(=)` is a prediction of no change; the others state what is unknown.
+            predicted: value == "=",
         },
     };
     if has_intronic_offset(pos) {
         return Some(statement(None, "?"));
+    }
+    // A start after the stop codon is an edit entirely in the 3'UTR.
+    if pos.start.anchor == Anchor::CdsEnd {
+        return Some(statement(None, "="));
     }
     if pos.start.anchor != Anchor::CdsStart || pos.start.base.0 >= 0 {
         return None;
