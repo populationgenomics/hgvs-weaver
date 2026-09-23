@@ -1020,7 +1020,7 @@ NM_X.1:c.-5_10del          →  parses
 - **Spec (agrees):** [general recommendations](https://hgvs-nomenclature.org/stable/recommendations/general/),
   positions in a range are given 5' to 3'.
 - **Tests:** `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
-  `::a_range_built_backwards_is_an_error_wherever_it_is_resolved` (both arrive with #33).
+  `::a_range_built_backwards_is_an_error_wherever_it_is_resolved`.
 
 ## The data contract
 

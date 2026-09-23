@@ -1,6 +1,6 @@
 [package]
 name = "hgvs-weaver-py"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -18,7 +18,7 @@ default = ["extension-module"]
 # conflicts on downstream consumers without adding protection here.
 [dependencies]
 pyo3 = { version = "0.27.2", features = ["generate-import-lib"] }
-hgvs-weaver = { path = "./hgvs-weaver", version = "0.5.1" }
+hgvs-weaver = { path = "./hgvs-weaver", version = "0.6.0" }
 serde_json = "1.0.149"
 
 [build-dependencies]
