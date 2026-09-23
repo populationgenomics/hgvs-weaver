@@ -149,6 +149,13 @@ impl TranscriptMapper {
             Some(e) => self.position_to_n(e)?,
             None => start,
         };
+        if last.0 < start.0 {
+            return Err(HgvsError::ValidationError(format!(
+                "Transcript range runs backwards: {} is after {}",
+                interval.start,
+                interval.end.as_ref().unwrap_or(&interval.start)
+            )));
+        }
         let end = last
             .0
             .checked_add(1)

@@ -851,6 +851,12 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
                     end_i
                 )));
             }
+            if (end_i as usize) < start {
+                return Err(HgvsError::ValidationError(format!(
+                    "Genomic range runs backwards: {} is after {}",
+                    pos.start.base.0, e.base.0
+                )));
+            }
             end_i as usize
         }
         None => start,
@@ -961,6 +967,17 @@ impl<'a> VariantMapper<'a> {
             }
             None => pos,
         };
+        if let Some(end) = &pos.end {
+            if !end.base.is_unknown()
+                && !pos.start.base.is_unknown()
+                && end.base.0 < pos.start.base.0
+            {
+                return Err(HgvsError::ValidationError(format!(
+                    "Genomic range runs backwards: {} is after {}",
+                    pos.start.base.0, end.base.0
+                )));
+            }
+        }
         let (mut n_lo, mut off_lo) = am.g_to_n(pos.start.base.to_index())?;
         let (mut n_hi, mut off_hi) = match &pos.end {
             Some(end) => am.g_to_n(end.base.to_index())?,
@@ -1144,6 +1161,14 @@ impl<'a> VariantMapper<'a> {
             }
             None => pos,
         };
+        if let Some(end) = &pos.end {
+            if end.order_key() < pos.start.order_key() {
+                return Err(HgvsError::ValidationError(format!(
+                    "Transcript range runs backwards: {} is after {end}",
+                    pos.start
+                )));
+            }
+        }
         let zero = crate::structs::IntronicOffset(0);
         let project = |p: &BaseOffsetPosition| -> Result<(TranscriptPos, GenomicPos), HgvsError> {
             let n = am.c_to_n(p.base.to_index(), p.anchor)?;
