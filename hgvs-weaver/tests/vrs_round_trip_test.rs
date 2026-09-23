@@ -200,3 +200,22 @@ fn alleles_from_other_producers_parse() {
         "NP_TEST.1:p.Lys2Leu"
     );
 }
+
+#[test]
+fn an_insertion_before_the_first_base_reads_back_as_a_delins_of_that_base() {
+    // HGVS has no insertion before base 1. An allele that puts T in front of
+    // the sequence (which starts with A) is written as g.1delinsTA.
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let refget = refget_accession(GENOME);
+    let json = format!(
+        r#"{{"type":"Allele","location":{{"type":"SequenceLocation",
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+            "start":0,"end":0}},
+            "state":{{"type":"LiteralSequenceExpression","sequence":"T"}}}}"#
+    );
+    assert_eq!(
+        mapper.from_vrs(&json, None).unwrap().to_string(),
+        "NC_TEST.1:g.1delinsTA"
+    );
+}

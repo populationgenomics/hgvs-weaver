@@ -11,6 +11,7 @@ mod support;
 
 use hgvs_weaver::data::{Strand, TranscriptData};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
+use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::structs::IntervalSpdi;
@@ -388,4 +389,35 @@ fn repeat_on_the_minus_strand_projects_to_its_whole_run() {
     };
     let back = mapper.g_to_c(&gv, "NM_REP_MINUS.1").unwrap();
     assert_eq!(back.to_string(), "NM_REP_MINUS.1:c.78_95AATGGC[4]");
+}
+
+#[test]
+fn a_position_in_no_exon_is_an_error_not_an_extrapolation() {
+    // NM_PLUS10.1 is one exon of 100 bases and c.*60 is its last base, so
+    // c.*61 lies in no exon. It is refused wherever it is resolved, never
+    // projected by extending the exon past its end.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NM_PLUS10.1:c.*61A>G").unwrap();
+    let SequenceVariant::Coding(c) = &var else {
+        panic!()
+    };
+    for err in [
+        mapper.c_to_g(c, None).unwrap_err(),
+        mapper.validate(&var).unwrap_err(),
+        mapper.to_spdi_unambiguous(&var).unwrap_err(),
+    ] {
+        assert!(matches!(err, HgvsError::ValidationError(_)), "{err}");
+    }
+    // The last base is fine.
+    assert!(mapper
+        .c_to_g(&coding_variant("NM_PLUS10.1:c.*60T>A"), None)
+        .is_ok());
+}
+
+fn coding_variant(hgvs: &str) -> hgvs_weaver::structs::CVariant {
+    match parse_hgvs_variant(hgvs).unwrap() {
+        SequenceVariant::Coding(c) => c,
+        other => panic!("{other} is not c."),
+    }
 }

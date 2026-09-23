@@ -30,6 +30,9 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+# Markdown headings get anchors so pages can link to their own sections.
+myst_heading_anchors = 3
+
 # Support both .rst and .md
 source_suffix = {
     ".rst": "restructuredtext",
