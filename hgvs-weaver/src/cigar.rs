@@ -67,6 +67,19 @@ impl std::fmt::Display for Cigar {
     }
 }
 
+/// Where a position on one side of an alignment falls on the other side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Projected {
+    /// The position is aligned to a base: its counterpart's position.
+    Base(i32),
+    /// The position has no counterpart (an `I` seen from the transcript, a
+    /// `D` seen from the genome): it lies between positions `at - 1` and `at`.
+    Gap { at: i32 },
+    /// The position is inside an `N` (an intron): the nearer flanking base
+    /// and the signed distance to it, as an intronic offset.
+    Intronic { base: i32, offset: i32 },
+}
+
 #[derive(Debug, Clone)]
 pub struct CigarMapper {
     pub cigar: Cigar,
@@ -112,34 +125,16 @@ impl CigarMapper {
         *self.tgt_pos.last().unwrap()
     }
 
-    pub fn map_ref_to_tgt(
-        &self,
-        pos: i32,
-        end_strategy: &str,
-        strict_bounds: bool,
-    ) -> Result<(i32, i32, char), HgvsError> {
-        self.map_internal(
-            &self.ref_pos,
-            &self.tgt_pos,
-            pos,
-            end_strategy,
-            strict_bounds,
-        )
+    /// Where reference position `pos` falls on the target. A `D` base is a
+    /// `Gap`; an `N` base is `Intronic`.
+    pub fn map_ref_to_tgt(&self, pos: i32, strict_bounds: bool) -> Result<Projected, HgvsError> {
+        self.map_internal(&self.ref_pos, &self.tgt_pos, pos, strict_bounds)
     }
 
-    pub fn map_tgt_to_ref(
-        &self,
-        pos: i32,
-        end_strategy: &str,
-        strict_bounds: bool,
-    ) -> Result<(i32, i32, char), HgvsError> {
-        self.map_internal(
-            &self.tgt_pos,
-            &self.ref_pos,
-            pos,
-            end_strategy,
-            strict_bounds,
-        )
+    /// Where target position `pos` falls on the reference. An `I` base is a
+    /// `Gap`.
+    pub fn map_tgt_to_ref(&self, pos: i32, strict_bounds: bool) -> Result<Projected, HgvsError> {
+        self.map_internal(&self.tgt_pos, &self.ref_pos, pos, strict_bounds)
     }
 
     fn map_internal(
@@ -147,9 +142,8 @@ impl CigarMapper {
         from_pos: &[i32],
         to_pos: &[i32],
         pos: i32,
-        end_strategy: &str,
         strict_bounds: bool,
-    ) -> Result<(i32, i32, char), HgvsError> {
+    ) -> Result<Projected, HgvsError> {
         let last_pos = *from_pos.last().unwrap();
         if strict_bounds && (pos < 0 || pos > last_pos) {
             return Err(HgvsError::Other(
@@ -166,32 +160,23 @@ impl CigarMapper {
             pos_i = i;
         }
 
-        let op_ref = &self.cigar.ops[pos_i];
-        let op = op_ref.op;
-        match op {
-            '=' | 'M' | 'X' => {
-                let mapped_pos = to_pos[pos_i] + (pos - from_pos[pos_i]);
-                Ok((mapped_pos, 0, op))
-            }
-            'D' | 'I' => {
-                let mut mapped_pos = to_pos[pos_i];
-                if end_strategy == "start" {
-                    mapped_pos -= 1;
-                }
-                Ok((mapped_pos, 0, op))
-            }
+        match self.cigar.ops[pos_i].op {
+            '=' | 'M' | 'X' => Ok(Projected::Base(to_pos[pos_i] + (pos - from_pos[pos_i]))),
+            'D' | 'I' => Ok(Projected::Gap { at: to_pos[pos_i] }),
             'N' => {
                 if pos - from_pos[pos_i] < from_pos[pos_i + 1] - pos {
-                    let mapped_pos = to_pos[pos_i] - 1;
-                    let mapped_pos_offset = pos - from_pos[pos_i] + 1;
-                    Ok((mapped_pos, mapped_pos_offset, op))
+                    Ok(Projected::Intronic {
+                        base: to_pos[pos_i] - 1,
+                        offset: pos - from_pos[pos_i] + 1,
+                    })
                 } else {
-                    let mapped_pos = to_pos[pos_i];
-                    let mapped_pos_offset = -(from_pos[pos_i + 1] - pos);
-                    Ok((mapped_pos, mapped_pos_offset, op))
+                    Ok(Projected::Intronic {
+                        base: to_pos[pos_i],
+                        offset: -(from_pos[pos_i + 1] - pos),
+                    })
                 }
             }
-            _ => Err(HgvsError::Other(format!("Unsupported CIGAR op: {}", op))),
+            op => Err(HgvsError::Other(format!("Unsupported CIGAR op: {}", op))),
         }
     }
 }
@@ -199,6 +184,7 @@ impl CigarMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use Projected::{Base, Gap, Intronic};
 
     #[test]
     fn test_cigarmapper() {
@@ -209,21 +195,34 @@ mod tests {
         assert_eq!(cm.tgt_len(), 10);
 
         // ref to tgt
-        assert_eq!(cm.map_ref_to_tgt(0, "start", true).unwrap(), (0, 0, '='));
-        assert_eq!(cm.map_ref_to_tgt(3, "start", true).unwrap(), (2, 1, 'N'));
-        assert_eq!(cm.map_ref_to_tgt(4, "start", true).unwrap(), (3, -1, 'N'));
-        assert_eq!(cm.map_ref_to_tgt(5, "start", true).unwrap(), (3, 0, '='));
-        assert_eq!(cm.map_ref_to_tgt(6, "start", true).unwrap(), (4, 0, 'X'));
+        assert_eq!(cm.map_ref_to_tgt(0, true).unwrap(), Base(0));
+        assert_eq!(
+            cm.map_ref_to_tgt(3, true).unwrap(),
+            Intronic { base: 2, offset: 1 }
+        );
+        assert_eq!(
+            cm.map_ref_to_tgt(4, true).unwrap(),
+            Intronic {
+                base: 3,
+                offset: -1
+            }
+        );
+        assert_eq!(cm.map_ref_to_tgt(5, true).unwrap(), Base(3));
+        assert_eq!(cm.map_ref_to_tgt(6, true).unwrap(), Base(4));
         // ref 12 lands in op 8 (=) because op 7 (I) doesn't consume ref
-        assert_eq!(cm.map_ref_to_tgt(12, "start", true).unwrap(), (8, 0, '='));
-        assert_eq!(cm.map_ref_to_tgt(14, "start", true).unwrap(), (9, 0, '='));
+        assert_eq!(cm.map_ref_to_tgt(12, true).unwrap(), Base(8));
+        // ref 13 is the D: the target lacks it, and it lies between tgt 8 and 9
+        assert_eq!(cm.map_ref_to_tgt(13, true).unwrap(), Gap { at: 9 });
+        assert_eq!(cm.map_ref_to_tgt(14, true).unwrap(), Base(9));
 
         // tgt to ref
-        assert_eq!(cm.map_tgt_to_ref(0, "start", true).unwrap(), (0, 0, '='));
-        assert_eq!(cm.map_tgt_to_ref(3, "start", true).unwrap(), (5, 0, '='));
-        assert_eq!(cm.map_tgt_to_ref(4, "start", true).unwrap(), (6, 0, 'X'));
+        assert_eq!(cm.map_tgt_to_ref(0, true).unwrap(), Base(0));
+        assert_eq!(cm.map_tgt_to_ref(3, true).unwrap(), Base(5));
+        assert_eq!(cm.map_tgt_to_ref(4, true).unwrap(), Base(6));
+        // tgt 7 is the I: the reference lacks it, and it lies between ref 11 and 12
+        assert_eq!(cm.map_tgt_to_ref(7, true).unwrap(), Gap { at: 12 });
         // tgt 8 lands in op 8 (=)
-        assert_eq!(cm.map_tgt_to_ref(8, "start", true).unwrap(), (12, 0, '='));
+        assert_eq!(cm.map_tgt_to_ref(8, true).unwrap(), Base(12));
     }
 
     #[test]
@@ -231,13 +230,26 @@ mod tests {
         let cigar_str = "3=2N=X=3N=I=D=";
         let cm = CigarMapper::new(cigar_str).unwrap();
 
-        assert!(cm.map_ref_to_tgt(-1, "start", true).is_err());
-        assert!(cm.map_ref_to_tgt(16, "start", true).is_err());
+        assert!(cm.map_ref_to_tgt(-1, true).is_err());
+        assert!(cm.map_ref_to_tgt(16, true).is_err());
 
-        assert_eq!(cm.map_ref_to_tgt(0, "start", true).unwrap(), (0, 0, '='));
-        assert_eq!(cm.map_ref_to_tgt(-1, "start", false).unwrap(), (-1, 0, '='));
-        assert_eq!(cm.map_ref_to_tgt(15, "start", true).unwrap(), (10, 0, '='));
-        assert_eq!(cm.map_ref_to_tgt(14, "start", false).unwrap(), (9, 0, '='));
+        assert_eq!(cm.map_ref_to_tgt(0, true).unwrap(), Base(0));
+        assert_eq!(cm.map_ref_to_tgt(-1, false).unwrap(), Base(-1));
+        assert_eq!(cm.map_ref_to_tgt(15, true).unwrap(), Base(10));
+        assert_eq!(cm.map_ref_to_tgt(14, false).unwrap(), Base(9));
+    }
+
+    #[test]
+    fn a_gap_at_the_edge_of_an_alignment_is_placed_at_its_end() {
+        // Soft-clipped starts and ends come as leading and trailing I ops.
+        let cm = CigarMapper::new("5I20=").unwrap();
+        assert_eq!(cm.map_tgt_to_ref(0, true).unwrap(), Gap { at: 0 });
+        assert_eq!(cm.map_tgt_to_ref(4, true).unwrap(), Gap { at: 0 });
+        assert_eq!(cm.map_tgt_to_ref(5, true).unwrap(), Base(0));
+        let cm = CigarMapper::new("20=5I").unwrap();
+        assert_eq!(cm.map_tgt_to_ref(19, true).unwrap(), Base(19));
+        assert_eq!(cm.map_tgt_to_ref(20, true).unwrap(), Gap { at: 20 });
+        assert_eq!(cm.map_tgt_to_ref(24, true).unwrap(), Gap { at: 20 });
     }
 
     #[test]

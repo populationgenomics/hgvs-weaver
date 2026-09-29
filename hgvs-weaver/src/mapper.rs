@@ -1170,16 +1170,28 @@ impl<'a> VariantMapper<'a> {
             }
         }
         let zero = crate::structs::IntronicOffset(0);
-        let project = |p: &BaseOffsetPosition| -> Result<(TranscriptPos, GenomicPos), HgvsError> {
+        // Each end occupies a half-open genomic range: one base, or none for
+        // a base the genome lacks.
+        let project = |p: &BaseOffsetPosition| -> Result<(TranscriptPos, (i32, i32)), HgvsError> {
             let n = am.c_to_n(p.base.to_index(), p.anchor)?;
-            Ok((n, am.n_to_g(n, p.offset.unwrap_or(zero))?))
+            let (lo, hi) = am.position_to_g_range(p)?;
+            Ok((n, (lo.0, hi.0)))
         };
-        let (n_start, g_start) = project(&pos.start)?;
-        let (n_end, g_end) = match &pos.end {
+        let (n_start, (a_lo, a_hi)) = project(&pos.start)?;
+        let (n_end, (b_lo, b_hi)) = match &pos.end {
             Some(end) => project(end)?,
-            None => (n_start, g_start),
+            None => (n_start, (a_lo, a_hi)),
         };
-        let (g_lo, g_hi) = (g_start.0.min(g_end.0), g_start.0.max(g_end.0));
+        let (mut g_lo, mut g_hi) = (a_lo.min(b_lo), a_hi.max(b_hi));
+        if matches!(var_c.posedit().edit, crate::edits::NaEdit::Ins { .. })
+            && (a_lo == a_hi || b_lo == b_hi)
+        {
+            // An insertion sits between its two flanking bases. Where one of
+            // them is a base the genome lacks, the genome's flanking pair is
+            // the two bases either side of the gap.
+            let at = a_lo.max(b_lo);
+            (g_lo, g_hi) = (at - 1, at + 1);
+        }
         if g_lo < 0 {
             return Err(HgvsError::ValidationError(format!(
                 "{}:{} projects before the start of {target_ac}",
@@ -1211,10 +1223,10 @@ impl<'a> VariantMapper<'a> {
             exonic.then_some((&source, (n_lo, n_hi + 1))),
             &target,
             IdentifierType::GenomicAccession,
-            (g_lo as usize, g_hi as usize + 1),
+            (g_lo as usize, g_hi as usize),
             am.transcript.strand,
         )?;
-        let unchanged_range = (s, e) == (g_lo as usize, g_hi as usize + 1);
+        let unchanged_range = (s, e) == (g_lo as usize, g_hi as usize);
 
         Ok(GVariant {
             ac: target_ac,
