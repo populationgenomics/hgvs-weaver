@@ -1020,17 +1020,25 @@ impl<'a> VariantMapper<'a> {
                 )));
             }
         }
-        let (mut n_lo, mut off_lo) = am.g_to_n(pos.start.base.to_index())?;
-        let (mut n_hi, mut off_hi) = match &pos.end {
-            Some(end) => am.g_to_n(end.base.to_index())?,
-            None => (n_lo, off_lo),
+        // Each end occupies a half-open transcript range: one base, or none
+        // for a base the transcript lacks.
+        let fp_start = am.g_to_n_footprint(pos.start.base.to_index())?;
+        let fp_end = match &pos.end {
+            Some(end) => am.g_to_n_footprint(end.base.to_index())?,
+            None => fp_start,
         };
+        let (mut n_lo, mut off_lo) = (fp_start.range.0, fp_start.offset);
+        let (mut n_hi, mut off_hi) = (fp_end.range.0, fp_end.offset);
         // Two intronic ends anchored on one exon boundary share n and differ
         // only in offset, so the order is by (base, offset).
         if (n_lo.0, off_lo.0) > (n_hi.0, off_hi.0) {
             std::mem::swap(&mut n_lo, &mut n_hi);
             std::mem::swap(&mut off_lo, &mut off_hi);
         }
+        let (t_lo, t_hi) = (
+            fp_start.range.0.min(fp_end.range.0).0 as usize,
+            fp_start.range.1.max(fp_end.range.1).0 as usize,
+        );
         let position = |n: TranscriptPos, off: crate::structs::IntronicOffset| {
             let (c, c_off, anchor) = am.n_to_c(n)?;
             Ok::<_, HgvsError>(make_base_offset_position(
@@ -1044,22 +1052,42 @@ impl<'a> VariantMapper<'a> {
         // given. An exonic one is read on the genome and written for the record.
         let exonic = off_lo.0 == 0 && off_hi.0 == 0 && n_lo.0 >= 0;
         let (edit, start, end) = if exonic {
-            let (g_lo, g_hi) = simple_interval_range(pos)?;
+            let named = simple_interval_range(pos)?;
             let source = self
                 .refs
                 .reference(&var_g.ac, IdentifierType::GenomicAccession);
             let target = self
                 .refs
                 .reference(transcript_ac, IdentifierType::TranscriptAccession);
-            let (edit, s, e) = project_edit(
-                &var_g.posedit.edit,
-                Some((&source, (g_lo, g_hi))),
-                &target,
-                IdentifierType::TranscriptAccession,
-                (n_lo.0 as usize, n_hi.0 as usize + 1),
-                am.transcript.strand,
-            )?;
-            let unchanged_range = (s, e) == (n_lo.0 as usize, n_hi.0 as usize + 1);
+            // A base the transcript lacks has no index of its own: the
+            // transcript can describe only the whole run it belongs to, so an
+            // edit touching a run is written over all of it.
+            let touches_run = fp_start.gap_run.is_some() || fp_end.gap_run.is_some();
+            let runs = [fp_start.gap_run, fp_end.gap_run].into_iter().flatten();
+            let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
+                (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
+            });
+            let (edit, s, e) = if touches_run {
+                project_edit_over_run(
+                    &var_g.posedit.edit,
+                    (&source, named, wide),
+                    &target,
+                    IdentifierType::TranscriptAccession,
+                    (t_lo, t_hi),
+                    am.transcript.strand,
+                )?
+            } else {
+                project_edit(
+                    &var_g.posedit.edit,
+                    Some((&source, named)),
+                    &target,
+                    IdentifierType::TranscriptAccession,
+                    (t_lo, t_hi),
+                    am.transcript.strand,
+                )?
+            };
+            // An edit over a run is always rewritten for the transcript.
+            let unchanged_range = !touches_run && (s, e) == (t_lo, t_hi);
             let end = if unchanged_range {
                 pos.end
                     .as_ref()
