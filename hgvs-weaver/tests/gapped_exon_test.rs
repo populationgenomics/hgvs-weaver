@@ -1,8 +1,9 @@
 //! A transcript base the genome lacks (an `I` in its exon's cigar) has no
-//! genomic substitution equivalent. Between two aligned bases it projects as
-//! an insertion between them; at the edge of an exon's alignment (a
-//! soft-clipped end supplied as `I`) nothing places it and it is an error.
-//! Issue #43.
+//! genomic position of its own. The genome can describe only the whole run
+//! of such bases, so an edit touching a run is written over all of it: the
+//! genome gets the run, as changed, between its flanking bases. At the edge
+//! of an exon's alignment (a soft-clipped end supplied as `I`) nothing places
+//! it and it is an error. Issue #43.
 
 mod support;
 
@@ -47,10 +48,13 @@ fn exon(transcript: (i32, i32), reference: (i32, i32), strand: Strand, cigar: &s
 ///   `TX_CODING.1` is the same with a CDS from n.11, so c.6 is that base.
 /// - `TX_MINUS.1`: the same exon read on the minus strand, with the inserted
 ///   base again at transcript index 15, between genome 24 and 25.
+/// - `TX_GAP3.1`: the same exon with three bases, `TCG`, inserted after
+///   genome index 24 (cigar `15=3I15=`), so n.16_18 is the run.
 /// - `TX_CLIP.1`: one exon whose first five bases are absent from the genome
 ///   (cigar `5I20=`), aligned to genome 30..=49.
 fn provider() -> Provider {
     let ins = format!("{}T{}", &GENOME[10..25], &GENOME[25..40]);
+    let gap3 = format!("{}TCG{}", &GENOME[10..25], &GENOME[25..40]);
     let minus = format!("{}T{}", revcomp(&GENOME[25..40]), revcomp(&GENOME[10..25]));
     let clip = format!("GGGCC{}", &GENOME[30..50]);
     Provider::new()
@@ -58,6 +62,7 @@ fn provider() -> Provider {
         .sequence("TX_INS.1", &ins)
         .sequence("TX_CODING.1", &ins)
         .sequence("TX_MINUS.1", &minus)
+        .sequence("TX_GAP3.1", &gap3)
         .sequence("TX_CLIP.1", &clip)
         .transcript(transcript(
             "TX_INS.1",
@@ -79,6 +84,13 @@ fn provider() -> Provider {
             Strand::Minus,
             None,
             vec![exon((0, 31), (10, 39), Strand::Minus, "15=1I15=")],
+        ))
+        .transcript(transcript(
+            "TX_GAP3.1",
+            GENOME_AC,
+            Strand::Plus,
+            None,
+            vec![exon((0, 33), (10, 39), Strand::Plus, "15=3I15=")],
         ))
         .transcript(transcript(
             "TX_CLIP.1",
@@ -143,15 +155,84 @@ fn a_base_the_genome_lacks_projects_as_an_insertion_between_its_neighbours() {
         to_g(&mapper, "TX_INS.1:n.15_17delinsGGG").unwrap(),
         "NC_000099.1:g.25_26delinsGGG"
     );
-    // An insertion next to the gap goes between the genome's flanking pair.
+    // An insertion next to the gap carries the gap's base with it: the genome
+    // gets what the record holds between the flanking bases.
     assert_eq!(
         to_g(&mapper, "TX_INS.1:n.15_16insA").unwrap(),
-        "NC_000099.1:g.25_26insA"
+        "NC_000099.1:g.25_26insAT"
     );
     assert_eq!(
         to_g(&mapper, "TX_INS.1:n.16_17insA").unwrap(),
-        "NC_000099.1:g.25_26insA"
+        "NC_000099.1:g.25_26insTA"
     );
+}
+
+#[test]
+fn an_edit_touching_a_run_of_bases_the_genome_lacks_is_written_over_the_whole_run() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // The record reads C [T C G] A over n.15..19; the genome reads C A over
+    // g.25..26. No position inside the run exists on the genome, so a change
+    // to one of its bases is the run, as changed, inserted where the run is.
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.16T>A").unwrap(),
+        "NC_000099.1:g.25_26insACG"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.17C>A").unwrap(),
+        "NC_000099.1:g.25_26insTAG"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.17del").unwrap(),
+        "NC_000099.1:g.25_26insTG"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.17dup").unwrap(),
+        "NC_000099.1:g.25_26insTCCG"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.16_18inv").unwrap(),
+        "NC_000099.1:g.25_26insCGA"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.17=").unwrap(),
+        "NC_000099.1:g.25_26insTCG"
+    );
+    // Deleting the whole run leaves the genome as it is.
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.16_18del").unwrap(),
+        "NC_000099.1:g.25="
+    );
+    // A range over a flanking base and part of the run: the genome loses the
+    // flanking base and gains what remains of the run.
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.15_17del").unwrap(),
+        "NC_000099.1:g.25C>G"
+    );
+    // An insertion into or beside the run carries the run with it.
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.15_16insA").unwrap(),
+        "NC_000099.1:g.25_26insATCG"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.17_18insA").unwrap(),
+        "NC_000099.1:g.25_26insTCAG"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.18_19insA").unwrap(),
+        "NC_000099.1:g.25_26insTCGA"
+    );
+    // The flanking bases themselves do not touch the run.
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.15C>G").unwrap(),
+        "NC_000099.1:g.25C>G"
+    );
+    assert_eq!(
+        to_g(&mapper, "TX_GAP3.1:n.19A>G").unwrap(),
+        "NC_000099.1:g.26A>G"
+    );
+    // Applying each projection to the genome gives the record's exon with
+    // the change, which is what makes them one allele.
 }
 
 #[test]

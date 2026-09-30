@@ -10,7 +10,7 @@ use crate::structs::{
     BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, GenomicPos, LinearVariant,
     NVariant, PVariant, RVariant, SimpleInterval, SimplePosition, TranscriptVariant,
 };
-use crate::transcript_mapper::TranscriptMapper;
+use crate::transcript_mapper::{Footprint, TranscriptMapper};
 use crate::vrs::{
     vrs_type, VrsAllele, VrsBound, VrsCisPhasedBlock, VrsCopyChange, VrsCopyNumberChange,
     VrsCopyNumberCount, VrsMolecule, VrsSequenceLocation, VrsState, VrsVariation,
@@ -109,6 +109,48 @@ fn project_edit(
     if target_ref == source_ref {
         return Ok(carried());
     }
+    hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
+}
+
+/// The edit to write on the target where the source range touches a run of
+/// bases the target lacks, and the target range to write it over.
+///
+/// No position inside the run exists on the target, so the run is the unit:
+/// the edit is resolved on the source over the range it names, spliced into
+/// the whole run, and the target gets the minimal edit that puts the run, as
+/// changed, between its flanking bases. `source` carries the range the edit
+/// names and the wider one covering it and every run it touches, both
+/// half-open.
+fn project_edit_over_run(
+    edit: &crate::edits::NaEdit,
+    source: (
+        &crate::reference::Reference<'_, '_>,
+        (usize, usize),
+        (usize, usize),
+    ),
+    target: &crate::reference::Reference<'_, '_>,
+    target_kind: IdentifierType,
+    target_range: (usize, usize),
+    strand: crate::data::Strand,
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    let (source, named, wide) = source;
+    let resolved = edit.resolve(source, named.0, named.1)?;
+    let (w_lo, w_hi) = (wide.0.min(resolved.start), wide.1.max(resolved.end));
+    let source_ref = source.slice(w_lo, w_hi)?;
+    let alt = format!(
+        "{}{}{}",
+        source.slice(w_lo, resolved.start)?,
+        resolved.alt,
+        source.slice(resolved.end, w_hi)?
+    );
+    let orient = |b: &str| match strand {
+        crate::data::Strand::Minus => crate::utils::reverse_complement(b),
+        crate::data::Strand::Plus => b.to_string(),
+    };
+    let (source_ref, alt) = (orient(&source_ref), orient(&alt));
+    let (t_lo, t_hi) = target_range;
+    let target_ref = target.slice(t_lo, t_hi)?;
+    debug_assert_ne!(target_ref, source_ref, "the target lacks the run");
     hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
 }
 
@@ -1172,26 +1214,17 @@ impl<'a> VariantMapper<'a> {
         let zero = crate::structs::IntronicOffset(0);
         // Each end occupies a half-open genomic range: one base, or none for
         // a base the genome lacks.
-        let project = |p: &BaseOffsetPosition| -> Result<(TranscriptPos, (i32, i32)), HgvsError> {
+        let project = |p: &BaseOffsetPosition| -> Result<(TranscriptPos, Footprint), HgvsError> {
             let n = am.c_to_n(p.base.to_index(), p.anchor)?;
-            let (lo, hi) = am.position_to_g_range(p)?;
-            Ok((n, (lo.0, hi.0)))
+            Ok((n, am.position_footprint(p)?))
         };
-        let (n_start, (a_lo, a_hi)) = project(&pos.start)?;
-        let (n_end, (b_lo, b_hi)) = match &pos.end {
+        let (n_start, fp_start) = project(&pos.start)?;
+        let (n_end, fp_end) = match &pos.end {
             Some(end) => project(end)?,
-            None => (n_start, (a_lo, a_hi)),
+            None => (n_start, fp_start),
         };
-        let (mut g_lo, mut g_hi) = (a_lo.min(b_lo), a_hi.max(b_hi));
-        if matches!(var_c.posedit().edit, crate::edits::NaEdit::Ins { .. })
-            && (a_lo == a_hi || b_lo == b_hi)
-        {
-            // An insertion sits between its two flanking bases. Where one of
-            // them is a base the genome lacks, the genome's flanking pair is
-            // the two bases either side of the gap.
-            let at = a_lo.max(b_lo);
-            (g_lo, g_hi) = (at - 1, at + 1);
-        }
+        let ((a_lo, a_hi), (b_lo, b_hi)) = (fp_start.range, fp_end.range);
+        let (g_lo, g_hi) = (a_lo.0.min(b_lo.0), a_hi.0.max(b_hi.0));
         if g_lo < 0 {
             return Err(HgvsError::ValidationError(format!(
                 "{}:{} projects before the start of {target_ac}",
@@ -1214,19 +1247,39 @@ impl<'a> VariantMapper<'a> {
         let source = self
             .refs
             .reference(var_c.ac(), IdentifierType::TranscriptAccession);
-        let (n_lo, n_hi) = (
+        let named = (
             n_start.0.min(n_end.0) as usize,
-            n_start.0.max(n_end.0) as usize,
+            n_start.0.max(n_end.0) as usize + 1,
         );
-        let (edit, s, e) = project_edit(
-            &var_c.posedit().edit,
-            exonic.then_some((&source, (n_lo, n_hi + 1))),
-            &target,
-            IdentifierType::GenomicAccession,
-            (g_lo as usize, g_hi as usize),
-            am.transcript.strand,
-        )?;
-        let unchanged_range = (s, e) == (g_lo as usize, g_hi as usize);
+        // A base the genome lacks has no position of its own: the genome can
+        // describe only the whole run it belongs to, so an edit touching a
+        // run is written over all of it.
+        let touches_run = fp_start.gap_run.is_some() || fp_end.gap_run.is_some();
+        let runs = [fp_start.gap_run, fp_end.gap_run].into_iter().flatten();
+        let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
+            (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
+        });
+        let (edit, s, e) = if touches_run {
+            project_edit_over_run(
+                &var_c.posedit().edit,
+                (&source, named, wide),
+                &target,
+                IdentifierType::GenomicAccession,
+                (g_lo as usize, g_hi as usize),
+                am.transcript.strand,
+            )?
+        } else {
+            project_edit(
+                &var_c.posedit().edit,
+                exonic.then_some((&source, named)),
+                &target,
+                IdentifierType::GenomicAccession,
+                (g_lo as usize, g_hi as usize),
+                am.transcript.strand,
+            )?
+        };
+        // An edit over a run is always rewritten for the genome.
+        let unchanged_range = !touches_run && (s, e) == (g_lo as usize, g_hi as usize);
 
         Ok(GVariant {
             ac: target_ac,

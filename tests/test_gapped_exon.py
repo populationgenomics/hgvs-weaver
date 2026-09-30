@@ -12,8 +12,11 @@ CHROM = "NC_000099.1"
 TX_INS = GENOME[10:25] + "T" + GENOME[25:40]
 # One exon whose first five bases are absent from the genome; the rest aligns to genome 30..49.
 TX_CLIP = "GGGCC" + GENOME[30:50]
+# The same exon with three bases, TCG, inserted after genome index 24: n.16_18 is the run.
+TX_GAP3 = GENOME[10:25] + "TCG" + GENOME[25:40]
 MODELS = {
     "TX_INS.1": (TX_INS, [(0, 31, 10, 39, "15=1I15=")]),
+    "TX_GAP3.1": (TX_GAP3, [(0, 33, 10, 39, "15=3I15=")]),
     "TX_CLIP.1": (TX_CLIP, [(0, 25, 30, 49, "5I20=")]),
 }
 
@@ -70,6 +73,14 @@ def test_a_base_the_genome_lacks_projects_as_an_insertion() -> None:
     assert n_to_g(mapper, "TX_INS.1:n.15C>G") == "NC_000099.1:g.25C>G"
     assert n_to_g(mapper, "TX_INS.1:n.16T>G") == "NC_000099.1:g.25_26insG"
     assert n_to_g(mapper, "TX_INS.1:n.17A>G") == "NC_000099.1:g.26A>G"
+
+
+def test_an_edit_inside_a_run_the_genome_lacks_carries_the_whole_run() -> None:
+    """No position inside the run exists on the genome, so the run as changed is what is inserted."""
+    mapper = weaver.VariantMapper(Provider())
+    assert n_to_g(mapper, "TX_GAP3.1:n.17C>A") == "NC_000099.1:g.25_26insTAG"
+    assert n_to_g(mapper, "TX_GAP3.1:n.17del") == "NC_000099.1:g.25_26insTG"
+    assert n_to_g(mapper, "TX_GAP3.1:n.16_18del") == "NC_000099.1:g.25="
 
 
 def test_a_soft_clipped_base_has_no_genomic_position() -> None:

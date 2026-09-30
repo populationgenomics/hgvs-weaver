@@ -73,8 +73,10 @@ pub enum Projected {
     /// The position is aligned to a base: its counterpart's position.
     Base(i32),
     /// The position has no counterpart (an `I` seen from the transcript, a
-    /// `D` seen from the genome): it lies between positions `at - 1` and `at`.
-    Gap { at: i32 },
+    /// `D` seen from the genome): it lies between positions `at - 1` and `at`
+    /// on the other side. `run` is the whole run of such positions it belongs
+    /// to, half-open, on its own side.
+    Gap { at: i32, run: (i32, i32) },
     /// The position is inside an `N` (an intron): the nearer flanking base
     /// and the signed distance to it, as an intronic offset.
     Intronic { base: i32, offset: i32 },
@@ -162,7 +164,10 @@ impl CigarMapper {
 
         match self.cigar.ops[pos_i].op {
             '=' | 'M' | 'X' => Ok(Projected::Base(to_pos[pos_i] + (pos - from_pos[pos_i]))),
-            'D' | 'I' => Ok(Projected::Gap { at: to_pos[pos_i] }),
+            'D' | 'I' => Ok(Projected::Gap {
+                at: to_pos[pos_i],
+                run: (from_pos[pos_i], from_pos[pos_i + 1]),
+            }),
             'N' => {
                 if pos - from_pos[pos_i] < from_pos[pos_i + 1] - pos {
                     Ok(Projected::Intronic {
@@ -212,7 +217,13 @@ mod tests {
         // ref 12 lands in op 8 (=) because op 7 (I) doesn't consume ref
         assert_eq!(cm.map_ref_to_tgt(12, true).unwrap(), Base(8));
         // ref 13 is the D: the target lacks it, and it lies between tgt 8 and 9
-        assert_eq!(cm.map_ref_to_tgt(13, true).unwrap(), Gap { at: 9 });
+        assert_eq!(
+            cm.map_ref_to_tgt(13, true).unwrap(),
+            Gap {
+                at: 9,
+                run: (13, 14)
+            }
+        );
         assert_eq!(cm.map_ref_to_tgt(14, true).unwrap(), Base(9));
 
         // tgt to ref
@@ -220,7 +231,13 @@ mod tests {
         assert_eq!(cm.map_tgt_to_ref(3, true).unwrap(), Base(5));
         assert_eq!(cm.map_tgt_to_ref(4, true).unwrap(), Base(6));
         // tgt 7 is the I: the reference lacks it, and it lies between ref 11 and 12
-        assert_eq!(cm.map_tgt_to_ref(7, true).unwrap(), Gap { at: 12 });
+        assert_eq!(
+            cm.map_tgt_to_ref(7, true).unwrap(),
+            Gap {
+                at: 12,
+                run: (7, 8)
+            }
+        );
         // tgt 8 lands in op 8 (=)
         assert_eq!(cm.map_tgt_to_ref(8, true).unwrap(), Base(12));
     }
@@ -243,13 +260,31 @@ mod tests {
     fn a_gap_at_the_edge_of_an_alignment_is_placed_at_its_end() {
         // Soft-clipped starts and ends come as leading and trailing I ops.
         let cm = CigarMapper::new("5I20=").unwrap();
-        assert_eq!(cm.map_tgt_to_ref(0, true).unwrap(), Gap { at: 0 });
-        assert_eq!(cm.map_tgt_to_ref(4, true).unwrap(), Gap { at: 0 });
+        assert_eq!(
+            cm.map_tgt_to_ref(0, true).unwrap(),
+            Gap { at: 0, run: (0, 5) }
+        );
+        assert_eq!(
+            cm.map_tgt_to_ref(4, true).unwrap(),
+            Gap { at: 0, run: (0, 5) }
+        );
         assert_eq!(cm.map_tgt_to_ref(5, true).unwrap(), Base(0));
         let cm = CigarMapper::new("20=5I").unwrap();
         assert_eq!(cm.map_tgt_to_ref(19, true).unwrap(), Base(19));
-        assert_eq!(cm.map_tgt_to_ref(20, true).unwrap(), Gap { at: 20 });
-        assert_eq!(cm.map_tgt_to_ref(24, true).unwrap(), Gap { at: 20 });
+        assert_eq!(
+            cm.map_tgt_to_ref(20, true).unwrap(),
+            Gap {
+                at: 20,
+                run: (20, 25)
+            }
+        );
+        assert_eq!(
+            cm.map_tgt_to_ref(24, true).unwrap(),
+            Gap {
+                at: 20,
+                run: (20, 25)
+            }
+        );
     }
 
     #[test]
