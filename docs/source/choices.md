@@ -28,6 +28,7 @@ summary; **VRS** is the GA4GH Variation Representation Specification 2.0.1.
 | [A change across a splice junction has no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form) | agrees | – | differs | – |
 | [No normalisation before projecting](#no-normalisation-before-projecting) | – | – | differs | – |
 | [Gapped exons are projected locally](#gapped-exons-are-projected-locally) | – | – | differs | – |
+| [A transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion) | – | differs | differs inside a run | – |
 | [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run) | agrees | – | – | – |
 | [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error) | agrees | differs | – | – |
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given) | agrees | – | – | – |
@@ -172,6 +173,52 @@ NM_001372044.2:c.1568dup  →  NC_000022.11:g.50697558delinsCC                  
 - **Spec (silent):** none.
 - **Tests:** `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases`
   (the SHANK3 dup case); `src/transcript_mapper.rs::test_g_to_n_cigar`.
+
+### A transcript base the genome lacks projects as an insertion
+
+**A transcript base with no genome counterpart (an `I` in its exon's CIGAR) has no genomic position
+of its own. The genome can describe only the whole run of such bases, so an edit touching a run is
+written over all of it: the genome gets the run, as changed, inserted between its flanking bases.
+At the edge of an exon's alignment, where a soft-clipped end is supplied as a leading or trailing
+`I`, there is no flanking pair and projecting it is a `ValidationError`.**
+
+Such a base has no genomic substitution equivalent. Placing it on a neighbouring genome base, as
+the alignment-mapper weaver descends from does, silently replaces the stated base with the
+neighbour's. Inserting only the changed base loses where in the run the change was and, read on any
+other transcript, is a frameshift the record never had. Carrying the whole run makes the projected
+genomic variant, applied to the genome, reproduce the record's exon with the change: the two
+descriptions are one allele.
+
+**Example** (`TX_GAP3.1` is one exon on `NC_000099.1:g.11_40` whose CIGAR is `15=3I15=`: the record
+reads `C TCG A` over n.15_19 where the genome reads `CA` over g.25_26; `TX_CLIP.1` has its first
+five bases clipped, CIGAR `5I20=`):
+
+```text
+TX_GAP3.1:n.17C>A      →  NC_000099.1:g.25_26insTAG    the run, as changed, where the run is
+TX_GAP3.1:n.17del      →  NC_000099.1:g.25_26insTG
+TX_GAP3.1:n.16_18del   →  NC_000099.1:g.25=            the genome already lacks the run
+TX_GAP3.1:n.15_17del   →  NC_000099.1:g.25C>G          a flank and part of the run
+TX_GAP3.1:n.15_16insA  →  NC_000099.1:g.25_26insATCG   an insertion beside the run carries it
+TX_GAP3.1:n.15C>G      →  NC_000099.1:g.25C>G          the flanking bases do not touch the run
+TX_CLIP.1:n.1G>C       →  ValidationError              no flanking pair; nothing places it
+```
+
+- **Differs:** biocommons hgvs places the base on the flanking genome base (the one before as a
+  start, the one after as an end) and flags the interval uncertain; its projected substitution then
+  names the neighbour's base.
+- **Differs (inside a run):** VariantValidator inserts only the changed base. IGFBP2 `NM_000597.2`
+  has nine bases, c.45_53, that GRCh38 lacks; `c.47C>T` and `c.51G>A` both become
+  `NC_000002.12:g.216633567_216633568insT` and `…insA`, and `c.49del` becomes `…insTG`, two of the
+  eight bases that remain. HTT `NM_002111.8:c.54G>T`, in its six-base run c.52_57, is likewise
+  `NC_000004.12:g.3074876_3074877insT`.
+- **Agrees (beside a run, and the whole run):** VariantValidator writes `NM_000597.2:c.45_53del` as
+  `g.216633564_216633569=` and carries the run for an edit beside it: `c.53_54insA` is
+  `g.216633576_216633577insAGCCGCTGCT`. It also carries the run for the flanking bases themselves
+  (`c.44C>T` is `g.216633567delinsTGCCGCTGCT`), which weaver does not: a flanking base is aligned
+  and does not touch the run.
+- **Spec (silent):** none; the nomenclature does not address transcript–genome alignment gaps.
+- **Tests:** `gapped_exon_test` (every row above, through n. and c., on both strands);
+  `src/transcript_mapper.rs::a_base_the_genome_lacks_occupies_an_empty_range_between_its_neighbours`.
 
 ### A repeat is projected as its whole run
 
