@@ -30,6 +30,7 @@ summary; **VRS** is the GA4GH Variation Representation Specification 2.0.1.
 | [Gapped exons are projected locally](#gapped-exons-are-projected-locally) | – | – | differs | – |
 | [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run) | agrees | – | – | – |
 | [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error) | agrees | differs | – | – |
+| [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position) | agrees | – | – | – |
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given) | agrees | – | – | – |
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery) | agrees | – | differs | – |
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats) | agrees | agrees | agrees | agrees |
@@ -212,6 +213,37 @@ NM_PLUS10.1:c.*61A>G   →  ValidationError, from c_to_g, validate and to_spdi_u
   allowed to describe variants in nucleotides beyond the boundaries of a reference sequence".
 - **Tests:** `transcript_coordinates_test::a_position_in_no_exon_is_an_error_not_an_extrapolation`;
   `transcript_coordinates_round_trip` (property) covers every in-exon position.
+
+### An open CDS end numbers no position
+
+**A transcript whose CDS runs off one end of its record has no start or stop codon there. A position
+numbered from that end — `c.N` and `c.-N` from an open 5' end, `c.*N` from an open 3' end — is an
+error in either direction of projection, as is a protein consequence that depends on the open end.**
+
+The provider says so with `cds_start_open` and `cds_end_open` on the transcript model. Without them a
+publisher's open CDS can only be given as whole, which numbers from a codon the record does not carry,
+or withheld, which reads every `c.` name as non-coding. With a 5' end open nothing in `p.` is predicted,
+since the frame is a fact about the missing start. With a 3' end open an in-frame change wholly inside
+the whole codons the record carries, short of its last, is predicted; a frameshift, or a change
+reaching that last codon, reads coding sequence the record does not have.
+
+**Example** (`NM_OPEN3.1` carries its CDS's first ten codons and no stop; `NM_OPEN5.1` carries its last
+codons and no start):
+
+```text
+NM_OPEN3.1:c.5C>T    →  NP_OPEN3.1:p.(Ala2Val)   in frame, inside what the record carries
+NM_OPEN3.1:c.5del    →  ValidationError           a frameshift reads past the record's coding bases
+NM_OPEN3.1:c.*1G>T   →  ValidationError           no stop codon to number from
+NM_OPEN5.1:c.1A>T    →  ValidationError           no start codon to number from
+NM_OPEN5.1:c.*1G>T   →  NC_…:g.33G>T              the stop codon is there
+NM_OPEN5.1:n.3A>T    →  NC_…:g.3A>T               n. numbering needs no codon
+```
+
+- **Others:** not checked.
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): `c.` positions
+  are numbered from the A of the start codon and `c.*` from the stop; neither is defined without the codon.
+- **Tests:** `open_cds_test` (every row above, and the `g.` to `c.` direction);
+  `tests/test_open_cds.py`.
 
 ### Intronic positions are carried as given
 
