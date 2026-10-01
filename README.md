@@ -100,6 +100,8 @@ When implementing a `DataProvider`, you must provide coordinates in the followin
 - **Transcript Models**:
     - `cds_start_index`: The 0-based inclusive index of the first base of the start codon (A of ATG) relative to the transcript start.
     - `cds_end_index`: The 0-based inclusive index of the last base of the stop codon relative to the transcript start.
+    - `cds_start_open`, `cds_end_open` (optional, default false): the CDS runs off that end of the record, so the index there is the first or last coding base the record carries, not a start or stop codon. weaver refuses to number a position from an open end, and predicts no protein consequence that depends on it.
+    - `cds_start_open`, `cds_end_open` (optional, default false): the CDS runs off that end of the record, so the index there is the first or last coding base the record carries, not a start or stop codon. weaver refuses to number a position from an open end, and predicts no protein consequence that depends on it.
     - **Exons**:
         - `transcript_start`: 0-based inclusive start index in the transcript.
         - `transcript_end`: 0-based **exclusive** end index in the transcript.

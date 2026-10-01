@@ -522,6 +522,28 @@ fn cds_bounds(transcript: &TranscriptData, len: usize) -> Result<(usize, usize),
     Ok((cds_start, cds_end))
 }
 
+/// On a transcript whose CDS runs off the 3' end, a change has a protein
+/// consequence only if it is in frame and lies wholly within the whole codons
+/// the record carries, short of the last: anything else reads into coding
+/// sequence the record does not have, or shifts the frame into it.
+fn check_within_open_cds(
+    ac: &str,
+    resolved: &crate::edits::ResolvedEdit,
+    cds_start: usize,
+    cds_end: usize,
+) -> Result<(), HgvsError> {
+    let whole_codons = (cds_end + 1 - cds_start) / 3;
+    let last_whole_codon_start = cds_start + whole_codons.saturating_sub(1) * 3;
+    let in_frame = (resolved.alt.len() as i64 - (resolved.end - resolved.start) as i64) % 3 == 0;
+    if in_frame && resolved.end <= last_whole_codon_start {
+        return Ok(());
+    }
+    Err(HgvsError::ValidationError(format!(
+        "{ac}: its CDS is open at the 3' end, so the record carries no stop codon; a protein consequence is \
+         predicted only for an in-frame change wholly inside the coding bases it carries"
+    )))
+}
+
 /// The change `var_c` names on the transcript, over 0-based indices: the range
 /// checked against the sequence, and the stated bases against what is there.
 fn resolve_in_transcript(
@@ -1553,6 +1575,13 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<CodingOutcome, HgvsError> {
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         let transcript = self.provider().get_transcript(&var_c.ac, None)?;
+        if transcript.cds_start_open {
+            return Err(HgvsError::ValidationError(format!(
+                "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \
+                 consequence can be predicted",
+                var_c.ac
+            )));
+        }
         if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
             return Ok(CodingOutcome::Statement(statement));
         }
@@ -1561,8 +1590,12 @@ impl<'a> VariantMapper<'a> {
             .reference(&var_c.ac, IdentifierType::TranscriptAccession)
             .whole()?;
         let (cds_start, cds_end) = cds_bounds(&transcript, ref_seq.len())?;
+        let cds_end_open = transcript.cds_end_open;
         let am = TranscriptMapper::new(transcript)?;
         let resolved = resolve_in_transcript(var_c, &am, &ref_seq)?;
+        if cds_end_open {
+            check_within_open_cds(&var_c.ac, &resolved, cds_start, cds_end)?;
+        }
         let rel = |i: usize| {
             i.checked_sub(cds_start).ok_or_else(|| {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))

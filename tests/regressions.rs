@@ -81,6 +81,8 @@ fn test_regression_nm_000038_6() {
         gene: "APC".to_string(),
         cds_start_index: Some(TranscriptPos(59)),
         cds_end_index: Some(TranscriptPos(8590)),
+        cds_start_open: false,
+        cds_end_open: false,
         strand: hgvs_weaver::data::Strand::Plus,
         reference_accession: "NC_000017.11".to_string(),
         exons: vec![
@@ -241,6 +243,8 @@ fn test_regression_nm_000527_5() {
         gene: "LDLR".to_string(),
         cds_start_index: Some(TranscriptPos(86)),
         cds_end_index: Some(TranscriptPos(2668)),
+        cds_start_open: false,
+        cds_end_open: false,
         strand: hgvs_weaver::data::Strand::Plus,
         reference_accession: "NC_000019.10".to_string(),
         exons: vec![
@@ -417,6 +421,8 @@ fn test_regression_nm_000478_6() {
         gene: "ALPL".to_string(),
         cds_start_index: Some(TranscriptPos(199)),
         cds_end_index: Some(TranscriptPos(1773)),
+        cds_start_open: false,
+        cds_end_open: false,
         strand: hgvs_weaver::data::Strand::Plus,
         reference_accession: "NC_000001.11".to_string(),
         exons: vec![
@@ -547,6 +553,8 @@ fn test_regression_nm_001122606_1() {
         gene: "CASP8".to_string(),
         cds_start_index: Some(TranscriptPos(180)),
         cds_end_index: Some(TranscriptPos(1415)),
+        cds_start_open: false,
+        cds_end_open: false,
         strand: hgvs_weaver::data::Strand::Plus,
         reference_accession: "NC_000002.12".to_string(),
         exons: vec![
@@ -651,6 +659,8 @@ fn test_regression_nm_000465_4() {
         gene: "ABCA4".to_string(),
         cds_start_index: Some(TranscriptPos(114)),
         cds_end_index: Some(TranscriptPos(2447)),
+        cds_start_open: false,
+        cds_end_open: false,
         strand: hgvs_weaver::data::Strand::Plus,
         reference_accession: "NC_000001.11".to_string(),
         exons: vec![
