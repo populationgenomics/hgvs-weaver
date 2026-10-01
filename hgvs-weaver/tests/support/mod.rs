@@ -137,6 +137,8 @@ pub fn transcript(
         gene: "TEST".to_string(),
         cds_start_index: cds.map(|(start, _)| TranscriptPos(start)),
         cds_end_index: cds.map(|(_, end)| TranscriptPos(end)),
+        cds_start_open: false,
+        cds_end_open: false,
         strand,
         reference_accession: reference_ac.to_string(),
         exons,

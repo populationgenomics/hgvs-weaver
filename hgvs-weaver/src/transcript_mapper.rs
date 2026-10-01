@@ -181,41 +181,48 @@ impl TranscriptMapper {
         Ok((GenomicPos(lo), GenomicPos(end)))
     }
 
+    /// Refuses an anchor the transcript's CDS does not provide: a position
+    /// numbered from a start or stop codon the record does not carry.
+    pub fn check_anchor(&self, anchor: Anchor) -> Result<(), HgvsError> {
+        let open = match anchor {
+            Anchor::CdsStart if self.transcript.cds_start_open => "5'",
+            Anchor::CdsEnd if self.transcript.cds_end_open => "3'",
+            _ => return Ok(()),
+        };
+        let codon = if open == "5'" { "start" } else { "stop" };
+        Err(HgvsError::ValidationError(format!(
+            "{}: its CDS is open at the {open} end, so the record carries no {codon} codon to number a position from",
+            self.transcript.ac
+        )))
+    }
+
     /// Maps a 0-based transcript position to a 0-based cDNA position and anchor.
+    /// A position that would be numbered from an open CDS end is an error.
     pub fn n_to_c(
         &self,
         n_pos: TranscriptPos,
     ) -> Result<(TranscriptPos, IntronicOffset, Anchor), HgvsError> {
-        if let (Some(cds_start), Some(cds_end)) = (
+        let (c, anchor) = match (
             self.transcript.cds_start_index,
             self.transcript.cds_end_index,
         ) {
-            if n_pos < cds_start {
-                Ok((
-                    TranscriptPos(n_pos.0 - cds_start.0),
-                    IntronicOffset(0),
-                    Anchor::CdsStart,
-                ))
-            } else if n_pos > cds_end {
-                Ok((
-                    TranscriptPos(n_pos.0 - cds_end.0 - 1),
-                    IntronicOffset(0),
-                    Anchor::CdsEnd,
-                ))
-            } else {
-                Ok((
-                    TranscriptPos(n_pos.0 - cds_start.0),
-                    IntronicOffset(0),
-                    Anchor::CdsStart,
-                ))
+            (Some(cds_start), Some(cds_end)) => {
+                if n_pos > cds_end {
+                    (TranscriptPos(n_pos.0 - cds_end.0 - 1), Anchor::CdsEnd)
+                } else {
+                    (TranscriptPos(n_pos.0 - cds_start.0), Anchor::CdsStart)
+                }
             }
-        } else {
-            Ok((n_pos, IntronicOffset(0), Anchor::TranscriptStart))
-        }
+            _ => (n_pos, Anchor::TranscriptStart),
+        };
+        self.check_anchor(anchor)?;
+        Ok((c, IntronicOffset(0), anchor))
     }
 
     /// Maps a cDNA position and anchor to a 0-based transcript position.
+    /// An anchor on an open CDS end is an error.
     pub fn c_to_n(&self, c_pos: TranscriptPos, anchor: Anchor) -> Result<TranscriptPos, HgvsError> {
+        self.check_anchor(anchor)?;
         match anchor {
             Anchor::TranscriptStart => Ok(c_pos),
             Anchor::CdsStart => {
@@ -291,6 +298,8 @@ mod tests {
             gene: "TEST".to_string(),
             cds_start_index: None,
             cds_end_index: None,
+            cds_start_open: false,
+            cds_end_open: false,
             strand,
             reference_accession: "NC_000001.1".to_string(),
             exons,

@@ -58,13 +58,8 @@ class ExonData(TypedDict):
     cigar: str  # Extended CIGAR string (e.g., "100=")
 
 
-class TranscriptData(TypedDict):
-    """Represents a full transcript model.
-
-    Coordinates are 0-based:
-    - cds_start_index: inclusive index of the first base of the start codon.
-    - cds_end_index: inclusive index of the last base of the stop codon.
-    """
+class _TranscriptRecord(TypedDict):
+    """The keys every transcript model has."""
 
     ac: str
     gene: str
@@ -73,6 +68,23 @@ class TranscriptData(TypedDict):
     strand: int  # 1 or -1
     reference_accession: str  # Genomic accession (e.g., NC_000001.11)
     exons: list[ExonData]
+
+
+class TranscriptData(_TranscriptRecord, total=False):
+    """Represents a full transcript model.
+
+    Coordinates are 0-based:
+    - cds_start_index: inclusive index of the first base of the start codon.
+    - cds_end_index: inclusive index of the last base of the stop codon.
+
+    A CDS that runs off an end of the record has no start or stop codon there;
+    say so with cds_start_open or cds_end_open, and weaver refuses the positions
+    numbered from that end rather than number them from a codon the record lacks.
+    Both default to False.
+    """
+
+    cds_start_open: bool
+    cds_end_open: bool
 
 
 class TranscriptSearch(Protocol):

@@ -65,6 +65,17 @@ pub struct TranscriptData {
     pub gene: String,
     pub cds_start_index: Option<TranscriptPos>,
     pub cds_end_index: Option<TranscriptPos>,
+    /// The CDS runs off the transcript's 5' end: `cds_start_index` is the first
+    /// coding base the record carries, not the A of a start codon. No position
+    /// is numbered from the start codon, and no protein consequence is predicted.
+    #[serde(default)]
+    pub cds_start_open: bool,
+    /// The CDS runs off the transcript's 3' end: `cds_end_index` is the last
+    /// coding base the record carries, not the last base of a stop codon. No
+    /// position is numbered from the stop codon, and only an in-frame change
+    /// wholly inside the coding bases the record carries has a protein consequence.
+    #[serde(default)]
+    pub cds_end_open: bool,
     pub strand: Strand,
     pub reference_accession: String,
     pub exons: Vec<ExonData>,
