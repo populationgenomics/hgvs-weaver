@@ -179,8 +179,11 @@ NM_001372044.2:c.1568dup  →  NC_000022.11:g.50697558delinsCC                  
 **A transcript base with no genome counterpart (an `I` in its exon's CIGAR) has no genomic position
 of its own. The genome can describe only the whole run of such bases, so an edit touching a run is
 written over all of it: the genome gets the run, as changed, inserted between its flanking bases.
-At the edge of an exon's alignment, where a soft-clipped end is supplied as a leading or trailing
-`I`, there is no flanking pair and projecting it is a `ValidationError`.**
+The same holds in the other direction: a genome base the transcript lacks (a `D`) has no transcript
+index, and a genomic edit touching the run is written on the transcript over the whole run. At the
+edge of an exon's alignment, where a soft-clipped end is supplied as a leading or trailing `I`, or a
+`D` opens or closes the alignment, there is no flanking pair and projecting it is a
+`ValidationError`.**
 
 Such a base has no genomic substitution equivalent. Placing it on a neighbouring genome base, as
 the alignment-mapper weaver descends from does, silently replaces the stated base with the
@@ -191,7 +194,8 @@ descriptions are one allele.
 
 **Example** (`TX_GAP3.1` is one exon on `NC_000099.1:g.11_40` whose CIGAR is `15=3I15=`: the record
 reads `C TCG A` over n.15_19 where the genome reads `CA` over g.25_26; `TX_CLIP.1` has its first
-five bases clipped, CIGAR `5I20=`):
+five bases clipped, CIGAR `5I20=`; `TX_DEL.1` has CIGAR `15=1D14=`, lacking the genome's A at g.26
+between its c.15 and c.16):
 
 ```text
 TX_GAP3.1:n.17C>A      →  NC_000099.1:g.25_26insTAG    the run, as changed, where the run is
@@ -201,6 +205,7 @@ TX_GAP3.1:n.15_17del   →  NC_000099.1:g.25C>G          a flank and part of the
 TX_GAP3.1:n.15_16insA  →  NC_000099.1:g.25_26insATCG   an insertion beside the run carries it
 TX_GAP3.1:n.15C>G      →  NC_000099.1:g.25C>G          the flanking bases do not touch the run
 TX_CLIP.1:n.1G>C       →  ValidationError              no flanking pair; nothing places it
+NC_000099.1:g.26A>G    →  TX_DEL.1:c.15_16insG         the other direction: the run, as changed, on the record
 ```
 
 - **Differs:** biocommons hgvs places the base on the flanking genome base (the one before as a
@@ -217,8 +222,9 @@ TX_CLIP.1:n.1G>C       →  ValidationError              no flanking pair; nothi
   (`c.44C>T` is `g.216633567delinsTGCCGCTGCT`), which weaver does not: a flanking base is aligned
   and does not touch the run.
 - **Spec (silent):** none; the nomenclature does not address transcript–genome alignment gaps.
-- **Tests:** `gapped_exon_test` (every row above, through n. and c., on both strands);
-  `src/transcript_mapper.rs::a_base_the_genome_lacks_occupies_an_empty_range_between_its_neighbours`.
+- **Tests:** `gapped_exon_test` (every row above, in both directions, through n. and c., on both
+  strands); `src/transcript_mapper.rs::a_base_the_genome_lacks_occupies_an_empty_range_between_its_neighbours`,
+  `::test_g_to_n_cigar`.
 
 ### A repeat is projected as its whole run
 

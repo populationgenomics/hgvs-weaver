@@ -18,6 +18,23 @@ pub struct Footprint {
     pub gap_run: Option<(TranscriptPos, TranscriptPos)>,
 }
 
+/// What a genomic position occupies on the transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GenomicFootprint {
+    /// The half-open transcript index range: one base, or none for a base the
+    /// transcript lacks, whose empty range `[at, at)` sits between transcript
+    /// indices `at - 1` and `at`. An intronic position has the exon base its
+    /// offset counts from.
+    pub range: (TranscriptPos, TranscriptPos),
+    /// For a base the transcript lacks, the whole run of such genome bases it
+    /// belongs to, as a half-open genomic range, low to high. No index inside
+    /// the run exists on the transcript, so the run is the unit the transcript
+    /// can describe.
+    pub gap_run: Option<(GenomicPos, GenomicPos)>,
+    /// Zero in an exon; otherwise the signed intronic offset from `range`'s base.
+    pub offset: IntronicOffset,
+}
+
 /// Handles coordinate transformations within a single transcript.
 pub struct TranscriptMapper {
     /// The transcript model providing exon and CDS information.
@@ -56,38 +73,81 @@ impl TranscriptMapper {
     }
 
     /// Maps a 0-based genomic position to a 0-based transcript position and intronic offset.
+    /// An exonic base the transcript lacks has no index and is an error; see
+    /// [`Self::g_to_n_footprint`].
     pub fn g_to_n(&self, g_pos: GenomicPos) -> Result<(TranscriptPos, IntronicOffset), HgvsError> {
+        let GenomicFootprint {
+            range: (lo, hi),
+            offset,
+            ..
+        } = self.g_to_n_footprint(g_pos)?;
+        if lo == hi {
+            return Err(HgvsError::ValidationError(format!(
+                "{}:g.{} is a base {} lacks; it has no transcript index",
+                self.transcript.reference_accession,
+                g_pos.0 + 1,
+                self.transcript.ac,
+            )));
+        }
+        Ok((lo, offset))
+    }
+
+    /// What a 0-based genomic position occupies on the transcript: one index
+    /// for a base aligned to the transcript, none for a base the transcript
+    /// lacks (a `D` in its exon's cigar), together with the run of such bases
+    /// it belongs to; an intronic position is its nearest exon base and offset.
+    ///
+    /// A base the transcript lacks is placed only between two flanking
+    /// transcript bases of its own exon. One at either end of the exon's
+    /// alignment has no such pair and is an error.
+    pub fn g_to_n_footprint(&self, g_pos: GenomicPos) -> Result<GenomicFootprint, HgvsError> {
         let mut n_pos = 0;
         for (i, exon) in self.exons.iter().enumerate() {
-            let (e_start, e_end) = (exon.reference_start, exon.reference_end);
+            let (e_start, e_end) = (exon.reference_start.0, exon.reference_end.0);
             // e_start and e_end are 0-based inclusive
-            if g_pos.0 >= e_start.0 && g_pos.0 <= e_end.0 {
-                let offset_in_exon = if let Some(cm) = &self.cigar_mappers[i] {
-                    let g_offset = if exon.alt_strand == crate::data::Strand::Plus {
-                        g_pos.0 - e_start.0
-                    } else {
-                        e_end.0 - g_pos.0
-                    };
-                    match cm.map_ref_to_tgt(g_offset, true)? {
-                        Projected::Base(t) => t,
-                        // A genome base the transcript lacks is placed on the
-                        // transcript base before it.
-                        Projected::Gap { at, .. } => at - 1,
-                        Projected::Intronic { base, .. } => base,
-                    }
-                } else {
-                    if exon.alt_strand == crate::data::Strand::Plus {
-                        g_pos.0 - e_start.0
-                    } else {
-                        e_end.0 - g_pos.0
-                    }
-                };
-                return Ok((TranscriptPos(n_pos + offset_in_exon), IntronicOffset(0)));
+            if g_pos.0 < e_start || g_pos.0 > e_end {
+                n_pos += self.cigar_mappers[i]
+                    .as_ref()
+                    .map_or(e_end - e_start + 1, |cm| cm.tgt_len());
+                continue;
             }
-            n_pos += if let Some(cm) = &self.cigar_mappers[i] {
-                cm.tgt_len()
+            let minus = exon.alt_strand == Strand::Minus;
+            let g_offset = if minus {
+                e_end - g_pos.0
             } else {
-                (e_end.0 - e_start.0) + 1
+                g_pos.0 - e_start
+            };
+            let exonic = |lo: i32, hi: i32, gap_run| GenomicFootprint {
+                range: (TranscriptPos(n_pos + lo), TranscriptPos(n_pos + hi)),
+                gap_run,
+                offset: IntronicOffset(0),
+            };
+            let Some(cm) = &self.cigar_mappers[i] else {
+                return Ok(exonic(g_offset, g_offset + 1, None));
+            };
+            return match cm.map_ref_to_tgt(g_offset, true)? {
+                Projected::Base(t) => Ok(exonic(t, t + 1, None)),
+                Projected::Gap { at, run } if at > 0 && at < cm.tgt_len() => {
+                    // The run is in alignment offsets; as genome positions it
+                    // runs the other way on the minus strand.
+                    let run = if minus {
+                        (GenomicPos(e_end + 1 - run.1), GenomicPos(e_end + 1 - run.0))
+                    } else {
+                        (GenomicPos(e_start + run.0), GenomicPos(e_start + run.1))
+                    };
+                    Ok(exonic(at, at, Some(run)))
+                }
+                Projected::Gap { .. } => Err(HgvsError::ValidationError(format!(
+                    "{}:g.{} is a base {} lacks at the edge of an exon's alignment; \
+                     nothing places it on the transcript",
+                    self.transcript.reference_accession,
+                    g_pos.0 + 1,
+                    self.transcript.ac,
+                ))),
+                Projected::Intronic { .. } => Err(HgvsError::CigarError(format!(
+                    "exon cigar {} puts genome position {} in an N op",
+                    exon.cigar, g_pos.0
+                ))),
             };
         }
 
@@ -133,7 +193,11 @@ impl TranscriptMapper {
                 (e_end.0 - e_start.0) + 1
             };
         }
-        Ok((best_n, IntronicOffset(best_offset)))
+        Ok(GenomicFootprint {
+            range: (best_n, TranscriptPos(best_n.0 + 1)),
+            gap_run: None,
+            offset: IntronicOffset(best_offset),
+        })
     }
 
     /// Resolves a c./n. position to a 0-based transcript index.
@@ -488,12 +552,21 @@ mod tests {
         assert_eq!(mapper.g_to_n(GenomicPos(1000)).unwrap().0 .0, 0);
         // g.1004 -> n.4
         assert_eq!(mapper.g_to_n(GenomicPos(1004)).unwrap().0 .0, 4);
-        // g.1005 is deleted in transcript (1D)
-        // CigarMapper::map_ref_to_tgt(5, "start", true) for "5=1D5="
-        // ref_pos: [0, 5, 6, 11]
-        // tgt_pos: [0, 5, 5, 10]
-        // pos=5 is in op 1 (1D). end_strategy="start" -> mapped_pos = tgt_pos[1] - 1 = 4.
-        assert_eq!(mapper.g_to_n(GenomicPos(1005)).unwrap().0 .0, 4);
+        // g.1005 is a base the transcript lacks (the 1D): no index, an empty
+        // range between n.4 and n.5, and a run of one genome base.
+        let err = mapper.g_to_n(GenomicPos(1005)).unwrap_err();
+        assert!(
+            err.to_string().contains("g.1006 is a base NM_0001.1 lacks"),
+            "{err}"
+        );
+        assert_eq!(
+            mapper.g_to_n_footprint(GenomicPos(1005)).unwrap(),
+            GenomicFootprint {
+                range: (TranscriptPos(5), TranscriptPos(5)),
+                gap_run: Some((GenomicPos(1005), GenomicPos(1006))),
+                offset: IntronicOffset(0),
+            }
+        );
         // g.1006 -> n.5
         assert_eq!(mapper.g_to_n(GenomicPos(1006)).unwrap().0 .0, 5);
     }

@@ -14,9 +14,12 @@ TX_INS = GENOME[10:25] + "T" + GENOME[25:40]
 TX_CLIP = "GGGCC" + GENOME[30:50]
 # The same exon with three bases, TCG, inserted after genome index 24: n.16_18 is the run.
 TX_GAP3 = GENOME[10:25] + "TCG" + GENOME[25:40]
+# The same exon lacking genome index 25, the A at g.26: c.15 and c.16 flank the gap (the CDS runs from n.1).
+TX_DEL = GENOME[10:25] + GENOME[26:40]
 MODELS = {
     "TX_INS.1": (TX_INS, [(0, 31, 10, 39, "15=1I15=")]),
     "TX_GAP3.1": (TX_GAP3, [(0, 33, 10, 39, "15=3I15=")]),
+    "TX_DEL.1": (TX_DEL, [(0, 29, 10, 39, "15=1D14=")]),
     "TX_CLIP.1": (TX_CLIP, [(0, 25, 30, 49, "5I20=")]),
 }
 
@@ -27,11 +30,12 @@ class Provider:
     def get_transcript(self, transcript_ac: str, _reference_ac: str | None) -> dict[str, typing.Any]:
         """Returns the transcript model."""
         _, exons = MODELS[transcript_ac]
+        coding = transcript_ac == "TX_DEL.1"
         return {
             "ac": transcript_ac,
             "gene": "GENE",
-            "cds_start_index": None,
-            "cds_end_index": None,
+            "cds_start_index": 0 if coding else None,
+            "cds_end_index": 28 if coding else None,
             "strand": 1,
             "reference_accession": CHROM,
             "exons": [
@@ -90,3 +94,11 @@ def test_a_soft_clipped_base_has_no_genomic_position() -> None:
         with pytest.raises(weaver.ValidationError, match="edge of an exon"):
             n_to_g(mapper, name)
     assert n_to_g(mapper, "TX_CLIP.1:n.6A>G") == "NC_000099.1:g.31A>G"
+
+
+def test_a_genome_base_the_transcript_lacks_projects_as_an_insertion() -> None:
+    """The genome reads C A T over g.25..27 and the record C T over c.15..16; g.26 is the base it lacks."""
+    mapper = weaver.VariantMapper(Provider())
+    assert mapper.g_to_c(weaver.parse("NC_000099.1:g.26A>G"), "TX_DEL.1").format() == "TX_DEL.1:c.15_16insG"
+    assert mapper.g_to_c(weaver.parse("NC_000099.1:g.26del"), "TX_DEL.1").format() == "TX_DEL.1:c.15="
+    assert mapper.g_to_c(weaver.parse("NC_000099.1:g.25C>G"), "TX_DEL.1").format() == "TX_DEL.1:c.15C>G"
