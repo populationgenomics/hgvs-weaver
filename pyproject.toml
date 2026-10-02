@@ -36,7 +36,8 @@ weaver-gate = "weaver.cli.gate:main"
 [dependency-groups]
 # The ClinVar gate: `uv run --group gate weaver-gate`. hgvs-weaver-data needs Python 3.12, so the group does too.
 gate = [
-    "hgvs-weaver-data[build]>=0.1.3",
+    # Exact-pinned because it is exempt from the age gate below; a bump is a reviewed edit.
+    "hgvs-weaver-data[build]==0.1.3",
     "hgvs>=1.5",
     "tqdm",
     "parsley",
@@ -61,7 +62,18 @@ dev = [
 [tool.uv.dependency-groups]
 gate = { requires-python = ">=3.12" }
 
+# Supply-chain age gate: never resolve a release younger than 7 days. Declared in the repo, not only in a
+# global uv config, so CI and contributors inherit the same resolution: a global-only gate makes the lock
+# unreproducible, since uv detects the missing setting off-machine and `--locked` fails. Relative, not a
+# fixed date: the intent is an ongoing "nothing younger than 7 days", not a frozen cutoff. A local relock
+# rolls back a committed version younger than the window; it self-heals as the version ages past it.
 [tool.uv]
+exclude-newer = "7 days"
+# hgvs-weaver-data is first-party: we cut its releases, so the window the gate guards against (a compromised
+# third-party upload) does not apply, and a just-cut release is resolvable at once. Removing the cushion is
+# paired with the exact pin in the gate group above: with no cushion, the pin is what stops a relock from
+# silently adopting a new release; anything exempted here must be exact-pinned there.
+exclude-newer-package = { hgvs-weaver-data = "0 days" }
 # hgvs's own dependencies the validation never reaches: a database driver that needs a C library to build,
 # a sequence repository, and a shell. Removed from the resolution rather than installed for nothing.
 override-dependencies = [
