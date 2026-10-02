@@ -86,9 +86,11 @@ print(level)                                              # EquivalenceLevel.Ana
 ## Data Provider Implementation
 
 Mapping needs an object implementing the `DataProvider` protocol, which supplies transcript models
-and reference sequences. `weaver.cli.provider.RefSeqDataProvider` implements it over a RefSeq GFF3
-and FASTA; `weaver.refget.RefgetProvider` implements it over a GA4GH refget server (for sequences)
-plus another provider for transcript models.
+and reference sequences. [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider)
+implements it over a store built from NCBI's published transcript alignments, with every placement NCBI
+publishes and NCBI's historical set of retired transcript versions; `weaver.cli.provider.RefSeqDataProvider`
+implements it directly over a RefSeq GFF3 and FASTA; `weaver.refget.RefgetProvider` implements it over a
+GA4GH refget server (for sequences) plus another provider for transcript models.
 
 A `VariantMapper` caches the sequence blocks and refget accessions it fetches for as long as it
 lives. Build one and reuse it.
@@ -178,21 +180,15 @@ print(var.format())  # NM_000051.3:c.123A>G
 
 To rerun the validation, you need the RefSeq annotation and genomic sequence files:
 
-1. **Download Required Files**:
+1. **Build or fetch the reference data**: a GRCh38 store and genome written by `weaver-data-build`
+   from [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider). Stacking NCBI's
+   historical set under the current release's shard lets the variants ClinVar names on retired transcript
+   versions project too.
+
+2. **Install Validation Dependencies** (Python 3.12 or later):
 
    ```sh
-   # Download RefSeq GFF
-   curl -O https://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_latest/refseq_identifiers/GRCh38_latest_genomic.gff.gz
-
-   # Download RefSeq FASTA and decompress
-   curl -O https://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_latest/refseq_identifiers/GRCh38_latest_genomic.fna.gz
-   gunzip GRCh38_latest_genomic.fna.gz
-   ```
-
-2. **Install Validation Dependencies**:
-
-   ```sh
-   pip install pysam tqdm bioutils parsley
+   pip install hgvs-weaver-data tqdm bioutils parsley
    pip install hgvs --no-deps  # Avoids psycopg2 build requirement
    ```
 
@@ -202,8 +198,8 @@ To rerun the validation, you need the RefSeq annotation and genomic sequence fil
    ```sh
    weaver-validate data/clinvar_variants_100k.tsv \
        --output-file results.tsv \
-       --gff GRCh38_latest_genomic.gff.gz \
-       --fasta GRCh38_latest_genomic.fna
+       --store path/or/gs://bucket/grch38/store \
+       --genome path/or/gs://bucket/grch38/genome
    ```
 
    Alternatively, if you use `uv`, you can run the script directly from the source tree without manually installing dependencies (it will use the PEP 723 metadata to auto-install them):

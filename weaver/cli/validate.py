@@ -1,6 +1,7 @@
 # /// script
+# requires-python = ">=3.12"
 # dependencies = [
-#   "pysam",
+#   "hgvs-weaver-data",
 #   "tqdm",
 #   "parsley",
 #   "bioutils",
@@ -34,9 +35,18 @@ except ImportError:
 
 import weaver
 
+try:
+    from weaver_data_provider import genome as wd_genome
+    from weaver_data_provider import provider as wd_provider
+    from weaver_data_provider import store as wd_store
+except ImportError:
+    print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
+    print("  pip install hgvs-weaver-data")
+    sys.exit(1)
+
 from . import provider
 
-_rp: provider.RefSeqDataProvider | None = None
+_rp: wd_provider.BundleProvider | None = None
 _rs_mapper: weaver.VariantMapper | None = None
 _ref_vm: hgvs.variantmapper.VariantMapper | None = None
 _ref_hp: hgvs.parser.Parser | None = None
@@ -44,10 +54,10 @@ _ref_hp: hgvs.parser.Parser | None = None
 _fh_results: dict[str, str] = {}
 
 
-def init_worker(gff: str, fasta: str, fh_results_path: str | None = None) -> None:
-    """Initializes global mappers for worker processes."""
+def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
+    """Initializes global mappers for worker processes over a weaver-data-provider store and genome."""
     global _rp, _rs_mapper, _ref_vm, _ref_hp, _fh_results
-    _rp = provider.RefSeqDataProvider(gff, fasta)
+    _rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
     _rs_mapper = weaver.VariantMapper(_rp)
     _ref_hdp = provider.ReferenceHgvsDataProvider(_rp)
     _ref_vm = hgvs.variantmapper.VariantMapper(_ref_hdp)
@@ -260,8 +270,16 @@ def main() -> None:
     parser.add_argument("input_file", help="Input ClinVar TSV file.")
     parser.add_argument("--max-variants", type=int, default=None, help="Maximum variants to process.")
     parser.add_argument("--output-file", default="clinvar_full_validation.tsv", help="Output validation TSV.")
-    parser.add_argument("--gff", default="GRCh38_latest_genomic.gff.gz", help="Reference GFF file.")
-    parser.add_argument("--fasta", default="GCF_000001405.40_GRCh38.p14_genomic.fna", help="Reference FASTA file.")
+    parser.add_argument(
+        "--store",
+        required=True,
+        help="A weaver-data-provider store (directory or gs:// prefix) built by 'weaver-data-build index'.",
+    )
+    parser.add_argument(
+        "--genome",
+        required=True,
+        help="The matching genome (directory or gs:// prefix) built by 'weaver-data-build genome'.",
+    )
     parser.add_argument("--workers", type=int, default=4, help="Number of worker processes.")
     parser.add_argument(
         "--ferro-reference",
@@ -310,7 +328,7 @@ def main() -> None:
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.workers,
             initializer=init_worker,
-            initargs=(args.gff, args.fasta, fh_results_path),
+            initargs=(args.store, args.genome, fh_results_path),
         ) as executor:
             # map instead of executor.map to catch task-level errors
             results_iter = executor.map(process_variant, rows)

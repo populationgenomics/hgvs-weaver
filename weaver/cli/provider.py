@@ -8,6 +8,9 @@ import os
 import sys
 import typing
 
+if typing.TYPE_CHECKING:
+    import weaver
+
 try:
     import hgvs.dataproviders.interface
 except ImportError:
@@ -640,7 +643,7 @@ class RefSeqDataProvider:
 class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
     """Bridge between weaver DataProvider and hgvs library Interface."""
 
-    def __init__(self, refseq_provider: RefSeqDataProvider) -> None:
+    def __init__(self, refseq_provider: "weaver.DataProvider") -> None:
         self.url = "local://refseq"
         self.required_version = "1.1"
         super().__init__()
