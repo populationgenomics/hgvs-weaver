@@ -20,14 +20,14 @@ provider's answer that breaks an expectation the mapper relies on, raises.
 Before writing a validation rule, ask why the value it rejects can be expressed at all. A field derived from another
 cannot disagree with it; a type that admits only valid values needs no check; a record nested inside the thing it
 belongs to cannot dangle. Each of those removes a rule, the silent failure the rule guarded against, and the test the
-rule would have needed — for every caller at once, rather than for the paths a test happens to reach. The position types are the
-example here: a `TranscriptPos` and a `GenomicPos` are different types, so mixing systems is a compile error in Rust, not
-an off-by-one at run time; a transcript position that carried its anchor as a separate flag could disagree with its
-value, so the anchor is part of the position.
+rule would have needed — for every caller at once, rather than for the paths a test happens to reach. The position types
+are the example here: a `TranscriptPos` and a `GenomicPos` are different types, so mixing systems is a compile error in
+Rust, not an off-by-one at run time; a transcript position that carried its anchor as a separate flag could disagree
+with its value, so the anchor is part of the position.
 
 Fail loud ([above](#fail-loud-never-silently-degrade)) is the rule for the invalid input that can still arrive — from a
-variant string, a data provider, a caller outside the type system. Between the two, prefer the shape that cannot hold the
-error; validate what remains, and test that validation ([`writing-tests.md`](writing-tests.md)).
+variant string, a data provider, a caller outside the type system. Between the two, prefer the shape that cannot hold
+the error; validate what remains, and test that validation ([`writing-tests.md`](writing-tests.md)).
 
 ## Comments
 

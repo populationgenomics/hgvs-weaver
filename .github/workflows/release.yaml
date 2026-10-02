@@ -113,6 +113,6 @@ jobs:
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: Publish
-        run: |
+        run: |-
           cd hgvs-weaver
           cargo publish --locked --token ${{ secrets.CRATES_IO_TOKEN }}

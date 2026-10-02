@@ -1,8 +1,8 @@
 # Python style
 
-This is the style guide for Python code in hgvs-weaver: the `weaver` package, its CLIs and its tests. It's the high-level / human-judgement layer — the
-mechanical formatting and naming rules are enforced by [ruff] and aren't restated here. If something contradicts what
-ruff is configured to enforce, ruff wins, and this doc should be updated.
+This is the style guide for Python code in hgvs-weaver: the `weaver` package, its CLIs and its tests. It's the
+high-level / human-judgement layer — the mechanical formatting and naming rules are enforced by [ruff] and aren't
+restated here. If something contradicts what ruff is configured to enforce, ruff wins, and this doc should be updated.
 
 The content is largely lifted from the [Google Python Style Guide][pyguide] (CC-BY-3.0), edited for the conventions of
 this repo. Sections we don't enforce or that ruff already covers have been omitted.
@@ -206,17 +206,17 @@ def merge_base(head: str, base: str) -> str:
 Annotations must be present on function and method signatures (ruff's `ANN` rules) and should be *specific*, which is
 policy, not lint; the type checker configured in `pyproject.toml` checks what is annotated.
 
-- Prefer concrete types over `typing.Any`. Ruff's `ANN401` forbids it outside the CLI modules and the extension's
-  stubs, where it is allowed; where `Any` is the honest type there, say why in a one-line comment, and consider whether
-  a `Protocol`, `TypeVar`, or `Union` would carry more signal.
+- Prefer concrete types over `typing.Any`. Ruff's `ANN401` forbids it outside the CLI modules and the extension's stubs,
+  where it is allowed; where `Any` is the honest type there, say why in a one-line comment, and consider whether a
+  `Protocol`, `TypeVar`, or `Union` would carry more signal.
 - Prefer `list[Dataset]` over bare `list`. The element type carries meaning.
 - Prefer `Iterable[T]` / `Sequence[T]` / `Mapping[K, V]` for function parameters (the most general type the function
   actually uses); use concrete `list` / `dict` for return types.
 - Don't annotate the obvious. `def __init__(self, name: str) -> None` is fine; `def f(self) -> Self` is fine;
   `def add(a: int, b: int) -> int: return a + b` is fine. Don't add `# type: Iterable[int]` comments inside a function
   unless the type checker is confused.
-- The extension module's surface is declared in `weaver/_weaver.pyi`. A change to a pyo3 signature changes the stub
-  in the same commit; the stub is what every annotation in the Python package resolves against.
+- The extension module's surface is declared in `weaver/_weaver.pyi`. A change to a pyo3 signature changes the stub in
+  the same commit; the stub is what every annotation in the Python package resolves against.
 
 ## Function decomposition
 
