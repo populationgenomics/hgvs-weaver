@@ -37,9 +37,10 @@ jobs:
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
 
-      # Builds the extension through maturin and installs the dev group from the lock.
-      - name: Install the project and its dev group
-        run: uv sync --locked --group dev --python 3.11
+      # Builds the extension through maturin and installs the dev group and the extras from the lock: the
+      # suite imports the GFF-backed provider and the biocommons adapter, which need pysam and hgvs.
+      - name: Install the project, its dev group and its extras
+        run: uv sync --locked --group dev --all-extras --python 3.11
 
       # The tests that need the reference data under data/ skip without it.
       - name: Run pytest

@@ -43,6 +43,9 @@ gate = [
     "bioutils",
 ]
 dev = [
+    # The Python suite imports the biocommons adapter, so hgvs is a test dependency; its database driver,
+    # sequence repository and shell are overridden out below.
+    "hgvs>=1.5",
     "maturin>=1.11.5",
     "mypy",
     "myst-parser",
