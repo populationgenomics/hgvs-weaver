@@ -159,13 +159,14 @@ remains is in the test's own hands:
 
 A double's fidelity is how closely its behaviour matches production's. Prefer, in order: the real implementation; a
 *fake*, a working lightweight implementation held to the real one's contract; and last a *stub* or *mock*, whose
-behaviour is scripted in the test. Stop at the highest fidelity that keeps the test hermetic — in one process, or against a gated
-local process ([below](#tests-run-with-no-cloud-and-no-network)). A hand-written stand-in scripted in the test body is a
-stub or mock for this purpose, whatever it is called: its behaviour is the author's belief about the dependency.
+behaviour is scripted in the test. Stop at the highest fidelity that keeps the test hermetic — in one process, or
+against a gated local process ([below](#tests-run-with-no-cloud-and-no-network)). A hand-written stand-in scripted in
+the test body is a stub or mock for this purpose, whatever it is called: its behaviour is the author's belief about the
+dependency.
 
 - **A synthetic provider over a mocked one.** A `DataProvider` over a few hand-written transcripts on a synthetic
-  chromosome is a fake: it answers every method from its own tables, so a test drives the real mapper end to end. A
-  mock that scripts `get_transcript` for one call answers only the question the author thought of.
+  chromosome is a fake: it answers every method from its own tables, so a test drives the real mapper end to end. A mock
+  that scripts `get_transcript` for one call answers only the question the author thought of.
 - **Don't mock types you don't own.** A mock of pysam, the biocommons `hgvs` package or the extension module encodes the
   author's reading of that library; an upgrade that changes its behaviour leaves the mock answering as before and ships
   the bug green. Use the real library against real inputs, or a fake its owner ships; failing both, wrap it in a class

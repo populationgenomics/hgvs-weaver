@@ -35,21 +35,21 @@ Operating directives for Claude (and any agent) in this repo; they counteract de
 
 @docs/style/general.md
 
-Python follows [`docs/style/python.md`](docs/style/python.md); it loads when a Python file is touched. Rust's
-mechanical layer is `cargo fmt` and `cargo clippy`; the judgement layer is `general.md`, and the crate's own conventions
-— tagged position types, `thiserror` errors a caller can match, no allocation on a hot path that a stack buffer serves —
-are read from the code around the change.
+Python follows [`docs/style/python.md`](docs/style/python.md); it loads when a Python file is touched. Rust's mechanical
+layer is `cargo fmt` and `cargo clippy`; the judgement layer is `general.md`, and the crate's own conventions — tagged
+position types, `thiserror` errors a caller can match, no allocation on a hot path that a stack buffer serves — are read
+from the code around the change.
 
 Tests — what one asserts, what it may depend on, what its data may contain — follow
 [`docs/style/writing-tests.md`](docs/style/writing-tests.md); it loads when a test file is touched.
 
 ## Core and binding
 
-The engine is the `hgvs-weaver` crate under `hgvs-weaver/`; the root crate is the pyo3 binding, and
-`weaver/_weaver.pyi` declares what it exposes. A behaviour lives in the core and is tested in Rust; the Python suite
-tests the binding, the protocols and the commands. A change to a pyo3 signature changes the stub in the same commit.
-Build the extension into the environment with `uv run --no-sync maturin develop` before running pytest; do not rebuild
-while a validation run is in progress, since its workers import the shared library.
+The engine is the `hgvs-weaver` crate under `hgvs-weaver/`; the root crate is the pyo3 binding, and `weaver/_weaver.pyi`
+declares what it exposes. A behaviour lives in the core and is tested in Rust; the Python suite tests the binding, the
+protocols and the commands. A change to a pyo3 signature changes the stub in the same commit. Build the extension into
+the environment with `uv run --no-sync maturin develop` before running pytest; do not rebuild while a validation run is
+in progress, since its workers import the shared library.
 
 A change to the core — parsing, normalisation, projection, consequences, equivalence — is gated by the 100,000-variant
 ClinVar run: `uv run --group gate weaver-gate` builds the reference store once and then costs the validation alone, and
@@ -102,6 +102,6 @@ Worktrees go in `.claude/worktrees/` (gitignored), never `../` siblings.
   — the altitude of a design doc's Overview, shorter. The diff carries the detail; don't narrate it. Same style:
   [`docs/style/design-docs.md` § Style](docs/style/design-docs.md#style).
 - **Pin third-party GitHub Actions to a commit SHA** with the version in a trailing comment (`@3d3c…  # v7.0.1`), never
-  a moving tag: a tag can be moved to malicious code, a SHA cannot. Resolve the SHA from the action's release when adding
-  or bumping one, and prefer a tool installed from a checksum-verified release over a third-party action where the
-  action would only wrap a download.
+  a moving tag: a tag can be moved to malicious code, a SHA cannot. Resolve the SHA from the action's release when
+  adding or bumping one, and prefer a tool installed from a checksum-verified release over a third-party action where
+  the action would only wrap a download.

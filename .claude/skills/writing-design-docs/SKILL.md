@@ -18,10 +18,10 @@ policy. This is the procedure; it does not restate the guide.
 
 ## A choice is an entry in `choices.md`
 
-A decision where another tool could reasonably answer otherwise is not a new doc: it is an entry in `choices.md`, in
-the page's own shape — the example taken from the test that asserts it, which tools agree and which differ (only where
-actually checked), the specification page and the verdict, the tests as `file::function` — and a row in the
-at-a-glance table. Check the other tools before writing "agrees"; write "not checked" otherwise.
+A decision where another tool could reasonably answer otherwise is not a new doc: it is an entry in `choices.md`, in the
+page's own shape — the example taken from the test that asserts it, which tools agree and which differ (only where
+actually checked), the specification page and the verdict, the tests as `file::function` — and a row in the at-a-glance
+table. Check the other tools before writing "agrees"; write "not checked" otherwise.
 
 ## Separate what stays from what restates code
 
