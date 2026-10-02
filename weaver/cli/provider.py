@@ -682,7 +682,7 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
     ) -> list[dict[str, typing.Any]] | None:
         try:
             tx = self.rp.get_transcript(tx_ac, alt_ac)
-            res = []
+            res: list[dict[str, typing.Any]] = []
             exons_transcript = sorted(tx["exons"], key=lambda x: x["transcript_start"])
             for i, e in enumerate(exons_transcript):
                 res.append(
@@ -745,8 +745,14 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
         return []
 
     def get_tx_mapping_options(self, tx_ac: str) -> list[dict[str, typing.Any]]:
+        """Every reference the transcript is placed on where the provider lists them, else its default placement."""
         try:
-            refs = self.rp.tx_to_refs.get(tx_ac, [])
+            listed = getattr(self.rp, "tx_to_refs", None)
+            refs = (
+                listed.get(tx_ac, [])
+                if listed is not None
+                else [self.rp.get_transcript(tx_ac, None)["reference_accession"]]
+            )
             return [{"tx_ac": tx_ac, "alt_ac": r, "alt_aln_method": "transcript"} for r in refs]
         except Exception:
             return []
