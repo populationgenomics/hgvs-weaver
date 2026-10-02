@@ -1,3 +1,7 @@
+import os
+
+import pytest
+
 import weaver
 from weaver.cli.provider import RefSeqDataProvider
 
@@ -5,6 +9,8 @@ from weaver.cli.provider import RefSeqDataProvider
 def test_intronic_cp() -> None:
     gff_path = "GCF_000001405.25_GRCh37.p13_genomic.gff.gz"
     fasta_path = "GCF_000001405.25_GRCh37.p13_genomic.fna"
+    if not (os.path.exists(gff_path) and os.path.exists(fasta_path)):
+        pytest.skip("GRCh37 reference data (GFF and FASTA) not in the working directory")
 
     hdp = RefSeqDataProvider(gff_path, fasta_path)
     mapper = weaver.VariantMapper(hdp)

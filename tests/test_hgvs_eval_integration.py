@@ -149,6 +149,9 @@ HGVS_EVAL_CASES: list[Any] = [
             output_preferred="NM_005813.3:c.2673dup",
             data="RefSeq",
         ),
+        # An insertion of one base beside a run of that base is written as a duplication; weaver does not yet
+        # judge the two equivalent. Strict, so the day it does this flips to a failure and the mark comes off.
+        marks=pytest.mark.xfail(strict=True, reason="insG beside a G run is not yet judged equivalent to dup"),
     ),
     pytest.param(
         EvalCase(

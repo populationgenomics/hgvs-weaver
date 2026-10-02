@@ -43,8 +43,10 @@ gate = [
     "bioutils",
 ]
 dev = [
+    "maturin>=1.11.5",
     "mypy",
     "myst-parser",
+    "pre-commit",
     "pytest>=8.4.1",
     "pytest-cov>=7.0.0",
     "ruff",

@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # rustup ships on every GitHub runner image; actions-rs/toolchain was
+      # archived in 2023 and an unmaintained action is a takeover vector.
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Test the core crate
+        run: cargo test --locked --manifest-path hgvs-weaver/Cargo.toml
+
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # Builds the extension through maturin and installs the dev group from the lock.
+      - name: Install the project and its dev group
+        run: uv sync --locked --group dev --python 3.11
+
+      # The tests that need the reference data under data/ skip without it.
+      - name: Run pytest
+        run: uv run --no-sync pytest tests
