@@ -8,8 +8,34 @@ permissions:
   contents: read
 
 jobs:
+  check_version:
+    # The tag is the release's name; the wheel's and the crates' versions come from their manifests.
+    # They must agree, or PyPI and crates.io show one version and the repository another.
+    name: Tag matches the versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Check the tag against pyproject.toml and both Cargo.toml files
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          python_version="$(uv version --short)"
+          binding_version="$(sed -nE 's/^version = "(.*)"/\1/p' Cargo.toml | head -1)"
+          core_version="$(sed -nE 's/^version = "(.*)"/\1/p' hgvs-weaver/Cargo.toml | head -1)"
+          for version in "$python_version" "$binding_version" "$core_version"; do
+            if [ "v${version}" != "${TAG}" ]; then
+              echo "::error::tag ${TAG} does not match a version: pyproject ${python_version}, binding crate ${binding_version}, core crate ${core_version}"
+              exit 1
+            fi
+          done
+
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
+    needs: check_version
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -50,6 +76,7 @@ jobs:
 
   build_sdist:
     name: Build sdist
+    needs: check_version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,6 +132,7 @@ jobs:
 
   publish-to-crates-io:
     name: Publish to crates.io
+    needs: check_version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
