@@ -86,9 +86,11 @@ print(level)                                              # EquivalenceLevel.Ana
 ## Data Provider Implementation
 
 Mapping needs an object implementing the `DataProvider` protocol, which supplies transcript models
-and reference sequences. `weaver.cli.provider.RefSeqDataProvider` implements it over a RefSeq GFF3
-and FASTA; `weaver.refget.RefgetProvider` implements it over a GA4GH refget server (for sequences)
-plus another provider for transcript models.
+and reference sequences. [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider)
+implements it over a store built from NCBI's published transcript alignments, with every placement NCBI
+publishes and NCBI's historical set of retired transcript versions; `weaver.cli.provider.RefSeqDataProvider`
+implements it directly over a RefSeq GFF3 and FASTA; `weaver.refget.RefgetProvider` implements it over a
+GA4GH refget server (for sequences) plus another provider for transcript models.
 
 A `VariantMapper` caches the sequence blocks and refget accessions it fetches for as long as it
 lives. Build one and reuse it.
@@ -176,41 +178,34 @@ print(var.format())  # NM_000051.3:c.123A>G
 
 ### Running Validation
 
-To rerun the validation, you need the RefSeq annotation and genomic sequence files:
+The validation reads a GRCh38 store and genome built by `weaver-data-build` from
+[hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider): the current annotation release's shard
+with NCBI's historical set of retired transcript versions stacked under it, so the variants ClinVar names on retired
+versions project too. `weaver-gate` does the whole thing: it fetches NCBI's files, asks Entrez for each retired
+version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a
+baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a few
+gigabytes of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone,
+about half a minute for the 100k set. It needs Python 3.12 or later, which the `gate` dependency group provides:
 
-1. **Download Required Files**:
+```sh
+uv run --group gate weaver-gate --data data/gate \
+    --variants data/clinvar_variants_100k.tsv \
+    --baseline data/validation_release_0.7.0.tsv \
+    --output data/validation_<label>.tsv
+```
 
-   ```sh
-   # Download RefSeq GFF
-   curl -O https://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_latest/refseq_identifiers/GRCh38_latest_genomic.gff.gz
+The comparison lists, for the SPDI, protein and equivalence columns, how many rows moved and in which direction
+(match to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row.
 
-   # Download RefSeq FASTA and decompress
-   curl -O https://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_latest/refseq_identifiers/GRCh38_latest_genomic.fna.gz
-   gunzip GRCh38_latest_genomic.fna.gz
-   ```
+To run the validation against a store built elsewhere, `weaver-validate` takes the store and genome directly, locally
+or in a bucket (`hgvs-weaver-data[gcs]` for the latter):
 
-2. **Install Validation Dependencies**:
-
-   ```sh
-   pip install pysam tqdm bioutils parsley
-   pip install hgvs --no-deps  # Avoids psycopg2 build requirement
-   ```
-
-3. **Run Validation**:
-   You can run the validation using the installed entry point (if you installed with `[validation]` extra):
-
-   ```sh
-   weaver-validate data/clinvar_variants_100k.tsv \
-       --output-file results.tsv \
-       --gff GRCh38_latest_genomic.gff.gz \
-       --fasta GRCh38_latest_genomic.fna
-   ```
-
-   Alternatively, if you use `uv`, you can run the script directly from the source tree without manually installing dependencies (it will use the PEP 723 metadata to auto-install them):
-
-   ```sh
-   uv run weaver/cli/validate.py data/clinvar_variants_100k.tsv ...
-   ```
+```sh
+uv run --group gate weaver-validate data/clinvar_variants_100k.tsv \
+    --output-file results.tsv \
+    --store path/or/gs://bucket/grch38/store \
+    --genome path/or/gs://bucket/grch38/genome
+```
 
 ### Parsing Quality
 
