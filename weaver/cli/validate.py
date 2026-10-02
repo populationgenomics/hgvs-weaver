@@ -241,7 +241,7 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
                 variant = obj.get("input", "")
                 if not variant:
                     continue
-                if obj.get("status") == "ok":
+                if obj.get("success"):
                     results[variant] = obj.get("output") or variant
                 else:
                     err = obj.get("error") or "UnknownError"
