@@ -19,6 +19,8 @@ repos:
     rev: v0.45.0
     hooks:
       - id: markdownlint
+        # Instruction files open with a rules header and an include, not a heading.
+        exclude: ^\.claude/
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
