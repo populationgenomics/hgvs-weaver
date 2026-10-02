@@ -140,7 +140,7 @@ def generate_svg(data_points: list[dict], mode: str = "light") -> str:
             edgecolor="#ffffff" if mode == "light" else "#0d1117",
         )
 
-        bottom = tool_df["Identity %"].values
+        bottom = list(tool_df["Identity %"])
         ax.bar(
             [pos + offset for pos in x],
             tool_df["Analogous %"],
@@ -155,7 +155,7 @@ def generate_svg(data_points: list[dict], mode: str = "light") -> str:
     plt.xlabel("Release", fontsize=14)
     plt.ylabel("Match %", fontsize=14)
     plt.ylim(85, 100)
-    plt.xticks(x, versions)
+    plt.xticks(x, [str(v) for v in versions])
 
     legend = plt.legend(title=None, bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0.0)
     if mode == "dark":

@@ -49,7 +49,7 @@ from . import provider
 _rp: wd_provider.BundleProvider | None = None
 _rs_mapper: weaver.VariantMapper | None = None
 _ref_vm: hgvs.variantmapper.VariantMapper | None = None
-_ref_hp: hgvs.parser.Parser | None = None
+_ref_hp: typing.Any = None  # hgvs.parser.Parser builds its parse_* methods at run time, so a checker cannot see them
 # Pre-computed ferro normalize results: nuc_hgvs → normalized_string | "ERR:..."
 _fh_results: dict[str, str] = {}
 
@@ -57,10 +57,10 @@ _fh_results: dict[str, str] = {}
 def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
     """Initializes global mappers for worker processes over a weaver-data-provider store and genome."""
     global _rp, _rs_mapper, _ref_vm, _ref_hp, _fh_results
-    _rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
-    _rs_mapper = weaver.VariantMapper(_rp)
-    _ref_hdp = provider.ReferenceHgvsDataProvider(_rp)
-    _ref_vm = hgvs.variantmapper.VariantMapper(_ref_hdp)
+    rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
+    _rp = rp
+    _rs_mapper = weaver.VariantMapper(rp)
+    _ref_vm = hgvs.variantmapper.VariantMapper(provider.ReferenceHgvsDataProvider(rp))
     _ref_hp = hgvs.parser.Parser()
     if fh_results_path:
         import json  # noqa: PLC0415
@@ -102,30 +102,30 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
     v_p = None
     rs_p = "ERR"
     rs_spdi = "ERR"
+    mapper, rp = _rs_mapper, _rp
+    if mapper is None or rp is None:
+        res_row = row.copy()
+        res_row.update(
+            {
+                "rs_p": "ERR:MapperNotInit",
+                "rs_spdi": "ERR:MapperNotInit",
+                "rs_equiv": "ERR:MapperNotInit",
+                "ref_equiv": "ERR:MapperNotInit",
+            },
+        )
+        return res_row
     try:
         v_rs_raw = weaver.parse(nuc_hgvs)
-        if not _rs_mapper:
-            res_row = row.copy()
-            res_row.update(
-                {
-                    "rs_p": "ERR:MapperNotInit",
-                    "rs_spdi": "ERR:MapperNotInit",
-                    "rs_equiv": "ERR:MapperNotInit",
-                    "ref_equiv": "ERR:MapperNotInit",
-                },
-            )
-            return res_row
-
-        v_rs = _rs_mapper.normalize_variant(v_rs_raw)
+        v_rs = mapper.normalize_variant(v_rs_raw)
         try:
             if v_rs.coordinate_type == "c":
-                v_p = _rs_mapper.c_to_p(v_rs)
+                v_p = mapper.c_to_p(v_rs)
                 rs_p = v_p.format().split(":")[-1]
         except Exception as e:
             rs_p = f"ERR:{e!s}"
 
         try:
-            rs_spdi = _rs_mapper.to_spdi(v_rs_raw, unambiguous=True)
+            rs_spdi = mapper.to_spdi(v_rs_raw, unambiguous=True)
         except Exception as e:
             rs_spdi = f"ERR:{e!s}"
     except Exception as e:
@@ -150,7 +150,7 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
 
             try:
                 vg_ref = _ref_vm.c_to_g(v_ref, spdi_ac) if v_ref.type != "g" else v_ref
-                ref_spdi = hgvs_lib_to_spdi(vg_ref, _rp)
+                ref_spdi = hgvs_lib_to_spdi(vg_ref, rp)
             except Exception as e:
                 ref_spdi = f"ERR:{e!s}"
     except Exception:
@@ -171,7 +171,7 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
             v_gt = weaver.parse(gt_p_str)
             # RS Equivalence
             if v_p:
-                rs_equiv = str(_rs_mapper.equivalent_level(v_p, v_gt, _rp)).split(".")[-1]
+                rs_equiv = str(mapper.equivalent_level(v_p, v_gt, rp)).split(".")[-1]
 
             # REF Equivalence (judged by weaver)
             if ref_p and not ref_p.startswith("ERR"):
@@ -179,11 +179,11 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
                     # Construct full protein string for weaver parsing
                     ref_p_val = f"{v_gt.ac}:{ref_p}" if ":" not in ref_p else ref_p
                     v_ref_p = weaver.parse(ref_p_val)
-                    ref_equiv = str(_rs_mapper.equivalent_level(v_ref_p, v_gt, _rp)).split(".")[-1]
+                    ref_equiv = str(mapper.equivalent_level(v_ref_p, v_gt, rp)).split(".")[-1]
                 except Exception:
                     try:
                         v_ref_p = weaver.parse(ref_p)
-                        ref_equiv = str(_rs_mapper.equivalent_level(v_ref_p, v_gt, _rp)).split(".")[-1]
+                        ref_equiv = str(mapper.equivalent_level(v_ref_p, v_gt, rp)).split(".")[-1]
                     except Exception:
                         logging.exception("Failed to judge equivalence")
         except Exception:

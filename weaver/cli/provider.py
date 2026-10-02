@@ -1,5 +1,8 @@
 "RefSeq data provider implementation."
 
+# The biocommons Interface this module subclasses declares its methods without annotations.
+# pyright: reportIncompatibleMethodOverride=false
+
 import collections
 import gzip
 import json
@@ -641,7 +644,12 @@ class RefSeqDataProvider:
 
 
 class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
-    """Bridge between weaver DataProvider and hgvs library Interface."""
+    """Bridge between weaver DataProvider and hgvs library Interface.
+
+    The biocommons ``Interface`` declares its abstract methods without annotations, so every typed override reads
+    as incompatible to a checker; the overrides follow the library's documented signatures, and the file-level
+    pyright comment at the top turns that one report off for this module.
+    """
 
     def __init__(self, refseq_provider: "weaver.DataProvider") -> None:
         self.url = "local://refseq"

@@ -276,7 +276,8 @@ def main() -> None:  # noqa: PLR0915
                 stats["date"] = commit_info["date"]
                 stats["message"] = commit_info["message"]
                 history[commit] = stats
-                print(f"Result: P={stats['p_perc']:.2f}%, SPDI={stats['spdi_match'] / stats['total'] * 100:.2f}%")
+                spdi_perc = stats.get("spdi_match", 0) / stats.get("total", 1) * 100
+                print(f"Result: P={stats.get('p_perc', 0.0):.2f}%, SPDI={spdi_perc:.2f}%")
 
             # Save after each commit
             with open(history_file, "w", encoding="utf-8") as f:
