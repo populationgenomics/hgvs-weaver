@@ -103,16 +103,19 @@ def test_transcripts_come_from_the_wrapped_provider_or_not_at_all() -> None:
     assert bare.get_identifier_type("NC_1.1") == weaver.IdentifierType.GenomicAccession
 
     class Transcripts:
-        def get_transcript(self, ac: str, _ref: str | None) -> weaver.TranscriptData:
-            return typing.cast("weaver.TranscriptData", {"ac": ac})
+        def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> weaver.TranscriptData:
+            del reference_ac
+            return typing.cast("weaver.TranscriptData", {"ac": transcript_ac})
 
         def get_seq(self, _ac: str, _start: int, _end: int | None, _kind: str) -> str:
             raise AssertionError("sequences must come from refget")
 
-        def get_symbol_accessions(self, _symbol: str, _source: str, _target: str) -> list[tuple[str, str]]:
+        def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]]:
+            del symbol, source_kind, target_kind
             return [("transcript_accession", "NM_TEST.1")]
 
-        def get_identifier_type(self, _identifier: str) -> str:
+        def get_identifier_type(self, identifier: str) -> str:
+            del identifier
             return "gene_symbol"
 
     wrapped = RefgetProvider(BASE, Transcripts(), transport=Server())

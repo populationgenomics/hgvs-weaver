@@ -47,9 +47,9 @@ dev = [
     # sequence repository and shell are overridden out below.
     "hgvs>=1.5",
     "maturin>=1.11.5",
-    "mypy",
     "myst-parser",
     "pre-commit",
+    "pyright>=1.1.400",
     "pytest>=8.4.1",
     "pytest-cov>=7.0.0",
     "ruff",
@@ -123,10 +123,15 @@ known-first-party = ["weaver"]
     "PYI021",   # Docstrings in stubs.
 ]
 
-[tool.mypy]
-python_version = "3.11"
-explicit_package_bases = true
-ignore_missing_imports = true
+[tool.pyright]
+# The Python the tooling targets (ruff's target-version); the annotations are checked against its standard library.
+pythonVersion = "3.11"
+# Resolve imports from the uv-managed venv, so editor pyright sees installed deps the same way `uv run pyright` does.
+venvPath = "."
+venv = ".venv"
+include = ["weaver", "tests", "scripts", "tools"]
+exclude = ["**/__pycache__", ".venv"]
+typeCheckingMode = "standard"
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"
