@@ -264,7 +264,7 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
     return results
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Main entry point for validation."""
     parser = argparse.ArgumentParser(description="Full validation against ClinVar variants.")
     parser.add_argument("input_file", help="Input ClinVar TSV file.")
@@ -292,7 +292,7 @@ def main() -> None:
         action="store_true",
         help="Disable ferro-hgvs comparison entirely (fh_parse column will be SKIP).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     with open(args.input_file) as f_in:
         reader = csv.DictReader(f_in, delimiter="\t")
