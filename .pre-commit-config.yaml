@@ -33,6 +33,21 @@ repos:
         language: system
         files: \.py$
         pass_filenames: false
+  - repo: local
+    hooks:
+      # Rust's mechanical layer, both crates; whole-project, fires on any staged Rust or Cargo file.
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: bash -c 'cargo fmt --check && cargo fmt --check --manifest-path hgvs-weaver/Cargo.toml'
+        language: system
+        files: \.rs$|Cargo\.(toml|lock)$
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: bash -c 'cargo clippy --locked --all-targets -- -D warnings && cargo clippy --locked --all-targets --manifest-path hgvs-weaver/Cargo.toml -- -D warnings'
+        language: system
+        files: \.rs$|Cargo\.(toml|lock)$
+        pass_filenames: false
   # Markdown formatter. CommonMark-strict, so intraword `_` (snake_case) stays literal and fenced
   # code is untouched. gfm = tables/task-lists/autolinks; frontmatter = YAML headers. Wrap at 120.
   - repo: https://github.com/hukkin/mdformat

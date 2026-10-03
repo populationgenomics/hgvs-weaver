@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import argparse
+import datetime
 import gzip
 import io
 import sys
-from datetime import UTC, datetime
-from xml.etree.ElementTree import Element
+import xml.etree.ElementTree as ET
 
 import requests
 from defusedxml import ElementTree
@@ -55,7 +57,7 @@ def map_to_annotation_release(update_date_str: str | None) -> str | None:
         return None
 
     try:
-        dt = datetime.strptime(update_date_str, "%Y/%m/%d").replace(tzinfo=UTC)
+        dt = datetime.datetime.strptime(update_date_str, "%Y/%m/%d").replace(tzinfo=datetime.UTC)
         year = dt.year
 
         # Logic:
@@ -206,7 +208,7 @@ class RefSeqGFFBuilder:
         except requests.RequestException as e:
             return None, f"Search failed: {e}"
 
-    def _fetch_gene_record(self, gene_id: str) -> tuple[Element | None, str | None]:
+    def _fetch_gene_record(self, gene_id: str) -> tuple[ET.Element | None, str | None]:
         print(f"Found Gene ID: {gene_id}. Fetching record...", file=sys.stderr)
         try:
             r = requests.get(
@@ -221,7 +223,10 @@ class RefSeqGFFBuilder:
         except ElementTree.ParseError as e:
             return None, f"XML Parse failed: {e}"
 
-    def _select_transcript_node(self, root: Element) -> tuple[Element | None, str | None]:
+    def _select_transcript_node(
+        self,
+        root: ET.Element,
+    ) -> tuple[ET.Element | None, str | None]:
         target_acc = self.transcript_id.split(".")[0]
         target_ver = self.transcript_id.split(".")[1] if "." in self.transcript_id else None
 
@@ -277,7 +282,7 @@ class RefSeqGFFBuilder:
 
     def _append_cds_lines(
         self,
-        selected_node: Element,
+        selected_node: ET.Element,
         lines: list[str],
         chrom_acc: str,
         strand: str,
@@ -305,7 +310,7 @@ class RefSeqGFFBuilder:
                         cds_ints = self.parse_seq_loc(loc_node)
                         self.append_cds(lines, cds_ints, chrom_acc, strand, prot_id, self.transcript_id, gene_id)
 
-    def parse_seq_loc(self, seq_loc: Element) -> list[tuple[int, int, str, str]]:
+    def parse_seq_loc(self, seq_loc: ET.Element) -> list[tuple[int, int, str, str]]:
         ints: list[tuple[int, int, str, str]] = []
         # Handle mix
         mix = seq_loc.find("Seq-loc_mix/Seq-loc-mix")

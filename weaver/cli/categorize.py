@@ -3,6 +3,8 @@ Categorization of mapping failures.
 
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 

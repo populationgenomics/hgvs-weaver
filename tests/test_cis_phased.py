@@ -1,5 +1,7 @@
 """Alleles in cis, c.[145C>T;147C>G], through the bindings: parsing, dicts, VRS."""
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import json

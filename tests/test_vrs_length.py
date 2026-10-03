@@ -1,5 +1,7 @@
 """Insertions of a stated length, insN[20], as VRS Alleles with a LengthExpression state."""
 
+from __future__ import annotations
+
 import json
 import typing
 

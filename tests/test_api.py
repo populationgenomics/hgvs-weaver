@@ -1,5 +1,7 @@
 """Tests for the weaver Python API."""
 
+from __future__ import annotations
+
 import typing
 
 import weaver

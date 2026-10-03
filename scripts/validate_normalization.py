@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 # ruff: noqa: ANN401, PLR0913, PLR0912, C901
 import bz2
 import contextlib
 import csv
 import logging
+import pathlib
 import re
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import weaver
@@ -25,7 +27,7 @@ PARTS_EXPECTED = 4
 CHROM_X_NUM = 23
 CHROM_Y_NUM = 24
 
-REPO_ROOT = Path(__file__).parent.parent.resolve()
+REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
 GFF_37 = "GCF_000001405.25_GRCh37.p13_genomic.gff.gz"
 FASTA_37 = "GCF_000001405.25_GRCh37.p13_genomic.fna"

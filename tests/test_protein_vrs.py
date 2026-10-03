@@ -1,5 +1,7 @@
 """Protein variants have canonical alleles, SPDI and VRS on their protein sequence."""
 
+from __future__ import annotations
+
 import typing
 
 import weaver

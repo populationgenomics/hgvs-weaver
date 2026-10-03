@@ -1,5 +1,7 @@
 """A VariantMapper keeps what it fetched for as long as it lives."""
 
+from __future__ import annotations
+
 import typing
 
 import weaver

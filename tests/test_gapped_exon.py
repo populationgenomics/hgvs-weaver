@@ -1,5 +1,7 @@
 """A transcript base the genome lacks projects as an insertion, or fails at an exon edge (issue #43)."""
 
+from __future__ import annotations
+
 import typing
 
 import pytest

@@ -1,5 +1,7 @@
 """Issue #38: validate checks the bases stated after del, dup and delins."""
 
+from __future__ import annotations
+
 import typing
 
 import pytest

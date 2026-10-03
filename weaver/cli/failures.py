@@ -1,5 +1,7 @@
 """Extraction of weaver mapping failures."""
 
+from __future__ import annotations
+
 import csv
 
 
