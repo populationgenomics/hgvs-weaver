@@ -1,5 +1,7 @@
 """A CDS that runs off an end of the record refuses the positions numbered from that end (issue #47)."""
 
+from __future__ import annotations
+
 import typing
 
 import pytest

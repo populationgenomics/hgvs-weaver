@@ -1,6 +1,6 @@
 use crate::coords::SequenceVariant;
 use crate::edits::AaEdit;
-use crate::structs::{AaInterval, AAPosition, PVariant, PosEdit};
+use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit};
 
 /// Controls how start-codon variants are represented in protein notation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,9 +46,7 @@ pub fn transform_variant(
     settings: &VariantTransformSettings,
 ) -> SequenceVariant {
     match var {
-        SequenceVariant::Protein(vp) => {
-            SequenceVariant::Protein(transform_protein(vp, settings))
-        }
+        SequenceVariant::Protein(vp) => SequenceVariant::Protein(transform_protein(vp, settings)),
         _ => var.clone(),
     }
 }

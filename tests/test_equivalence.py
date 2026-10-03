@@ -1,5 +1,7 @@
 """Tests for the variant equivalence functionality."""
 
+from __future__ import annotations
+
 import typing
 
 import weaver

@@ -25,7 +25,7 @@ import pathlib
 import sys
 import urllib.request
 
-from . import validate
+from weaver.cli import validate
 
 NCBI = "https://ftp.ncbi.nlm.nih.gov"
 HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"

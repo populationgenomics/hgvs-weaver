@@ -1,13 +1,15 @@
 """Analysis of HGVS validation results with integrated contingency reporting."""
 
+from __future__ import annotations
+
 import argparse
 import csv
 import io
 import json
+import pathlib
 import re
 import shutil
 import subprocess
-from pathlib import Path
 
 
 def clean_hgvs(s: str) -> str:
@@ -31,11 +33,11 @@ def is_p_match(pred: str, truth: str) -> bool:
     return p == t
 
 
-def get_repo_root() -> Path:
-    return Path(__file__).parent.parent.parent.resolve()
+def get_repo_root() -> pathlib.Path:
+    return pathlib.Path(__file__).parent.parent.parent.resolve()
 
 
-def get_tags(repo_root: Path) -> dict[str, str]:
+def get_tags(repo_root: pathlib.Path) -> dict[str, str]:
     """Returns a mapping of commit hash to tag name."""
     tags = {}
     try:
@@ -61,7 +63,7 @@ def get_tags(repo_root: Path) -> dict[str, str]:
     return tags
 
 
-def get_current_version(repo_root: Path) -> str:
+def get_current_version(repo_root: pathlib.Path) -> str:
     pyproject_file = repo_root / "pyproject.toml"
     if not pyproject_file.exists():
         return "unknown"
@@ -170,7 +172,7 @@ def generate_svg(data_points: list[dict], mode: str = "light") -> str:
     return svg_val[svg_val.find("<svg") :]
 
 
-def update_performance_graphs(repo_root: Path) -> None:
+def update_performance_graphs(repo_root: pathlib.Path) -> None:
     history_file = repo_root / "benchmark_results" / "history.json"
     readme_file = repo_root / "README.md"
 

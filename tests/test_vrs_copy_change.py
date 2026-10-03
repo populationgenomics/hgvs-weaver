@@ -1,5 +1,7 @@
 """Duplications with uncertain breakpoints as VRS CopyNumberChange dicts, and read back."""
 
+from __future__ import annotations
+
 import json
 import typing
 

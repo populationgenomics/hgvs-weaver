@@ -1,5 +1,7 @@
 """VRS Alleles and SPDI strings read back into HGVS through the bindings."""
 
+from __future__ import annotations
+
 import json
 import typing
 

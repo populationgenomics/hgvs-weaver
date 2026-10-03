@@ -1,5 +1,7 @@
 """A range written backwards is refused when parsed, as an HGVSError a caller can catch."""
 
+from __future__ import annotations
+
 import pytest
 
 import weaver

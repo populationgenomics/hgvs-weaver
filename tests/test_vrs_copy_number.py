@@ -1,5 +1,7 @@
 """Copy-number edits rendered as VRS CopyNumberCount dicts and read back."""
 
+from __future__ import annotations
+
 import json
 import typing
 

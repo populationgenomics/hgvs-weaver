@@ -94,11 +94,18 @@ target-version = "py311"
 indent-width = 4
 
 [tool.ruff.lint]
-select = ["A", "B", "C",  "E", "F", "G", "I", "N", "Q", "S", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "ERA", "EXE", "ICN", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "UP", "YTT"]
+# TCH (flake8-type-checking) is left out on purpose: it moves type-only imports into TYPE_CHECKING
+# blocks, which docs/style/python.md rules out; with `from __future__ import annotations` the import
+# costs nothing at run time.
+select = ["A", "B", "C",  "E", "F", "G", "I", "N", "Q", "S", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "ERA", "EXE", "ICN", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TID", "UP", "YTT"]
 ignore = [
     "PD011",   # pandas-use-of-dot-values (false positive)
 ]
-fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "ERA", "EXE", "FBT", "ICN", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "UP", "YTT"]
+fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "ERA", "EXE", "FBT", "ICN", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TID", "UP", "YTT"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Absolute imports only (docs/style/python.md).
+ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
 known-first-party = ["weaver"]
