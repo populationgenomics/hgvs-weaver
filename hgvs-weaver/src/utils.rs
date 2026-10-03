@@ -139,7 +139,7 @@ pub fn translate_cds(cds: &str) -> String {
 pub fn translate(seq: &str) -> String {
     let bytes = seq.as_bytes();
     let mut aa = String::with_capacity(bytes.len() / 3);
-    for codon in bytes.chunks_exact(3) {
+    for codon in bytes.as_chunks::<3>().0 {
         let codon = std::str::from_utf8(codon).unwrap_or("NNN");
         aa.push(translate_codon(codon).unwrap_or('X'));
     }
