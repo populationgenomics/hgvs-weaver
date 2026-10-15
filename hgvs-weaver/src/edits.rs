@@ -63,7 +63,8 @@ pub enum NaEdit {
     /// Copy number change.
     NACopy { copy: i32, uncertain: bool },
     /// A statement about the whole molecule, with no position: `r.0` (no
-    /// transcript), `r.?`, `r.spl` (splicing affected), `r.=`.
+    /// transcript), `r.?`, `r.spl` (splicing affected), and no change, `r.=`,
+    /// `c.=` and `n.=`.
     Special { value: String, uncertain: bool },
     /// No change (identity).
     None,

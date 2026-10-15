@@ -118,7 +118,9 @@ class Variant:
             provider: The data provider instance for sequence retrieval.
 
         Returns:
-            True if the reference sequence matches, False otherwise.
+            True if the reference sequence matches, False otherwise. A statement
+            about the whole molecule (c.=, r.spl, p.0) names no bases and is True
+            once its reference is found.
 
         Raises:
             ValidationError: If transcript sequence is too short or coordinates are out of bounds.
@@ -176,8 +178,8 @@ class VariantMapper:
         Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).
 
         An r. variant is predicted from its c. spelling; a statement about the
-        transcript (r.0, r.spl, r.?, r.=) becomes the matching statement about the
-        protein (p.0, p.?, p.(=)).
+        transcript (c.=, r.0, r.spl, r.?, r.=) becomes the matching statement about
+        the protein (p.(=), p.0, p.?).
 
         Args:
             var_c: The coding or RNA Variant to project.
@@ -324,7 +326,7 @@ class VariantMapper:
         Raises:
             ValueError: If var_r is not an RNA variant.
             HGVSError: If the transcript has no CDS, or the variant is a statement
-                about the transcript (r.0, r.spl).
+                about the transcript with no c. spelling (r.0, r.spl); r.= is c.=.
         """
     def r_to_n(self, var_r: Variant) -> Variant:
         """
@@ -333,7 +335,7 @@ class VariantMapper:
         Raises:
             ValueError: If var_r is not an RNA variant.
             HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a
-                statement about the transcript.
+                statement about the transcript with no n. spelling (r.0, r.spl); r.= is n.=.
         """
     def c_to_r(self, var_c: Variant) -> Variant:
         """

@@ -13,6 +13,7 @@ VALID_VARIANTS = [
     "c.101+1_101+7dup",
     "c.122-6T>A",
     "c.12=",
+    "c.=",
     "c.1_2delinsA",
     "c.1_2insAAA",
     "c.1_35del",
@@ -70,11 +71,6 @@ VALID_VARIANTS = [
     "p.[Glu27Trp;Lys212fs]",
 ]
 
-# Variants that mavehgvs accepts but weaver currently rejects
-XFAIL_VARIANTS = [
-    "c.=",  # Whole-sequence identity (c.=)
-]
-
 INVALID_VARIANTS = [
     "22G>A",
     "77dup",
@@ -125,19 +121,6 @@ def test_valid_mavehgvs_parsing(variant_string: str) -> None:
 
         # If it had a colon or failed even with prefix
         pytest.fail(f"Failed to parse valid variant {variant_string}: {e}")
-
-
-@pytest.mark.parametrize("variant_string", XFAIL_VARIANTS)
-@pytest.mark.xfail(reason="Known missing features (multi-variant or identity)")
-def test_mavehgvs_xfail(variant_string: str) -> None:
-    """Ensure these variants fail as expected (documentation of gaps)."""
-    # If they start passing, we want to know (strict=True by default in recent pytest?)
-    # We simulate the same logic as valid variants
-    if ":" not in variant_string:
-        prefix = "NP_000000.0" if variant_string.startswith("p.") else "NM_000000.0"
-        variant_string = f"{prefix}:{variant_string}"
-
-    weaver.parse(variant_string)
 
 
 @pytest.mark.parametrize("variant_string", INVALID_VARIANTS)

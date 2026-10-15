@@ -434,15 +434,14 @@ enum CodingOutcome {
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
 /// upstream says nothing, since an upstream start may be created), or an
-/// edit entirely in the 3'UTR, which cannot change the protein. `None` when
-/// the edit is a change to read.
+/// edit entirely in the 3'UTR, which cannot change the protein, as `c.=`, the
+/// whole transcript unchanged, cannot. `None` when the edit is a change to read.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
     protein_ac: &str,
 ) -> Option<PVariant> {
     use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
-    let pos = var_c.posedit.pos.as_ref()?;
     let statement = |pos: Option<AaInterval>, value: &str| PVariant {
         ac: protein_ac.to_string(),
         gene: var_c.gene.clone(),
@@ -456,6 +455,13 @@ fn statement_about_transcript(
             // `p.(=)` is a prediction of no change; the others state what is unknown.
             predicted: value == "=",
         },
+    };
+    let Some(pos) = var_c.posedit.pos.as_ref() else {
+        let unchanged = matches!(
+            &var_c.posedit.edit,
+            crate::edits::NaEdit::Special { value, .. } if value == "="
+        );
+        return unchanged.then(|| statement(None, "="));
     };
     if has_intronic_offset(pos) {
         return Some(statement(None, "?"));
@@ -867,15 +873,15 @@ fn relettered(edit: &crate::edits::NaEdit, letters: Letters) -> crate::edits::Na
 }
 
 /// `posedit` re-anchored through `anchor` and re-lettered, for moving between
-/// r. and c./n. Statements about the transcript (r.0, r.spl) have no other
-/// spelling.
+/// r. and c./n. Of the statements about the transcript only no change has
+/// another spelling, `r.=` as `c.=` or `n.=`; r.0 and r.spl have none.
 fn relettered_posedit(
     var: &dyn std::fmt::Display,
     posedit: &crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>,
     letters: Letters,
     anchor: impl Fn(Anchor) -> Anchor,
 ) -> Result<crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>, HgvsError> {
-    if matches!(posedit.edit, crate::edits::NaEdit::Special { .. }) {
+    if matches!(&posedit.edit, crate::edits::NaEdit::Special { value, .. } if value != "=") {
         return Err(HgvsError::UnsupportedOperation(format!(
             "{var} describes the transcript as a whole and has no other spelling"
         )));
@@ -1234,6 +1240,14 @@ impl<'a> VariantMapper<'a> {
         var_c: &V,
         reference_ac: Option<&str>,
     ) -> Result<GVariant, HgvsError> {
+        if let crate::edits::NaEdit::Special { .. } = &var_c.posedit().edit {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{}:{}.{} describes the transcript as a whole, so it has no genomic form",
+                var_c.ac(),
+                var_c.coordinate_type(),
+                var_c.posedit()
+            )));
+        }
         let transcript = self.provider().get_transcript(var_c.ac(), reference_ac)?;
         let am = TranscriptMapper::new(transcript)?;
         let target_ac = reference_ac
@@ -1722,9 +1736,26 @@ impl<'a> VariantMapper<'a> {
     ///
     /// Returns `Ok(true)` when the stated reference matches, or when the edit
     /// states no reference (or only a length) so there is nothing to check.
-    /// Intronic c. positions are accepted unchecked. Only g. and c. variants
-    /// are supported.
+    /// Intronic c. positions are accepted unchecked, and so is a statement
+    /// about the whole molecule (`c.=`, `r.spl`, `p.0`), which names no bases,
+    /// once the reference it cites is found.
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
+        use crate::SequenceVariant as SV;
+        if var.is_whole_molecule_statement() {
+            match var {
+                SV::Protein(p) => {
+                    self.refs
+                        .reference(&p.ac, IdentifierType::ProteinAccession)
+                        .base(0)?;
+                    return Ok(true);
+                }
+                SV::Coding(_) | SV::NonCoding(_) | SV::Rna(_) => {
+                    self.provider().get_transcript(var.ac(), None)?;
+                    return Ok(true);
+                }
+                _ => {}
+            }
+        }
         match var {
             crate::SequenceVariant::Genomic(v) => self.validate_linear(v),
             crate::SequenceVariant::Mitochondrial(v) => self.validate_linear(v),
@@ -1953,6 +1984,12 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        if var.is_whole_molecule_statement() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var} is a statement about the whole molecule, not a change at a position, \
+                 so it has no canonical allele"
+            )));
+        }
         if let crate::SequenceVariant::CisPhased(cis) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "A cis allele has one canonical allele per member, not one of its own; \

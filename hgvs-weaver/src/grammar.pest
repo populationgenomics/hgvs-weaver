@@ -26,10 +26,14 @@ trans_alleles = { accn ~ opt_gene_expr ~ ":" ~ ASCII_ALPHA ~ "." ~ bracket_group
 bracket_group = { "[" ~ (!"]" ~ ANY)* ~ "]" }
 
 // PosEdits
-c_posedit = { c_interval ~ dna_edit }
+c_posedit = { (c_interval ~ dna_edit) | tx_identity }
 g_posedit = { g_interval ~ dna_edit }
 m_posedit = { m_interval ~ dna_edit }
-n_posedit = { n_interval ~ dna_edit }
+n_posedit = { (n_interval ~ dna_edit) | tx_identity }
+// The whole transcript analysed and found unchanged, c.= (n.= on a
+// non-coding transcript, the DNA spelling of r.=). A genome has no such
+// statement: g. and m. state no change only over a range, g.88_99=.
+tx_identity = { "=" }
 r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | r_posedit_special }
 // A predicted RNA change, r.(123a>g): the RNA was not analysed. Only r. and
 // p. have this form; on DNA, parentheses mark uncertain positions instead.

@@ -289,7 +289,7 @@ impl PyVariant {
             .unbind())
     }
 
-    #[doc = "Validates the variant's reference sequence against the provided DataProvider.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if the reference sequence matches, False otherwise.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds.\n    DataProviderError: If sequence data cannot be retrieved."]
+    #[doc = "Validates the variant's reference sequence against the provided DataProvider.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if the reference sequence matches, False otherwise. A statement\n    about the whole molecule (c.=, r.spl, p.0) names no bases and is True\n    once its reference is found.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
         VariantMapper::new(&bridge)
@@ -663,7 +663,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0, p.?, p.(=)).\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
+    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (c.=, r.0, r.spl, r.?, r.=) becomes the matching statement about\nthe protein (p.(=), p.0, p.?).\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
     fn c_to_p(
         &self,
         _py: Python,
@@ -739,7 +739,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_r))]
-    #[doc = "Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.\n\nr. positions on a coding transcript are c. positions; the bases become\nuppercase DNA letters (u to T).\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has no CDS, or the variant is a statement about the transcript (r.0, r.spl)."]
+    #[doc = "Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.\n\nr. positions on a coding transcript are c. positions; the bases become\nuppercase DNA letters (u to T).\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has no CDS, or the variant is a statement about the transcript\n        with no c. spelling (r.0, r.spl); r.= is c.=."]
     fn r_to_c(&self, _py: Python, var_r: &PyVariant) -> PyResult<PyVariant> {
         let v = expect_rna(&var_r.inner)?;
         let mapper = self.mapper();
@@ -750,7 +750,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_r))]
-    #[doc = "Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a statement about the transcript."]
+    #[doc = "Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a statement about the transcript\n        with no n. spelling (r.0, r.spl); r.= is n.=."]
     fn r_to_n(&self, _py: Python, var_r: &PyVariant) -> PyResult<PyVariant> {
         let v = expect_rna(&var_r.inner)?;
         let mapper = self.mapper();

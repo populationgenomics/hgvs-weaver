@@ -266,6 +266,12 @@ impl CisPhasedVariant {
                     m.ac()
                 )));
             }
+            if members.len() > 1 && m.is_whole_molecule_statement() {
+                return Err(HgvsError::ValidationError(format!(
+                    "{m} is a statement about the whole molecule, so it cannot share a cis \
+                     allele with other members"
+                )));
+            }
         }
         Ok(CisPhasedVariant { ac, gene, members })
     }
