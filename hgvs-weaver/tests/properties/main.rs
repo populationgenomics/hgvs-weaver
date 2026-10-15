@@ -662,3 +662,278 @@ proptest! {
         prop_assert_eq!(eq.equivalent_level(&vm, &vg).unwrap(), EquivalenceLevel::Identity);
     }
 }
+
+// ---------------------------------------------------------------------------
+// What a projection writes is HGVS the parser reads back
+//
+// A caller stores what weaver writes and parses it later, so every projection's
+// result must parse, to the value it was written from. One property per
+// projection; a projection that refuses its input is not this property's
+// concern.
+// ---------------------------------------------------------------------------
+
+/// The c. variant a [`TxEdit`] describes on `g`.
+fn tx_edit_variant(g: &Gene, am: &TranscriptMapper, e: &TxEdit) -> CVariant {
+    let position = |p: TxPoint| BaseOffsetPosition {
+        offset: (p.offset != 0).then_some(IntronicOffset(p.offset)),
+        ..CVariant::position_from_index(am, p.index).unwrap()
+    };
+    CVariant {
+        ac: g.ac.clone(),
+        gene: None,
+        posedit: PosEdit {
+            pos: Some(BaseOffsetInterval {
+                start: position(e.start),
+                end: (e.end != e.start).then(|| position(e.end)),
+                uncertain: false,
+            }),
+            edit: e.edit.clone(),
+            uncertain: false,
+            predicted: false,
+        },
+    }
+}
+
+/// The variant's HGVS parses, to the variant it was written from.
+fn reparses_to_itself(v: SequenceVariant) -> Result<(), TestCaseError> {
+    let text = v.to_string();
+    let back = parse_hgvs_variant(&text)
+        .map_err(|e| TestCaseError::fail(format!("{text} does not parse: {e}")))?;
+    prop_assert_eq!(back, v, "{} parses to a different variant", text);
+    Ok(())
+}
+
+/// The p. variant without the residues its edit replaces: p. text names only
+/// the interval's ends, so a parsed consequence never carries them.
+fn as_written(mut vp: PVariant) -> PVariant {
+    vp.posedit.edit = match vp.posedit.edit {
+        AaEdit::Subst { alt, uncertain, .. } => AaEdit::Subst {
+            ref_: String::new(),
+            alt,
+            uncertain,
+        },
+        AaEdit::Del { uncertain, .. } => AaEdit::Del {
+            ref_: String::new(),
+            uncertain,
+        },
+        AaEdit::DelIns { alt, uncertain, .. } => AaEdit::DelIns {
+            ref_: String::new(),
+            alt,
+            uncertain,
+        },
+        AaEdit::Dup { uncertain, .. } => AaEdit::Dup {
+            ref_: None,
+            uncertain,
+        },
+        other => other,
+    };
+    vp
+}
+
+/// The consequence's HGVS parses, to the consequence it was written from, as
+/// far as p. text can say ([`as_written`]).
+fn protein_reparses_to_itself(vp: PVariant) -> Result<(), TestCaseError> {
+    let text = vp.to_string();
+    let back = match parse_hgvs_variant(&text) {
+        Ok(SequenceVariant::Protein(back)) => back,
+        other => {
+            return Err(TestCaseError::fail(format!(
+                "{text} does not parse to a p. variant: {other:?}"
+            )))
+        }
+    };
+    prop_assert_eq!(
+        as_written(back),
+        as_written(vp),
+        "{} parses to a different variant",
+        text
+    );
+    Ok(())
+}
+
+proptest! {
+    /// The generator's own check: its points name every genome base once, in
+    /// transcript order, and the exonic ones hold the transcript's bases.
+    #[test]
+    fn gene_points_name_every_genome_base_once_in_transcript_order(g in gene()) {
+        let named: Vec<usize> = g.points().into_iter().map(|p| g.genome_index(p)).collect();
+        let mut expected: Vec<usize> = (0..g.genome.len()).collect();
+        if g.strand == hgvs_weaver::data::Strand::Minus {
+            expected.reverse();
+        }
+        prop_assert_eq!(named, expected);
+        let exonic: Vec<TxPoint> = g.points().into_iter().filter(|p| p.offset == 0).collect();
+        prop_assert_eq!(g.bases_at(&exonic), g.transcript_seq.clone());
+    }
+
+    #[test]
+    fn a_genomic_projection_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vg) = mapper.c_to_g(&vc, None) else { return Ok(()) };
+        reparses_to_itself(SequenceVariant::Genomic(vg))?;
+    }
+
+    #[test]
+    fn a_coding_projection_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vg) = mapper.c_to_g(&vc, None) else { return Ok(()) };
+        let Ok(back) = mapper.g_to_c(&vg, &g.ac) else { return Ok(()) };
+        reparses_to_itself(SequenceVariant::Coding(back))?;
+    }
+
+    #[test]
+    fn an_rna_projection_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vr) = mapper.c_to_r(&vc) else { return Ok(()) };
+        reparses_to_itself(SequenceVariant::Rna(vr))?;
+    }
+
+    #[test]
+    fn a_coding_spelling_of_rna_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vr) = mapper.c_to_r(&vc) else { return Ok(()) };
+        let Ok(back) = mapper.r_to_c(&vr) else { return Ok(()) };
+        reparses_to_itself(SequenceVariant::Coding(back))?;
+    }
+
+    #[test]
+    fn a_genomic_projection_of_rna_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vr) = mapper.c_to_r(&vc) else { return Ok(()) };
+        let Ok(vg) = mapper.r_to_g(&vr, None) else { return Ok(()) };
+        reparses_to_itself(SequenceVariant::Genomic(vg))?;
+    }
+
+    #[test]
+    fn a_normalised_rna_variant_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vr) = mapper.c_to_r(&vc) else { return Ok(()) };
+        let Ok(normalised) = mapper.normalize_variant(SequenceVariant::Rna(vr)) else { return Ok(()) };
+        reparses_to_itself(normalised)?;
+    }
+
+    #[test]
+    fn a_protein_consequence_of_rna_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vr) = mapper.c_to_r(&vc) else { return Ok(()) };
+        let Ok(vp) = mapper.r_to_p(&vr, Some("NP_PROP.1")) else { return Ok(()) };
+        protein_reparses_to_itself(vp)?;
+    }
+
+    #[test]
+    fn a_protein_consequence_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vp) = mapper.c_to_p(&vc, Some("NP_PROP.1")) else { return Ok(()) };
+        protein_reparses_to_itself(vp)?;
+    }
+
+    #[test]
+    fn a_normalised_coding_variant_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(normalised) = mapper.normalize_variant(SequenceVariant::Coding(vc)) else { return Ok(()) };
+        reparses_to_itself(normalised)?;
+    }
+
+    #[test]
+    fn a_normalised_genomic_variant_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(vg) = mapper.c_to_g(&vc, None) else { return Ok(()) };
+        let Ok(normalised) = mapper.normalize_variant(SequenceVariant::Genomic(vg)) else { return Ok(()) };
+        reparses_to_itself(normalised)?;
+    }
+
+    #[test]
+    fn a_variant_read_from_spdi_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = SequenceVariant::Coding(tx_edit_variant(&g, &am, &e));
+        let Ok(spdi) = mapper.to_spdi(&vc, false) else { return Ok(()) };
+        let Ok(back) = mapper.from_spdi(&spdi) else { return Ok(()) };
+        reparses_to_itself(back)?;
+    }
+
+    #[test]
+    fn a_variant_read_from_vrs_reparses_to_itself((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = SequenceVariant::Coding(tx_edit_variant(&g, &am, &e));
+        let Ok(vrs) = mapper.to_vrs(&vc) else { return Ok(()) };
+        let Ok(back) = mapper.from_vrs(&vrs.to_json(), Some(&g.reference_ac)) else { return Ok(()) };
+        reparses_to_itself(back)?;
+    }
+}
+
+/// The properties above pass vacuously on a case a projection refuses, so on
+/// a fixed sample each projection must answer most generated edits, and some
+/// genes must differ from their genome.
+#[test]
+fn the_generated_edits_reach_every_projection() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = gene_and_edit();
+    let cases = 1000;
+    let mut answered = [0usize; 4];
+    let mut discordant = 0;
+    for _ in 0..cases {
+        let (g, e) = strategy.new_tree(&mut runner).unwrap().current();
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        answered[0] += usize::from(mapper.c_to_g(&vc, None).is_ok());
+        answered[1] += usize::from(mapper.c_to_r(&vc).is_ok());
+        answered[2] += usize::from(mapper.c_to_p(&vc, Some("NP_PROP.1")).is_ok());
+        answered[3] += usize::from(
+            mapper
+                .normalize_variant(SequenceVariant::Coding(vc))
+                .is_ok(),
+        );
+        let exonic: Vec<TxPoint> = g.points().into_iter().filter(|p| p.offset == 0).collect();
+        discordant += usize::from(g.bases_at(&exonic) != g.transcript_seq);
+    }
+    for (name, ok) in ["c_to_g", "c_to_r", "c_to_p", "normalize_variant"]
+        .into_iter()
+        .zip(answered)
+    {
+        assert!(
+            ok * 10 >= cases * 7,
+            "{name} answered {ok} of {cases} generated edits"
+        );
+    }
+    assert!(
+        discordant * 10 >= cases,
+        "{discordant} of {cases} generated genes differ from their genome"
+    );
+}

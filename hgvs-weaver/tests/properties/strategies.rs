@@ -270,4 +270,230 @@ impl Gene {
             .transcript(self.transcript_data())
             .protein_for(&self.ac, "NP_PROP.1")
     }
+
+    /// Bases of genomic flank on either side of the transcript.
+    pub fn flank(&self) -> usize {
+        self.exons
+            .iter()
+            .map(|e| e.reference_start.0 as usize)
+            .min()
+            .unwrap()
+    }
+
+    /// Every base of the gene's genome in transcript order, named the way
+    /// HGVS names it: exonic bases by index, intron bases from the nearer
+    /// exon (the earlier on a tie), flanking bases as offsets from the
+    /// transcript's first and last base.
+    pub fn points(&self) -> Vec<TxPoint> {
+        let flank = self.flank() as i32;
+        let tx_len = self.transcript_seq.len() as i32;
+        let mut points: Vec<TxPoint> = (1..=flank)
+            .rev()
+            .map(|k| TxPoint {
+                index: 0,
+                offset: -k,
+            })
+            .collect();
+        for (k, &(ts, te)) in self.tx_exons.iter().enumerate() {
+            points.extend((ts..te).map(|i| TxPoint {
+                index: i as i32,
+                offset: 0,
+            }));
+            if let Some(&len) = self.introns.get(k) {
+                let len = len as i32;
+                points.extend((1..=len).map(|i| {
+                    if i <= len + 1 - i {
+                        TxPoint {
+                            index: te as i32 - 1,
+                            offset: i,
+                        }
+                    } else {
+                        TxPoint {
+                            index: te as i32,
+                            offset: -(len + 1 - i),
+                        }
+                    }
+                }));
+            }
+        }
+        points.extend((1..=flank).map(|k| TxPoint {
+            index: tx_len - 1,
+            offset: k,
+        }));
+        points
+    }
+
+    /// The genome index a point names.
+    pub fn genome_index(&self, p: TxPoint) -> usize {
+        let exon = self
+            .exons
+            .iter()
+            .find(|e| e.transcript_start.0 <= p.index && p.index < e.transcript_end.0)
+            .unwrap();
+        let into = p.index - exon.transcript_start.0;
+        let g = match self.strand {
+            Strand::Plus => exon.reference_start.0 + into + p.offset,
+            Strand::Minus => exon.reference_end.0 - into - p.offset,
+        };
+        g as usize
+    }
+
+    /// The bases at `points`, read in the transcript's sense.
+    pub fn bases_at(&self, points: &[TxPoint]) -> String {
+        let genomic: String = points
+            .iter()
+            .map(|&p| self.genome.as_bytes()[self.genome_index(p)] as char)
+            .collect();
+        match self.strand {
+            Strand::Plus => genomic,
+            // complemented base by base; `points` is already in transcript order
+            Strand::Minus => revcomp(&genomic).chars().rev().collect(),
+        }
+    }
+}
+
+/// A base on the genome named from the transcript: a transcript index and an
+/// offset from it into an intron or a flank.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TxPoint {
+    pub index: i32,
+    pub offset: i32,
+}
+
+/// An edit over the transcript points `start..=end`; an insertion lies
+/// between them, so `end` is the point after `start`.
+#[derive(Debug, Clone)]
+pub struct TxEdit {
+    pub start: TxPoint,
+    pub end: TxPoint,
+    pub edit: NaEdit,
+}
+
+/// The genome with the base at `p` changed, so the transcript and the genome
+/// disagree there.
+fn discordant_at(g: &Gene, p: TxPoint, shift: usize) -> String {
+    let at = g.genome_index(p);
+    let mut genome = g.genome.clone().into_bytes();
+    let k = BASES.iter().position(|&b| b as u8 == genome[at]).unwrap();
+    genome[at] = BASES[(k + shift) % 4] as u8;
+    String::from_utf8(genome).unwrap()
+}
+
+/// A gene and an edit anywhere on it: substitution, identity (bare or with
+/// its bases stated), deletion, duplication, insertion, deletion-insertion,
+/// inversion or repeat, over exonic, intronic, UTR and flanking bases, the
+/// start and stop codons included, on either strand. Bases an edit states are
+/// the transcript's; sometimes one exonic genome base under the edit then
+/// differs, so a projection has to rewrite the edit against the genome's.
+pub fn gene_and_edit() -> impl Strategy<Value = (Gene, TxEdit)> {
+    gene()
+        .prop_flat_map(|g| {
+            let n = g.points().len();
+            (
+                Just(g),
+                0..n,
+                // mostly short; sometimes long enough to cover the whole CDS
+                prop_oneof![4 => 0usize..=8, 1 => 0..n],
+                0u8..8,
+                dna(1, 6),
+                1usize..=3,
+                1i32..=6,
+                prop::option::weighted(0.25, 0usize..10_000),
+            )
+        })
+        .prop_map(|(mut g, s, span, kind, alt, shift, copies, discord)| {
+            let points = g.points();
+            let last = points.len() - 1;
+            let (start, end, edit) = match kind {
+                0 => {
+                    let r = g.bases_at(&points[s..=s]);
+                    let k = BASES.iter().position(|&b| r == b.to_string()).unwrap();
+                    let a = BASES[(k + shift) % 4].to_string();
+                    let edit = NaEdit::RefAlt {
+                        ref_: Some(r),
+                        alt: Some(a),
+                        uncertain: false,
+                    };
+                    (s, s, edit)
+                }
+                1 => {
+                    // `=`, or `CAG=` with the unchanged bases stated
+                    let e = (s + span % 4).min(last);
+                    let stated = (shift == 1).then(|| g.bases_at(&points[s..=e]));
+                    let edit = NaEdit::RefAlt {
+                        ref_: stated.clone(),
+                        alt: stated,
+                        uncertain: false,
+                    };
+                    (s, e, edit)
+                }
+                2 => (
+                    s,
+                    (s + span).min(last),
+                    NaEdit::Del {
+                        ref_: None,
+                        uncertain: false,
+                    },
+                ),
+                3 => (
+                    s,
+                    (s + span).min(last),
+                    NaEdit::Dup {
+                        ref_: None,
+                        uncertain: false,
+                    },
+                ),
+                4 => (
+                    s.min(last - 1),
+                    s.min(last - 1) + 1,
+                    NaEdit::Ins {
+                        alt: Some(alt),
+                        uncertain: false,
+                    },
+                ),
+                5 => (
+                    s,
+                    (s + span).min(last),
+                    // `delinsX`, as the parser reads it: the deleted bases unstated
+                    NaEdit::RefAlt {
+                        ref_: Some(String::new()),
+                        alt: Some(alt),
+                        uncertain: false,
+                    },
+                ),
+                6 => (
+                    s.min(last - 1),
+                    (s.min(last - 1) + span.max(1)).min(last),
+                    NaEdit::Inv {
+                        ref_: None,
+                        uncertain: false,
+                    },
+                ),
+                _ => {
+                    let unit = g.bases_at(&points[s..=(s + span % 3).min(last)]);
+                    let edit = NaEdit::Repeat {
+                        ref_: Some(unit),
+                        min: copies,
+                        max: copies,
+                        uncertain: false,
+                    };
+                    (s, s, edit)
+                }
+            };
+            let exonic_under_edit: Vec<TxPoint> = points[start..=end]
+                .iter()
+                .copied()
+                .filter(|p| p.offset == 0)
+                .collect();
+            if let (Some(pick), false) = (discord, exonic_under_edit.is_empty()) {
+                let p = exonic_under_edit[pick % exonic_under_edit.len()];
+                g.genome = discordant_at(&g, p, shift);
+            }
+            let edit = TxEdit {
+                start: points[start],
+                end: points[end],
+                edit,
+            };
+            (g, edit)
+        })
 }
