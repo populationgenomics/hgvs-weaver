@@ -249,6 +249,32 @@ fn a_3_open_cds_refuses_a_frameshift_or_a_change_reaching_its_last_codon() {
 }
 
 #[test]
+fn a_3_open_cds_deleting_residues_that_repeat_its_last_is_a_deletion() {
+    // MKLAA, the record ending at the last coding base: deleting codon 4
+    // leaves MKLA, a prefix of the reference, with no stop lost.
+    let record = "ATGAAACTGGCCGCC";
+    let mut model: TranscriptData = transcript(
+        "NM_OPENEND.1",
+        GENOME_AC,
+        Strand::Plus,
+        Some((0, 14)),
+        vec![exon((0, 15), (0, 14), Strand::Plus)],
+    );
+    model.cds_end_open = true;
+    let hdp = Provider::new()
+        .sequence(GENOME_AC, record)
+        .sequence("NM_OPENEND.1", record)
+        .sequence("NP_OPENEND.1", "MKLAA")
+        .transcript(model)
+        .protein_for("NM_OPENEND.1", "NP_OPENEND.1");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        c_to_p(&mapper, "NM_OPENEND.1:c.10_12del").unwrap(),
+        "NP_OPENEND.1:p.(Ala5del)"
+    );
+}
+
+#[test]
 fn a_provider_that_says_nothing_about_open_ends_means_both_are_whole() {
     let model: TranscriptData = serde_json::from_str(
         r#"{"ac":"NM_X.1","gene":"X","cds_start_index":2,"cds_end_index":31,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,

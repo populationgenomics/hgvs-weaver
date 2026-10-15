@@ -126,10 +126,14 @@ impl Reading {
         Ok(t)
     }
 
-    /// The edited transcript ends, with no stop, before a codon at the first
-    /// changed residue: there is no residue there to name.
+    /// The edit lost the reference's stop and the edited transcript ends
+    /// before a codon at the first changed residue: there is no residue there
+    /// to name. A reference with no stop (a CDS open at its 3' end) loses
+    /// none, and an alternate that is a prefix of it is a deletion.
     fn runs_off(&self) -> bool {
-        !self.unchanged() && self.first_changed >= self.alt_aa.len()
+        !self.unchanged()
+            && self.stop < self.ref_aa.len()
+            && self.first_changed >= self.alt_aa.len()
     }
 
     /// The protein is the same: nothing differs, or the difference lies past the stop.
