@@ -344,11 +344,11 @@ NM_R.1:r.0              →  NP_R.1:p.0
 transcript: it predicts the transcript's own protein unchanged, and has no genomic form, no allele and no `r.`
 spelling.**
 
-HGVS writes `c.=` for a coding transcript with no variant anywhere in it, and MaveDB writes it for the wild-type row of
-a score set. It names no position, so nothing that works from positions can take it: the transcript is spliced from many
-exons, so there is no one stretch of genome to project it onto, and there are no bases to make an allele, an SPDI or a
-VRS identifier from. weaver does not invent any of these (for example, a reference allele over the transcript's span).
-It answers only what follows from the statement:
+HGVS writes `c.=` for a coding transcript with no variant anywhere in it, and MaveDB's variant grammar accepts it. It
+names no position, so nothing that works from positions can take it: the transcript is spliced from many exons, so there
+is no one stretch of genome to project it onto, and there are no bases to make an allele, an SPDI or a VRS identifier
+from. weaver does not invent any of these (for example, a reference allele over the transcript's span). It answers only
+what follows from the statement:
 
 - **Protein.** If nothing changed in the transcript, the protein it encodes is predicted unchanged, so `c.=` gives
   `p.(=)`. This holds even where the record lacks the start codon (a CDS open at its 5' end). The statement covers only
@@ -356,22 +356,25 @@ It answers only what follows from the statement:
   transcript without a CDS. In equivalence `c.=` is the same as `p.(=)` on that protein, analogous to `p.=`, and not
   equivalent to either on any other protein. A `p.(=)` names no residues, so `c.=` has no protein allele.
 - **No `r.` spelling.** `c.=` and `r.=` make different claims: one says the DNA was analysed, the other the RNA. So
-  `c_to_r` refuses `c.=` and `r_to_c` refuses `r.=`, as both already refuse `r.spl`. For the same reason the two are not
-  equivalent. They do not contradict each other, but neither implies the other. `r.=` and `r.(=)` behave as they did
-  before `c.=` was read.
+  `c_to_r` refuses `c.=` and `r_to_c` refuses `r.=`, as both refuse `r.spl`. For the same reason the two are not
+  equivalent. They do not contradict each other, but neither implies the other. `r.=` and `r.(=)` keep their own
+  readings, [above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery).
 - **Validation.** `c.=` names no bases, so `validate` has nothing to compare. It is true once the transcript is found
   and has a CDS; on a non-coding transcript it is an error. Normalising leaves `c.=` as written.
 - **Alleles in cis.** `c.[=]` alone is `c.=`, the half that the trans form `c.[2376G>C];[=]` names. Beside a change it
   contradicts that change, so `c.[=;10C>G]` is refused when parsed. The same rule refuses `r.[=;10c>g]` and
-  `p.[=;Arg2Gly]`. The other statements are left alone: `r.[spl;10c>g]` parses as before.
+  `p.[=;Arg2Gly]`. The other statements, and an identity at a position, keep their place: `r.[spl;10c>g]` and
+  `p.[Arg2=;Arg3Gly]` parse.
 - **Refused.** A genomic form, a canonical allele, SPDI and VRS are an `UnsupportedOperation` error.
 
 Only `c.` takes the whole-transcript identity. The specification never writes `n.=` and defines no whole-sequence
 statement for `g.` or `m.`, and `c.` has no predicted form, so `n.=`, `g.=`, `m.=` and `c.(=)` do not parse. A
-dictionary that describes one of them is refused by `Variant.from_dict` too.
+dictionary that describes one of them is refused by `Variant.from_dict` too. The identity has its own edit, so a
+dictionary for `r.=` names it rather than a `Special` "=" string; the older form still loads.
 
-`r_to_p` holds every `r.` statement to the same condition as `c_to_p`: on a transcript without a CDS, `r.=`, `r.spl` and
-`r.0` are an error rather than a statement about a protein.
+`r_to_p` holds every `r.` statement to the CDS condition `c_to_p` holds `c.=` to: on a transcript without a CDS, `r.=`,
+`r.spl` and `r.0` are an error rather than a statement about a protein. It does not check that a named protein is the
+transcript's own.
 
 **Example** (`NM_W.1` encodes `NP_W.1`; `NR_W.1` is non-coding):
 
@@ -393,12 +396,15 @@ NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
   sample has no whole-sequence statement.
 - **Spec (agrees):** [DNA substitution](https://hgvs-nomenclature.org/stable/recommendations/DNA/substitution/): "`c.=`
   indicates the entire `NM_004006.2` coding DNA reference sequence was analysed and no change was identified";
-  [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`. The
-  specification says nothing about the protein consequence of `c.=`, about `c.=` inside a cis allele, or about how `c.=`
+  [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`, and "the
+  indication 'not changed' is used only when one variant was identified", which is as close as it comes to `c.=` inside
+  a cis allele. It says nothing about the protein consequence of `c.=`, its genomic form or allele, `n.=`, or how `c.=`
   relates to `r.=`; those are weaver's reading. It writes `r.(=)` for "no changes on the RNA level are expected (RNA not
   analysed)" ([uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/)), which is a different claim
   from `c.=`.
-- **Tests:** `whole_sequence_identity_test::c_identity_prints_back_as_parsed`, `::n_identity_does_not_parse`,
+- **Tests:** `whole_sequence_identity_test::c_identity_prints_back_as_parsed`,
+  `::c_identity_is_its_one_member_cis_allele`, `::c_identity_is_the_predicted_protein_unchanged_on_its_own_protein`,
+  `::an_r_identity_serialised_as_a_statement_string_still_loads`, `::n_identity_does_not_parse`,
   `::a_predicted_c_identity_does_not_parse`, `::c_identity_beside_a_change_is_refused`,
   `::r_splicing_beside_a_change_parses`, `::c_identity_predicts_its_transcripts_protein_unchanged`,
   `::c_identity_says_nothing_about_a_protein_its_transcript_does_not_encode`,
