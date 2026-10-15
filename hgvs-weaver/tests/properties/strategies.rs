@@ -398,7 +398,7 @@ pub fn gene_and_edit() -> impl Strategy<Value = (Gene, TxEdit)> {
                 dna(1, 6),
                 1usize..=3,
                 1i32..=6,
-                prop::option::weighted(0.25, 0usize..10_000),
+                prop::option::weighted(0.25, (0usize..10_000, 1usize..=3)),
             )
         })
         .prop_map(|(mut g, s, span, kind, alt, shift, copies, discord)| {
@@ -485,9 +485,9 @@ pub fn gene_and_edit() -> impl Strategy<Value = (Gene, TxEdit)> {
                 .copied()
                 .filter(|p| p.offset == 0)
                 .collect();
-            if let (Some(pick), false) = (discord, exonic_under_edit.is_empty()) {
+            if let (Some((pick, genome_shift)), false) = (discord, exonic_under_edit.is_empty()) {
                 let p = exonic_under_edit[pick % exonic_under_edit.len()];
-                g.genome = discordant_at(&g, p, shift);
+                g.genome = discordant_at(&g, p, genome_shift);
             }
             let edit = TxEdit {
                 start: points[start],

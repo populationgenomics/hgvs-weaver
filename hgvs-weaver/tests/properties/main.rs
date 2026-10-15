@@ -914,7 +914,11 @@ fn the_generated_edits_reach_every_projection() {
         let vc = tx_edit_variant(&g, &am, &e);
         answered[0] += usize::from(mapper.c_to_g(&vc, None).is_ok());
         answered[1] += usize::from(mapper.c_to_r(&vc).is_ok());
-        answered[2] += usize::from(mapper.c_to_p(&vc, Some("NP_PROP.1")).is_ok());
+        // a statement (`p.?`, `p.(Met1?)`, `p.(=)`) describes no change
+        answered[2] += usize::from(matches!(
+            mapper.c_to_p(&vc, Some("NP_PROP.1")),
+            Ok(vp) if !matches!(vp.posedit.edit, AaEdit::Statement(_))
+        ));
         answered[3] += usize::from(
             mapper
                 .normalize_variant(SequenceVariant::Coding(vc))
@@ -923,12 +927,15 @@ fn the_generated_edits_reach_every_projection() {
         let exonic: Vec<TxPoint> = g.points().into_iter().filter(|p| p.offset == 0).collect();
         discordant += usize::from(g.bases_at(&exonic) != g.transcript_seq);
     }
-    for (name, ok) in ["c_to_g", "c_to_r", "c_to_p", "normalize_variant"]
+    // Most edits fall outside the CDS, where the protein is a statement.
+    let floors = [7, 7, 2, 7];
+    for ((name, ok), floor) in ["c_to_g", "c_to_r", "c_to_p", "normalize_variant"]
         .into_iter()
         .zip(answered)
+        .zip(floors)
     {
         assert!(
-            ok * 10 >= cases * 7,
+            ok * 10 >= cases * floor,
             "{name} answered {ok} of {cases} generated edits"
         );
     }
