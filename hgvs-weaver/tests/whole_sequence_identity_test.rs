@@ -343,3 +343,12 @@ fn r_identity_is_itself_without_its_transcript() {
         EquivalenceLevel::Identity
     );
 }
+
+#[test]
+fn a_genomic_change_where_a_non_coding_transcript_overlaps_is_judged_against_a_protein() {
+    // NC_W.1 g.70 is intronic in both NM_W.1 and NR_W.1.
+    assert_eq!(
+        level("NC_W.1:g.70C>T", "NP_W.1:p.Arg2Ser"),
+        EquivalenceLevel::Different
+    );
+}

@@ -57,11 +57,12 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // A mitochondrial variant is a genomic variant on the mitochondrial
-        // reference; compare it as one.
+        // Answered before the rewrites below, which need the reference.
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
         }
+        // A mitochondrial variant is a genomic variant on the mitochondrial
+        // reference; compare it as one.
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
         // An r. variant is its c. or n. spelling in RNA letters, r.= included;

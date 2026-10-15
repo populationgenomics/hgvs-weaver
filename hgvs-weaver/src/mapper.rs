@@ -1617,20 +1617,22 @@ impl<'a> VariantMapper<'a> {
         var_c: &CVariant,
         protein_ac: Option<&str>,
     ) -> Result<CodingOutcome, HgvsError> {
-        let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         let transcript = self.provider().get_transcript(&var_c.ac, None)?;
-        if transcript.cds_start_index.is_none() || transcript.cds_end_index.is_none() {
-            return Err(HgvsError::ValidationError(format!(
-                "{} has no CDS, so a c. variant on it has no protein consequence",
-                var_c.ac
-            )));
-        }
-        // The whole transcript unchanged predicts the protein unchanged, open CDS or not.
+        // The whole transcript unchanged predicts the protein unchanged, open
+        // CDS or not, but only on a transcript that has one.
         if var_c.posedit.pos.is_none() {
+            if transcript.cds_start_index.is_none() || transcript.cds_end_index.is_none() {
+                return Err(HgvsError::ValidationError(format!(
+                    "{} has no CDS, so {var_c} has no protein consequence",
+                    var_c.ac
+                )));
+            }
+            let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
             if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
                 return Ok(CodingOutcome::Statement(statement));
             }
         }
+        let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         if transcript.cds_start_open {
             return Err(HgvsError::ValidationError(format!(
                 "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \
