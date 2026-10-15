@@ -59,6 +59,9 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<EquivalenceLevel, HgvsError> {
         // A mitochondrial variant is a genomic variant on the mitochondrial
         // reference; compare it as one.
+        if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
+            return Ok(EquivalenceLevel::Identity);
+        }
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
         // An r. variant is its c. or n. spelling in RNA letters, r.= included;
@@ -85,7 +88,10 @@ impl<'a> VariantEquivalence<'a> {
         var: std::borrow::Cow<'v, SequenceVariant>,
     ) -> Result<std::borrow::Cow<'v, SequenceVariant>, HgvsError> {
         match &*var {
-            SequenceVariant::Rna(r) if !matches!(&r.posedit.edit, crate::edits::NaEdit::Special { value, .. } if value != "=") => {
+            SequenceVariant::Rna(r)
+                if r.posedit.edit.is_whole_identity()
+                    || !matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) =>
+            {
                 Ok(std::borrow::Cow::Owned(self.mapper.r_as_transcript(r)?))
             }
             _ => Ok(var),

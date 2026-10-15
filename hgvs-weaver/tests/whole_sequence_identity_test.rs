@@ -45,7 +45,13 @@ fn provider() -> Provider {
             exons(),
         ))
         .transcript(transcript("NR_W.1", "NC_W.1", Strand::Plus, None, exons()))
+        .transcript(hgvs_weaver::data::TranscriptData {
+            cds_start_open: true,
+            ..transcript("NM_OPEN.1", "NC_W.1", Strand::Plus, Some((5, 94)), exons())
+        })
+        .sequence("NM_OPEN.1", &spliced)
         .protein_for("NM_W.1", "NP_W.1")
+        .protein_for("NM_OPEN.1", "NP_OPEN.1")
 }
 
 fn parse(s: &str) -> SequenceVariant {
@@ -295,4 +301,45 @@ fn non_coding_identity_says_nothing_about_a_protein() {
     for (a, b) in [("NR_W.1:n.=", "NP_W.1:p.="), ("NR_W.1:r.=", "NP_W.1:p.(=)")] {
         assert_eq!(level(a, b), EquivalenceLevel::Different, "{a} vs {b}");
     }
+}
+
+#[test]
+fn whole_sequence_identity_has_no_protein_allele() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(matches!(
+        mapper.protein_allele(&coding("NM_W.1:c.="), None),
+        Err(HgvsError::UnsupportedOperation(m)) if m.contains("no allele")
+    ));
+}
+
+#[test]
+fn c_identity_on_a_non_coding_transcript_has_no_protein_consequence() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(matches!(
+        mapper.c_to_p(&coding("NR_W.1:c.="), Some("NP_W.1")),
+        Err(HgvsError::ValidationError(m)) if m.contains("no CDS")
+    ));
+}
+
+#[test]
+fn c_identity_predicts_the_protein_unchanged_on_an_open_cds() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding("NM_OPEN.1:c.="), None)
+            .unwrap()
+            .to_string(),
+        "NP_OPEN.1:p.(=)"
+    );
+}
+
+#[test]
+fn r_identity_is_itself_without_its_transcript() {
+    assert_eq!(
+        level("NM_ABSENT.1:r.=", "NM_ABSENT.1:r.="),
+        EquivalenceLevel::Identity
+    );
 }

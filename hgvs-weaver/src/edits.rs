@@ -70,6 +70,13 @@ pub enum NaEdit {
     None,
 }
 
+impl NaEdit {
+    /// The whole molecule unchanged: `c.=`, `n.=`, `r.=`.
+    pub fn is_whole_identity(&self) -> bool {
+        matches!(self, NaEdit::Special { value, .. } if value == "=")
+    }
+}
+
 /// Amino acid edits (substitutions, frameshifts, extensions, etc.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]

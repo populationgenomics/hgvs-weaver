@@ -457,11 +457,11 @@ fn statement_about_transcript(
         },
     };
     let Some(pos) = var_c.posedit.pos.as_ref() else {
-        let unchanged = matches!(
-            &var_c.posedit.edit,
-            crate::edits::NaEdit::Special { value, .. } if value == "="
-        );
-        return unchanged.then(|| statement(None, "="));
+        return var_c
+            .posedit
+            .edit
+            .is_whole_identity()
+            .then(|| statement(None, "="));
     };
     if has_intronic_offset(pos) {
         return Some(statement(None, "?"));
@@ -881,7 +881,9 @@ fn relettered_posedit(
     letters: Letters,
     anchor: impl Fn(Anchor) -> Anchor,
 ) -> Result<crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>, HgvsError> {
-    if matches!(&posedit.edit, crate::edits::NaEdit::Special { value, .. } if value != "=") {
+    if matches!(posedit.edit, crate::edits::NaEdit::Special { .. })
+        && !posedit.edit.is_whole_identity()
+    {
         return Err(HgvsError::UnsupportedOperation(format!(
             "{var} describes the transcript as a whole and has no other spelling"
         )));
@@ -1617,6 +1619,18 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<CodingOutcome, HgvsError> {
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         let transcript = self.provider().get_transcript(&var_c.ac, None)?;
+        if transcript.cds_start_index.is_none() || transcript.cds_end_index.is_none() {
+            return Err(HgvsError::ValidationError(format!(
+                "{} has no CDS, so a c. variant on it has no protein consequence",
+                var_c.ac
+            )));
+        }
+        // The whole transcript unchanged predicts the protein unchanged, open CDS or not.
+        if var_c.posedit.pos.is_none() {
+            if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
+                return Ok(CodingOutcome::Statement(statement));
+            }
+        }
         if transcript.cds_start_open {
             return Err(HgvsError::ValidationError(format!(
                 "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \

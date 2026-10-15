@@ -352,12 +352,13 @@ follows from the statement and refuses the rest:
 - **Spelling.** `c.=` is `r.=` in RNA letters, and `n.=` is `r.=` on a non-coding transcript, as every other `r.`
   description is its `c.` or `n.` spelling ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
   `r.(=)` loses its parentheses on the way to `c.=`, as `r.(10c>g)` does.
-- **Protein.** Nothing changed predicts nothing changed: `c.=` gives `p.(=)`, and is equivalent to `p.(=)` and `p.=`.
-  `n.=` is on a transcript that makes no protein, so it matches no `p.` description. Like the `p.(=)` of an edit in the
-  3'UTR, it has no protein allele.
+- **Protein.** Nothing changed predicts nothing changed: `c.=` gives `p.(=)`, on a CDS open at its 5' end too, and is
+  equivalent to `p.(=)` and `p.=`. `n.=` is on a transcript that makes no protein, so it matches no `p.` description.
+  Like the `p.(=)` of an edit in the 3'UTR, it has no protein allele.
 - **Validate and normalise.** It states no bases, so `validate` has nothing to check once the transcript is found — a
   coding one for `c.=`, a non-coding one for `n.=` — and normalising leaves it as written. Every statement about the
-  whole molecule (`r.spl`, `p.0`) validates the same way.
+  whole molecule (`r.spl`, `p.0`) validates the same way. Only these whole-transcript forms check the kind of
+  transcript; a positioned `n.` on a coding transcript is read as written.
 - **Alleles in cis.** `c.[=]` alone is `c.=`, the half the trans form `c.[2376G>C];[=]` names. Beside other members it
   contradicts them, so `c.[=;10C>G]`, like `r.[spl;10c>g]`, is refused when parsed.
 - **Refused.** A genomic form, a canonical allele, a protein allele, SPDI and VRS are an `UnsupportedOperation` error.
@@ -400,7 +401,10 @@ NC_W.1:g.=                       refused when parsed
   `::validating_n_identity_needs_a_non_coding_transcript`,
   `::c_identity_and_r_identity_on_one_transcript_are_equivalent`,
   `::whole_sequence_identity_is_its_one_member_cis_allele`, `::non_coding_identity_says_nothing_about_a_protein`,
-  `::whole_sequence_identity_has_no_protein_allele`; `tests/test_mavehgvs_compliance.py`.
+  `::whole_sequence_identity_has_no_protein_allele`,
+  `::c_identity_on_a_non_coding_transcript_has_no_protein_consequence`,
+  `::c_identity_predicts_the_protein_unchanged_on_an_open_cds`, `::r_identity_is_itself_without_its_transcript`;
+  `tests/test_mavehgvs_compliance.py`.
 
 ## Normalisation
 
