@@ -425,7 +425,7 @@ fn protein_variant(
 
 /// What a coding variant does to its protein.
 enum CodingOutcome {
-    /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`.
+    /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`, `p.(=)`.
     Statement(PVariant),
     Change(crate::protein::CodingChange),
 }
@@ -434,8 +434,8 @@ enum CodingOutcome {
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
 /// upstream says nothing, since an upstream start may be created), or an
-/// edit entirely in the 3'UTR, which cannot change the protein, as `c.=`, the
-/// whole transcript unchanged, cannot. `None` when the edit is a change to read.
+/// edit entirely in the 3'UTR, which cannot change the protein; nor can
+/// `c.=`, the whole transcript unchanged. `None` when the edit is a change to read.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
@@ -1608,8 +1608,8 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// What a coding variant does to the protein: a statement (`p.?`,
-    /// `p.Met1?`, `p.0?`) when the edit lies outside or across the CDS
-    /// boundary, else the resolved change to describe or read.
+    /// `p.Met1?`, `p.0?`, `p.(=)`) when the edit lies outside or across the
+    /// CDS boundary or is `c.=`, else the resolved change to describe or read.
     fn coding_outcome(
         &self,
         var_c: &CVariant,
@@ -1749,8 +1749,20 @@ impl<'a> VariantMapper<'a> {
                         .base(0)?;
                     return Ok(true);
                 }
-                SV::Coding(_) | SV::NonCoding(_) | SV::Rna(_) => {
+                SV::Rna(_) => {
                     self.provider().get_transcript(var.ac(), None)?;
+                    return Ok(true);
+                }
+                SV::Coding(_) | SV::NonCoding(_) => {
+                    let coding = matches!(var, SV::Coding(_));
+                    if self.has_cds(var.ac())? != coding {
+                        return Err(HgvsError::ValidationError(format!(
+                            "{var} is written in {}. but {} {} CDS",
+                            var.coordinate_type(),
+                            var.ac(),
+                            if coding { "has no" } else { "has a" }
+                        )));
+                    }
                     return Ok(true);
                 }
                 _ => {}
@@ -2819,6 +2831,11 @@ impl<'a> VariantMapper<'a> {
     /// r. to g., for a change within one exon. A change spanning a splice
     /// junction describes the spliced RNA and has no single genomic form.
     pub fn r_to_g(&self, r: &RVariant, reference_ac: Option<&str>) -> Result<GVariant, HgvsError> {
+        if matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{r} describes the transcript as a whole, so it has no genomic form"
+            )));
+        }
         let tx = self.r_as_transcript(r)?;
         let posedit = match &tx {
             crate::SequenceVariant::Coding(c) => &c.posedit,

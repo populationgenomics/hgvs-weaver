@@ -226,6 +226,8 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<EquivalenceLevel, HgvsError> {
         let coding: Vec<CVariant> = match nucleotide {
             SequenceVariant::Coding(c) => vec![c.clone()],
+            // n.= has no genomic form to find coding transcripts through.
+            n if n.is_whole_molecule_statement() => vec![],
             SequenceVariant::Genomic(g) => self.mapper.g_to_c_all(g, self.searcher)?,
             SequenceVariant::NonCoding(n) => {
                 let tx = self.mapper.provider().get_transcript(&n.ac, None)?;

@@ -353,11 +353,14 @@ follows from the statement and refuses the rest:
   description is its `c.` or `n.` spelling ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
   `r.(=)` loses its parentheses on the way to `c.=`, as `r.(10c>g)` does.
 - **Protein.** Nothing changed predicts nothing changed: `c.=` gives `p.(=)`, and is equivalent to `p.(=)` and `p.=`.
-- **Validate and normalise.** It states no bases, so `validate` has nothing to check once the transcript is found, and
-  normalising leaves it as written. Every statement about the whole molecule (`r.spl`, `p.0`) validates the same way.
+  `n.=` is on a transcript that makes no protein, so it matches no `p.` description. Like the `p.(=)` of an edit in the
+  3'UTR, it has no protein allele.
+- **Validate and normalise.** It states no bases, so `validate` has nothing to check once the transcript is found — a
+  coding one for `c.=`, a non-coding one for `n.=` — and normalising leaves it as written. Every statement about the
+  whole molecule (`r.spl`, `p.0`) validates the same way.
 - **Alleles in cis.** `c.[=]` alone is `c.=`, the half the trans form `c.[2376G>C];[=]` names. Beside other members it
   contradicts them, so `c.[=;10C>G]`, like `r.[spl;10c>g]`, is refused when parsed.
-- **Refused.** A genomic form, a canonical allele, SPDI and VRS are an `UnsupportedOperation` error.
+- **Refused.** A genomic form, a canonical allele, a protein allele, SPDI and VRS are an `UnsupportedOperation` error.
 
 A genome has no such statement: `g.=` and `m.=` do not parse, and nor does `c.(=)`, since `c.` has no predicted form.
 
@@ -390,7 +393,14 @@ NC_W.1:g.=                       refused when parsed
   `::the_whole_transcript_unchanged_predicts_the_protein_unchanged`,
   `::a_whole_molecule_statement_validates_with_nothing_to_check`, `::whole_sequence_identity_has_no_genomic_form`,
   `::whole_sequence_identity_has_no_allele`, `::whole_sequence_identity_implies_the_protein_unchanged`,
-  `::whole_sequence_identity_differs_from_a_change_or_one_unchanged_base`; `tests/test_mavehgvs_compliance.py`.
+  `::whole_sequence_identity_differs_from_a_change_or_one_unchanged_base`,
+  `::a_predicted_r_identity_loses_its_parentheses_in_dna_letters`,
+  `::normalising_whole_sequence_identity_leaves_it_as_written`,
+  `::validating_a_whole_molecule_statement_needs_its_reference`, `::validating_c_identity_needs_a_coding_transcript`,
+  `::validating_n_identity_needs_a_non_coding_transcript`,
+  `::c_identity_and_r_identity_on_one_transcript_are_equivalent`,
+  `::whole_sequence_identity_is_its_one_member_cis_allele`, `::non_coding_identity_says_nothing_about_a_protein`,
+  `::whole_sequence_identity_has_no_protein_allele`; `tests/test_mavehgvs_compliance.py`.
 
 ## Normalisation
 

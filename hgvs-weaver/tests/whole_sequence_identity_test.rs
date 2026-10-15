@@ -182,8 +182,31 @@ fn validating_a_whole_molecule_statement_needs_its_reference() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     for s in ["NM_ABSENT.1:c.=", "NP_ABSENT.1:p.="] {
-        assert!(mapper.validate(&parse(s)).is_err(), "{s} validated");
+        assert!(
+            matches!(mapper.validate(&parse(s)), Err(HgvsError::DataProviderError(m)) if m.contains("ABSENT")),
+            "{s} validated"
+        );
     }
+}
+
+#[test]
+fn validating_c_identity_needs_a_coding_transcript() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(matches!(
+        mapper.validate(&parse("NR_W.1:c.=")),
+        Err(HgvsError::ValidationError(m)) if m.contains("no CDS")
+    ));
+}
+
+#[test]
+fn validating_n_identity_needs_a_non_coding_transcript() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(matches!(
+        mapper.validate(&parse("NM_W.1:n.=")),
+        Err(HgvsError::ValidationError(m)) if m.contains("has a CDS")
+    ));
 }
 
 #[test]
@@ -204,8 +227,8 @@ fn whole_sequence_identity_has_no_genomic_form() {
         Err(HgvsError::UnsupportedOperation(m)) if m.contains("NM_W.1:c.=")
     ));
     assert!(matches!(
-        mapper.r_to_g(&rna("NM_W.1:r.="), None),
-        Err(HgvsError::UnsupportedOperation(_))
+        mapper.r_to_g(&rna("NR_W.1:r.="), None),
+        Err(HgvsError::UnsupportedOperation(m)) if m.contains("NR_W.1:r.= describes the transcript as a whole")
     ));
 }
 
@@ -264,5 +287,12 @@ fn whole_sequence_identity_differs_from_a_change_or_one_unchanged_base() {
             EquivalenceLevel::Different,
             "{other}"
         );
+    }
+}
+
+#[test]
+fn non_coding_identity_says_nothing_about_a_protein() {
+    for (a, b) in [("NR_W.1:n.=", "NP_W.1:p.="), ("NR_W.1:r.=", "NP_W.1:p.(=)")] {
+        assert_eq!(level(a, b), EquivalenceLevel::Different, "{a} vs {b}");
     }
 }

@@ -32,7 +32,7 @@ m_posedit = { m_interval ~ dna_edit }
 n_posedit = { (n_interval ~ dna_edit) | tx_identity }
 // The whole transcript analysed and found unchanged, c.= (n.= on a
 // non-coding transcript, the DNA spelling of r.=). A genome has no such
-// statement: g. and m. state no change only over a range, g.88_99=.
+// statement: g. and m. state no change only at a position or range, g.88_99=.
 tx_identity = { "=" }
 r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | r_posedit_special }
 // A predicted RNA change, r.(123a>g): the RNA was not analysed. Only r. and
