@@ -304,7 +304,7 @@ impl fmt::Display for NaEdit {
                 match (ref_, alt) {
                     (Some(r), Some(a)) => {
                         if r == a {
-                            write!(f, "=")?;
+                            write!(f, "{}=", r)?;
                         } else if r.len() == 1 && a.len() == 1 {
                             write!(f, "{}>{}", r, a)?;
                         } else {

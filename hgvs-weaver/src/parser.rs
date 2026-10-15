@@ -785,6 +785,18 @@ mod tests {
     }
 
     #[test]
+    fn an_identity_prints_the_bases_it_states() {
+        for hgvs in [
+            "NM_004006.2:c.123A=",
+            "NC_000001.11:g.5_7CAG=",
+            "NM_004006.2:r.123a=",
+            "NM_004006.2:c.123=",
+        ] {
+            assert_eq!(parse_hgvs_variant(hgvs).unwrap().to_string(), hgvs);
+        }
+    }
+
+    #[test]
     fn delins_of_a_stated_length_keeps_the_deleted_part() {
         use crate::edits::NaEdit;
         for (input, expected) in [
