@@ -302,7 +302,6 @@ impl<'a> VariantEquivalence<'a> {
         };
         let Some(pos) = &vp.posedit.pos else {
             return Ok(match &vp.posedit.edit {
-                AaEdit::Identity { .. } => Some(closed(protein.to_string(), len)),
                 AaEdit::Statement(ProteinStatement::Unchanged) => {
                     Some(closed(protein.to_string(), len))
                 }

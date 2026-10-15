@@ -285,6 +285,18 @@ fn a_start_loss_is_the_parsed_unknown_change_from_met1() {
 }
 
 #[test]
+fn the_protein_unchanged_past_the_cds_reparses_to_itself() {
+    let p = c_to_p("NM_W.1:c.92T>A");
+    assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
+fn the_protein_unchanged_past_the_cds_survives_json() {
+    let p = c_to_p("NM_W.1:c.92T>A");
+    assert_eq!(json_round_trip(&p), p);
+}
+
+#[test]
 fn a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it() {
     let p = c_to_p("NM_W.1:c.*5T>A");
     assert_eq!(p.to_string(), "NP_W.1:p.(=)");
