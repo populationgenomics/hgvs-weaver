@@ -42,7 +42,7 @@ r_posedit_predicted = { "(" ~ r_interval ~ rna_edit ~ ")" }
 r_posedit_special = { r_no_rna | r_splicing_affected | statement_unknown }
 r_no_rna = { "0" ~ statement_uncertain? }
 r_splicing_affected = { "spl" ~ statement_uncertain? }
-// The ? of r.0? or r.spl?: probably so.
+// The ? of r.0?, r.spl? or p.0?: probably so.
 statement_uncertain = { "?" }
 statement_unknown = { "?" }
 p_posedit = { (p_interval ~ pro_edit) | ("(" ~ p_interval ~ pro_edit ~ ")") | p_posedit_special }

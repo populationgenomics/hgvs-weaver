@@ -167,28 +167,41 @@ fn noncoding_position_from_index(
 pub(crate) struct NaVariantFields<I> {
     ac: String,
     gene: Option<String>,
-    posedit: PosEdit<I, NaEditFields>,
+    posedit: PosEdit<I, StoredNaEdit>,
 }
 
-/// A statement in the shape dictionaries held before statements had types of
-/// their own: `{"type": "Special", "value": "spl?", "uncertain": false}`.
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum SpecialFields {
-    Special { value: String, uncertain: bool },
-}
+/// An edit as a dict names it: its `type`, and the rest of its fields.
+struct EditDict(serde_json::Value);
 
-impl SpecialFields {
-    /// Whether `value` is an edit in this shape rather than the current one.
-    fn is_special(value: &serde_json::Value) -> bool {
-        value.get("type").and_then(serde_json::Value::as_str) == Some("Special")
+impl EditDict {
+    fn type_is(&self, name: &str) -> bool {
+        self.0.get("type").and_then(serde_json::Value::as_str) == Some(name)
     }
 
-    /// The value without whitespace, which the parser kept from what the
-    /// grammar skips (`spl ?`). The `?` is part of the value; a set
-    /// `uncertain` flag is refused, since no description wrote one.
-    fn written(self) -> Result<String, String> {
-        let SpecialFields::Special { value, uncertain } = self;
+    /// `edit`, refused if the dict named fields its statement does not have:
+    /// serde ignores them on a unit variant, so `r.?` with `"uncertain": true`
+    /// would otherwise load as `r.?`.
+    fn statement_exactly<E: Serialize>(&self, edit: E) -> Result<E, String> {
+        if self.type_is("Statement") && serde_json::to_value(&edit).ok().as_ref() != Some(&self.0) {
+            return Err(format!(
+                "{} names fields its statement does not have",
+                self.0
+            ));
+        }
+        Ok(edit)
+    }
+
+    /// A statement in the `Special` shape, `{"type": "Special", "value":
+    /// "spl?", "uncertain": false}`: its HGVS text, whitespace removed. The
+    /// `?` belongs to the text, so a set `uncertain` flag is refused.
+    fn special_text(self) -> Result<String, String> {
+        #[derive(Deserialize)]
+        struct Special {
+            value: String,
+            uncertain: bool,
+        }
+        let Special { value, uncertain } =
+            serde_json::from_value(self.0).map_err(|e| e.to_string())?;
         if uncertain {
             return Err(format!("a Special \"{value}\" is never uncertain"));
         }
@@ -196,25 +209,26 @@ impl SpecialFields {
     }
 }
 
-/// A nucleotide edit as deserialised: one in the current shape, or `r.=` in
-/// the `Special` shape, which only an r. variant admits.
-pub(crate) enum NaEditFields {
+/// A nucleotide edit as a dict gives it: an edit, or the `Special` "=",
+/// which is `r.=` on an r. variant and nothing elsewhere.
+pub(crate) enum StoredNaEdit {
     Edit(NaEdit),
     SpecialIdentity,
 }
 
-impl<'de> Deserialize<'de> for NaEditFields {
+impl<'de> Deserialize<'de> for StoredNaEdit {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::Error;
-        let value = serde_json::Value::deserialize(deserializer)?;
-        if !SpecialFields::is_special(&value) {
-            return NaEdit::deserialize(value)
-                .map(NaEditFields::Edit)
+        let dict = EditDict(serde_json::Value::deserialize(deserializer)?);
+        if !dict.type_is("Special") {
+            let edit = NaEdit::deserialize(&dict.0).map_err(D::Error::custom)?;
+            return dict
+                .statement_exactly(edit)
+                .map(StoredNaEdit::Edit)
                 .map_err(D::Error::custom);
         }
-        let special = SpecialFields::deserialize(value).map_err(D::Error::custom)?;
-        let statement = match special.written().map_err(D::Error::custom)?.as_str() {
-            "=" => return Ok(NaEditFields::SpecialIdentity),
+        let statement = match dict.special_text().map_err(D::Error::custom)?.as_str() {
+            "=" => return Ok(StoredNaEdit::SpecialIdentity),
             "0" => RnaStatement::NoRna { uncertain: false },
             "0?" => RnaStatement::NoRna { uncertain: true },
             "spl" => RnaStatement::SplicingAffected { uncertain: false },
@@ -226,25 +240,26 @@ impl<'de> Deserialize<'de> for NaEditFields {
                 )))
             }
         };
-        Ok(NaEditFields::Edit(NaEdit::Statement(statement)))
+        Ok(StoredNaEdit::Edit(NaEdit::Statement(statement)))
     }
 }
 
-/// Refuses a posedit that the system `kind` (`g`, `m`, `c`, `n` or `r`)
-/// cannot write: the whole transcript unchanged anywhere but `c.=`, `r.=` and
-/// `r.(=)`; another statement about the transcript anywhere but `r.`; a
-/// statement with a position, or a change without one; a prediction outside
-/// `r.`; an uncertain posedit, which no description writes.
+/// The posedit of a `kind` variant (`g`, `m`, `c`, `n` or `r`), with a
+/// `Special` "=" read as `r.=`. Refuses what `kind` cannot write: the whole
+/// transcript unchanged anywhere but `c.=`, `r.=` and `r.(=)`; another
+/// statement about the transcript anywhere but `r.`; a statement with a
+/// position, or a change without one; a prediction outside `r.`; an
+/// uncertain posedit, which no description writes.
 fn check_na_posedit<I: std::fmt::Display>(
     kind: &str,
-    posedit: PosEdit<I, NaEditFields>,
+    posedit: PosEdit<I, StoredNaEdit>,
 ) -> Result<PosEdit<I, NaEdit>, HgvsError> {
     let edit = match posedit.edit {
-        NaEditFields::Edit(edit) => edit,
-        NaEditFields::SpecialIdentity if kind == "r" => NaEdit::WholeIdentity,
-        NaEditFields::SpecialIdentity => {
+        StoredNaEdit::Edit(edit) => edit,
+        StoredNaEdit::SpecialIdentity if kind == "r" => NaEdit::WholeIdentity,
+        StoredNaEdit::SpecialIdentity => {
             return Err(HgvsError::ValidationError(format!(
-                "{kind}. cannot write {kind}.= as a Special statement"
+                "{kind}. cannot write a Special \"=\", which is r.="
             )))
         }
     };
@@ -292,23 +307,25 @@ macro_rules! checked_na_variant {
 pub(crate) struct PVariantFields {
     ac: String,
     gene: Option<String>,
-    posedit: PosEdit<AaInterval, AaEditFields>,
+    posedit: PosEdit<AaInterval, StoredAaEdit>,
 }
 
-/// A protein edit as deserialised, in the current shape or the `Special` one.
-pub(crate) struct AaEditFields(AaEdit);
+/// A protein edit as a dict gives it, in the current shape or the `Special`
+/// one.
+pub(crate) struct StoredAaEdit(AaEdit);
 
-impl<'de> Deserialize<'de> for AaEditFields {
+impl<'de> Deserialize<'de> for StoredAaEdit {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::Error;
-        let value = serde_json::Value::deserialize(deserializer)?;
-        if !SpecialFields::is_special(&value) {
-            return AaEdit::deserialize(value)
-                .map(AaEditFields)
+        let dict = EditDict(serde_json::Value::deserialize(deserializer)?);
+        if !dict.type_is("Special") {
+            let edit = AaEdit::deserialize(&dict.0).map_err(D::Error::custom)?;
+            return dict
+                .statement_exactly(edit)
+                .map(StoredAaEdit)
                 .map_err(D::Error::custom);
         }
-        let special = SpecialFields::deserialize(value).map_err(D::Error::custom)?;
-        let statement = match special.written().map_err(D::Error::custom)?.as_str() {
+        let statement = match dict.special_text().map_err(D::Error::custom)?.as_str() {
             "=" => ProteinStatement::Unchanged,
             "0" => ProteinStatement::NoProtein { uncertain: false },
             "0?" => ProteinStatement::NoProtein { uncertain: true },
@@ -319,7 +336,7 @@ impl<'de> Deserialize<'de> for AaEditFields {
                 )))
             }
         };
-        Ok(AaEditFields(AaEdit::Statement(statement)))
+        Ok(StoredAaEdit(AaEdit::Statement(statement)))
     }
 }
 

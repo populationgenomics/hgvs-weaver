@@ -374,7 +374,8 @@ what follows from the statement:
 Only `c.` takes the whole-transcript identity. The specification never writes `n.=` and defines no whole-sequence
 statement for `g.` or `m.`, and `c.` has no predicted form, so `n.=`, `g.=`, `m.=` and `c.(=)` do not parse. A
 dictionary that describes one of them is refused by `Variant.from_dict` too. The identity has its own edit, so a
-dictionary for `r.=` names it rather than a `Special` "=" string; one written with the string loads as the identity.
+dictionary for `r.=` names it rather than a `Special` "=" string; one written with the string loads as the identity, as
+the other statements written that way load as theirs.
 
 `r_to_p` holds every `r.` statement to the CDS condition `c_to_p` holds `c.=` to: on a transcript without a CDS, `r.=`,
 `r.spl` and `r.0` are an error rather than a statement about a protein. It does not check that a named protein is the

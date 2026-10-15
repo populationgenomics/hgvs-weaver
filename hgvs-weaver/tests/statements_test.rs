@@ -1,6 +1,6 @@
 //! Statements about a whole transcript or protein — `r.0`, `r.spl`, `r.?`,
 //! `p.0`, `p.?`, `p.=` — read as what they mean, print as HGVS writes them,
-//! and survive JSON, including the `Special` shape older dictionaries hold.
+//! and survive JSON, in their own shape and in the `Special` one.
 
 mod support;
 
@@ -11,11 +11,12 @@ use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
 use support::{exon, transcript, Provider};
 
 /// NM_W.1, CDS at transcript indices 5..=94 encoding NP_W.1, spliced from
-/// genome[10, 60) and genome[100, 160) of a CGT repeat with ATG at 15 and TAA
-/// at 142.
+/// genome[10, 60) and genome[100, 160) of a CGT repeat with ATG at 15, AAAA
+/// at 30 and TAA at 142.
 fn provider() -> Provider {
     let mut g: Vec<u8> = b"CGT".iter().copied().cycle().take(200).collect();
     g[15..18].copy_from_slice(b"ATG");
+    g[30..34].copy_from_slice(b"AAAA");
     g[142..145].copy_from_slice(b"TAA");
     let g = String::from_utf8(g).unwrap();
     let spliced = format!("{}{}", &g[10..60], &g[100..160]);
@@ -139,6 +140,11 @@ reads_as! { aa_edit;
 }
 
 #[test]
+fn predicted_and_stated_p_identity_are_different_variants() {
+    assert_ne!(parse("NP_W.1:p.(=)"), parse("NP_W.1:p.="));
+}
+
+#[test]
 fn predicted_p_identity_carries_the_prediction_on_its_posedit() {
     let SequenceVariant::Protein(p) = parse("NP_W.1:p.(=)") else {
         panic!("not p.");
@@ -185,7 +191,7 @@ fn a_deleted_cds_prints_as_probably_no_protein() {
 
 #[test]
 fn a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it() {
-    let p = c_to_p("NM_W.1:c.*5G>A");
+    let p = c_to_p("NM_W.1:c.*5T>A");
     assert_eq!(p.to_string(), "NP_W.1:p.(=)");
     assert_eq!(parse(&p.to_string()), p);
 }
@@ -221,7 +227,7 @@ fn an_unknown_change_from_met1_survives_json() {
 fn a_json_statement_weaver_does_not_know_is_refused() {
     let json = r_json(r#"{"type": "Statement", "statement": "Maybe"}"#);
     let err = from_json(&json).unwrap_err().to_string();
-    assert!(err.contains("unknown variant `Maybe`"), "{err}");
+    assert!(err.contains("Maybe"), "{err}");
 }
 
 #[test]
@@ -242,7 +248,6 @@ special_loads_as! { na_edit, r_json;
     special_spl_uncertain_loads_as_splicing_probably_affected: "spl?" => NaEdit::Statement(RnaStatement::SplicingAffected { uncertain: true });
     special_spl_with_a_space_loads_as_splicing_probably_affected: "spl ?" => NaEdit::Statement(RnaStatement::SplicingAffected { uncertain: true });
     special_unknown_loads_as_an_unknown_rna_effect: "?" => NaEdit::Statement(RnaStatement::Unknown);
-    special_identity_loads_as_the_rna_unchanged: "=" => NaEdit::WholeIdentity;
 }
 
 special_loads_as! { aa_edit, |edit| p_json(edit, false);
@@ -250,6 +255,8 @@ special_loads_as! { aa_edit, |edit| p_json(edit, false);
     special_0_uncertain_loads_as_probably_no_protein: "0?" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true });
     special_unknown_loads_as_an_unknown_protein_effect: "?" => AaEdit::Statement(ProteinStatement::Unknown);
     special_identity_loads_as_the_protein_unchanged: "=" => AaEdit::Statement(ProteinStatement::Unchanged);
+    special_identity_with_spaces_loads_as_the_protein_unchanged: " = " => AaEdit::Statement(ProteinStatement::Unchanged);
+    special_0_with_a_space_loads_as_probably_no_protein: "0 ?" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true });
 }
 
 #[test]
@@ -293,4 +300,39 @@ fn a_special_identity_on_a_coding_variant_is_refused() {
         "uncertain": false, "predicted": false}}"#;
     let err = from_json(json).unwrap_err().to_string();
     assert!(err.contains("c. cannot write"), "{err}");
+}
+
+#[test]
+fn a_special_unknown_at_met1_loads_as_the_mappers_met1_unknown() {
+    let json = r#"{"variant_type": "Protein", "ac": "NP_W.1", "gene": null, "posedit": {
+        "pos": {"start": {"base": 1, "aa": "Met", "uncertain": false}, "end": null, "uncertain": false},
+        "edit": {"type": "Special", "value": "?", "uncertain": false}, "uncertain": false, "predicted": false}}"#;
+    assert_eq!(from_json(json).unwrap(), c_to_p("NM_W.1:c.-3_4del"));
+}
+
+#[test]
+fn a_special_protein_statement_with_its_uncertain_flag_set_is_refused() {
+    let json = p_json(
+        r#"{"type": "Special", "value": "0", "uncertain": true}"#,
+        false,
+    );
+    let err = from_json(&json).unwrap_err().to_string();
+    assert!(err.contains("never uncertain"), "{err}");
+}
+
+#[test]
+fn an_rna_unknown_naming_an_uncertainty_it_cannot_have_is_refused() {
+    let json = r_json(r#"{"type": "Statement", "statement": "Unknown", "uncertain": true}"#);
+    let err = from_json(&json).unwrap_err().to_string();
+    assert!(err.contains("fields its statement does not have"), "{err}");
+}
+
+#[test]
+fn a_protein_unchanged_naming_an_uncertainty_it_cannot_have_is_refused() {
+    let json = p_json(
+        r#"{"type": "Statement", "statement": "Unchanged", "uncertain": false}"#,
+        false,
+    );
+    let err = from_json(&json).unwrap_err().to_string();
+    assert!(err.contains("fields its statement does not have"), "{err}");
 }

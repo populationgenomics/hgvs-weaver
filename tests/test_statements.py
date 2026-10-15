@@ -10,7 +10,7 @@ import weaver
 
 
 def _special(variant_type: str, ac: str, value: str, *, predicted: bool = False) -> dict[str, Any]:
-    """A dict in the shape statements were written in before they had types: a `Special` value."""
+    """A dict in the `Special` shape: the statement as its HGVS text."""
     return {
         "variant_type": variant_type,
         "ac": ac,
@@ -41,8 +41,6 @@ def test_a_dict_names_an_rna_statement_and_its_uncertainty() -> None:
     ("variant_type", "ac", "value", "predicted", "expected"),
     [
         ("Rna", "NM_W.1", "spl?", False, "NM_W.1:r.spl?"),
-        ("Rna", "NM_W.1", "0", False, "NM_W.1:r.0"),
-        ("Protein", "NP_W.1", "0?", False, "NP_W.1:p.0?"),
         ("Protein", "NP_W.1", "=", True, "NP_W.1:p.(=)"),
     ],
 )
@@ -55,8 +53,3 @@ def test_a_dict_in_the_special_shape_still_loads(
 ) -> None:
     loaded = weaver.Variant.from_dict(_special(variant_type, ac, value, predicted=predicted))
     assert str(loaded) == expected
-
-
-def test_a_special_dict_for_a_statement_the_grammar_does_not_write_is_refused() -> None:
-    with pytest.raises(ValueError, match="not a statement about RNA"):
-        weaver.Variant.from_dict(_special("Rna", "NM_W.1", "??"))

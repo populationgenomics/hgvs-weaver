@@ -112,16 +112,11 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
 
 /// The statement an `r_posedit_special` names.
 fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
-    let statement = only_child(pair)?;
-    let rule = statement.as_rule();
-    let uncertain = statement
-        .into_inner()
-        .any(|p| p.as_rule() == Rule::statement_uncertain);
-    match rule {
-        Rule::r_no_rna => Ok(RnaStatement::NoRna { uncertain }),
-        Rule::r_splicing_affected => Ok(RnaStatement::SplicingAffected { uncertain }),
-        Rule::statement_unknown => Ok(RnaStatement::Unknown),
-        r => Err(HgvsError::PestError(format!(
+    match statement_parts(pair)? {
+        (Rule::r_no_rna, uncertain) => Ok(RnaStatement::NoRna { uncertain }),
+        (Rule::r_splicing_affected, uncertain) => Ok(RnaStatement::SplicingAffected { uncertain }),
+        (Rule::statement_unknown, _) => Ok(RnaStatement::Unknown),
+        (r, _) => Err(HgvsError::PestError(format!(
             "Unexpected RNA statement {r:?}"
         ))),
     }
@@ -129,25 +124,27 @@ fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
 
 /// The statement a `p_posedit_special` names.
 fn parse_protein_statement(pair: Pair<Rule>) -> Result<ProteinStatement, HgvsError> {
-    let statement = only_child(pair)?;
-    let rule = statement.as_rule();
-    let uncertain = statement
-        .into_inner()
-        .any(|p| p.as_rule() == Rule::statement_uncertain);
-    match rule {
-        Rule::p_unchanged => Ok(ProteinStatement::Unchanged),
-        Rule::p_no_protein => Ok(ProteinStatement::NoProtein { uncertain }),
-        Rule::statement_unknown => Ok(ProteinStatement::Unknown),
-        r => Err(HgvsError::PestError(format!(
+    match statement_parts(pair)? {
+        (Rule::p_unchanged, _) => Ok(ProteinStatement::Unchanged),
+        (Rule::p_no_protein, uncertain) => Ok(ProteinStatement::NoProtein { uncertain }),
+        (Rule::statement_unknown, _) => Ok(ProteinStatement::Unknown),
+        (r, _) => Err(HgvsError::PestError(format!(
             "Unexpected protein statement {r:?}"
         ))),
     }
 }
 
-fn only_child(pair: Pair<Rule>) -> Result<Pair<Rule>, HgvsError> {
-    pair.into_inner()
+/// The rule of a statement, and whether it carries `statement_uncertain`.
+fn statement_parts(pair: Pair<Rule>) -> Result<(Rule, bool), HgvsError> {
+    let statement = pair
+        .into_inner()
         .next()
-        .ok_or_else(|| HgvsError::PestError("Missing statement".into()))
+        .ok_or_else(|| HgvsError::PestError("Missing statement".into()))?;
+    let rule = statement.as_rule();
+    let uncertain = statement
+        .into_inner()
+        .any(|p| p.as_rule() == Rule::statement_uncertain);
+    Ok((rule, uncertain))
 }
 
 pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsError> {
