@@ -161,8 +161,71 @@ fn noncoding_position_from_index(
     })
 }
 
+/// The fields of a nucleotide variant as deserialised, before
+/// [`check_na_posedit`] admits them as a variant of one system.
+#[derive(Deserialize)]
+pub struct NaVariantFields<I> {
+    ac: String,
+    gene: Option<String>,
+    posedit: PosEdit<I, NaEdit>,
+}
+
+/// Refuses a posedit that the system `kind` (`g`, `m`, `c`, `n` or `r`)
+/// cannot write: the whole transcript unchanged anywhere but `c.=`, `r.=` and
+/// `r.(=)`; another statement about the transcript anywhere but `r.`; a
+/// statement with a position, or a change without one.
+fn check_na_posedit<I: std::fmt::Display>(
+    kind: &str,
+    posedit: &PosEdit<I, NaEdit>,
+) -> Result<(), HgvsError> {
+    let plain = !posedit.uncertain && !posedit.predicted;
+    let writable = match (&posedit.edit, &posedit.pos) {
+        (NaEdit::WholeIdentity, None) => kind == "r" && !posedit.uncertain || kind == "c" && plain,
+        (
+            NaEdit::Special {
+                value,
+                uncertain: false,
+            },
+            None,
+        ) => kind == "r" && plain && crate::edits::RNA_STATEMENTS.contains(&value.as_str()),
+        (NaEdit::WholeIdentity | NaEdit::Special { .. }, _) => false,
+        (_, pos) => pos.is_some(),
+    };
+    if writable {
+        Ok(())
+    } else {
+        Err(HgvsError::ValidationError(format!(
+            "{kind}.{posedit} ({:?}) is not a {kind}. description",
+            posedit.edit
+        )))
+    }
+}
+
+macro_rules! checked_na_variant {
+    ($struct_name:ident, $interval:ty, $kind:expr) => {
+        impl TryFrom<NaVariantFields<$interval>> for $struct_name {
+            type Error = HgvsError;
+            fn try_from(fields: NaVariantFields<$interval>) -> Result<Self, HgvsError> {
+                check_na_posedit($kind, &fields.posedit)?;
+                Ok($struct_name {
+                    ac: fields.ac,
+                    gene: fields.gene,
+                    posedit: fields.posedit,
+                })
+            }
+        }
+    };
+}
+
+checked_na_variant!(GVariant, SimpleInterval, "g");
+checked_na_variant!(MVariant, SimpleInterval, "m");
+checked_na_variant!(CVariant, BaseOffsetInterval, "c");
+checked_na_variant!(NVariant, BaseOffsetInterval, "n");
+checked_na_variant!(RVariant, BaseOffsetInterval, "r");
+
 /// Represents a genomic variant (g.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<SimpleInterval>")]
 pub struct GVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -173,6 +236,7 @@ impl_linear_variant!(GVariant);
 
 /// Represents a coding cDNA variant (c.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 pub struct CVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -192,6 +256,7 @@ impl_variant!(PVariant, "p");
 
 /// Represents a mitochondrial variant (m.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<SimpleInterval>")]
 pub struct MVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -202,6 +267,7 @@ impl_linear_variant!(MVariant);
 
 /// Represents a non-coding transcript variant (n.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 pub struct NVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -216,6 +282,7 @@ impl_transcript_variant!(
 
 /// Represents an RNA variant (r.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 pub struct RVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -228,6 +295,7 @@ impl_variant!(RVariant, "r");
 /// accession; the members are kept in the order written. The trans form,
 /// `c.[145C>T];[147C>G]`, describes two molecules and is not a variant.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "CisPhasedFields")]
 pub struct CisPhasedVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -266,14 +334,30 @@ impl CisPhasedVariant {
                     m.ac()
                 )));
             }
-            if members.len() > 1 && m.is_whole_molecule_statement() {
+            if members.len() > 1 && m.is_whole_identity() {
                 return Err(HgvsError::ValidationError(format!(
-                    "{m} is a statement about the whole molecule, so it cannot share a cis \
+                    "{m} states the whole sequence unchanged, so it cannot share a cis \
                      allele with other members"
                 )));
             }
         }
         Ok(CisPhasedVariant { ac, gene, members })
+    }
+}
+
+/// The fields of a cis allele as deserialised, admitted through
+/// [`CisPhasedVariant::new`].
+#[derive(Deserialize)]
+pub struct CisPhasedFields {
+    ac: String,
+    gene: Option<String>,
+    members: Vec<SequenceVariant>,
+}
+
+impl TryFrom<CisPhasedFields> for CisPhasedVariant {
+    type Error = HgvsError;
+    fn try_from(fields: CisPhasedFields) -> Result<Self, HgvsError> {
+        CisPhasedVariant::new(fields.ac, fields.gene, fields.members)
     }
 }
 

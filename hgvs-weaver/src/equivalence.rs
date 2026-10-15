@@ -57,16 +57,11 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // Answered before the rewrites below, which need the reference.
-        if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
-            return Ok(EquivalenceLevel::Identity);
-        }
         // A mitochondrial variant is a genomic variant on the mitochondrial
         // reference; compare it as one.
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
-        // An r. variant is its c. or n. spelling in RNA letters, r.= included;
-        // compare it as that.
+        // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
         let var1 = self.rna_as_transcript(var1)?;
         let var2 = self.rna_as_transcript(var2)?;
         // Expand gene symbols if present
@@ -89,10 +84,7 @@ impl<'a> VariantEquivalence<'a> {
         var: std::borrow::Cow<'v, SequenceVariant>,
     ) -> Result<std::borrow::Cow<'v, SequenceVariant>, HgvsError> {
         match &*var {
-            SequenceVariant::Rna(r)
-                if r.posedit.edit.is_whole_identity()
-                    || !matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) =>
-            {
+            SequenceVariant::Rna(r) if !r.posedit.edit.is_whole_transcript() => {
                 Ok(std::borrow::Cow::Owned(self.mapper.r_as_transcript(r)?))
             }
             _ => Ok(var),
@@ -233,8 +225,6 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<EquivalenceLevel, HgvsError> {
         let coding: Vec<CVariant> = match nucleotide {
             SequenceVariant::Coding(c) => vec![c.clone()],
-            // n.= has no genomic form to find coding transcripts through.
-            n if n.is_whole_molecule_statement() => vec![],
             SequenceVariant::Genomic(g) => self.mapper.g_to_c_all(g, self.searcher)?,
             SequenceVariant::NonCoding(n) => {
                 let tx = self.mapper.provider().get_transcript(&n.ac, None)?;
@@ -263,6 +253,10 @@ impl<'a> VariantEquivalence<'a> {
             let outcome = self.protein_outcome_on(vp, &vp.ac)?;
             let reference = self.reference_protein(&vp.ac)?;
             for c in &coding {
+                // c.= names no residues; its description, above, is all it says.
+                if matches!(c.posedit.edit, crate::edits::NaEdit::WholeIdentity) {
+                    continue;
+                }
                 let predicted = self
                     .mapper
                     .predicted_protein(c, Some(&vp.ac))?

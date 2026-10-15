@@ -423,7 +423,7 @@ impl fmt::Display for NaEdit {
                 }
                 Ok(())
             }
-            NaEdit::None => write!(f, "="),
+            NaEdit::WholeIdentity | NaEdit::None => write!(f, "="),
             _ => write!(f, "unknown_na_edit"),
         }
     }

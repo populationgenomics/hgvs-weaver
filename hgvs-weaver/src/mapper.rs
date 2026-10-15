@@ -425,7 +425,7 @@ fn protein_variant(
 
 /// What a coding variant does to its protein.
 enum CodingOutcome {
-    /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`, `p.(=)`.
+    /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`.
     Statement(PVariant),
     Change(crate::protein::CodingChange),
 }
@@ -434,14 +434,15 @@ enum CodingOutcome {
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
 /// upstream says nothing, since an upstream start may be created), or an
-/// edit entirely in the 3'UTR, which cannot change the protein; nor can
-/// `c.=`, the whole transcript unchanged. `None` when the edit is a change to read.
+/// edit entirely in the 3'UTR, which cannot change the protein. `None` when
+/// the edit is a change to read.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
     protein_ac: &str,
 ) -> Option<PVariant> {
     use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
+    let pos = var_c.posedit.pos.as_ref()?;
     let statement = |pos: Option<AaInterval>, value: &str| PVariant {
         ac: protein_ac.to_string(),
         gene: var_c.gene.clone(),
@@ -455,13 +456,6 @@ fn statement_about_transcript(
             // `p.(=)` is a prediction of no change; the others state what is unknown.
             predicted: value == "=",
         },
-    };
-    let Some(pos) = var_c.posedit.pos.as_ref() else {
-        return var_c
-            .posedit
-            .edit
-            .is_whole_identity()
-            .then(|| statement(None, "="));
     };
     if has_intronic_offset(pos) {
         return Some(statement(None, "?"));
@@ -873,17 +867,15 @@ fn relettered(edit: &crate::edits::NaEdit, letters: Letters) -> crate::edits::Na
 }
 
 /// `posedit` re-anchored through `anchor` and re-lettered, for moving between
-/// r. and c./n. Of the statements about the transcript only no change has
-/// another spelling, `r.=` as `c.=` or `n.=`; r.0 and r.spl have none.
+/// r. and c./n. Statements about the transcript (r.0, r.spl, r.=, c.=) have
+/// no other spelling.
 fn relettered_posedit(
     var: &dyn std::fmt::Display,
     posedit: &crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>,
     letters: Letters,
     anchor: impl Fn(Anchor) -> Anchor,
 ) -> Result<crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>, HgvsError> {
-    if matches!(posedit.edit, crate::edits::NaEdit::Special { .. })
-        && !posedit.edit.is_whole_identity()
-    {
+    if posedit.edit.is_whole_transcript() {
         return Err(HgvsError::UnsupportedOperation(format!(
             "{var} describes the transcript as a whole and has no other spelling"
         )));
@@ -1242,9 +1234,10 @@ impl<'a> VariantMapper<'a> {
         var_c: &V,
         reference_ac: Option<&str>,
     ) -> Result<GVariant, HgvsError> {
-        if let crate::edits::NaEdit::Special { .. } = &var_c.posedit().edit {
+        if matches!(var_c.posedit().edit, crate::edits::NaEdit::WholeIdentity) {
             return Err(HgvsError::UnsupportedOperation(format!(
-                "{}:{}.{} describes the transcript as a whole, so it has no genomic form",
+                "{}:{}.{} describes the whole transcript, which is spliced from its exons, \
+                 so it has no genomic form",
                 var_c.ac(),
                 var_c.coordinate_type(),
                 var_c.posedit()
@@ -1447,14 +1440,24 @@ impl<'a> VariantMapper<'a> {
     /// The protein consequence of an r. variant: a statement about the
     /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching statement
     /// about the protein; anything else is predicted from its c. spelling.
+    /// Either way the transcript must have a CDS.
     pub fn r_to_p(&self, r: &RVariant, protein_ac: Option<&str>) -> Result<PVariant, HgvsError> {
-        if let crate::edits::NaEdit::Special { value, .. } = &r.posedit.edit {
-            let (p, predicted) = match value.as_str() {
+        let statement = match &r.posedit.edit {
+            crate::edits::NaEdit::WholeIdentity => Some(("=", true)),
+            crate::edits::NaEdit::Special { value, .. } => Some(match value.as_str() {
                 "0" => ("0", false),
                 "0?" => ("0?", false),
-                "=" => ("=", true),
                 _ => ("?", false), // r.?, r.spl, r.spl?
-            };
+            }),
+            _ => None,
+        };
+        if let Some((p, predicted)) = statement {
+            if !self.has_cds(&r.ac)? {
+                return Err(HgvsError::ValidationError(format!(
+                    "{} has no CDS, so {r} has no protein consequence",
+                    r.ac
+                )));
+            }
             return Ok(PVariant {
                 ac: self.protein_accession(&r.ac, protein_ac)?,
                 gene: r.gene.clone(),
@@ -1610,29 +1613,20 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// What a coding variant does to the protein: a statement (`p.?`,
-    /// `p.Met1?`, `p.0?`, `p.(=)`) when the edit lies outside or across the
-    /// CDS boundary or is `c.=`, else the resolved change to describe or read.
+    /// `p.Met1?`, `p.0?`) when the edit lies outside or across the CDS
+    /// boundary, else the resolved change to describe or read.
     fn coding_outcome(
         &self,
         var_c: &CVariant,
         protein_ac: Option<&str>,
     ) -> Result<CodingOutcome, HgvsError> {
-        let transcript = self.provider().get_transcript(&var_c.ac, None)?;
-        // The whole transcript unchanged predicts the protein unchanged, open
-        // CDS or not, but only on a transcript that has one.
-        if var_c.posedit.pos.is_none() {
-            if transcript.cds_start_index.is_none() || transcript.cds_end_index.is_none() {
-                return Err(HgvsError::ValidationError(format!(
-                    "{} has no CDS, so {var_c} has no protein consequence",
-                    var_c.ac
-                )));
-            }
-            let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
-            if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
-                return Ok(CodingOutcome::Statement(statement));
-            }
+        if matches!(var_c.posedit.edit, crate::edits::NaEdit::WholeIdentity) {
+            return Ok(CodingOutcome::Statement(
+                self.unchanged_protein(var_c, protein_ac)?,
+            ));
         }
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
+        let transcript = self.provider().get_transcript(&var_c.ac, None)?;
         if transcript.cds_start_open {
             return Err(HgvsError::ValidationError(format!(
                 "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \
@@ -1670,6 +1664,43 @@ impl<'a> VariantMapper<'a> {
             },
             protein_ac,
         }))
+    }
+
+    /// `p.(=)` for `c.=`: the whole transcript unchanged predicts the protein
+    /// it encodes unchanged, whether or not the record carries its start
+    /// codon. The transcript must have a CDS, and `protein_ac`, if given, must
+    /// be the protein the provider pairs it with.
+    fn unchanged_protein(
+        &self,
+        var_c: &CVariant,
+        protein_ac: Option<&str>,
+    ) -> Result<PVariant, HgvsError> {
+        if !self.has_cds(&var_c.ac)? {
+            return Err(HgvsError::ValidationError(format!(
+                "{} has no CDS, so {var_c} has no protein consequence",
+                var_c.ac
+            )));
+        }
+        let encoded = self.protein_accession(&var_c.ac, None)?;
+        if let Some(ac) = protein_ac.filter(|&ac| ac != encoded) {
+            return Err(HgvsError::ValidationError(format!(
+                "{} encodes {encoded}, not {ac}, so {var_c} says nothing about {ac}",
+                var_c.ac
+            )));
+        }
+        Ok(PVariant {
+            ac: encoded,
+            gene: var_c.gene.clone(),
+            posedit: crate::structs::PosEdit {
+                pos: None,
+                edit: crate::edits::AaEdit::Special {
+                    value: "=".to_string(),
+                    uncertain: false,
+                },
+                uncertain: false,
+                predicted: true,
+            },
+        })
     }
 
     /// Back-converts a single amino acid substitution (p.Xxx###Yyy) to a coding variant (c.).
@@ -1752,41 +1783,17 @@ impl<'a> VariantMapper<'a> {
     ///
     /// Returns `Ok(true)` when the stated reference matches, or when the edit
     /// states no reference (or only a length) so there is nothing to check.
-    /// Intronic c. positions are accepted unchecked, and so is a statement
-    /// about the whole molecule (`c.=`, `r.spl`, `p.0`), which names no bases,
-    /// once the reference it cites is found.
+    /// Intronic c. positions are accepted unchecked. Only g. and c. variants
+    /// are supported.
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
-        use crate::SequenceVariant as SV;
-        if var.is_whole_molecule_statement() {
-            match var {
-                SV::Protein(p) => {
-                    self.refs
-                        .reference(&p.ac, IdentifierType::ProteinAccession)
-                        .base(0)?;
-                    return Ok(true);
-                }
-                SV::Rna(_) => {
-                    self.provider().get_transcript(var.ac(), None)?;
-                    return Ok(true);
-                }
-                SV::Coding(_) | SV::NonCoding(_) => {
-                    let coding = matches!(var, SV::Coding(_));
-                    if self.has_cds(var.ac())? != coding {
-                        return Err(HgvsError::ValidationError(format!(
-                            "{var} is written in {}. but {} {} CDS",
-                            var.coordinate_type(),
-                            var.ac(),
-                            if coding { "has no" } else { "has a" }
-                        )));
-                    }
-                    return Ok(true);
-                }
-                _ => {}
-            }
-        }
         match var {
             crate::SequenceVariant::Genomic(v) => self.validate_linear(v),
             crate::SequenceVariant::Mitochondrial(v) => self.validate_linear(v),
+            crate::SequenceVariant::Coding(v)
+                if matches!(v.posedit.edit, crate::edits::NaEdit::WholeIdentity) =>
+            {
+                self.validate_whole_identity(v)
+            }
             crate::SequenceVariant::Coding(v) => self.validate_transcript(v),
             crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
             crate::SequenceVariant::Protein(v) => self.validate_protein(v),
@@ -1801,6 +1808,18 @@ impl<'a> VariantMapper<'a> {
                 Ok(true)
             }
         }
+    }
+
+    /// `c.=` names no bases, so there is nothing to check once its
+    /// transcript is found to be a coding one.
+    fn validate_whole_identity(&self, v: &CVariant) -> Result<bool, HgvsError> {
+        if !self.has_cds(&v.ac)? {
+            return Err(HgvsError::ValidationError(format!(
+                "{v} describes a coding sequence, but {} has no CDS",
+                v.ac
+            )));
+        }
+        Ok(true)
     }
 
     /// Whether the residues a p. variant names at its positions, and any it
@@ -1904,10 +1923,8 @@ impl<'a> VariantMapper<'a> {
             SV::NonCoding(v) => SV::NonCoding(self.normalize_transcript(v)?),
             // r. normalises as the c. or n. variant it is spelled from, and
             // comes back in RNA letters. A statement about the transcript
-            // (r.0, r.spl) has nothing to normalise.
-            SV::Rna(r) if matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) => {
-                SV::Rna(r)
-            }
+            // (r.0, r.spl, r.=) has nothing to normalise.
+            SV::Rna(r) if r.posedit.edit.is_whole_transcript() => SV::Rna(r),
             SV::Rna(r) => {
                 let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
                 SV::Rna(self.tx_to_r(&normalised)?)
@@ -2012,12 +2029,6 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
-        if var.is_whole_molecule_statement() {
-            return Err(HgvsError::UnsupportedOperation(format!(
-                "{var} is a statement about the whole molecule, not a change at a position, \
-                 so it has no canonical allele"
-            )));
-        }
         if let crate::SequenceVariant::CisPhased(cis) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "A cis allele has one canonical allele per member, not one of its own; \
@@ -2847,11 +2858,6 @@ impl<'a> VariantMapper<'a> {
     /// r. to g., for a change within one exon. A change spanning a splice
     /// junction describes the spliced RNA and has no single genomic form.
     pub fn r_to_g(&self, r: &RVariant, reference_ac: Option<&str>) -> Result<GVariant, HgvsError> {
-        if matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) {
-            return Err(HgvsError::UnsupportedOperation(format!(
-                "{r} describes the transcript as a whole, so it has no genomic form"
-            )));
-        }
         let tx = self.r_as_transcript(r)?;
         let posedit = match &tx {
             crate::SequenceVariant::Coding(c) => &c.posedit,

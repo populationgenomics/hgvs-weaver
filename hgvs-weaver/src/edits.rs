@@ -62,18 +62,25 @@ pub enum NaEdit {
     },
     /// Copy number change.
     NACopy { copy: i32, uncertain: bool },
-    /// A statement about the whole molecule, with no position: `r.0` (no
-    /// transcript), `r.?`, `r.spl` (splicing affected), and no change, `r.=`,
-    /// `c.=` and `n.=`.
+    /// A statement about the whole RNA, with no position: `r.0` (no
+    /// transcript), `r.?`, `r.spl` (splicing affected); `value` is one of
+    /// [`RNA_STATEMENTS`].
     Special { value: String, uncertain: bool },
+    /// The whole transcript analysed and found unchanged, with no position:
+    /// `c.=` (its DNA) or `r.=` (its RNA).
+    WholeIdentity,
     /// No change (identity).
     None,
 }
 
+/// The values of [`NaEdit::Special`], as the r. grammar writes them.
+pub const RNA_STATEMENTS: [&str; 5] = ["0", "0?", "?", "spl", "spl?"];
+
 impl NaEdit {
-    /// The whole molecule unchanged: `c.=`, `n.=`, `r.=`.
-    pub fn is_whole_identity(&self) -> bool {
-        matches!(self, NaEdit::Special { value, .. } if value == "=")
+    /// Whether the edit describes the transcript as a whole rather than a
+    /// change at a position: `r.spl`, `r.=`, `c.=`.
+    pub fn is_whole_transcript(&self) -> bool {
+        matches!(self, NaEdit::Special { .. } | NaEdit::WholeIdentity)
     }
 }
 
@@ -290,7 +297,8 @@ impl NaEdit {
             | NaEdit::DelInsLength { .. }
             | NaEdit::Con { .. }
             | NaEdit::NACopy { .. }
-            | NaEdit::Special { .. } => {
+            | NaEdit::Special { .. }
+            | NaEdit::WholeIdentity => {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "Edit type {:?} cannot be resolved to reference and alternate bases",
                     self

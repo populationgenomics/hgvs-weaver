@@ -260,24 +260,15 @@ impl Variant for SequenceVariant {
 }
 
 impl SequenceVariant {
-    /// Whether this is a statement about the whole molecule rather than a
-    /// change at a position: `c.=`, `r.spl`, `p.0`. It names no bases, so it
-    /// has no genomic form and no allele.
-    pub fn is_whole_molecule_statement(&self) -> bool {
-        use crate::edits::{AaEdit, NaEdit};
-        let na = |pos_is_none: bool, edit: &NaEdit| {
-            pos_is_none && matches!(edit, NaEdit::Special { .. })
-        };
+    /// Whether this states that the whole sequence was analysed and found
+    /// unchanged: `c.=`, `r.=`, `r.(=)`, `p.=`, `p.(=)`.
+    pub fn is_whole_identity(&self) -> bool {
+        use crate::edits::NaEdit;
         match self {
-            SequenceVariant::Genomic(v) => na(v.posedit.pos.is_none(), &v.posedit.edit),
-            SequenceVariant::Mitochondrial(v) => na(v.posedit.pos.is_none(), &v.posedit.edit),
-            SequenceVariant::Coding(v) => na(v.posedit.pos.is_none(), &v.posedit.edit),
-            SequenceVariant::NonCoding(v) => na(v.posedit.pos.is_none(), &v.posedit.edit),
-            SequenceVariant::Rna(v) => na(v.posedit.pos.is_none(), &v.posedit.edit),
-            SequenceVariant::Protein(v) => {
-                v.posedit.pos.is_none() && matches!(v.posedit.edit, AaEdit::Special { .. })
-            }
-            SequenceVariant::CisPhased(_) => false,
+            SequenceVariant::Coding(v) => matches!(v.posedit.edit, NaEdit::WholeIdentity),
+            SequenceVariant::Rna(v) => matches!(v.posedit.edit, NaEdit::WholeIdentity),
+            SequenceVariant::Protein(v) => v.posedit.pos.is_none() && v.posedit.edit.is_identity(),
+            _ => false,
         }
     }
 }

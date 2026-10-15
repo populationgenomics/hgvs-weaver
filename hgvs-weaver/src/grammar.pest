@@ -26,24 +26,21 @@ trans_alleles = { accn ~ opt_gene_expr ~ ":" ~ ASCII_ALPHA ~ "." ~ bracket_group
 bracket_group = { "[" ~ (!"]" ~ ANY)* ~ "]" }
 
 // PosEdits
-c_posedit = { (c_interval ~ dna_edit) | tx_identity }
+c_posedit = { (c_interval ~ dna_edit) | whole_identity }
 g_posedit = { g_interval ~ dna_edit }
 m_posedit = { m_interval ~ dna_edit }
-n_posedit = { (n_interval ~ dna_edit) | tx_identity }
-// The whole transcript analysed and found unchanged, c.= (n.= on a
-// non-coding transcript, the DNA spelling of r.=). A genome has no such
-// statement: g. and m. state no change only at a position or range, g.88_99=.
-tx_identity = { "=" }
-r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | r_posedit_special }
+n_posedit = { n_interval ~ dna_edit }
+r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | whole_identity | ("(" ~ whole_identity ~ ")") | r_posedit_special }
+// The whole transcript analysed and found unchanged: c.= and r.=, and the
+// predicted r.(=). HGVS writes no n.=, g.= or m.=, and c. has no predicted form.
+whole_identity = { "=" }
 // A predicted RNA change, r.(123a>g): the RNA was not analysed. Only r. and
 // p. have this form; on DNA, parentheses mark uncertain positions instead.
 r_posedit_predicted = { "(" ~ r_interval ~ rna_edit ~ ")" }
 // Statements about the transcript as a whole: no RNA (r.0), unknown effect
-// (r.?), splicing affected (r.spl), no change (r.=).
+// (r.?), splicing affected (r.spl).
 r_posedit_special = {
-      "(" ~ "=" ~ ")"
-    | "="
-    | "0" ~ "?"
+      "0" ~ "?"
     | "0"
     | "spl" ~ "?"
     | "spl"
