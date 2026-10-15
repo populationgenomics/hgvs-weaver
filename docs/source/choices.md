@@ -340,71 +340,75 @@ NM_R.1:r.0              →  NP_R.1:p.0
 
 ### The whole transcript unchanged is a statement, not a change
 
-**`c.=` says the whole transcript was analysed and found unchanged. It is read like `r.=`: a statement about the
-molecule, with another spelling and a protein consequence, but no genomic form and no allele.**
+**`c.=` says the whole coding transcript was analysed and no change was found. weaver reads it as a statement about the
+transcript: it predicts the transcript's own protein unchanged, and has no genomic form, no allele and no `r.`
+spelling.**
 
 HGVS writes `c.=` for a coding transcript with no variant anywhere in it, and MaveDB writes it for the wild-type row of
-a score set. Because it names no position, nothing that works from positions can take it: there is no stretch of genome
-to project it onto (the transcript is spliced from many exons), and no bases to make an allele, an SPDI or a VRS
-identifier from. Rather than invent one — a reference allele over the transcript's span, say — weaver answers what
-follows from the statement and refuses the rest:
+a score set. It names no position, so nothing that works from positions can take it: the transcript is spliced from many
+exons, so there is no one stretch of genome to project it onto, and there are no bases to make an allele, an SPDI or a
+VRS identifier from. weaver does not invent any of these (for example, a reference allele over the transcript's span).
+It answers only what follows from the statement:
 
-- **Spelling.** `c.=` is `r.=` in RNA letters, and `n.=` is `r.=` on a non-coding transcript, as every other `r.`
-  description is its `c.` or `n.` spelling ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
-  `r.(=)` loses its parentheses on the way to `c.=`, as `r.(10c>g)` does.
-- **Protein.** Nothing changed predicts nothing changed: `c.=` gives `p.(=)`, on a CDS open at its 5' end too, and is
-  equivalent to `p.(=)` and `p.=`. `n.=` is on a transcript that makes no protein, so it matches no `p.` description.
-  Like the `p.(=)` of an edit in the 3'UTR, it has no protein allele.
-- **Validate and normalise.** It states no bases, so `validate` has nothing to check once the transcript is found — a
-  coding one for `c.=`, a non-coding one for `n.=` — and normalising leaves it as written. Every statement about the
-  whole molecule (`r.spl`, `p.0`) validates the same way. Only these whole-transcript forms check the kind of
-  transcript; a positioned `n.` on a coding transcript is read as written.
-- **Alleles in cis.** `c.[=]` alone is `c.=`, the half the trans form `c.[2376G>C];[=]` names. Beside other members it
-  contradicts them, so `c.[=;10C>G]`, like `r.[spl;10c>g]`, is refused when parsed.
-- **Refused.** A genomic form, a canonical allele, a protein allele, SPDI and VRS are an `UnsupportedOperation` error.
+- **Protein.** If nothing changed in the transcript, the protein it encodes is predicted unchanged, so `c.=` gives
+  `p.(=)`. This holds even where the record lacks the start codon (a CDS open at its 5' end). The statement covers only
+  the protein the provider pairs with the transcript: naming another protein is an error, and so is `c.=` on a
+  transcript without a CDS. In equivalence `c.=` is the same as `p.(=)` on that protein, analogous to `p.=`, and not
+  equivalent to either on any other protein. A `p.(=)` names no residues, so `c.=` has no protein allele.
+- **No `r.` spelling.** `c.=` and `r.=` make different claims: one says the DNA was analysed, the other the RNA. So
+  `c_to_r` refuses `c.=` and `r_to_c` refuses `r.=`, as both already refuse `r.spl`. For the same reason the two are not
+  equivalent. They do not contradict each other, but neither implies the other. `r.=` and `r.(=)` behave as they did
+  before `c.=` was read.
+- **Validation.** `c.=` names no bases, so `validate` has nothing to compare. It is true once the transcript is found
+  and has a CDS; on a non-coding transcript it is an error. Normalising leaves `c.=` as written.
+- **Alleles in cis.** `c.[=]` alone is `c.=`, the half that the trans form `c.[2376G>C];[=]` names. Beside a change it
+  contradicts that change, so `c.[=;10C>G]` is refused when parsed. The same rule refuses `r.[=;10c>g]` and
+  `p.[=;Arg2Gly]`. The other statements are left alone: `r.[spl;10c>g]` parses as before.
+- **Refused.** A genomic form, a canonical allele, SPDI and VRS are an `UnsupportedOperation` error.
 
-A genome has no such statement: `g.=` and `m.=` do not parse, and nor does `c.(=)`, since `c.` has no predicted form.
+Only `c.` takes the whole-transcript identity. The specification never writes `n.=` and defines no whole-sequence
+statement for `g.` or `m.`, and `c.` has no predicted form, so `n.=`, `g.=`, `m.=` and `c.(=)` do not parse. A
+dictionary that describes one of them is refused by `Variant.from_dict` too.
 
-**Example** (`NM_W.1` codes for `NP_W.1`; `NR_W.1` is non-coding):
+`r_to_p` holds every `r.` statement to the same condition as `c_to_p`: on a transcript without a CDS, `r.=`, `r.spl` and
+`r.0` are an error rather than a statement about a protein.
+
+**Example** (`NM_W.1` encodes `NP_W.1`; `NR_W.1` is non-coding):
 
 ```text
-NM_W.1:c.=   ⇄  NM_W.1:r.=
-NR_W.1:r.=   →  NR_W.1:n.=
 NM_W.1:c.=   →  NP_W.1:p.(=)
-NM_W.1:c.=   →  c_to_g, to_spdi, to_vrs: an error, not an allele
-NM_W.1:c.=   vs NM_W.1:c.10=     not equivalent: one base unchanged is not the whole transcript
+NM_W.1:c.=   →  NP_OTHER.1:  an error: NM_W.1 does not encode it
+NR_W.1:c.=   →  p.:          an error: no CDS
+NM_W.1:c.=   →  c_to_g, c_to_r, to_spdi, to_vrs: an error
+NM_W.1:c.=   vs NM_W.1:c.[=]     Identity
+NM_W.1:c.=   vs NP_W.1:p.(=)     Identity
+NM_W.1:c.=   vs NP_W.1:p.=       Analogous
+NM_W.1:c.=   vs NM_W.1:r.=       Different: DNA analysed is not RNA analysed
+NM_W.1:c.=   vs NM_W.1:c.10=     Different: one base unchanged is not the whole transcript
 NM_W.1:c.[=;10C>G]               refused when parsed
-NC_W.1:g.=                       refused when parsed
+NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
 ```
 
-- **Differs:** biocommons rejects `c.=`, `n.=` and `r.=` (it parses `p.=`). VariantValidator: not checked. The ClinVar
+- **Differs:** biocommons rejects `c.=`, `c.[=]` and `r.=`, and parses `p.=`. VariantValidator: not checked. The ClinVar
   sample has no whole-sequence statement.
 - **Spec (agrees):** [DNA substitution](https://hgvs-nomenclature.org/stable/recommendations/DNA/substitution/): "`c.=`
   indicates the entire `NM_004006.2` coding DNA reference sequence was analysed and no change was identified";
-  [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`;
-  [RNA alleles](https://hgvs-nomenclature.org/stable/recommendations/RNA/alleles/) for `r.[76a>u];[=]`;
-  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) for `p.=`. The
-  specification writes `n.=` nowhere; weaver accepts it because
-  [numbering](https://hgvs-nomenclature.org/stable/background/numbering/) relates `r.123` to `c.123` or `n.123`, so
-  `r.=` on a non-coding transcript has to be spelled somehow. It defines no whole-sequence statement for `g.` or `m.`.
-- **Tests:** `whole_sequence_identity_test::whole_sequence_identity_parses_and_prints_back`,
-  `::identity_without_a_position_is_refused_where_hgvs_does_not_define_it`,
-  `::a_whole_molecule_statement_shares_no_cis_allele_with_a_change`, `::c_identity_is_r_identity_in_other_letters`,
-  `::r_identity_on_a_non_coding_transcript_is_n_identity`,
-  `::the_whole_transcript_unchanged_predicts_the_protein_unchanged`,
-  `::a_whole_molecule_statement_validates_with_nothing_to_check`, `::whole_sequence_identity_has_no_genomic_form`,
-  `::whole_sequence_identity_has_no_allele`, `::whole_sequence_identity_implies_the_protein_unchanged`,
-  `::whole_sequence_identity_differs_from_a_change_or_one_unchanged_base`,
-  `::a_predicted_r_identity_loses_its_parentheses_in_dna_letters`,
-  `::normalising_whole_sequence_identity_leaves_it_as_written`,
-  `::validating_a_whole_molecule_statement_needs_its_reference`, `::validating_c_identity_needs_a_coding_transcript`,
-  `::validating_n_identity_needs_a_non_coding_transcript`,
-  `::c_identity_and_r_identity_on_one_transcript_are_equivalent`,
-  `::whole_sequence_identity_is_its_one_member_cis_allele`, `::non_coding_identity_says_nothing_about_a_protein`,
-  `::whole_sequence_identity_has_no_protein_allele`,
-  `::c_identity_on_a_non_coding_transcript_has_no_protein_consequence`,
-  `::c_identity_predicts_the_protein_unchanged_on_an_open_cds`, `::r_identity_is_itself_without_its_transcript`;
-  `tests/test_mavehgvs_compliance.py`.
+  [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`. The
+  specification says nothing about the protein consequence of `c.=`, about `c.=` inside a cis allele, or about how `c.=`
+  relates to `r.=`; those are weaver's reading. It writes `r.(=)` for "no changes on the RNA level are expected (RNA not
+  analysed)" ([uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/)), which is a different claim
+  from `c.=`.
+- **Tests:** `whole_sequence_identity_test::c_identity_prints_back_as_parsed`, `::n_identity_does_not_parse`,
+  `::a_predicted_c_identity_does_not_parse`, `::c_identity_beside_a_change_is_refused`,
+  `::r_splicing_beside_a_change_parses`, `::c_identity_predicts_its_transcripts_protein_unchanged`,
+  `::c_identity_says_nothing_about_a_protein_its_transcript_does_not_encode`,
+  `::c_identity_on_a_transcript_without_a_cds_has_no_protein_consequence`,
+  `::c_identity_predicts_the_protein_unchanged_on_a_cds_open_at_its_start`, `::c_identity_has_no_r_spelling`,
+  `::c_identity_has_no_genomic_form`, `::c_identity_has_no_vrs_allele`, `::c_identity_on_a_coding_transcript_validates`,
+  `::c_identity_is_not_r_identity`, `::c_identity_is_analogous_to_its_own_protein_unchanged`,
+  `::c_identity_is_not_another_protein_unchanged`, `::c_identity_is_not_one_base_unchanged`,
+  `::r_identity_on_a_transcript_without_a_cds_has_no_protein_consequence`, `::a_deserialised_g_identity_is_refused`;
+  `tests/test_mavehgvs_compliance.py`, `tests/test_whole_identity.py`.
 
 ## Normalisation
 
