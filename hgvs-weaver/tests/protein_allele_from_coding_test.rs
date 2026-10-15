@@ -269,6 +269,15 @@ fn edits_around_the_cds_start_are_statements() {
 }
 
 #[test]
+fn a_stored_extension_reads_back_as_the_one_computed() {
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let computed =
+        SequenceVariant::Protein(mapper.c_to_p(&coding("NM_X.1:c.19T>C"), None).unwrap());
+    assert_eq!(parse_hgvs_variant(&computed.to_string()).unwrap(), computed);
+}
+
+#[test]
 fn an_edit_that_leaves_no_codon_where_the_protein_changes_says_nothing() {
     // Each deletion runs to the end of the transcript, leaving fewer than
     // three bases after the last intact codon: no residue, and no stop, at
