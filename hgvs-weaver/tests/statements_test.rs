@@ -6,8 +6,12 @@ mod support;
 
 use hgvs_weaver::data::Strand;
 use hgvs_weaver::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
+use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
+use hgvs_weaver::{
+    parse_hgvs_variant, transform_variant, SequenceVariant, StartCodonConvention,
+    VariantTransformSettings,
+};
 use support::{exon, transcript, Provider};
 
 /// NM_W.1, CDS at transcript indices 5..=94 encoding NP_W.1, spliced from
@@ -147,6 +151,17 @@ reads_as! { aa_edit;
     p_identity_is_the_protein_unchanged: "NP_W.1:p.=" => AaEdit::Statement(ProteinStatement::Unchanged);
     predicted_p_identity_is_the_protein_unchanged: "NP_W.1:p.(=)" => AaEdit::Statement(ProteinStatement::Unchanged);
     p_0_uncertain_is_probably_no_protein: "NP_W.1:p.0?" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true });
+    an_unknown_change_from_a_residue_is_an_unknown_effect: "NP_W.1:p.Arg12?" => AaEdit::Statement(ProteinStatement::Unknown);
+}
+
+#[test]
+fn p_met1_unknown_parses_to_what_the_mapper_builds() {
+    assert_eq!(parse("NP_W.1:p.Met1?"), c_to_p("NM_W.1:c.-3_4del"));
+}
+
+#[test]
+fn an_unknown_change_over_a_range_does_not_parse() {
+    assert!(parse_hgvs_variant("NP_W.1:p.Met1_Arg3?").is_err());
 }
 
 #[test]
@@ -203,6 +218,16 @@ fn p_0_uncertain_prints_back_as_parsed() {
 }
 
 #[test]
+fn an_unknown_change_from_a_residue_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.Arg12?").to_string(), "NP_W.1:p.Arg12?");
+}
+
+#[test]
+fn a_predicted_unknown_change_from_met1_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.(Met1?)").to_string(), "NP_W.1:p.(Met1?)");
+}
+
+#[test]
 fn an_r_statement_written_with_a_space_prints_without_it() {
     assert_eq!(parse("NM_W.1:r.spl ?").to_string(), "NM_W.1:r.spl?");
 }
@@ -232,6 +257,31 @@ fn the_mappers_no_protein_reparses_to_itself() {
 fn the_mappers_unknown_effect_reparses_to_itself() {
     let p = c_to_p("NM_W.1:c.45+1G>A");
     assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
+fn the_mappers_unknown_change_from_met1_reparses_to_itself() {
+    let p = c_to_p("NM_W.1:c.-3_4del");
+    assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
+fn the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself() {
+    let settings = VariantTransformSettings {
+        start_codon: StartCodonConvention::HgvsQuestion,
+    };
+    let p = transform_variant(&parse("NP_W.1:p.(Met1Val)"), &settings);
+    assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
+fn a_start_loss_is_the_parsed_unknown_change_from_met1() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NM_W.1:c.-3_4del"), &parse("NP_W.1:p.Met1?"))
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Identity);
 }
 
 #[test]

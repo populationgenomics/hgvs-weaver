@@ -151,8 +151,7 @@ pub enum AaEdit {
     /// Silent variant (no change).
     Identity { uncertain: bool },
     /// A statement about the whole protein: `p.0`, `p.?`, `p.=`. At a
-    /// position, `Unknown` is the mapper's `p.Met1?`, an unknown change from
-    /// that residue on; the parser reads `p.Met1?` as a substitution.
+    /// residue, `Unknown` is `p.Met1?`, an unknown change from that residue on.
     Statement(ProteinStatement),
     /// Placeholder for no edit.
     None,

@@ -169,11 +169,10 @@ def test_equivalence_protein_3letter() -> None:
 
 
 def test_equivalence_met1_question_vs_xaa() -> None:
-    """Tests that p.Met1? is considered analogous to p.Met1Xaa."""
+    """Tests that p.Met1?, a change from Met1 on, matches p.Met1Xaa, a change at Met1."""
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
-    # p.Met1? and p.Met1Xaa both represent "unknown amino acid change at position 1 (Met)"
     v1 = weaver.parse("NP_TEST.1:p.Met1?")
     v2 = weaver.parse("NP_TEST.1:p.Met1Xaa")
 

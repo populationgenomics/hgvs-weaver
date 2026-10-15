@@ -81,6 +81,24 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
     let inner_pair = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty p_posedit".into()))?;
+    if inner_pair.as_rule() == Rule::p_unknown_from {
+        let at = parse_aa_pos(
+            inner_pair
+                .into_inner()
+                .next()
+                .ok_or_else(|| HgvsError::PestError("Missing residue".into()))?,
+        )?;
+        return Ok(PosEdit {
+            pos: Some(AaInterval {
+                start: at,
+                end: None,
+                uncertain: false,
+            }),
+            edit: AaEdit::Statement(ProteinStatement::Unknown),
+            uncertain: false,
+            predicted,
+        });
+    }
     if inner_pair.as_rule() == Rule::p_posedit_special {
         return Ok(PosEdit {
             pos: None,

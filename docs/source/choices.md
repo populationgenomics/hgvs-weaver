@@ -60,7 +60,7 @@ Representation Specification 2.0.1.
 | [CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting)                           | **differs** |       –        |          –           |        –         |
 | [Reading back gives the normalised variant](#reading-back-gives-the-normalised-variant)                                             |   agrees    |       –        |          –           |        –         |
 | [Breakends and fusions are not rendered](#breakends-and-fusions-are-not-rendered)                                                   |      –      |       –        |          –           |        –         |
-| [The grammar is checked against the biocommons table](#the-grammar-is-checked-against-the-biocommons-table)                         |      –      | one difference |          –           |      agrees      |
+| [The grammar is checked against the biocommons table](#the-grammar-is-checked-against-the-biocommons-table)                         |      –      | differs on two |          –           |      agrees      |
 | [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |   agrees    |    differs     |          –           |        –         |
 | [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |   agrees    |       –        |       differs        |        –         |
 | [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |   agrees    |    differs     |        agrees        |        –         |
@@ -637,6 +637,11 @@ predicted; weaver's is that `p.(Met1Val)` says which codon changed and how, is w
 reduced to `p.Met1?` but not recovered from it. `VariantTransformSettings` with `StartCodonConvention::HgvsQuestion`
 rewrites it on request.
 
+`p.Met1?` read from text is the same statement weaver writes: an unknown change from `Met1` on, not a substitution of
+`Met1` by an unknown residue, which would be `p.Met1Xaa`, the commitment the nomenclature declines to make. The
+bracketed `p.(Met1?)` the nomenclature writes is the same statement as a prediction. So whatever weaver writes for a
+start codon, from `c_to_p` or from the transform, reads back as itself.
+
 **Example:**
 
 ```text
@@ -645,15 +650,24 @@ NM_007199.2:c.1A>G        →  NP_009130.2:p.(Met1Val)     weaver
                           →  NP_009130.2:p.Met1?         biocommons and VariantValidator
 
 transform NP_000051.2:p.(Met1Val)  →  NP_000051.2:p.Met1?    with start_codon = HgvsQuestion
+
+parse NP_W.1:p.Met1?      →  the unknown change from Met1 that c_to_p builds for NM_W.1:c.-3_4del
+parse NP_W.1:p.(Met1?)    →  the same, predicted
 ```
 
 - **Differs:** biocommons and VariantValidator write `p.Met1?`, as the nomenclature recommends. A recorded difference.
+  biocommons reads the `?` of `p.Met1?` as a substitution to an unknown residue (its grammar table); weaver reads it as
+  the statement.
 - **Spec (differs):**
   [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/): `p.Met1?` when
   "the consequence, on the protein level, of a variant affecting the translation initiation codon can not be predicted".
 - **Tests:** `mapping_test::test_mapper_c_to_p_start_codon_subst`;
   `real_transcripts_test::biocommons_real_transcript_cases` (INITMET01, recorded);
-  `src/transform.rs::test_transform_met1_to_question`.
+  `src/transform.rs::test_transform_met1_to_question`;
+  `statements_test::p_met1_unknown_parses_to_what_the_mapper_builds`,
+  `::the_mappers_unknown_change_from_met1_reparses_to_itself`,
+  `::the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself`,
+  `::a_predicted_unknown_change_from_met1_prints_back_as_parsed`.
 
 ### Edits outside the CDS are statements
 
@@ -809,7 +823,9 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 change starts there.**
 
 It does not match ClinVar's `Met1fs`, a commitment weaver did not make. Two ClinVar rows judge Different for this
-reason, on purpose.
+reason, on purpose. A `?` after any other residue, `p.Arg12?`, is read the same way, as a change from that residue on of
+which nothing more is said; the nomenclature defines the form only at the start codon. It names one residue, so
+`p.Met1_Arg3?` does not parse.
 
 **Example:**
 
@@ -822,7 +838,9 @@ NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
 - **Differs:** ClinVar commits.
 - **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
   defines `p.?` and `p.Met1?` as statements of what is not known.
-- **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`.
+- **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
+  `statements_test::a_start_loss_is_the_parsed_unknown_change_from_met1`,
+  `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`.
 
 ### Judging with no protein sequence is an error
 
@@ -1050,18 +1068,21 @@ from_spdi NP_TEST.1:1:K:L       →  NP_TEST.1:p.Lys2Leu
 
 ### The grammar is checked against the biocommons table
 
-**580 inputs over the 92 rules the two grammars share, agreeing on all but one.**
+**580 inputs over the 92 rules the two grammars share, agreeing on all but two.**
 
-weaver accepts a terminator inside an amino acid sequence, which biocommons rejects and ClinVar writes.
+weaver accepts a terminator inside an amino acid sequence, which biocommons rejects and ClinVar writes. And biocommons
+takes the `?` of `p.Met1?` as a substitution; weaver reads it with its own rule, as the statement
+[above](#a-start-codon-change-is-written-specifically), so its substitution rule rejects a bare `?`.
 
 **Example:**
 
 ```text
 rule aat13_seq, input TerGly        →  accepted by weaver, rejected by biocommons
 NP_…:p.Glu26_Glu27insTerGlu         →  parses; ClinVar writes it
+rule pro_subst, input ?             →  rejected by weaver, accepted by biocommons; p.Met1? still parses
 ```
 
-- **Differs:** biocommons, on that one input.
+- **Differs:** biocommons, on those two inputs.
 - **Agrees:** ClinVar.
 - **Spec (silent):** the nomenclature pages above; the table is biocommons's reading of them.
 - **Tests:** `grammar_test::biocommons_grammar_table` (the difference is listed in `KNOWN_DIFFERENCES`);
@@ -1077,7 +1098,7 @@ genomic breakpoints; insertions of a stated length; copy number; `r.` positions 
 ```text
 NM_004006.2:c.[145C>T;147C>G]      NP_X.1:p.[Lys2Leu;Ala4del]      NM_X.1:r.[7c>u;13u>g]
 NM_R.1:r.(10c>g)                   NM_R.1:r.0   NM_R.1:r.?   NM_R.1:r.spl   NM_R.1:r.=
-NP_X.1:p.0   NP_X.1:p.0?   NP_X.1:p.Met1?
+NP_X.1:p.0   NP_X.1:p.0?   NP_X.1:p.Met1?   NP_X.1:p.(Met1?)
 NC_000009.11:g.(?_108337304)_(108337428_?)del
 NC_TEST.1:g.10_11insN[20]   NC_TEST.1:g.10_11insN[(20_30)]   NC_TEST.1:g.10_12delinsN[5]   NC_TEST.1:g.10_11ins(20)
 NC_000014.8:g.88401076_88459508copy4

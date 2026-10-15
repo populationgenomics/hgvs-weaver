@@ -45,7 +45,10 @@ r_splicing_affected = { "spl" ~ statement_uncertain? }
 // The ? of r.0?, r.spl? or p.0?: probably so.
 statement_uncertain = { "?" }
 statement_unknown = { "?" }
-p_posedit = { (p_interval ~ pro_edit) | ("(" ~ p_interval ~ pro_edit ~ ")") | p_posedit_special }
+p_posedit = { p_unknown_from | ("(" ~ p_unknown_from ~ ")") | (p_interval ~ pro_edit) | ("(" ~ p_interval ~ pro_edit ~ ")") | p_posedit_special }
+// An unknown change from one residue on, p.Met1? and predicted p.(Met1?):
+// the ? is the statement p.? at a residue, not a substitution.
+p_unknown_from = { p_pos ~ statement_unknown }
 
 // Statements about the protein as a whole: unchanged (p.=, predicted p.(=)),
 // no protein (p.0), unknown effect (p.?).
@@ -85,7 +88,7 @@ rna_repeat = { rna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
 
 pro_edit   = { pro_fs | pro_ext | pro_repeat | pro_ident | pro_subst | pro_delins | pro_del | pro_ins | pro_dup }
 pro_ident  = { "=" }
-pro_subst  = { (aat13 | "?") }
+pro_subst  = { aat13 }
 pro_delins = { "delins" ~ aat13_seq }
 pro_del    = { "del" }
 pro_ins    = { "ins" ~ aat13_seq }
