@@ -310,9 +310,13 @@ pub(crate) struct PVariantFields {
     posedit: PosEdit<AaInterval, StoredAaEdit>,
 }
 
-/// A protein edit as a dict gives it, in the current shape or the `Special`
-/// one.
-pub(crate) struct StoredAaEdit(AaEdit);
+/// A protein edit as a dict gives it: an edit, in the current shape or the
+/// `Special` one, or a substitution to `?`, which is how `p.Met1?` and `p.0?`
+/// were stored when the parser read the `?` as a residue.
+pub(crate) enum StoredAaEdit {
+    Edit(AaEdit),
+    SubstitutionToUnknown,
+}
 
 impl<'de> Deserialize<'de> for StoredAaEdit {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -320,9 +324,12 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
         let dict = EditDict(serde_json::Value::deserialize(deserializer)?);
         if !dict.type_is("Special") {
             let edit = AaEdit::deserialize(&dict.0).map_err(D::Error::custom)?;
+            if matches!(&edit, AaEdit::Subst { alt, .. } if alt == "?") {
+                return Ok(StoredAaEdit::SubstitutionToUnknown);
+            }
             return dict
                 .statement_exactly(edit)
-                .map(StoredAaEdit)
+                .map(StoredAaEdit::Edit)
                 .map_err(D::Error::custom);
         }
         let statement = match dict.special_text().map_err(D::Error::custom)?.as_str() {
@@ -336,23 +343,71 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
                 )))
             }
         };
-        Ok(StoredAaEdit(AaEdit::Statement(statement)))
+        Ok(StoredAaEdit::Edit(AaEdit::Statement(statement)))
     }
 }
 
-impl From<PVariantFields> for PVariant {
-    fn from(fields: PVariantFields) -> Self {
-        let posedit = fields.posedit;
-        PVariant {
+/// The posedit of a p. variant, with a substitution to `?` read as the text
+/// it was parsed from: `p.0?` at residue 0, the unknown change from a residue
+/// anywhere else. Refuses what p. cannot write: a statement about the whole
+/// protein at a residue, and any statement but `p.(=)` predicted; the unknown
+/// change over a range or an uncertain residue; a change without a position,
+/// or with no edit; a residue numbered below 1; an uncertain posedit.
+fn check_p_posedit(
+    posedit: PosEdit<AaInterval, StoredAaEdit>,
+) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
+    let (pos, edit) = match (posedit.edit, posedit.pos) {
+        (StoredAaEdit::Edit(edit), pos) => (pos, edit),
+        (StoredAaEdit::SubstitutionToUnknown, Some(pos)) if pos.start.base.0 == 0 => {
+            if pos.end.is_some() || !pos.start.aa.is_empty() {
+                return Err(HgvsError::ValidationError(format!(
+                    "p. cannot write a substitution to ? at residue 0 but p.0?, not {pos:?}"
+                )));
+            }
+            (
+                None,
+                AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true }),
+            )
+        }
+        (StoredAaEdit::SubstitutionToUnknown, pos) => {
+            (pos, AaEdit::Statement(ProteinStatement::Unknown))
+        }
+    };
+    let posedit = PosEdit {
+        pos,
+        edit,
+        uncertain: posedit.uncertain,
+        predicted: posedit.predicted,
+    };
+    let numbered = |p: &AAPosition| p.base.0 >= 1;
+    let writable = !posedit.uncertain
+        && match (&posedit.edit, &posedit.pos) {
+            (AaEdit::Statement(ProteinStatement::Unchanged), None) => true,
+            (AaEdit::Statement(_), None) => !posedit.predicted,
+            (AaEdit::Statement(ProteinStatement::Unknown), Some(pos)) => {
+                pos.end.is_none() && !pos.uncertain && numbered(&pos.start)
+            }
+            (AaEdit::Statement(_) | AaEdit::None, _) | (_, None) => false,
+            (_, Some(pos)) => numbered(&pos.start) && pos.end.as_ref().is_none_or(numbered),
+        };
+    if writable {
+        Ok(posedit)
+    } else {
+        Err(HgvsError::ValidationError(format!(
+            "p. cannot write p.{posedit} ({:?})",
+            posedit.edit
+        )))
+    }
+}
+
+impl TryFrom<PVariantFields> for PVariant {
+    type Error = HgvsError;
+    fn try_from(fields: PVariantFields) -> Result<Self, HgvsError> {
+        Ok(PVariant {
             ac: fields.ac,
             gene: fields.gene,
-            posedit: PosEdit {
-                pos: posedit.pos,
-                edit: posedit.edit.0,
-                uncertain: posedit.uncertain,
-                predicted: posedit.predicted,
-            },
-        }
+            posedit: check_p_posedit(fields.posedit)?,
+        })
     }
 }
 
@@ -386,7 +441,7 @@ impl_transcript_variant!(CVariant, Anchor::CdsStart, coding_position_from_index)
 
 /// Represents a protein variant (p.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(from = "PVariantFields")]
+#[serde(try_from = "PVariantFields")]
 pub struct PVariant {
     pub ac: String,
     pub gene: Option<String>,

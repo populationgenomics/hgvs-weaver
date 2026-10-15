@@ -26,7 +26,7 @@ def _special(variant_type: str, ac: str, value: str, *, predicted: bool = False)
 
 @pytest.mark.parametrize(
     "hgvs",
-    ["NM_W.1:r.spl?", "NP_W.1:p.0", "NP_W.1:p.(=)"],
+    ["NM_W.1:r.spl?", "NP_W.1:p.0", "NP_W.1:p.0?", "NP_W.1:p.(=)", "NP_W.1:p.Met1?"],
 )
 def test_a_statement_round_trips_through_a_dict(hgvs: str) -> None:
     assert str(weaver.Variant.from_dict(weaver.parse(hgvs).to_dict())) == hgvs
@@ -53,3 +53,19 @@ def test_a_dict_in_the_special_shape_still_loads(
 ) -> None:
     loaded = weaver.Variant.from_dict(_special(variant_type, ac, value, predicted=predicted))
     assert str(loaded) == expected
+
+
+def test_a_dict_for_no_protein_at_a_residue_is_refused() -> None:
+    d = {
+        "variant_type": "Protein",
+        "ac": "NP_W.1",
+        "gene": None,
+        "posedit": {
+            "pos": {"start": {"base": 1, "aa": "Met", "uncertain": False}, "end": None, "uncertain": False},
+            "edit": {"type": "Statement", "statement": "NoProtein", "uncertain": False},
+            "uncertain": False,
+            "predicted": False,
+        },
+    }
+    with pytest.raises(ValueError, match=r"p\. cannot write"):
+        weaver.Variant.from_dict(d)

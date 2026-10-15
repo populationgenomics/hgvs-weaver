@@ -430,3 +430,204 @@ fn a_protein_unchanged_naming_an_uncertainty_it_cannot_have_is_refused() {
     let err = from_json(&json).unwrap_err().to_string();
     assert!(err.contains("fields its statement does not have"), "{err}");
 }
+
+// --- A p. dict describes only what p. writes ---
+
+/// A p. variant on NP_W.1 with posedit fields `pos`, `edit`, `uncertain` and
+/// `predicted`, as JSON.
+fn p_json_at(pos: &str, edit: &str, uncertain: bool, predicted: bool) -> String {
+    format!(
+        r#"{{"variant_type": "Protein", "ac": "NP_W.1", "gene": null, "posedit": {{"pos": {pos},
+            "edit": {edit}, "uncertain": {uncertain}, "predicted": {predicted}}}}}"#
+    )
+}
+
+/// Whether `json` was refused because p. cannot write what it describes.
+fn refused_by_p(json: &str) -> bool {
+    from_json(json).is_err_and(|e| e.to_string().contains("p. cannot write"))
+}
+
+#[test]
+fn a_dict_for_no_protein_at_a_residue_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Statement", "statement": "NoProtein", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_the_protein_unchanged_at_a_residue_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Statement", "statement": "Unchanged"}"#,
+        false,
+        true,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_an_unknown_change_over_a_range_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met", "uncertain": false},
+            "end": {"base": 3, "aa": "Arg", "uncertain": false}, "uncertain": false}"#,
+        r#"{"type": "Statement", "statement": "Unknown"}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_predicted_no_protein_does_not_parse() {
+    assert!(parse_hgvs_variant("NP_W.1:p.(0)").is_err());
+}
+
+#[test]
+fn a_dict_for_a_predicted_no_protein_is_refused() {
+    let json = p_json_at(
+        "null",
+        r#"{"type": "Statement", "statement": "NoProtein", "uncertain": false}"#,
+        false,
+        true,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_a_predicted_unknown_effect_is_refused() {
+    let json = p_json_at(
+        "null",
+        r#"{"type": "Statement", "statement": "Unknown"}"#,
+        false,
+        true,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_a_change_with_no_position_is_refused() {
+    let json = p_json_at(
+        "null",
+        r#"{"type": "Subst", "ref_": "", "alt": "Gly", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_a_change_at_residue_0_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 0, "aa": "", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Identity", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_an_uncertain_p_posedit_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "Gly", "uncertain": false}"#,
+        true,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_naming_no_edit_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "None"}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_a_change_at_a_residue_still_loads() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "Gly", "uncertain": false}"#,
+        false,
+        true,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(Arg2Gly)"));
+}
+
+// --- p. dicts written when ? after a residue parsed as a substitution ---
+
+#[test]
+fn an_older_dict_for_p_met1_unknown_loads_as_the_unknown_change_from_met1() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Met1?"));
+}
+
+#[test]
+fn an_older_dict_for_a_predicted_p_met1_unknown_loads_as_its_prediction() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
+        false,
+        true,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(Met1?)"));
+}
+
+#[test]
+fn an_older_dict_for_p_0_uncertain_loads_as_probably_no_protein() {
+    let json = p_json_at(
+        r#"{"start": {"base": 0, "aa": "", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.0?"));
+}
+
+#[test]
+fn an_older_dict_for_a_predicted_p_0_uncertain_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 0, "aa": "", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
+        false,
+        true,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn an_older_dict_for_an_unknown_substitution_over_a_range_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met", "uncertain": false},
+            "end": {"base": 3, "aa": "Arg", "uncertain": false}, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_special_dict_for_the_protein_unchanged_at_a_residue_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg", "uncertain": false}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Special", "value": "=", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
