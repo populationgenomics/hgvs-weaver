@@ -121,7 +121,9 @@ c_pos = { ("*" ~ num ~ offset) | (base ~ offset) }
 g_pos = { num | "?" }
 m_pos = { num | "?" }
 n_pos = { base ~ offset }
-p_pos = { ((term13 | aa13) ~ num) | num }
+// Residues are numbered from 1, so `p.0?` is never a change at residue 0.
+p_pos = { ((term13 | aa13) ~ residue_num) | residue_num }
+residue_num = ${ !("0"+ ~ !ASCII_DIGIT) ~ num }
 // r. is numbered like c. on a coding transcript, so it takes * positions too.
 r_pos = { ("*" ~ num ~ offset) | (base ~ offset) }
 

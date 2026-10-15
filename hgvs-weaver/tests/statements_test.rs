@@ -50,6 +50,15 @@ fn c_to_p(s: &str) -> SequenceVariant {
     SequenceVariant::Protein(p)
 }
 
+fn r_to_p(s: &str) -> SequenceVariant {
+    let SequenceVariant::Rna(r) = parse(s) else {
+        panic!("{s} is not r.");
+    };
+    let hdp = provider();
+    let p = VariantMapper::new(&hdp).r_to_p(&r, None).unwrap();
+    SequenceVariant::Protein(p)
+}
+
 fn na_edit(v: &SequenceVariant) -> &NaEdit {
     match v {
         SequenceVariant::Rna(r) => &r.posedit.edit,
@@ -137,6 +146,17 @@ reads_as! { aa_edit;
     p_unknown_is_an_unknown_effect: "NP_W.1:p.?" => AaEdit::Statement(ProteinStatement::Unknown);
     p_identity_is_the_protein_unchanged: "NP_W.1:p.=" => AaEdit::Statement(ProteinStatement::Unchanged);
     predicted_p_identity_is_the_protein_unchanged: "NP_W.1:p.(=)" => AaEdit::Statement(ProteinStatement::Unchanged);
+    p_0_uncertain_is_probably_no_protein: "NP_W.1:p.0?" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true });
+}
+
+#[test]
+fn a_predicted_probably_no_protein_does_not_parse() {
+    assert!(parse_hgvs_variant("NP_W.1:p.(0?)").is_err());
+}
+
+#[test]
+fn a_residue_numbered_0_does_not_parse() {
+    assert!(parse_hgvs_variant("NP_W.1:p.Met0Val").is_err());
 }
 
 #[test]
@@ -178,6 +198,11 @@ fn predicted_p_identity_prints_back_as_parsed() {
 }
 
 #[test]
+fn p_0_uncertain_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.0?").to_string(), "NP_W.1:p.0?");
+}
+
+#[test]
 fn an_r_statement_written_with_a_space_prints_without_it() {
     assert_eq!(parse("NM_W.1:r.spl ?").to_string(), "NM_W.1:r.spl?");
 }
@@ -189,6 +214,24 @@ fn a_deleted_cds_is_probably_no_protein() {
         aa_edit(&p),
         &AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true })
     );
+}
+
+#[test]
+fn the_mappers_probably_no_protein_reparses_to_itself() {
+    let p = c_to_p("NM_W.1:c.-3_*2del");
+    assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
+fn the_mappers_no_protein_reparses_to_itself() {
+    let p = r_to_p("NM_W.1:r.0");
+    assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
+fn the_mappers_unknown_effect_reparses_to_itself() {
+    let p = c_to_p("NM_W.1:c.45+1G>A");
+    assert_eq!(parse(&p.to_string()), p);
 }
 
 #[test]

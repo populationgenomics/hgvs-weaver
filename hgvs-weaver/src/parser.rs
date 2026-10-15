@@ -379,8 +379,10 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
             Rule::aa13 | Rule::term13 | Rule::aa3 | Rule::aa1 | Rule::term3 | Rule::term1 => {
                 aa = p.as_str().to_string();
             }
-            Rule::num => {
-                pos = p.as_str().parse().unwrap_or(0);
+            Rule::residue_num => {
+                pos = p.as_str().parse().map_err(|_| {
+                    HgvsError::PestError(format!("residue number {} is out of range", p.as_str()))
+                })?;
             }
             _ => {}
         }
