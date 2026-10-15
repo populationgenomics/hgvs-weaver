@@ -1,18 +1,65 @@
-//! Statements about a whole transcript — `r.0`, `r.spl`, `r.?` — read as what
-//! they mean, print as HGVS writes them, and survive JSON, including the
-//! `Special` shape older dictionaries hold.
+//! Statements about a whole transcript or protein — `r.0`, `r.spl`, `r.?`,
+//! `p.0`, `p.?`, `p.=` — read as what they mean, print as HGVS writes them,
+//! and survive JSON, including the `Special` shape older dictionaries hold.
 
-use hgvs_weaver::edits::{NaEdit, RnaStatement};
+mod support;
+
+use hgvs_weaver::data::Strand;
+use hgvs_weaver::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
+use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
+use support::{exon, transcript, Provider};
+
+/// NM_W.1, CDS at transcript indices 5..=94 encoding NP_W.1, spliced from
+/// genome[10, 60) and genome[100, 160) of a CGT repeat with ATG at 15 and TAA
+/// at 142.
+fn provider() -> Provider {
+    let mut g: Vec<u8> = b"CGT".iter().copied().cycle().take(200).collect();
+    g[15..18].copy_from_slice(b"ATG");
+    g[142..145].copy_from_slice(b"TAA");
+    let g = String::from_utf8(g).unwrap();
+    let spliced = format!("{}{}", &g[10..60], &g[100..160]);
+    Provider::new()
+        .sequence("NC_W.1", &g)
+        .sequence("NM_W.1", &spliced)
+        .sequence("NP_W.1", "MRRRRKSRRRRRRRRVVVVVVVVVVVVVV")
+        .transcript(transcript(
+            "NM_W.1",
+            "NC_W.1",
+            Strand::Plus,
+            Some((5, 94)),
+            vec![
+                exon((0, 50), (10, 59), Strand::Plus),
+                exon((50, 110), (100, 159), Strand::Plus),
+            ],
+        ))
+        .protein_for("NM_W.1", "NP_W.1")
+}
 
 fn parse(s: &str) -> SequenceVariant {
     parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"))
+}
+
+fn c_to_p(s: &str) -> SequenceVariant {
+    let SequenceVariant::Coding(c) = parse(s) else {
+        panic!("{s} is not c.");
+    };
+    let hdp = provider();
+    let p = VariantMapper::new(&hdp).c_to_p(&c, None).unwrap();
+    SequenceVariant::Protein(p)
 }
 
 fn na_edit(v: &SequenceVariant) -> &NaEdit {
     match v {
         SequenceVariant::Rna(r) => &r.posedit.edit,
         other => panic!("{other} is not r."),
+    }
+}
+
+fn aa_edit(v: &SequenceVariant) -> &AaEdit {
+    match v {
+        SequenceVariant::Protein(p) => &p.posedit.edit,
+        other => panic!("{other} is not p."),
     }
 }
 
@@ -29,6 +76,14 @@ fn r_json(edit: &str) -> String {
     format!(
         r#"{{"variant_type": "Rna", "ac": "NM_W.1", "gene": null, "posedit": {{"pos": null,
             "edit": {edit}, "uncertain": false, "predicted": false}}}}"#
+    )
+}
+
+/// A p. variant on NP_W.1 whose edit is `edit`, as JSON.
+fn p_json(edit: &str, predicted: bool) -> String {
+    format!(
+        r#"{{"variant_type": "Protein", "ac": "NP_W.1", "gene": null, "posedit": {{"pos": null,
+            "edit": {edit}, "uncertain": false, "predicted": {predicted}}}}}"#
     )
 }
 
@@ -76,11 +131,63 @@ reads_as! { na_edit;
     r_spl_with_a_space_before_its_question_mark_is_uncertain: "NM_W.1:r.spl ?" => NaEdit::Statement(RnaStatement::SplicingAffected { uncertain: true });
 }
 
+reads_as! { aa_edit;
+    p_0_is_no_protein: "NP_W.1:p.0" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: false });
+    p_unknown_is_an_unknown_effect: "NP_W.1:p.?" => AaEdit::Statement(ProteinStatement::Unknown);
+    p_identity_is_the_protein_unchanged: "NP_W.1:p.=" => AaEdit::Statement(ProteinStatement::Unchanged);
+    predicted_p_identity_is_the_protein_unchanged: "NP_W.1:p.(=)" => AaEdit::Statement(ProteinStatement::Unchanged);
+}
+
+#[test]
+fn predicted_p_identity_carries_the_prediction_on_its_posedit() {
+    let SequenceVariant::Protein(p) = parse("NP_W.1:p.(=)") else {
+        panic!("not p.");
+    };
+    assert!(p.posedit.predicted);
+}
+
 // --- Printing writes each statement as HGVS does ---
+
+#[test]
+fn p_0_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.0").to_string(), "NP_W.1:p.0");
+}
+
+#[test]
+fn p_unknown_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.?").to_string(), "NP_W.1:p.?");
+}
+
+#[test]
+fn p_identity_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.=").to_string(), "NP_W.1:p.=");
+}
+
+#[test]
+fn predicted_p_identity_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.(=)").to_string(), "NP_W.1:p.(=)");
+}
 
 #[test]
 fn an_r_statement_written_with_a_space_prints_without_it() {
     assert_eq!(parse("NM_W.1:r.spl ?").to_string(), "NM_W.1:r.spl?");
+}
+
+#[test]
+fn a_deleted_cds_prints_as_probably_no_protein() {
+    let p = c_to_p("NM_W.1:c.-3_*2del");
+    assert_eq!(
+        aa_edit(&p),
+        &AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true })
+    );
+    assert_eq!(p.to_string(), "NP_W.1:p.0?");
+}
+
+#[test]
+fn a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it() {
+    let p = c_to_p("NM_W.1:c.*5G>A");
+    assert_eq!(p.to_string(), "NP_W.1:p.(=)");
+    assert_eq!(parse(&p.to_string()), p);
 }
 
 // --- JSON in the current shape ---
@@ -91,6 +198,23 @@ survives_json! {
     r_spl_survives_json: "NM_W.1:r.spl";
     r_spl_uncertain_survives_json: "NM_W.1:r.spl?";
     r_unknown_survives_json: "NM_W.1:r.?";
+    p_0_survives_json: "NP_W.1:p.0";
+    p_unknown_survives_json: "NP_W.1:p.?";
+    p_identity_survives_json: "NP_W.1:p.=";
+    predicted_p_identity_survives_json: "NP_W.1:p.(=)";
+}
+
+#[test]
+fn probably_no_protein_survives_json() {
+    let p = c_to_p("NM_W.1:c.-3_*2del");
+    assert_eq!(json_round_trip(&p), p);
+}
+
+#[test]
+fn an_unknown_change_from_met1_survives_json() {
+    let p = c_to_p("NM_W.1:c.-3_4del");
+    assert_eq!(p.to_string(), "NP_W.1:p.Met1?");
+    assert_eq!(json_round_trip(&p), p);
 }
 
 #[test]
@@ -121,11 +245,37 @@ special_loads_as! { na_edit, r_json;
     special_identity_loads_as_the_rna_unchanged: "=" => NaEdit::WholeIdentity;
 }
 
+special_loads_as! { aa_edit, |edit| p_json(edit, false);
+    special_0_loads_as_no_protein: "0" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: false });
+    special_0_uncertain_loads_as_probably_no_protein: "0?" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true });
+    special_unknown_loads_as_an_unknown_protein_effect: "?" => AaEdit::Statement(ProteinStatement::Unknown);
+    special_identity_loads_as_the_protein_unchanged: "=" => AaEdit::Statement(ProteinStatement::Unchanged);
+}
+
+#[test]
+fn a_predicted_special_identity_loads_as_predicted_p_identity() {
+    let json = p_json(
+        r#"{"type": "Special", "value": "=", "uncertain": false}"#,
+        true,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(=)"));
+}
+
 #[test]
 fn a_special_value_the_r_grammar_does_not_write_is_refused() {
     let json = r_json(r#"{"type": "Special", "value": "??", "uncertain": false}"#);
     let err = from_json(&json).unwrap_err().to_string();
     assert!(err.contains("not a statement about RNA"), "{err}");
+}
+
+#[test]
+fn a_special_rna_statement_given_to_a_protein_is_refused() {
+    let json = p_json(
+        r#"{"type": "Special", "value": "spl", "uncertain": false}"#,
+        false,
+    );
+    let err = from_json(&json).unwrap_err().to_string();
+    assert!(err.contains("not a statement about a protein"), "{err}");
 }
 
 #[test]

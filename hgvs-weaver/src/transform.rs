@@ -1,6 +1,6 @@
 use crate::coords::SequenceVariant;
-use crate::edits::AaEdit;
-use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit};
+use crate::edits::{AaEdit, ProteinStatement};
+use crate::structs::{AaInterval, AAPosition, PVariant, PosEdit};
 
 /// Controls how start-codon variants are represented in protein notation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,10 +85,7 @@ fn apply_hgvs_question(vp: &PVariant) -> PVariant {
                         end: None,
                         uncertain: false,
                     }),
-                    edit: AaEdit::Special {
-                        value: "?".to_string(),
-                        uncertain: false,
-                    },
+                    edit: AaEdit::Statement(ProteinStatement::Unknown),
                     uncertain: false,
                     predicted: false,
                 },

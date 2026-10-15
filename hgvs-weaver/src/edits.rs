@@ -150,19 +150,33 @@ pub enum AaEdit {
     },
     /// Silent variant (no change).
     Identity { uncertain: bool },
-    /// Special cases (e.g., `p.0`, `p.?`).
-    Special { value: String, uncertain: bool },
+    /// A statement about the whole protein: `p.0`, `p.?`, `p.=`; and
+    /// `p.Met1?`, an unknown change from that residue on.
+    Statement(ProteinStatement),
     /// Placeholder for no edit.
     None,
 }
 
+/// What a `p.` description says about the protein as a whole. `uncertain`
+/// is the trailing `?` of `p.0?`. A prediction, `p.(=)`, is the posedit's
+/// `predicted` flag.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "statement")]
+pub enum ProteinStatement {
+    /// `p.0`: no protein produced.
+    NoProtein { uncertain: bool },
+    /// `p.?`: an effect on the protein, of unknown kind.
+    Unknown,
+    /// `p.=`: the protein unchanged.
+    Unchanged,
+}
+
 impl AaEdit {
     pub fn is_identity(&self) -> bool {
-        match self {
-            AaEdit::Identity { .. } => true,
-            AaEdit::Special { value, .. } if value == "=" => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            AaEdit::Identity { .. } | AaEdit::Statement(ProteinStatement::Unchanged)
+        )
     }
 }
 
@@ -472,7 +486,7 @@ impl AaEdit {
                 let r = fetch(start, end)?;
                 (r.clone(), r)
             }
-            AaEdit::Fs { .. } | AaEdit::Ext { .. } | AaEdit::Special { .. } | AaEdit::None => {
+            AaEdit::Fs { .. } | AaEdit::Ext { .. } | AaEdit::Statement(_) | AaEdit::None => {
                 return unsupported()
             }
         };

@@ -3,7 +3,7 @@ pub use crate::coords::{
     ProteinPos, SequenceVariant, TranscriptPos,
 };
 pub use crate::data::{IdentifierKind, IdentifierType};
-pub use crate::edits::{AaEdit, NaEdit, RnaStatement};
+pub use crate::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use crate::error::HgvsError;
 use serde::{Deserialize, Serialize};
 
@@ -287,6 +287,58 @@ macro_rules! checked_na_variant {
     };
 }
 
+/// The fields of a protein variant as deserialised.
+#[derive(Deserialize)]
+pub(crate) struct PVariantFields {
+    ac: String,
+    gene: Option<String>,
+    posedit: PosEdit<AaInterval, AaEditFields>,
+}
+
+/// A protein edit as deserialised, in the current shape or the `Special` one.
+pub(crate) struct AaEditFields(AaEdit);
+
+impl<'de> Deserialize<'de> for AaEditFields {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if !SpecialFields::is_special(&value) {
+            return AaEdit::deserialize(value)
+                .map(AaEditFields)
+                .map_err(D::Error::custom);
+        }
+        let special = SpecialFields::deserialize(value).map_err(D::Error::custom)?;
+        let statement = match special.written().map_err(D::Error::custom)?.as_str() {
+            "=" => ProteinStatement::Unchanged,
+            "0" => ProteinStatement::NoProtein { uncertain: false },
+            "0?" => ProteinStatement::NoProtein { uncertain: true },
+            "?" => ProteinStatement::Unknown,
+            other => {
+                return Err(D::Error::custom(format!(
+                    "\"{other}\" is not a statement about a protein"
+                )))
+            }
+        };
+        Ok(AaEditFields(AaEdit::Statement(statement)))
+    }
+}
+
+impl From<PVariantFields> for PVariant {
+    fn from(fields: PVariantFields) -> Self {
+        let posedit = fields.posedit;
+        PVariant {
+            ac: fields.ac,
+            gene: fields.gene,
+            posedit: PosEdit {
+                pos: posedit.pos,
+                edit: posedit.edit.0,
+                uncertain: posedit.uncertain,
+                predicted: posedit.predicted,
+            },
+        }
+    }
+}
+
 checked_na_variant!(GVariant, SimpleInterval, "g");
 checked_na_variant!(MVariant, SimpleInterval, "m");
 checked_na_variant!(CVariant, BaseOffsetInterval, "c");
@@ -317,6 +369,7 @@ impl_transcript_variant!(CVariant, Anchor::CdsStart, coding_position_from_index)
 
 /// Represents a protein variant (p.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(from = "PVariantFields")]
 pub struct PVariant {
     pub ac: String,
     pub gene: Option<String>,

@@ -1,4 +1,4 @@
-use crate::edits::{AaEdit, NaEdit, RnaStatement};
+use crate::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use crate::structs::*;
 use crate::utils::aa1_to_aa3;
 use std::fmt;
@@ -444,6 +444,18 @@ impl fmt::Display for RnaStatement {
     }
 }
 
+impl fmt::Display for ProteinStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProteinStatement::NoProtein { uncertain } => {
+                write!(f, "0{}", uncertainty(*uncertain))
+            }
+            ProteinStatement::Unknown => write!(f, "?"),
+            ProteinStatement::Unchanged => write!(f, "="),
+        }
+    }
+}
+
 impl fmt::Display for AaEdit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -559,7 +571,7 @@ impl fmt::Display for AaEdit {
                 }
                 Ok(())
             }
-            AaEdit::Special { value, .. } => write!(f, "{}", value),
+            AaEdit::Statement(statement) => write!(f, "{statement}"),
             _ => write!(f, "unknown_aa_edit"),
         }
     }

@@ -82,14 +82,9 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty p_posedit".into()))?;
     if inner_pair.as_rule() == Rule::p_posedit_special {
-        let special = inner_pair.as_str();
-        let edit = AaEdit::Special {
-            value: special.replace(['(', ')'], ""),
-            uncertain: false,
-        };
         return Ok(PosEdit {
             pos: None,
-            edit,
+            edit: AaEdit::Statement(parse_protein_statement(inner_pair)?),
             uncertain: false,
             predicted,
         });
@@ -128,6 +123,23 @@ fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
         Rule::statement_unknown => Ok(RnaStatement::Unknown),
         r => Err(HgvsError::PestError(format!(
             "Unexpected RNA statement {r:?}"
+        ))),
+    }
+}
+
+/// The statement a `p_posedit_special` names.
+fn parse_protein_statement(pair: Pair<Rule>) -> Result<ProteinStatement, HgvsError> {
+    let statement = only_child(pair)?;
+    let rule = statement.as_rule();
+    let uncertain = statement
+        .into_inner()
+        .any(|p| p.as_rule() == Rule::statement_uncertain);
+    match rule {
+        Rule::p_unchanged => Ok(ProteinStatement::Unchanged),
+        Rule::p_no_protein => Ok(ProteinStatement::NoProtein { uncertain }),
+        Rule::statement_unknown => Ok(ProteinStatement::Unknown),
+        r => Err(HgvsError::PestError(format!(
+            "Unexpected protein statement {r:?}"
         ))),
     }
 }

@@ -1,4 +1,4 @@
-"""Statements about a whole transcript through the bindings: dicts, old and new."""
+"""Statements about a whole transcript or protein through the bindings: dicts, old and new."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _special(variant_type: str, ac: str, value: str, *, predicted: bool = False)
 
 @pytest.mark.parametrize(
     "hgvs",
-    ["NM_W.1:r.0?", "NM_W.1:r.spl?", "NM_W.1:r.?"],
+    ["NM_W.1:r.0?", "NM_W.1:r.spl?", "NM_W.1:r.?", "NP_W.1:p.0", "NP_W.1:p.?", "NP_W.1:p.=", "NP_W.1:p.(=)"],
 )
 def test_a_statement_round_trips_through_a_dict(hgvs: str) -> None:
     assert str(weaver.Variant.from_dict(weaver.parse(hgvs).to_dict())) == hgvs
@@ -42,6 +42,8 @@ def test_a_dict_names_an_rna_statement_and_its_uncertainty() -> None:
     [
         ("Rna", "NM_W.1", "spl?", False, "NM_W.1:r.spl?"),
         ("Rna", "NM_W.1", "0", False, "NM_W.1:r.0"),
+        ("Protein", "NP_W.1", "0?", False, "NP_W.1:p.0?"),
+        ("Protein", "NP_W.1", "=", True, "NP_W.1:p.(=)"),
     ],
 )
 def test_a_dict_in_the_special_shape_still_loads(

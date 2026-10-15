@@ -441,28 +441,25 @@ fn statement_about_transcript(
     transcript: &TranscriptData,
     protein_ac: &str,
 ) -> Option<PVariant> {
-    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
+    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos, ProteinStatement};
     let pos = var_c.posedit.pos.as_ref()?;
-    let statement = |pos: Option<AaInterval>, value: &str| PVariant {
+    let statement = |pos: Option<AaInterval>, statement: ProteinStatement| PVariant {
         ac: protein_ac.to_string(),
         gene: var_c.gene.clone(),
         posedit: PosEdit {
             pos,
-            edit: crate::edits::AaEdit::Special {
-                value: value.to_string(),
-                uncertain: false,
-            },
+            edit: crate::edits::AaEdit::Statement(statement),
             uncertain: false,
             // `p.(=)` is a prediction of no change; the others state what is unknown.
-            predicted: value == "=",
+            predicted: statement == ProteinStatement::Unchanged,
         },
     };
     if has_intronic_offset(pos) {
-        return Some(statement(None, "?"));
+        return Some(statement(None, ProteinStatement::Unknown));
     }
     // A start after the stop codon is an edit entirely in the 3'UTR.
     if pos.start.anchor == Anchor::CdsEnd {
-        return Some(statement(None, "="));
+        return Some(statement(None, ProteinStatement::Unchanged));
     }
     if pos.start.anchor != Anchor::CdsStart || pos.start.base.0 >= 0 {
         return None;
@@ -479,7 +476,7 @@ fn statement_about_transcript(
     });
     let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
     Some(if covers_cds && deletes {
-        statement(None, "0?")
+        statement(None, ProteinStatement::NoProtein { uncertain: true })
     } else if reaches_cds {
         let met1 = AaInterval {
             start: AAPosition {
@@ -490,9 +487,9 @@ fn statement_about_transcript(
             end: None,
             uncertain: false,
         };
-        statement(Some(met1), "?")
+        statement(Some(met1), ProteinStatement::Unknown)
     } else {
-        statement(None, "?")
+        statement(None, ProteinStatement::Unknown)
     })
 }
 
@@ -1442,14 +1439,18 @@ impl<'a> VariantMapper<'a> {
     /// about the protein; anything else is predicted from its c. spelling.
     /// Either way the transcript must have a CDS.
     pub fn r_to_p(&self, r: &RVariant, protein_ac: Option<&str>) -> Result<PVariant, HgvsError> {
-        use crate::structs::RnaStatement;
+        use crate::structs::{ProteinStatement, RnaStatement};
         let statement = match &r.posedit.edit {
-            crate::edits::NaEdit::WholeIdentity => Some(("=", true)),
-            crate::edits::NaEdit::Statement(statement) => Some(match statement {
-                RnaStatement::NoRna { uncertain: false } => ("0", false),
-                RnaStatement::NoRna { uncertain: true } => ("0?", false),
-                RnaStatement::SplicingAffected { .. } | RnaStatement::Unknown => ("?", false),
-            }),
+            crate::edits::NaEdit::WholeIdentity => Some((ProteinStatement::Unchanged, true)),
+            crate::edits::NaEdit::Statement(statement) => Some((
+                match *statement {
+                    RnaStatement::NoRna { uncertain } => ProteinStatement::NoProtein { uncertain },
+                    RnaStatement::SplicingAffected { .. } | RnaStatement::Unknown => {
+                        ProteinStatement::Unknown
+                    }
+                },
+                false,
+            )),
             _ => None,
         };
         if let Some((p, predicted)) = statement {
@@ -1464,10 +1465,7 @@ impl<'a> VariantMapper<'a> {
                 gene: r.gene.clone(),
                 posedit: crate::structs::PosEdit {
                     pos: None,
-                    edit: crate::edits::AaEdit::Special {
-                        value: p.to_string(),
-                        uncertain: false,
-                    },
+                    edit: crate::edits::AaEdit::Statement(p),
                     uncertain: false,
                     predicted,
                 },
@@ -1511,7 +1509,9 @@ impl<'a> VariantMapper<'a> {
         let (protein_ac, reference, alternate) = match self.coding_outcome(var_c, protein_ac)? {
             CodingOutcome::Statement(p) => match &p.posedit.edit {
                 // A deleted CDS: no protein at all.
-                crate::edits::AaEdit::Special { value, .. } if value == "0?" => {
+                crate::edits::AaEdit::Statement(crate::edits::ProteinStatement::NoProtein {
+                    ..
+                }) => {
                     let whole = self
                         .refs
                         .reference(&p.ac, IdentifierType::ProteinAccession)
@@ -1582,9 +1582,9 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<Option<String>, HgvsError> {
         Ok(match self.coding_outcome(var_c, protein_ac)? {
             CodingOutcome::Statement(p) => match &p.posedit.edit {
-                crate::edits::AaEdit::Special { value, .. } if value.starts_with('0') => {
-                    Some(String::new())
-                }
+                crate::edits::AaEdit::Statement(crate::edits::ProteinStatement::NoProtein {
+                    ..
+                }) => Some(String::new()),
                 _ => None,
             },
             CodingOutcome::Change(change) => Some(crate::protein::proteins(&change)?.1),
@@ -1694,10 +1694,7 @@ impl<'a> VariantMapper<'a> {
             gene: var_c.gene.clone(),
             posedit: crate::structs::PosEdit {
                 pos: None,
-                edit: crate::edits::AaEdit::Special {
-                    value: "=".to_string(),
-                    uncertain: false,
-                },
+                edit: crate::edits::AaEdit::Statement(crate::edits::ProteinStatement::Unchanged),
                 uncertain: false,
                 predicted: true,
             },

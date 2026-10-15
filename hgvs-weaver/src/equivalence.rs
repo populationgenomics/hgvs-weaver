@@ -286,7 +286,7 @@ impl<'a> VariantEquivalence<'a> {
     /// extension or frameshift of unknown length). `None` when it says
     /// nothing about the sequence: `p.?`, `p.Met1?`.
     fn protein_outcome_on(&self, vp: &PVariant, ac: &str) -> Result<Option<Outcome>, HgvsError> {
-        use crate::edits::AaEdit;
+        use crate::edits::{AaEdit, ProteinStatement};
         let reference = self
             .mapper
             .refs
@@ -303,10 +303,10 @@ impl<'a> VariantEquivalence<'a> {
         let Some(pos) = &vp.posedit.pos else {
             return Ok(match &vp.posedit.edit {
                 AaEdit::Identity { .. } => Some(closed(protein.to_string(), len)),
-                AaEdit::Special { value, .. } if value == "=" => {
+                AaEdit::Statement(ProteinStatement::Unchanged) => {
                     Some(closed(protein.to_string(), len))
                 }
-                AaEdit::Special { value, .. } if value.starts_with('0') => {
+                AaEdit::Statement(ProteinStatement::NoProtein { .. }) => {
                     Some(closed(String::new(), 0))
                 }
                 _ => None,
@@ -314,8 +314,8 @@ impl<'a> VariantEquivalence<'a> {
         };
         let (start, end) = crate::mapper::aa_interval_range(pos)?;
         // `p.Met1?`: something happens from this residue on; what, it does not say.
-        if let AaEdit::Special { value, .. } = &vp.posedit.edit {
-            return Ok((value == "?").then(|| Outcome {
+        if let AaEdit::Statement(statement) = &vp.posedit.edit {
+            return Ok((*statement == ProteinStatement::Unknown).then(|| Outcome {
                 residues: protein[..start.min(len)].to_string(),
                 open: true,
                 changed_from: start.min(len),
@@ -354,7 +354,7 @@ impl<'a> VariantEquivalence<'a> {
                     _ => (len, len, alt, true),
                 }
             }
-            AaEdit::Special { .. } | AaEdit::None => return Ok(None),
+            AaEdit::Statement(_) | AaEdit::None => return Ok(None),
             edit => {
                 let r = edit.resolve(&reference, start, end)?;
                 // A change at the stop itself that does not stop again reads on
