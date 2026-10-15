@@ -1631,7 +1631,8 @@ impl<'a> VariantMapper<'a> {
 
     /// What a coding variant does to the protein: a statement (`p.?`,
     /// `p.(Met1?)`, `p.0?`, `p.(=)`) when the edit lies outside or across the CDS
-    /// boundary, else the resolved change to describe or read.
+    /// boundary or leaves no codon where the protein first changes, else the
+    /// resolved change to describe or read.
     fn coding_outcome(
         &self,
         var_c: &CVariant,
@@ -1670,7 +1671,7 @@ impl<'a> VariantMapper<'a> {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
             })
         };
-        Ok(CodingOutcome::Change(crate::protein::CodingChange {
+        let change = crate::protein::CodingChange {
             coding: ref_seq[cds_start..].to_string(),
             cds_len: cds_end + 1 - cds_start,
             edit: crate::edits::ResolvedEdit {
@@ -1680,7 +1681,21 @@ impl<'a> VariantMapper<'a> {
                 alt: resolved.alt,
             },
             protein_ac,
-        }))
+        };
+        if crate::protein::translation_runs_off(&change) {
+            // No codon where the protein first changes: nothing can be said.
+            return Ok(CodingOutcome::Statement(PVariant {
+                ac: change.protein_ac,
+                gene: var_c.gene.clone(),
+                posedit: crate::structs::PosEdit {
+                    pos: None,
+                    edit: crate::edits::AaEdit::Statement(crate::edits::ProteinStatement::Unknown),
+                    uncertain: false,
+                    predicted: false,
+                },
+            }));
+        }
+        Ok(CodingOutcome::Change(change))
     }
 
     /// `p.(=)` for `c.=`: the whole transcript unchanged predicts the protein

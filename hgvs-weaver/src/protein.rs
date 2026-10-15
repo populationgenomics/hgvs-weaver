@@ -112,6 +112,26 @@ impl Reading {
         }
     }
 
+    /// The reading of a change whose protein can be predicted: one that does
+    /// not [run off](Self::runs_off) the edited transcript.
+    fn predictable(change: &CodingChange) -> Result<Self, HgvsError> {
+        let t = Self::new(change);
+        if t.runs_off() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "the edited transcript ends before a codon at residue {}: translation runs off its end \
+                 with no residue to name, so what the protein becomes is not predicted",
+                t.first_changed + 1
+            )));
+        }
+        Ok(t)
+    }
+
+    /// The edited transcript ends, with no stop, before a codon at the first
+    /// changed residue: there is no residue there to name.
+    fn runs_off(&self) -> bool {
+        !self.unchanged() && self.first_changed >= self.alt_aa.len()
+    }
+
     /// The protein is the same: nothing differs, or the difference lies past the stop.
     fn unchanged(&self) -> bool {
         self.ref_aa == self.alt_aa || self.first_changed > self.stop
@@ -163,10 +183,16 @@ impl Reading {
     }
 }
 
+/// Whether `change` leaves no codon where the protein first changes, so no
+/// protein can be predicted from it: `describe` and `proteins` refuse it.
+pub fn translation_runs_off(change: &CodingChange) -> bool {
+    Reading::new(change).runs_off()
+}
+
 /// The reference protein and the protein `change` produces, in 1-letter code
 /// without their stops: what a protein allele is made of.
 pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
-    let t = Reading::new(change);
+    let t = Reading::predictable(change)?;
     let reference: String = t.ref_aa[..t.stop.min(t.ref_aa.len())].iter().collect();
     let alternate: String = t.alt_aa[..t.alt_stop()].iter().collect();
     Ok((reference, alternate))
@@ -174,7 +200,7 @@ pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
 
 /// Describes the protein consequence of `change` in HGVS p. terms.
 pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
-    let t = Reading::new(change);
+    let t = Reading::predictable(change)?;
     let out = Writer {
         ref_aa: &t.ref_aa,
         alt_aa: &t.alt_aa,
