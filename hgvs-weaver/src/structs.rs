@@ -179,8 +179,8 @@ impl EditDict {
     }
 
     /// `edit`, refused if the dict named fields its statement does not have:
-    /// serde ignores them on a unit variant, so `r.?` with `"uncertain": true`
-    /// would otherwise load as `r.?`.
+    /// serde ignores fields it does not know, so `r.?` with `"uncertain":
+    /// true` would otherwise load as `r.?`.
     fn statement_exactly<E: Serialize>(&self, edit: E) -> Result<E, String> {
         if self.type_is("Statement") && serde_json::to_value(&edit).ok().as_ref() != Some(&self.0) {
             return Err(format!(

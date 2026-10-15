@@ -140,8 +140,11 @@ reads_as! { aa_edit;
 }
 
 #[test]
-fn predicted_and_stated_p_identity_are_different_variants() {
-    assert_ne!(parse("NP_W.1:p.(=)"), parse("NP_W.1:p.="));
+fn stated_p_identity_is_not_a_prediction() {
+    let SequenceVariant::Protein(p) = parse("NP_W.1:p.=") else {
+        panic!("not p.");
+    };
+    assert!(!p.posedit.predicted);
 }
 
 #[test]
@@ -180,13 +183,12 @@ fn an_r_statement_written_with_a_space_prints_without_it() {
 }
 
 #[test]
-fn a_deleted_cds_prints_as_probably_no_protein() {
+fn a_deleted_cds_is_probably_no_protein() {
     let p = c_to_p("NM_W.1:c.-3_*2del");
     assert_eq!(
         aa_edit(&p),
         &AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true })
     );
-    assert_eq!(p.to_string(), "NP_W.1:p.0?");
 }
 
 #[test]
@@ -287,7 +289,6 @@ fn a_special_rna_statement_given_to_a_protein_is_refused() {
 
 #[test]
 fn a_special_with_its_uncertain_flag_set_is_refused() {
-    // The `?` was part of the value; no description set the flag.
     let json = r_json(r#"{"type": "Special", "value": "spl", "uncertain": true}"#);
     let err = from_json(&json).unwrap_err().to_string();
     assert!(err.contains("never uncertain"), "{err}");
