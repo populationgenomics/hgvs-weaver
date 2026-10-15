@@ -336,7 +336,9 @@ NM_R.1:r.0              →  NP_R.1:p.0
 - **Tests:** `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;
   `rna_test::r_is_c_in_rna_letters`, `::r_on_a_non_coding_transcript_is_n`,
   `::statements_about_the_transcript_round_trip`, `::r_predicts_the_protein_like_c`,
-  `::r_normalises_validates_and_has_alleles_like_c`; `rna_is_the_transcript_in_other_letters` (property).
+  `::r_normalises_validates_and_has_alleles_like_c`,
+  `::an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself`;
+  `rna_is_the_transcript_in_other_letters` (property).
 
 ### The whole transcript unchanged is a statement, not a change
 
@@ -360,17 +362,19 @@ what follows from the statement:
   equivalent. They do not contradict each other, but neither implies the other. `r.=` and `r.(=)` keep their own
   readings, [above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery).
 - **Validation.** `c.=` names no bases, so `validate` has nothing to compare. It is true once the transcript is found
-  and has a CDS; on a non-coding transcript it is an error. Normalising leaves `c.=` as written.
+  and has a CDS; on a non-coding transcript it is an error. Normalising leaves `c.=` as written, once its transcript is
+  found.
 - **Alleles in cis.** `c.[=]` alone is `c.=`, the half that the trans form `c.[2376G>C];[=]` names. Beside a change it
   contradicts that change, so `c.[=;10C>G]` is refused when parsed. The same rule refuses `r.[=;10c>g]` and
-  `p.[=;Arg2Gly]`. The other statements, and an identity at a position, keep their place: `r.[spl;10c>g]` and
-  `p.[Arg2=;Arg3Gly]` parse.
+  `p.[=;Arg2Gly]`. The other statements keep their place: `r.[spl;10c>g]` parses. So does an identity at a position
+  beside a change, `c.[10=;12C>G]`, although the alleles page says "not changed" is used only when one variant was
+  identified; weaver does not enforce that.
 - **Refused.** A genomic form, a canonical allele, SPDI and VRS are an `UnsupportedOperation` error.
 
 Only `c.` takes the whole-transcript identity. The specification never writes `n.=` and defines no whole-sequence
 statement for `g.` or `m.`, and `c.` has no predicted form, so `n.=`, `g.=`, `m.=` and `c.(=)` do not parse. A
 dictionary that describes one of them is refused by `Variant.from_dict` too. The identity has its own edit, so a
-dictionary for `r.=` names it rather than a `Special` "=" string; the older form still loads.
+dictionary for `r.=` names it rather than a `Special` "=" string; one written with the string loads as the identity.
 
 `r_to_p` holds every `r.` statement to the CDS condition `c_to_p` holds `c.=` to: on a transcript without a CDS, `r.=`,
 `r.spl` and `r.0` are an error rather than a statement about a protein. It does not check that a named protein is the
@@ -396,12 +400,11 @@ NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
   sample has no whole-sequence statement.
 - **Spec (agrees):** [DNA substitution](https://hgvs-nomenclature.org/stable/recommendations/DNA/substitution/): "`c.=`
   indicates the entire `NM_004006.2` coding DNA reference sequence was analysed and no change was identified";
-  [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`, and "the
-  indication 'not changed' is used only when one variant was identified", which is as close as it comes to `c.=` inside
-  a cis allele. It says nothing about the protein consequence of `c.=`, its genomic form or allele, `n.=`, or how `c.=`
-  relates to `r.=`; those are weaver's reading. It writes `r.(=)` for "no changes on the RNA level are expected (RNA not
-  analysed)" ([uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/)), which is a different claim
-  from `c.=`.
+  [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`; the
+  specification writes `[=]` only as a whole allele and never beside a change in one. It says nothing about the protein
+  consequence of `c.=`, its genomic form or allele, `n.=`, or how `c.=` relates to `r.=`; those are weaver's reading. It
+  writes `r.(=)` for "no changes on the RNA level are expected (RNA not analysed)"
+  ([uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/)), which is a different claim from `c.=`.
 - **Tests:** `whole_sequence_identity_test::c_identity_prints_back_as_parsed`,
   `::c_identity_is_its_one_member_cis_allele`, `::c_identity_is_the_predicted_protein_unchanged_on_its_own_protein`,
   `::an_r_identity_serialised_as_a_statement_string_still_loads`, `::n_identity_does_not_parse`,
