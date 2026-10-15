@@ -164,7 +164,7 @@ fn noncoding_position_from_index(
 /// The fields of a nucleotide variant as deserialised, before
 /// [`check_na_posedit`] admits them as a variant of one system.
 #[derive(Deserialize)]
-pub struct NaVariantFields<I> {
+pub(crate) struct NaVariantFields<I> {
     ac: String,
     gene: Option<String>,
     posedit: PosEdit<I, NaEdit>,
@@ -173,55 +173,76 @@ pub struct NaVariantFields<I> {
 /// Refuses a posedit that the system `kind` (`g`, `m`, `c`, `n` or `r`)
 /// cannot write: the whole transcript unchanged anywhere but `c.=`, `r.=` and
 /// `r.(=)`; another statement about the transcript anywhere but `r.`; a
-/// statement with a position, or a change without one.
+/// statement with a position, or a change without one; a prediction outside
+/// `r.`; an uncertain posedit, which no description writes.
 fn check_na_posedit<I: std::fmt::Display>(
     kind: &str,
     posedit: &PosEdit<I, NaEdit>,
 ) -> Result<(), HgvsError> {
-    let plain = !posedit.uncertain && !posedit.predicted;
-    let writable = match (&posedit.edit, &posedit.pos) {
-        (NaEdit::WholeIdentity, None) => kind == "r" && !posedit.uncertain || kind == "c" && plain,
-        (
-            NaEdit::Special {
-                value,
-                uncertain: false,
-            },
-            None,
-        ) => kind == "r" && plain && crate::edits::RNA_STATEMENTS.contains(&value.as_str()),
-        (NaEdit::WholeIdentity | NaEdit::Special { .. }, _) => false,
-        (_, pos) => pos.is_some(),
-    };
+    let flags_writable = !posedit.uncertain && (kind == "r" || !posedit.predicted);
+    let writable = flags_writable
+        && match (&posedit.edit, &posedit.pos) {
+            (NaEdit::WholeIdentity, None) => kind == "c" || kind == "r",
+            (
+                NaEdit::Special {
+                    value,
+                    uncertain: false,
+                },
+                None,
+            ) => {
+                // The parser keeps whitespace the grammar skips: r.spl ?
+                let value: String = value.split_whitespace().collect();
+                kind == "r"
+                    && !posedit.predicted
+                    && crate::edits::RNA_STATEMENTS.contains(&value.as_str())
+            }
+            (NaEdit::WholeIdentity | NaEdit::Special { .. }, _) => false,
+            (_, pos) => pos.is_some(),
+        };
     if writable {
         Ok(())
     } else {
         Err(HgvsError::ValidationError(format!(
-            "{kind}.{posedit} ({:?}) is not a {kind}. description",
+            "{kind}. cannot write {kind}.{posedit} ({:?})",
             posedit.edit
         )))
     }
 }
 
+/// `r.=` in its older serialised form, a `Special` "=", read as the identity.
+fn legacy_r_identity<I>(mut posedit: PosEdit<I, NaEdit>) -> PosEdit<I, NaEdit> {
+    if posedit.pos.is_none()
+        && matches!(&posedit.edit, NaEdit::Special { value, uncertain: false } if value == "=")
+    {
+        posedit.edit = NaEdit::WholeIdentity;
+    }
+    posedit
+}
+
 macro_rules! checked_na_variant {
-    ($struct_name:ident, $interval:ty, $kind:expr) => {
+    ($struct_name:ident, $interval:ty, $kind:expr, $upgrade:expr) => {
         impl TryFrom<NaVariantFields<$interval>> for $struct_name {
             type Error = HgvsError;
             fn try_from(fields: NaVariantFields<$interval>) -> Result<Self, HgvsError> {
-                check_na_posedit($kind, &fields.posedit)?;
+                let upgrade: fn(PosEdit<$interval, NaEdit>) -> PosEdit<$interval, NaEdit> =
+                    $upgrade;
+                let posedit = upgrade(fields.posedit);
+                check_na_posedit($kind, &posedit)?;
                 Ok($struct_name {
                     ac: fields.ac,
                     gene: fields.gene,
-                    posedit: fields.posedit,
+                    posedit,
                 })
             }
         }
     };
 }
 
-checked_na_variant!(GVariant, SimpleInterval, "g");
-checked_na_variant!(MVariant, SimpleInterval, "m");
-checked_na_variant!(CVariant, BaseOffsetInterval, "c");
-checked_na_variant!(NVariant, BaseOffsetInterval, "n");
-checked_na_variant!(RVariant, BaseOffsetInterval, "r");
+checked_na_variant!(GVariant, SimpleInterval, "g", |p| p);
+checked_na_variant!(MVariant, SimpleInterval, "m", |p| p);
+checked_na_variant!(CVariant, BaseOffsetInterval, "c", |p| p);
+checked_na_variant!(NVariant, BaseOffsetInterval, "n", |p| p);
+checked_na_variant!(RVariant, BaseOffsetInterval, "r", legacy_r_identity);
 
 /// Represents a genomic variant (g.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -348,7 +369,7 @@ impl CisPhasedVariant {
 /// The fields of a cis allele as deserialised, admitted through
 /// [`CisPhasedVariant::new`].
 #[derive(Deserialize)]
-pub struct CisPhasedFields {
+pub(crate) struct CisPhasedFields {
     ac: String,
     gene: Option<String>,
     members: Vec<SequenceVariant>,

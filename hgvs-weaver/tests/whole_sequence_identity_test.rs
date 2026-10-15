@@ -93,6 +93,11 @@ fn from_json(json: &str) -> Result<SequenceVariant, serde_json::Error> {
     serde_json::from_str(json)
 }
 
+/// Whether `json` was refused because `system` cannot write what it describes.
+fn refused_as(json: &str, system: &str) -> bool {
+    from_json(json).is_err_and(|e| e.to_string().contains(&format!("{system} cannot write")))
+}
+
 // --- Grammar ---
 
 #[test]
@@ -151,8 +156,8 @@ fn p_identity_beside_a_change_is_refused() {
     ));
 }
 
-/// A statement about the transcript other than the identity keeps its place
-/// in a cis allele, as before `c.=` was read.
+/// A statement about the transcript other than the whole-sequence identity,
+/// and an identity at a position, keep their place in a cis allele.
 macro_rules! statement_in_cis_parses {
     ($($name:ident: $hgvs:literal,)*) => {$(
         #[test]
@@ -169,6 +174,8 @@ statement_in_cis_parses! {
     r_splicing_twice_parses: "NM_W.1:r.[spl;spl]",
     p_unknown_beside_a_change_parses: "NP_W.1:p.[?;Arg2Gly]",
     p_no_protein_beside_a_change_parses: "NP_W.1:p.[0;Arg2Gly]",
+    p_one_residue_unchanged_beside_a_change_parses: "NP_W.1:p.[Arg2=;Arg3Gly]",
+    c_one_base_unchanged_beside_a_change_parses: "NM_W.1:c.[10=;12C>G]",
 }
 
 // --- Deserialisation admits only what parses ---
@@ -191,21 +198,21 @@ fn predicted_r_identity_round_trips_through_json() {
 fn a_deserialised_c_splicing_statement_is_refused() {
     let json = r#"{"variant_type": "Coding", "ac": "NM_W.1", "gene": null, "posedit": {"pos": null,
         "edit": {"type": "Special", "value": "spl", "uncertain": false}, "uncertain": false, "predicted": false}}"#;
-    assert!(from_json(json).is_err());
+    assert!(refused_as(json, "c."));
 }
 
 #[test]
 fn a_deserialised_predicted_c_identity_is_refused() {
     let json = r#"{"variant_type": "Coding", "ac": "NM_W.1", "gene": null, "posedit": {"pos": null,
         "edit": {"type": "WholeIdentity"}, "uncertain": false, "predicted": true}}"#;
-    assert!(from_json(json).is_err());
+    assert!(refused_as(json, "c."));
 }
 
 #[test]
 fn a_deserialised_g_identity_is_refused() {
     let json = r#"{"variant_type": "Genomic", "ac": "NC_W.1", "gene": null, "posedit": {"pos": null,
         "edit": {"type": "WholeIdentity"}, "uncertain": false, "predicted": false}}"#;
-    assert!(from_json(json).is_err());
+    assert!(refused_as(json, "g."));
 }
 
 #[test]
@@ -213,14 +220,41 @@ fn a_deserialised_g_change_without_a_position_is_refused() {
     // It would print as g.=.
     let json = r#"{"variant_type": "Genomic", "ac": "NC_W.1", "gene": null, "posedit": {"pos": null,
         "edit": {"type": "None"}, "uncertain": false, "predicted": false}}"#;
-    assert!(from_json(json).is_err());
+    assert!(refused_as(json, "g."));
 }
 
 #[test]
-fn a_deserialised_r_identity_spelled_as_a_statement_string_is_refused() {
+fn an_r_identity_serialised_as_a_statement_string_still_loads() {
     let json = r#"{"variant_type": "Rna", "ac": "NM_W.1", "gene": null, "posedit": {"pos": null,
-        "edit": {"type": "Special", "value": "=", "uncertain": false}, "uncertain": false, "predicted": false}}"#;
-    assert!(from_json(json).is_err());
+        "edit": {"type": "Special", "value": "=", "uncertain": false}, "uncertain": false, "predicted": true}}"#;
+    let v = from_json(json).unwrap();
+    assert_eq!(v.to_string(), "NM_W.1:r.(=)");
+}
+
+#[test]
+fn an_r_statement_with_inner_whitespace_round_trips_through_json() {
+    let v = parse("NM_W.1:r.spl ?");
+    let back = from_json(&serde_json::to_string(&v).unwrap()).unwrap();
+    assert_eq!(back, v);
+}
+
+#[test]
+fn a_deserialised_uncertain_g_change_is_refused() {
+    let json = r#"{"variant_type": "Genomic", "ac": "NC_W.1", "gene": null, "posedit": {
+        "pos": {"start": {"base": 10, "end": null, "uncertain": false}, "end": null, "uncertain": false},
+        "edit": {"type": "RefAlt", "ref_": "C", "alt": "G", "uncertain": false},
+        "uncertain": true, "predicted": false}}"#;
+    assert!(refused_as(json, "g."));
+}
+
+#[test]
+fn a_deserialised_predicted_c_change_is_refused() {
+    let json = r#"{"variant_type": "Coding", "ac": "NM_W.1", "gene": null, "posedit": {
+        "pos": {"start": {"base": 10, "offset": null, "anchor": "CdsStart", "uncertain": false},
+                "end": null, "uncertain": false},
+        "edit": {"type": "RefAlt", "ref_": "C", "alt": "G", "uncertain": false},
+        "uncertain": false, "predicted": true}}"#;
+    assert!(refused_as(json, "c."));
 }
 
 #[test]
@@ -233,7 +267,9 @@ fn a_deserialised_cis_allele_with_c_identity_beside_a_change_is_refused() {
                     "end": null, "uncertain": false},
             "edit": {"type": "RefAlt", "ref_": "C", "alt": "G", "uncertain": false},
             "uncertain": false, "predicted": false}}]}"#;
-    assert!(from_json(json).is_err());
+    assert!(from_json(json).is_err_and(|e| e
+        .to_string()
+        .contains("states the whole sequence unchanged")));
 }
 
 // --- Protein ---

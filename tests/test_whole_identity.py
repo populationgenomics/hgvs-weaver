@@ -31,5 +31,5 @@ def test_a_dict_naming_a_c_splicing_statement_is_refused() -> None:
             "predicted": False,
         },
     }
-    with pytest.raises(ValueError, match=r"not a c\. description"):
+    with pytest.raises(ValueError, match=r"c\. cannot write c\.spl"):
         weaver.Variant.from_dict(d)

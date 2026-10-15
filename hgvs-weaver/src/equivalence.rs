@@ -253,7 +253,8 @@ impl<'a> VariantEquivalence<'a> {
             let outcome = self.protein_outcome_on(vp, &vp.ac)?;
             let reference = self.reference_protein(&vp.ac)?;
             for c in &coding {
-                // c.= names no residues; its description, above, is all it says.
+                // predicted_protein raises for c.= named against another protein;
+                // on its own, p.(=) names no residues to compare.
                 if matches!(c.posedit.edit, crate::edits::NaEdit::WholeIdentity) {
                     continue;
                 }
