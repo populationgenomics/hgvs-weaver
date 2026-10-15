@@ -297,3 +297,14 @@ fn r_normalises_validates_and_has_alleles_like_c() {
         .unwrap()
         .is_equivalent());
 }
+
+#[test]
+fn an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let r = parse("NM_ABSENT.1:r.10c>g");
+    assert!(matches!(
+        VariantEquivalence::new(&mapper, &hdp).equivalent_level(&r, &r),
+        Err(HgvsError::DataProviderError(m)) if m.contains("NM_ABSENT.1")
+    ));
+}

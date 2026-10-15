@@ -209,7 +209,7 @@ fn check_na_posedit<I: std::fmt::Display>(
     }
 }
 
-/// `r.=` in its older serialised form, a `Special` "=", read as the identity.
+/// `r.=` written as a `Special` "=", read as the identity.
 fn legacy_r_identity<I>(mut posedit: PosEdit<I, NaEdit>) -> PosEdit<I, NaEdit> {
     if posedit.pos.is_none()
         && matches!(&posedit.edit, NaEdit::Special { value, uncertain: false } if value == "=")

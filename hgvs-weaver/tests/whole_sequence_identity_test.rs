@@ -216,6 +216,13 @@ fn a_deserialised_g_identity_is_refused() {
 }
 
 #[test]
+fn a_deserialised_n_identity_is_refused() {
+    let json = r#"{"variant_type": "NonCoding", "ac": "NR_W.1", "gene": null, "posedit": {"pos": null,
+        "edit": {"type": "WholeIdentity"}, "uncertain": false, "predicted": false}}"#;
+    assert!(refused_as(json, "n."));
+}
+
+#[test]
 fn a_deserialised_g_change_without_a_position_is_refused() {
     // It would print as g.=.
     let json = r#"{"variant_type": "Genomic", "ac": "NC_W.1", "gene": null, "posedit": {"pos": null,
@@ -507,12 +514,4 @@ fn c_identity_is_not_a_change() {
         level("NM_W.1:c.=", "NM_W.1:c.10C>G").unwrap(),
         EquivalenceLevel::Different
     );
-}
-
-#[test]
-fn an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself() {
-    assert!(matches!(
-        level("NM_ABSENT.1:r.10c>g", "NM_ABSENT.1:r.10c>g"),
-        Err(HgvsError::DataProviderError(m)) if m.contains("NM_ABSENT.1")
-    ));
 }
