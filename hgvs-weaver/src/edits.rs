@@ -62,10 +62,9 @@ pub enum NaEdit {
     },
     /// Copy number change.
     NACopy { copy: i32, uncertain: bool },
-    /// A statement about the whole RNA, with no position: `r.0` (no
-    /// transcript), `r.?`, `r.spl` (splicing affected); `value` is one of
-    /// [`RNA_STATEMENTS`].
-    Special { value: String, uncertain: bool },
+    /// A statement about the whole RNA, with no position: `r.0`, `r.?`,
+    /// `r.spl`.
+    Statement(RnaStatement),
     /// The whole transcript analysed and found unchanged, with no position:
     /// `c.=` (its DNA) or `r.=` (its RNA).
     WholeIdentity,
@@ -73,14 +72,25 @@ pub enum NaEdit {
     None,
 }
 
-/// The values of [`NaEdit::Special`], as the r. grammar writes them.
-pub const RNA_STATEMENTS: [&str; 5] = ["0", "0?", "?", "spl", "spl?"];
+/// What an `r.` description with no position says about the transcript's
+/// RNA. `uncertain` is the trailing `?` of `r.0?` and `r.spl?`; HGVS writes
+/// no uncertain `r.?`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "statement")]
+pub enum RnaStatement {
+    /// `r.0`: no RNA detected.
+    NoRna { uncertain: bool },
+    /// `r.spl`: splicing affected, the RNA not analysed further.
+    SplicingAffected { uncertain: bool },
+    /// `r.?`: an effect on the RNA, of unknown kind.
+    Unknown,
+}
 
 impl NaEdit {
     /// Whether the edit describes the transcript as a whole rather than a
     /// change at a position: `r.spl`, `r.=`, `c.=`.
     pub fn is_whole_transcript(&self) -> bool {
-        matches!(self, NaEdit::Special { .. } | NaEdit::WholeIdentity)
+        matches!(self, NaEdit::Statement(_) | NaEdit::WholeIdentity)
     }
 }
 
@@ -297,7 +307,7 @@ impl NaEdit {
             | NaEdit::DelInsLength { .. }
             | NaEdit::Con { .. }
             | NaEdit::NACopy { .. }
-            | NaEdit::Special { .. }
+            | NaEdit::Statement(_)
             | NaEdit::WholeIdentity => {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "Edit type {:?} cannot be resolved to reference and alternate bases",

@@ -38,10 +38,7 @@ pub fn parse_tx_posedit(
         .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?;
     let statement = match first.as_rule() {
         Rule::whole_identity => Some(NaEdit::WholeIdentity),
-        Rule::r_posedit_special => Some(NaEdit::Special {
-            value: first.as_str().to_string(),
-            uncertain: false,
-        }),
+        Rule::r_posedit_special => Some(NaEdit::Statement(parse_rna_statement(first.clone())?)),
         _ => None,
     };
     if let Some(edit) = statement {
@@ -116,6 +113,29 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
         uncertain: false,
         predicted,
     })
+}
+
+/// The statement an `r_posedit_special` names.
+fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
+    let statement = only_child(pair)?;
+    let rule = statement.as_rule();
+    let uncertain = statement
+        .into_inner()
+        .any(|p| p.as_rule() == Rule::statement_uncertain);
+    match rule {
+        Rule::r_no_rna => Ok(RnaStatement::NoRna { uncertain }),
+        Rule::r_splicing_affected => Ok(RnaStatement::SplicingAffected { uncertain }),
+        Rule::statement_unknown => Ok(RnaStatement::Unknown),
+        r => Err(HgvsError::PestError(format!(
+            "Unexpected RNA statement {r:?}"
+        ))),
+    }
+}
+
+fn only_child(pair: Pair<Rule>) -> Result<Pair<Rule>, HgvsError> {
+    pair.into_inner()
+        .next()
+        .ok_or_else(|| HgvsError::PestError("Missing statement".into()))
 }
 
 pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsError> {

@@ -1442,12 +1442,13 @@ impl<'a> VariantMapper<'a> {
     /// about the protein; anything else is predicted from its c. spelling.
     /// Either way the transcript must have a CDS.
     pub fn r_to_p(&self, r: &RVariant, protein_ac: Option<&str>) -> Result<PVariant, HgvsError> {
+        use crate::structs::RnaStatement;
         let statement = match &r.posedit.edit {
             crate::edits::NaEdit::WholeIdentity => Some(("=", true)),
-            crate::edits::NaEdit::Special { value, .. } => Some(match value.as_str() {
-                "0" => ("0", false),
-                "0?" => ("0?", false),
-                _ => ("?", false), // r.?, r.spl, r.spl?
+            crate::edits::NaEdit::Statement(statement) => Some(match statement {
+                RnaStatement::NoRna { uncertain: false } => ("0", false),
+                RnaStatement::NoRna { uncertain: true } => ("0?", false),
+                RnaStatement::SplicingAffected { .. } | RnaStatement::Unknown => ("?", false),
             }),
             _ => None,
         };
@@ -2074,7 +2075,7 @@ impl<'a> VariantMapper<'a> {
             crate::edits::NaEdit::None
                 | crate::edits::NaEdit::Con { .. }
                 | crate::edits::NaEdit::NACopy { .. }
-                | crate::edits::NaEdit::Special { .. }
+                | crate::edits::NaEdit::Statement(_)
                 | crate::edits::NaEdit::InsLength { .. }
                 | crate::edits::NaEdit::DelInsLength { .. }
         ) {

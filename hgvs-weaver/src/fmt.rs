@@ -1,4 +1,4 @@
-use crate::edits::{AaEdit, NaEdit};
+use crate::edits::{AaEdit, NaEdit, RnaStatement};
 use crate::structs::*;
 use crate::utils::aa1_to_aa3;
 use std::fmt;
@@ -409,13 +409,7 @@ impl fmt::Display for NaEdit {
                 }
                 Ok(())
             }
-            NaEdit::Special { value, uncertain } => {
-                write!(f, "{}", value)?;
-                if *uncertain {
-                    write!(f, "?")?;
-                }
-                Ok(())
-            }
+            NaEdit::Statement(statement) => write!(f, "{statement}"),
             NaEdit::NACopy { copy, uncertain } => {
                 write!(f, "copy{}", copy)?;
                 if *uncertain {
@@ -425,6 +419,27 @@ impl fmt::Display for NaEdit {
             }
             NaEdit::WholeIdentity | NaEdit::None => write!(f, "="),
             _ => write!(f, "unknown_na_edit"),
+        }
+    }
+}
+
+/// `?` when the statement is uncertain.
+fn uncertainty(uncertain: bool) -> &'static str {
+    if uncertain {
+        "?"
+    } else {
+        ""
+    }
+}
+
+impl fmt::Display for RnaStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RnaStatement::NoRna { uncertain } => write!(f, "0{}", uncertainty(*uncertain)),
+            RnaStatement::SplicingAffected { uncertain } => {
+                write!(f, "spl{}", uncertainty(*uncertain))
+            }
+            RnaStatement::Unknown => write!(f, "?"),
         }
     }
 }

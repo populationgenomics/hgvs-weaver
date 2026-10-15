@@ -3,7 +3,7 @@ pub use crate::coords::{
     ProteinPos, SequenceVariant, TranscriptPos,
 };
 pub use crate::data::{IdentifierKind, IdentifierType};
-pub use crate::edits::{AaEdit, NaEdit};
+pub use crate::edits::{AaEdit, NaEdit, RnaStatement};
 use crate::error::HgvsError;
 use serde::{Deserialize, Serialize};
 
@@ -167,7 +167,67 @@ fn noncoding_position_from_index(
 pub(crate) struct NaVariantFields<I> {
     ac: String,
     gene: Option<String>,
-    posedit: PosEdit<I, NaEdit>,
+    posedit: PosEdit<I, NaEditFields>,
+}
+
+/// A statement in the shape dictionaries held before statements had types of
+/// their own: `{"type": "Special", "value": "spl?", "uncertain": false}`.
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum SpecialFields {
+    Special { value: String, uncertain: bool },
+}
+
+impl SpecialFields {
+    /// Whether `value` is an edit in this shape rather than the current one.
+    fn is_special(value: &serde_json::Value) -> bool {
+        value.get("type").and_then(serde_json::Value::as_str) == Some("Special")
+    }
+
+    /// The value without whitespace, which the parser kept from what the
+    /// grammar skips (`spl ?`). The `?` is part of the value; a set
+    /// `uncertain` flag is refused, since no description wrote one.
+    fn written(self) -> Result<String, String> {
+        let SpecialFields::Special { value, uncertain } = self;
+        if uncertain {
+            return Err(format!("a Special \"{value}\" is never uncertain"));
+        }
+        Ok(value.split_whitespace().collect())
+    }
+}
+
+/// A nucleotide edit as deserialised: one in the current shape, or `r.=` in
+/// the `Special` shape, which only an r. variant admits.
+pub(crate) enum NaEditFields {
+    Edit(NaEdit),
+    SpecialIdentity,
+}
+
+impl<'de> Deserialize<'de> for NaEditFields {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if !SpecialFields::is_special(&value) {
+            return NaEdit::deserialize(value)
+                .map(NaEditFields::Edit)
+                .map_err(D::Error::custom);
+        }
+        let special = SpecialFields::deserialize(value).map_err(D::Error::custom)?;
+        let statement = match special.written().map_err(D::Error::custom)?.as_str() {
+            "=" => return Ok(NaEditFields::SpecialIdentity),
+            "0" => RnaStatement::NoRna { uncertain: false },
+            "0?" => RnaStatement::NoRna { uncertain: true },
+            "spl" => RnaStatement::SplicingAffected { uncertain: false },
+            "spl?" => RnaStatement::SplicingAffected { uncertain: true },
+            "?" => RnaStatement::Unknown,
+            other => {
+                return Err(D::Error::custom(format!(
+                    "\"{other}\" is not a statement about RNA"
+                )))
+            }
+        };
+        Ok(NaEditFields::Edit(NaEdit::Statement(statement)))
+    }
 }
 
 /// Refuses a posedit that the system `kind` (`g`, `m`, `c`, `n` or `r`)
@@ -177,30 +237,33 @@ pub(crate) struct NaVariantFields<I> {
 /// `r.`; an uncertain posedit, which no description writes.
 fn check_na_posedit<I: std::fmt::Display>(
     kind: &str,
-    posedit: &PosEdit<I, NaEdit>,
-) -> Result<(), HgvsError> {
+    posedit: PosEdit<I, NaEditFields>,
+) -> Result<PosEdit<I, NaEdit>, HgvsError> {
+    let edit = match posedit.edit {
+        NaEditFields::Edit(edit) => edit,
+        NaEditFields::SpecialIdentity if kind == "r" => NaEdit::WholeIdentity,
+        NaEditFields::SpecialIdentity => {
+            return Err(HgvsError::ValidationError(format!(
+                "{kind}. cannot write {kind}.= as a Special statement"
+            )))
+        }
+    };
+    let posedit = PosEdit {
+        pos: posedit.pos,
+        edit,
+        uncertain: posedit.uncertain,
+        predicted: posedit.predicted,
+    };
     let flags_writable = !posedit.uncertain && (kind == "r" || !posedit.predicted);
     let writable = flags_writable
         && match (&posedit.edit, &posedit.pos) {
             (NaEdit::WholeIdentity, None) => kind == "c" || kind == "r",
-            (
-                NaEdit::Special {
-                    value,
-                    uncertain: false,
-                },
-                None,
-            ) => {
-                // The parser keeps whitespace the grammar skips: r.spl ?
-                let value: String = value.split_whitespace().collect();
-                kind == "r"
-                    && !posedit.predicted
-                    && crate::edits::RNA_STATEMENTS.contains(&value.as_str())
-            }
-            (NaEdit::WholeIdentity | NaEdit::Special { .. }, _) => false,
+            (NaEdit::Statement(_), None) => kind == "r" && !posedit.predicted,
+            (NaEdit::WholeIdentity | NaEdit::Statement(_), _) => false,
             (_, pos) => pos.is_some(),
         };
     if writable {
-        Ok(())
+        Ok(posedit)
     } else {
         Err(HgvsError::ValidationError(format!(
             "{kind}. cannot write {kind}.{posedit} ({:?})",
@@ -209,40 +272,26 @@ fn check_na_posedit<I: std::fmt::Display>(
     }
 }
 
-/// `r.=` written as a `Special` "=", read as the identity.
-fn legacy_r_identity<I>(mut posedit: PosEdit<I, NaEdit>) -> PosEdit<I, NaEdit> {
-    if posedit.pos.is_none()
-        && matches!(&posedit.edit, NaEdit::Special { value, uncertain: false } if value == "=")
-    {
-        posedit.edit = NaEdit::WholeIdentity;
-    }
-    posedit
-}
-
 macro_rules! checked_na_variant {
-    ($struct_name:ident, $interval:ty, $kind:expr, $upgrade:expr) => {
+    ($struct_name:ident, $interval:ty, $kind:expr) => {
         impl TryFrom<NaVariantFields<$interval>> for $struct_name {
             type Error = HgvsError;
             fn try_from(fields: NaVariantFields<$interval>) -> Result<Self, HgvsError> {
-                let upgrade: fn(PosEdit<$interval, NaEdit>) -> PosEdit<$interval, NaEdit> =
-                    $upgrade;
-                let posedit = upgrade(fields.posedit);
-                check_na_posedit($kind, &posedit)?;
                 Ok($struct_name {
                     ac: fields.ac,
                     gene: fields.gene,
-                    posedit,
+                    posedit: check_na_posedit($kind, fields.posedit)?,
                 })
             }
         }
     };
 }
 
-checked_na_variant!(GVariant, SimpleInterval, "g", |p| p);
-checked_na_variant!(MVariant, SimpleInterval, "m", |p| p);
-checked_na_variant!(CVariant, BaseOffsetInterval, "c", |p| p);
-checked_na_variant!(NVariant, BaseOffsetInterval, "n", |p| p);
-checked_na_variant!(RVariant, BaseOffsetInterval, "r", legacy_r_identity);
+checked_na_variant!(GVariant, SimpleInterval, "g");
+checked_na_variant!(MVariant, SimpleInterval, "m");
+checked_na_variant!(CVariant, BaseOffsetInterval, "c");
+checked_na_variant!(NVariant, BaseOffsetInterval, "n");
+checked_na_variant!(RVariant, BaseOffsetInterval, "r");
 
 /// Represents a genomic variant (g.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -504,7 +553,7 @@ impl EditSpdi for NaEdit {
             NaEdit::None
                 | NaEdit::Con { .. }
                 | NaEdit::NACopy { .. }
-                | NaEdit::Special { .. }
+                | NaEdit::Statement(_)
                 | NaEdit::InsLength { .. }
                 | NaEdit::DelInsLength { .. }
         ) {
