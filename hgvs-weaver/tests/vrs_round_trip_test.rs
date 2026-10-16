@@ -237,6 +237,54 @@ fn bounded_deletion_json(start: &str, end: &str) -> String {
     )
 }
 
+/// A location on GENOME from `start` to `end`, as the JSON of a VRS object.
+fn location_json(start: &str, end: &str) -> String {
+    let refget = refget_accession(GENOME);
+    format!(
+        r#""location":{{"type":"SequenceLocation",
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+            "start":{start},"end":{end}}}"#
+    )
+}
+
+/// One test per case: the VRS object `$json` locates its change at
+/// coordinates no g. position holds, and is refused rather than written at a
+/// wrapped or zero position, or panicking.
+macro_rules! a_vrs_location_past_any_position_is_refused {
+    ($($name:ident: $json:expr;)*) => {$(
+        #[test]
+        fn $name() {
+            let hdp = provider();
+            let mapper = VariantMapper::with_refget(&hdp, &hdp);
+            let result = mapper.from_vrs(&$json, None);
+            assert!(matches!(result, Err(HgvsError::ValidationError(_))), "{result:?}");
+        }
+    )*};
+}
+
+a_vrs_location_past_any_position_is_refused! {
+    a_copy_number_at_the_last_u32: format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("4294967295", "4294967296")
+    );
+    a_copy_number_past_i32: format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("2147483647", "2147483648")
+    );
+    a_copy_number_past_u32: format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("4294967300", "4294967310")
+    );
+    a_deletion_range_from_the_last_index: format!(
+        r#"{{"type":"Allele",{},"state":{{"type":"LiteralSequenceExpression","sequence":""}}}}"#,
+        location_json("[18446744073709551615,null]", "[null,null]")
+    );
+    a_length_expression_at_the_last_index: format!(
+        r#"{{"type":"Allele",{},"state":{{"type":"LengthExpression","length":5}}}}"#,
+        location_json("18446744073709551615", "18446744073709551615")
+    );
+}
+
 #[test]
 fn a_vrs_deletion_ending_at_interbase_zero_is_refused() {
     let hdp = provider();
