@@ -901,9 +901,15 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 change starts there.**
 
 It does not match ClinVar's `Met1fs`, a commitment weaver did not make. Two ClinVar rows judge Different for this
-reason, on purpose. A `?` after any other residue, `p.Arg12?`, is read the same way, as a change from that residue on of
-which nothing more is said; the nomenclature defines the form only at the start codon. `p.Met1?` and `p.Met1Xaa`, an
-unknown residue in place of Met1, are Analogous, not the same text.
+reason, on purpose. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place of Met1, are Analogous, not the same text.
+
+A `?` after any other residue, `p.Arg12?` or `p.(Arg12?)`, is a recorded extension beyond the specification, which
+writes the form only at the start codon. weaver reads it as `p.Met1?` is read, a change from that residue on of which
+nothing more is said, and it parses, prints, reloads from a dict and compares as that: Analogous to a change starting at
+`Arg12`, from a `p.` description or predicted from a coding change, and Different from one starting anywhere else. The
+alternatives were to refuse it, which loses a description others write, or to read it as a substitution to an unknown
+residue, `p.Arg12Xaa`, the stronger claim that only that one residue changed; the weaker reading claims less than the
+text might mean and never more.
 
 **Example:**
 
@@ -911,17 +917,27 @@ unknown residue in place of Met1, are Analogous, not the same text.
 NM_X.1:c.-3_2del     vs  NP_X.1:p.Leu3fs    not equivalent: the deletion is p.(Met1?), which promises nothing about Leu3
 NM_X.1:c.-5_*14del   vs  NP_X.1:p.0?        equivalent
 NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
+NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg12Gly  Analogous: the change starts at Arg12
+NM_W.1:c.34C>G       vs  NP_W.1:p.Arg12?    Analogous: predicted p.(Arg12Gly)
+NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
 ```
 
 - **Differs:** ClinVar commits.
 - **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
-  defines `p.?` and `p.Met1?` as statements of what is not known.
+  defines `p.?` and `p.(Met1?)` as statements of what is not known. It is silent on a `?` after any other residue; that
+  reading is weaver's.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
   `statements_test::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
   `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`,
   `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`,
   `::an_unknown_change_from_an_uncertain_residue_does_not_parse`,
-  `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`.
+  `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`,
+  `::an_unknown_change_from_a_residue_prints_back_as_parsed`, `::an_unknown_change_from_a_residue_survives_json`,
+  `::an_unknown_change_from_a_residue_matches_a_change_starting_there`,
+  `::an_unknown_change_from_a_residue_does_not_match_a_change_starting_after_it`,
+  `::an_unknown_change_from_a_residue_matches_a_coding_change_predicted_there`,
+  `::a_predicted_unknown_change_from_a_residue_is_the_stated_one`;
+  `printed_reparse_test::an_unknown_change_from_a_residue_past_met1`.
 
 ### Judging with no protein sequence is an error
 
