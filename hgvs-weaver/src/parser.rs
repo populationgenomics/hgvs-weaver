@@ -76,16 +76,17 @@ pub fn parse_tx_posedit(
 }
 
 pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
-    let mut predicted = false;
-    let s = pair.as_str();
-    if s.starts_with('(') && s.ends_with(')') {
-        predicted = true;
-    }
-
+    let opens_with_bracket = pair.as_str().starts_with('(');
+    let start = pair.as_span().start();
     let mut inner = pair.into_inner();
     let inner_pair = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty p_posedit".into()))?;
+    // A prediction's bracket is p_posedit's own, so its first child starts
+    // after it; a statement's, p.(=) or p.(?), is inside the statement.
+    let predicted = opens_with_bracket
+        && (inner_pair.as_span().start() > start
+            || inner_pair.as_rule() == Rule::p_posedit_special);
     if inner_pair.as_rule() == Rule::p_unknown_from {
         let mut at = parse_aa_pos(
             inner_pair

@@ -40,6 +40,30 @@ reparses_to_itself! {
 }
 
 #[test]
+fn a_change_over_an_uncertain_residue_range_is_not_a_prediction() {
+    assert_eq!(
+        parse("NP_W.1:p.(Gln18_Gln22)(70_80)").to_string(),
+        "NP_W.1:p.(Gln18_Gln22)[(70_80)]"
+    );
+}
+
+#[test]
+fn a_change_at_an_uncertain_residue_is_not_a_prediction() {
+    assert_eq!(
+        parse("NP_W.1:p.(Gln18)(70_80)").to_string(),
+        "NP_W.1:p.(Gln18)[(70_80)]"
+    );
+}
+
+#[test]
+fn a_predicted_change_at_an_uncertain_residue_keeps_both_brackets() {
+    assert_eq!(
+        parse("NP_W.1:p.((Gln18)[(70_80)])").to_string(),
+        "NP_W.1:p.((Gln18)[(70_80)])"
+    );
+}
+
+#[test]
 fn a_repeat_of_a_range_of_copies_parses_as_hgvs_writes_it() {
     assert_eq!(
         parse("NP_W.1:p.Gln18[(70_80)]"),

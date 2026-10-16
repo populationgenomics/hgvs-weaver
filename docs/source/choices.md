@@ -777,11 +777,13 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
 parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
-a prediction. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and `p.Met1?` are
-Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and the same
-description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with `p.Met1?`, as
-`c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. The parentheses of
-`r.(?)` are not a prediction but part of the statement
+a prediction. A prediction's parentheses enclose the whole description; those of an uncertain residue or range,
+`p.(Gln18)[(70_80)]`, belong to the position, so a description that opens with one is not a prediction, and
+`p.((Gln18)[(70_80)])` is. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and
+`p.Met1?` are Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and
+the same description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with
+`p.Met1?`, as `c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. The
+parentheses of `r.(?)` are not a prediction but part of the statement
 ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
 
 **Example:**
@@ -814,7 +816,10 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
   `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
   (INITMET02/03); `src/transform.rs::test_transform_met1_to_question`,
-  `::test_transform_stated_met1_to_stated_question`.
+  `::test_transform_stated_met1_to_stated_question`;
+  `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
+  `::a_change_over_an_uncertain_residue_range_is_not_a_prediction`,
+  `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`.
 
 ### Frameshift length counts to the first new stop
 
