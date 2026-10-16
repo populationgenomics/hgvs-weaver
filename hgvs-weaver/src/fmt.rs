@@ -509,20 +509,14 @@ impl fmt::Display for AaEdit {
                 } else {
                     alt
                 };
-                if alt_normalized.is_empty() {
-                    write!(f, "fs")?;
-                } else {
-                    let term_normalized = term.as_deref().map(|t| {
-                        if t.len() == 1 {
-                            aa1_to_aa3(t.chars().next().unwrap())
-                        } else if t == "*" {
-                            "Ter"
-                        } else {
-                            t
-                        }
-                    });
-                    write!(f, "{}fs{}", alt_normalized, term_normalized.unwrap_or(""))?;
-                }
+                let term_normalized = term.as_deref().map(|t| {
+                    if t.len() == 1 {
+                        aa1_to_aa3(t.chars().next().unwrap())
+                    } else {
+                        t
+                    }
+                });
+                write!(f, "{}fs{}", alt_normalized, term_normalized.unwrap_or(""))?;
                 if let Some(l) = length {
                     write!(f, "{}", l)?;
                 }
