@@ -38,7 +38,7 @@ class StartCodonConvention:
     """
 
     HgvsQuestion: ClassVar[StartCodonConvention]
-    """Use the HGVS `p.Met1?` notation for any non-silent change at the first codon."""
+    """Use the HGVS `p.Met1?` notation for any non-silent change at the first codon, `p.(Met1?)` for a prediction."""
     Specific: ClassVar[StartCodonConvention]
     """Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default."""
     def __eq__(self, value: object) -> bool: ...

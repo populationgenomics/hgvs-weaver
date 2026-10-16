@@ -91,23 +91,23 @@ in the harness), not a guess from the residues the descriptions happen to name.
 
 ## Examples
 
-| Level       | A                               | B                                    | Why                                                       |
-| :---------- | :------------------------------ | :----------------------------------- | :-------------------------------------------------------- |
-| `Identity`  | `c.123A>G`                      | `c.123A>G`                           | Same text.                                                |
-| `Identity`  | `NC_…:g.5000A>G`                | `NM_…:c.123A>G`                      | The `c.` projects to exactly that `g.`.                   |
-| `Identity`  | `c.1799T>A`                     | `p.(Val600Glu)`                      | The prediction, written as predicted.                     |
-| `Analogous` | `c.1799T>A`                     | `p.Val600Glu`                        | The same description, observed rather than predicted.     |
-| `Analogous` | `c.4_6del`                      | `c.10_12del`                         | One allele: the same trinucleotide run, one unit shorter. |
-| `Analogous` | `g.10_11insA`                   | `g.10dup`                            | One allele.                                               |
-| `Analogous` | `p.Tyr165Ter`                   | `p.Ala164_Tyr165insTer`              | Both leave the protein ended after 164.                   |
-| `Analogous` | `c.495_498del`                  | `p.Ala164_Tyr165insTer`              | The frameshift's first stop is at 165; same protein left. |
-| `Analogous` | `c.567delG`                     | `p.Ala190Profs`                      | The frameshift starts Ala190Pro; the rest is unknown.     |
-| `Analogous` | `c.1796A>G`                     | `p.Ter599Trp`                        | A stop loss, written as ClinVar writes it.                |
-| `Analogous` | `p.490PRS[1]`                   | `p.Pro493_Ser495del`                 | One copy of a three-residue unit removed, either way.     |
-| `Different` | `c.123A>G`                      | `c.123A>T`                           | Different alleles.                                        |
-| `Different` | `c.1799T>A`                     | `p.Val600Lys`                        | Different protein left.                                   |
-| `Different` | `p.Arg97ProfsTer4`              | `p.Arg97_Arg97delinsProAlaValLeuTer` | One residue longer before the stop.                       |
-| `Different` | `c.-3_13dup` (weaver `p.Met1?`) | `p.Leu5fs`                           | A statement of not knowing does not match a commitment.   |
-| `Unknown`   | `c.123A>G`                      | `p.Val41Gly`                         | The provider has no sequence for the protein.             |
+| Level       | A                                 | B                                    | Why                                                       |
+| :---------- | :-------------------------------- | :----------------------------------- | :-------------------------------------------------------- |
+| `Identity`  | `c.123A>G`                        | `c.123A>G`                           | Same text.                                                |
+| `Identity`  | `NC_…:g.5000A>G`                  | `NM_…:c.123A>G`                      | The `c.` projects to exactly that `g.`.                   |
+| `Identity`  | `c.1799T>A`                       | `p.(Val600Glu)`                      | The prediction, written as predicted.                     |
+| `Analogous` | `c.1799T>A`                       | `p.Val600Glu`                        | The same description, observed rather than predicted.     |
+| `Analogous` | `c.4_6del`                        | `c.10_12del`                         | One allele: the same trinucleotide run, one unit shorter. |
+| `Analogous` | `g.10_11insA`                     | `g.10dup`                            | One allele.                                               |
+| `Analogous` | `p.Tyr165Ter`                     | `p.Ala164_Tyr165insTer`              | Both leave the protein ended after 164.                   |
+| `Analogous` | `c.495_498del`                    | `p.Ala164_Tyr165insTer`              | The frameshift's first stop is at 165; same protein left. |
+| `Analogous` | `c.567delG`                       | `p.Ala190Profs`                      | The frameshift starts Ala190Pro; the rest is unknown.     |
+| `Analogous` | `c.1796A>G`                       | `p.Ter599Trp`                        | A stop loss, written as ClinVar writes it.                |
+| `Analogous` | `p.490PRS[1]`                     | `p.Pro493_Ser495del`                 | One copy of a three-residue unit removed, either way.     |
+| `Different` | `c.123A>G`                        | `c.123A>T`                           | Different alleles.                                        |
+| `Different` | `c.1799T>A`                       | `p.Val600Lys`                        | Different protein left.                                   |
+| `Different` | `p.Arg97ProfsTer4`                | `p.Arg97_Arg97delinsProAlaValLeuTer` | One residue longer before the stop.                       |
+| `Different` | `c.-3_13dup` (weaver `p.(Met1?)`) | `p.Leu5fs`                           | A statement of not knowing does not match a commitment.   |
+| `Unknown`   | `c.123A>G`                        | `p.Val41Gly`                         | The provider has no sequence for the protein.             |
 
 Code: [hgvs-weaver/src/equivalence.rs](../../hgvs-weaver/src/equivalence.rs).

@@ -45,6 +45,7 @@ Representation Specification 2.0.1.
 | [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |   agrees    |       –        |          –           | spelling differs |
 | [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically)                                       | **differs** |    differs     |       differs        |        –         |
 | [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements)                                                       |   agrees    |     agrees     |       differs        |     differs      |
+| [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |   agrees    |    differs     |       differs        |        –         |
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |   agrees    |       –        |          –           |        –         |
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |   agrees    |       –        |          –           |        –         |
 | [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else)                     |   agrees    |       –        |          –           |        –         |
@@ -629,19 +630,20 @@ c.4_6dup   →  p.Lys3dup
 
 ### A start-codon change is written specifically
 
-**`c.1A>G` is `p.(Met1Val)`, not `p.Met1?`, because the specific prediction carries more information.**
+**`c.1A>G` is `p.(Met1Val)`, not `p.(Met1?)`, because the specific prediction carries more information.**
 
 This is the one choice on this page where weaver's default output departs from an explicit recommendation, and it is a
 contentious one. The nomenclature's reasoning is that translation may initiate elsewhere, so the consequence cannot be
 predicted; weaver's is that `p.(Met1Val)` says which codon changed and how, is written as a prediction, and can be
-reduced to `p.Met1?` but not recovered from it. `VariantTransformSettings` with `StartCodonConvention::HgvsQuestion`
-rewrites it on request.
+reduced to `p.(Met1?)` but not recovered from it. `VariantTransformSettings` with `StartCodonConvention::HgvsQuestion`
+rewrites it on request, keeping whether it was a prediction: `p.(Met1Val)` becomes `p.(Met1?)`, a stated `p.Met1Val`
+becomes `p.Met1?`.
 
 `p.Met1?` read from text is the same statement weaver writes: an unknown change from `Met1` on, not a substitution of
 `Met1` by an unknown residue, which would be `p.Met1Xaa`, the commitment the nomenclature declines to make. The
-bracketed `p.(Met1?)` the nomenclature writes is the same statement as a prediction. So the `p.Met1?` that `c_to_p` and
-the transform write reads back as the value they built. The statement names one residue, certain: `p.Met1_Arg3?` and
-`p.(Met1)?` do not parse.
+bracketed `p.(Met1?)` the nomenclature writes is the same statement as a prediction, and is what `c_to_p` writes
+([below](#a-prediction-is-bracketed-as-hgvs-writes-it)). So what `c_to_p` and the transform write reads back as the
+value they built. The statement names one residue, certain: `p.Met1_Arg3?` and `p.(Met1)?` do not parse.
 
 **Example:**
 
@@ -650,10 +652,11 @@ NM_0001.3:c.1A>T          →  NP_0001.1:p.(Met1Leu)
 NM_007199.2:c.1A>G        →  NP_009130.2:p.(Met1Val)     weaver
                           →  NP_009130.2:p.Met1?         biocommons and VariantValidator
 
-transform NP_000051.2:p.(Met1Val)  →  NP_000051.2:p.Met1?    with start_codon = HgvsQuestion
+transform NP_000051.2:p.(Met1Val)  →  NP_000051.2:p.(Met1?)    with start_codon = HgvsQuestion
+transform NP_000051.2:p.Met1Val    →  NP_000051.2:p.Met1?
 
-parse NP_W.1:p.Met1?      →  the unknown change from Met1 that c_to_p builds for NM_W.1:c.-3_4del
-parse NP_W.1:p.(Met1?)    →  the same, predicted
+parse NP_W.1:p.(Met1?)    →  the unknown change from Met1 that c_to_p builds for NM_W.1:c.-3_4del
+parse NP_W.1:p.Met1?      →  the same, stated
 ```
 
 - **Differs:** biocommons and VariantValidator write `p.Met1?`, the nomenclature's `p.(Met1?)` without its parentheses.
@@ -664,16 +667,16 @@ parse NP_W.1:p.(Met1?)    →  the same, predicted
   "the consequence, on the protein level, of a variant affecting the translation initiation codon can not be predicted".
 - **Tests:** `mapping_test::test_mapper_c_to_p_start_codon_subst`;
   `real_transcripts_test::biocommons_real_transcript_cases` (INITMET01, recorded);
-  `src/transform.rs::test_transform_met1_to_question`;
-  `statements_test::p_met1_unknown_parses_to_what_the_mapper_builds`,
+  `src/transform.rs::test_transform_met1_to_question`, `::test_transform_stated_met1_to_stated_question`;
+  `statements_test::a_predicted_p_met1_unknown_parses_to_what_the_mapper_builds`,
   `::the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself`,
   `::the_start_codon_transform_of_a_one_letter_description_reparses_to_itself`,
   `::a_predicted_unknown_change_from_met1_prints_back_as_parsed`.
 
 ### Edits outside the CDS are statements
 
-**A deletion of the whole CDS is `p.0?`; an edit that starts in the 5'UTR and reaches into the CDS is `p.Met1?`; an edit
-entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`.**
+**A deletion of the whole CDS is `p.0?`; an edit that starts in the 5'UTR and reaches into the CDS is `p.(Met1?)`; an
+edit entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`.**
 
 weaver does not commit to a consequence upstream because the initiation site is not predictable: a 5'UTR change can
 create an upstream start. Downstream of the stop codon nothing can change the protein, so the prediction is no change,
@@ -688,7 +691,7 @@ still written silently at the residues it covers, `p.(Arg2=)`.
 
 ```text
 NM_X.1:c.-3G>A             →  NP_X.1:p.?         entirely upstream
-NM_X.1:c.-3_2del           →  NP_X.1:p.Met1?     reaches into the start codon
+NM_X.1:c.-3_2del           →  NP_X.1:p.(Met1?)   reaches into the start codon
 NM_X.1:c.-5_*14del         →  NP_X.1:p.0?        the whole CDS
 NM_X.1:c.*3A>G             →  NP_X.1:p.(=)       entirely downstream
 NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silently
@@ -696,10 +699,10 @@ NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity across the start 
 NM_W.1:c.45+1=             →  NP_W.1:p.(=)       an intronic identity
 
 NM_000249.3:c.-7_*46del    →  NP_000240.1:p.0?
-NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.Met1?
+NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
 ```
 
-- **Agrees:** biocommons, on `p.Met1?` and `p.0?` (its own test table).
+- **Agrees:** biocommons, on `p.0?` and on the start codon, which it writes `p.Met1?`, unbracketed (its own test table).
 - **Agrees:** VariantValidator, on `p.(=)` for the 3'UTR (older versions wrote `p.?`); ClinVar writes a 3'UTR change as
   silent at the stop, `p.Ter1648=`, which leaves the same protein.
 - **Differs:** ClinVar writes `Met1fs`, `Met1_Glu2insGly…`, committing to a consequence. For a substitution entirely in
@@ -716,6 +719,56 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.Met1?
   `::an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged`,
   `::an_identity_in_the_5_utr_predicts_the_protein_unchanged`, `::an_intronic_identity_predicts_the_protein_unchanged`,
   `::an_identity_across_the_start_codon_is_not_no_protein`.
+
+### A prediction is bracketed as HGVS writes it
+
+**A protein consequence predicted from a coding or RNA change is written in parentheses, `p.(Arg2Gly)`, as are the
+predicted statements `p.(=)` and `p.(Met1?)`; `p.?`, `p.0?` and the `p.0` that `r.0` gives are written bare.**
+
+The nomenclature marks a consequence that was predicted rather than observed by putting it in parentheses:
+"`p.(Trp24Cys)` amino acid `Trp24` is predicted to change to a `Cys` (no experimental proof, e.g., based on DNA level
+data)". Every protein description weaver writes from a `c.` or `r.` change is such a prediction, since weaver has seen
+no protein. For a change the rule needs no exception. The statements are where the nomenclature's own spellings vary,
+and weaver follows the spelling it gives each one rather than bracketing all of them:
+
+- `p.(=)`: "no changes on the protein level are expected (RNA not analysed)", bracketed.
+- `p.(Met1?)`: the start codon disrupted, its consequence unknown, bracketed on the substitution page.
+- `p.?`: written bare even where it is the predicted consequence ("the predicted consequences of a deletion of exons 1
+  to 2 … `p.?`"). What it says is that no prediction can be made, so there is nothing to bracket.
+- `p.0?`: "can be used when you predict that no protein is produced"; the `?` is the hedge, and `p.(0?)` appears
+  nowhere.
+- `p.0`: the alleles page links it to "the absence of RNA (`r.0`)", bare, so `r_to_p` gives `r.0` as `p.0`.
+
+A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
+parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
+a prediction. In equivalence parentheses are spelling: `c.-3_4del` is the same text as `p.(Met1?)` (Identity) and the
+same description as `p.Met1?` in another spelling (Analogous), as `c.4C>G` is with `p.(Arg2Gly)` and `p.Arg2Gly`.
+
+**Example:**
+
+```text
+NM_W.1:c.10C>G        →  NP_W.1:p.(Arg4Gly)
+NM_W.1:c.-3_4del      →  NP_W.1:p.(Met1?)       biocommons and VariantValidator write p.Met1?
+NM_W.1:c.*5T>A        →  NP_W.1:p.(=)
+NM_W.1:c.-3G>A        →  NP_W.1:p.?
+NM_W.1:c.-3_*2del     →  NP_W.1:p.0?
+NM_W.1:r.0            →  NP_W.1:p.0
+```
+
+- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET02/03); VariantValidator likewise, as
+  recorded [above](#a-start-codon-change-is-written-specifically). The ClinVar sample has no start-codon statement.
+- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
+  for `p.(Trp24Cys)`, `p.(Met1?)` and `p.0?`;
+  [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) for `p.(=)`, `p.?` and `p.0?`;
+  [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for a predicted `p.?`;
+  [protein alleles](https://hgvs-nomenclature.org/stable/recommendations/protein/alleles/) for `p.0` beside `r.0`.
+- **Tests:** `statements_test::a_start_loss_is_predicted_bracketed_as_hgvs_writes_it`,
+  `::a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare`, `::a_deleted_cds_is_probably_no_protein`,
+  `::the_mappers_no_protein_reparses_to_itself`, `::a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it`,
+  `::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
+  `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`;
+  `real_transcripts_test::biocommons_real_transcript_cases` (INITMET02/03);
+  `src/transform.rs::test_transform_met1_to_question`, `::test_transform_stated_met1_to_stated_question`.
 
 ### Frameshift length counts to the first new stop
 
@@ -842,7 +895,7 @@ unknown residue in place of Met1, are Analogous, not the same text.
 **Example:**
 
 ```text
-NM_X.1:c.-3_2del     vs  NP_X.1:p.Leu3fs    not equivalent: the deletion is p.Met1?, which promises nothing about Leu3
+NM_X.1:c.-3_2del     vs  NP_X.1:p.Leu3fs    not equivalent: the deletion is p.(Met1?), which promises nothing about Leu3
 NM_X.1:c.-5_*14del   vs  NP_X.1:p.0?        equivalent
 NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
 ```
@@ -851,7 +904,8 @@ NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
 - **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
   defines `p.?` and `p.Met1?` as statements of what is not known.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
-  `statements_test::a_start_loss_is_the_parsed_unknown_change_from_met1`,
+  `statements_test::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
+  `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`,
   `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`,
   `::an_unknown_change_from_an_uncertain_residue_does_not_parse`,
   `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`.

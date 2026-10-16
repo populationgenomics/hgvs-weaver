@@ -137,7 +137,7 @@ impl PyEquivalenceLevel {
 pub enum PyStartCodonConvention {
     /// Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default.
     Specific,
-    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first codon.
+    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first codon, `p.(Met1?)` for a prediction.
     HgvsQuestion,
 }
 

@@ -264,7 +264,7 @@ fn edits_around_the_cds_start_are_statements_not_predictions() {
     let mapper = VariantMapper::new(&hdp);
     let p = |c: &str| mapper.c_to_p(&coding(c), None).unwrap().to_string();
     assert_eq!(p("NM_X.1:c.-3G>A"), "NP_X.1:p.?");
-    assert_eq!(p("NM_X.1:c.-3_2del"), "NP_X.1:p.Met1?");
+    assert_eq!(p("NM_X.1:c.-3_2del"), "NP_X.1:p.(Met1?)");
     assert_eq!(p("NM_X.1:c.-5_*14del"), "NP_X.1:p.0?");
 }
 

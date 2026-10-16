@@ -161,8 +161,18 @@ reads_as! { aa_edit;
 }
 
 #[test]
-fn p_met1_unknown_parses_to_what_the_mapper_builds() {
-    assert_eq!(parse("NP_W.1:p.Met1?"), c_to_p("NM_W.1:c.-3_4del"));
+fn a_predicted_p_met1_unknown_parses_to_what_the_mapper_builds() {
+    assert_eq!(parse("NP_W.1:p.(Met1?)"), c_to_p("NM_W.1:c.-3_4del"));
+}
+
+#[test]
+fn a_start_loss_is_predicted_bracketed_as_hgvs_writes_it() {
+    assert_eq!(c_to_p("NM_W.1:c.-3_4del").to_string(), "NP_W.1:p.(Met1?)");
+}
+
+#[test]
+fn a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare() {
+    assert_eq!(c_to_p("NM_W.1:c.-3G>A").to_string(), "NP_W.1:p.?");
 }
 
 #[test]
@@ -299,13 +309,23 @@ fn the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself() {
 }
 
 #[test]
-fn a_start_loss_is_the_parsed_unknown_change_from_met1() {
+fn a_start_loss_is_the_parsed_predicted_unknown_change_from_met1() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NM_W.1:c.-3_4del"), &parse("NP_W.1:p.(Met1?)"))
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Identity);
+}
+
+#[test]
+fn a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let level = VariantEquivalence::new(&mapper, &hdp)
         .equivalent_level(&parse("NM_W.1:c.-3_4del"), &parse("NP_W.1:p.Met1?"))
         .unwrap();
-    assert_eq!(level, EquivalenceLevel::Identity);
+    assert_eq!(level, EquivalenceLevel::Analogous);
 }
 
 #[test]
@@ -390,7 +410,6 @@ fn probably_no_protein_survives_json() {
 #[test]
 fn an_unknown_change_from_met1_survives_json() {
     let p = c_to_p("NM_W.1:c.-3_4del");
-    assert_eq!(p.to_string(), "NP_W.1:p.Met1?");
     assert_eq!(json_round_trip(&p), p);
 }
 
@@ -473,11 +492,11 @@ fn a_special_identity_on_a_coding_variant_is_refused() {
 }
 
 #[test]
-fn a_special_unknown_at_met1_loads_as_the_mappers_met1_unknown() {
+fn a_special_unknown_at_met1_loads_as_the_unknown_change_from_met1() {
     let json = r#"{"variant_type": "Protein", "ac": "NP_W.1", "gene": null, "posedit": {
         "pos": {"start": {"base": 1, "aa": "Met", "uncertain": false}, "end": null, "uncertain": false},
         "edit": {"type": "Special", "value": "?", "uncertain": false}, "uncertain": false, "predicted": false}}"#;
-    assert_eq!(from_json(json).unwrap(), c_to_p("NM_W.1:c.-3_4del"));
+    assert_eq!(from_json(json).unwrap(), parse("NP_W.1:p.Met1?"));
 }
 
 #[test]

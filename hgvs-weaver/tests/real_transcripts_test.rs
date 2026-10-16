@@ -103,7 +103,8 @@ const CASES: &[(&str, &str, &str, &str)] = &[
         "",
     ),
     // weaver keeps the specific start-codon change; `StartCodonConvention::HgvsQuestion`
-    // in transform.rs rewrites it to p.Met1? on request.
+    // in transform.rs rewrites it to p.(Met1?) on request. biocommons writes the
+    // prediction p.Met1?; weaver brackets it, as the nomenclature does.
     (
         "INITMET01",
         "NM_007199.2:c.1A>G",
@@ -114,13 +115,13 @@ const CASES: &[(&str, &str, &str, &str)] = &[
         "INITMET02",
         "NM_022051.2:c.-1_1insGCC",
         "NP_071334.1:p.Met1?",
-        "",
+        "NP_071334.1:p.(Met1?)",
     ),
     (
         "INITMET03",
         "NM_002386.3:c.-11_19del",
         "NP_002377.4:p.Met1?",
-        "",
+        "NP_002377.4:p.(Met1?)",
     ),
 ];
 

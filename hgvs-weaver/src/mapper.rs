@@ -447,11 +447,12 @@ fn statement_about_transcript(
         ac: protein_ac.to_string(),
         gene: var_c.gene.clone(),
         posedit: PosEdit {
+            // Bracketed as HGVS writes each prediction: `p.(=)` and `p.(Met1?)`,
+            // but `p.?` and `p.0?` bare.
+            predicted: statement == ProteinStatement::Unchanged || pos.is_some(),
             pos,
             edit: crate::edits::AaEdit::Statement(statement),
             uncertain: false,
-            // `p.(=)` is a prediction of no change; the others state what is unknown.
-            predicted: statement == ProteinStatement::Unchanged,
         },
     };
     // A start after the stop codon is an edit entirely in the 3'UTR.
