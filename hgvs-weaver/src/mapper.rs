@@ -235,7 +235,7 @@ fn location_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, H
             }
             interval(s, e)
         }
-        (start, end) => bounded_interval(start, end),
+        (start, end) => bounded_interval(start, end)?,
     })
 }
 
@@ -255,31 +255,43 @@ fn interval(s: usize, e: usize) -> SimpleInterval {
 
 /// The g. interval `(a_b)_(c_d)` from VRS bounds: the inverse of
 /// `uncertain_bounds`. Exact bounds come out as parenthesis-free positions.
-fn bounded_interval(start: VrsBound, end: VrsBound) -> SimpleInterval {
-    use crate::coords::HgvsGenomicPos;
-    let position = |b: VrsBound, to_hgvs: fn(usize) -> i32| {
-        let known = |v: Option<usize>| v.map(|n| HgvsGenomicPos(to_hgvs(n))).into();
-        match b {
+fn bounded_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, HgvsError> {
+    use crate::coords::{GenomicBound, HgvsGenomicPos};
+    // The g. base an interbase coordinate `n` names, `n + shift`.
+    let base = |n: usize, shift: i32| {
+        i32::try_from(n)
+            .ok()
+            .and_then(|n| n.checked_add(shift))
+            .and_then(|h| HgvsGenomicPos::try_from(h).ok())
+            .ok_or_else(|| {
+                HgvsError::ValidationError(format!("VRS bound {n} names no g. position"))
+            })
+    };
+    let position = |b: VrsBound, shift: i32| -> Result<SimplePosition, HgvsError> {
+        let bound = |v: Option<usize>| -> Result<GenomicBound, HgvsError> {
+            Ok(v.map(|n| base(n, shift)).transpose()?.into())
+        };
+        Ok(match b {
             VrsBound::Exact(n) => SimplePosition {
-                base: HgvsGenomicPos(to_hgvs(n)).into(),
+                base: base(n, shift)?.into(),
                 end: None,
                 uncertain: false,
             },
             VrsBound::Range(lo, hi) => SimplePosition {
-                base: known(lo),
-                end: Some(known(hi)),
+                base: bound(lo)?,
+                end: Some(bound(hi)?),
                 uncertain: true,
             },
-        }
+        })
     };
     // A single base somewhere in `a..=b` came out as `[a-1, b-1]`, `[a, b]`.
     let single = matches!((start, end), (VrsBound::Range(lo, hi), VrsBound::Range(lo2, hi2))
         if lo.map(|n| n + 1) == lo2 && hi.map(|n| n + 1) == hi2);
-    SimpleInterval {
-        start: position(start, |n| n as i32 + 1),
-        end: (!single).then(|| position(end, |n| n as i32)),
+    Ok(SimpleInterval {
+        start: position(start, 1)?,
+        end: (!single).then(|| position(end, 0)).transpose()?,
         uncertain: false,
-    }
+    })
 }
 
 /// The `g.` variant with edit `edit` at `pos` on `ac`.
@@ -2510,7 +2522,7 @@ impl<'a> VariantMapper<'a> {
                 };
                 Ok(crate::SequenceVariant::Genomic(g_variant(
                     &ac,
-                    bounded_interval(start, end),
+                    bounded_interval(start, end)?,
                     del,
                 )))
             }
@@ -2746,7 +2758,8 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<crate::SequenceVariant, HgvsError> {
         let reference = self.refs.reference(ac, kind);
         let ref_ = reference.slice(start, end)?;
-        if ref_.len() != end - start {
+        let past_the_end = start > 0 && reference.base(start - 1)?.is_none();
+        if ref_.len() != end - start || past_the_end {
             return Err(HgvsError::ValidationError(format!(
                 "{ac} is shorter than position {end}"
             )));

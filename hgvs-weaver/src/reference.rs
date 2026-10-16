@@ -167,7 +167,7 @@ impl<'a> ReferenceStore<'a> {
             }
         }
         let start = index * self.block_size;
-        let block = self.fetch(ac, kind, start, Some(start + self.block_size))?;
+        let block = self.fetch(ac, kind, start, Some(start.saturating_add(self.block_size)))?;
         let mut cache = self.cache();
         let entry = cache.entry(key).or_default();
         if block.len() < self.block_size {
@@ -205,7 +205,8 @@ impl<'s, 'a> Reference<'s, 'a> {
         let bs = self.store.block_size;
         let first = start / bs;
         let last = (end - 1) / bs;
-        let mut out = String::with_capacity(end - start);
+        // A range can run far past the end: reserve no more than a block holds.
+        let mut out = String::with_capacity((end - start).min(bs));
         for index in first..=last {
             self.store.ensure_block(&self.ac, self.kind, index)?;
             let cache = self.store.cache();
@@ -230,7 +231,7 @@ impl<'s, 'a> Reference<'s, 'a> {
 
     /// The base at `index`, or `None` past the end.
     pub fn base(&self, index: usize) -> Result<Option<u8>, HgvsError> {
-        Ok(self.slice(index, index + 1)?.bytes().next())
+        Ok(self.slice(index, index.saturating_add(1))?.bytes().next())
     }
 
     /// The refget accession (`SQ.` + sha512t24u) identifying this sequence:

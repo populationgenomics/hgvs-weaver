@@ -219,6 +219,44 @@ an_spdi_past_any_sequence_is_refused! {
     an_spdi_deletion_length_past_usize: "NC_TEST.1:6:99999999999999999999999:C";
     an_spdi_deletion_length_running_past_usize: "NC_TEST.1:18446744073709551615:5:C";
     an_spdi_deletion_running_past_usize: "NC_TEST.1:18446744073709551615:A:C";
+    an_spdi_insertion_past_the_sequence: "NC_TEST.1:41:0:C";
+    an_spdi_insertion_past_i32: "NC_TEST.1:2147483648:0:C";
+    an_spdi_insertion_past_u32: "NC_TEST.1:4294967296:0:C";
+    an_spdi_insertion_at_the_last_index: "NC_TEST.1:18446744073709551615:0:C";
+    an_spdi_deletion_length_past_the_sequence: "NC_TEST.1:0:99999999999999:C";
+}
+
+/// A deletion from VRS bounds `start`, `end` on GENOME, as JSON.
+fn bounded_deletion_json(start: &str, end: &str) -> String {
+    let refget = refget_accession(GENOME);
+    format!(
+        r#"{{"type":"Allele","location":{{"type":"SequenceLocation",
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+            "start":{start},"end":{end}}},
+            "state":{{"type":"LiteralSequenceExpression","sequence":""}}}}"#
+    )
+}
+
+#[test]
+fn a_vrs_deletion_ending_at_interbase_zero_is_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let result = mapper.from_vrs(&bounded_deletion_json("[null,4]", "0"), None);
+    assert!(
+        matches!(result, Err(HgvsError::ValidationError(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_vrs_deletion_whose_end_range_starts_at_interbase_zero_is_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let result = mapper.from_vrs(&bounded_deletion_json("[null,4]", "[0,10]"), None);
+    assert!(
+        matches!(result, Err(HgvsError::ValidationError(_))),
+        "{result:?}"
+    );
 }
 
 #[test]

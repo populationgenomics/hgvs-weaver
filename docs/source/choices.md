@@ -1363,7 +1363,7 @@ NC_W.1:g.(?_5)_(10_?)del    →  NC_W.1:g.(?_5)_(10_?)del
   `::a_dict_for_a_coding_position_of_zero_is_refused`, `::a_frameshift_to_a_stop_zero_residues_on`,
   `::an_extension_to_a_stop_zero_residues_on`, `::an_extension_to_a_start_zero_residues_upstream`,
   `::an_extension_by_a_count_of_zero`, `::a_dict_for_a_frameshift_to_a_stop_zero_residues_on_is_refused`,
-  `::an_unknown_genomic_bound_reparses_to_itself`,
+  `::an_unknown_genomic_bound_reparses_to_itself`, `::an_unknown_genomic_bound_survives_a_dict`,
   `::a_dict_for_an_unknown_genomic_bound_names_it_with_a_question_mark`,
   `::a_dict_for_a_genomic_position_of_zero_is_refused`.
 
@@ -1375,9 +1375,9 @@ integer weaver holds it in is a `ParseError` naming the number, not a value read
 Read as 0, an out-of-range count turned a repeat or an insertion into a different variant without a word; kept as text,
 a stop distance could not be compared or projected. No real sequence comes near these limits, so a number past them is a
 typo or a corrupted record, and the answer is an error. A number before a protein repeat's count is not in the grammar:
-it was taken as the count's lower bound, and names neither the repeated residues nor the count. An SPDI read by
-`from_spdi` is held to the same line: a deletion length, or a range, past what an index can hold is a `ValidationError`,
-where it was read as an insertion.
+it was taken as the count's lower bound, and names neither the repeated residues nor the count. An SPDI or VRS location
+is held to the same line: a deletion length or a range past what an index can hold, a position past the end of its
+sequence, and a VRS bound that names no g. position (an end at interbase 0) are each a `ValidationError`.
 
 **Example:**
 
@@ -1397,7 +1397,10 @@ NP_W.1:p.(Gln18)5[(6_7)]                     →  ParseError    was read as p.(G
   `::a_frameshift_count_past_u32_is_a_parse_error`, `::an_extension_count_past_u32_is_a_parse_error`,
   `::a_protein_repeat_with_a_number_before_its_count_is_a_parse_error`;
   `vrs_round_trip_test::an_spdi_deletion_length_past_usize`, `::an_spdi_deletion_length_running_past_usize`,
-  `::an_spdi_deletion_running_past_usize`.
+  `::an_spdi_deletion_running_past_usize`, `::an_spdi_insertion_past_the_sequence`, `::an_spdi_insertion_past_i32`,
+  `::an_spdi_insertion_past_u32`, `::an_spdi_insertion_at_the_last_index`,
+  `::an_spdi_deletion_length_past_the_sequence`, `::a_vrs_deletion_ending_at_interbase_zero_is_refused`,
+  `::a_vrs_deletion_whose_end_range_starts_at_interbase_zero_is_refused`.
 
 ## The data contract
 
