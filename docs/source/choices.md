@@ -843,8 +843,7 @@ NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
   `statements_test::a_start_loss_is_the_parsed_unknown_change_from_met1`,
   `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`,
   `::an_unknown_change_from_an_uncertain_residue_does_not_parse`,
-  `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`,
-  `::a_start_loss_matches_an_unknown_residue_in_place_of_met1`.
+  `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`.
 
 ### Judging with no protein sequence is an error
 
