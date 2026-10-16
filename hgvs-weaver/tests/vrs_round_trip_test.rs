@@ -201,6 +201,26 @@ fn alleles_from_other_producers_parse() {
     );
 }
 
+/// One test per case: the SPDI `$spdi` names a range no sequence can hold
+/// and is refused, rather than read as a different allele or overflowing.
+macro_rules! an_spdi_past_any_sequence_is_refused {
+    ($($name:ident: $spdi:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            let hdp = provider();
+            let mapper = VariantMapper::with_refget(&hdp, &hdp);
+            let result = mapper.from_spdi($spdi);
+            assert!(matches!(result, Err(HgvsError::ValidationError(_))), "{result:?}");
+        }
+    )*};
+}
+
+an_spdi_past_any_sequence_is_refused! {
+    an_spdi_deletion_length_past_usize: "NC_TEST.1:6:99999999999999999999999:C";
+    an_spdi_deletion_length_running_past_usize: "NC_TEST.1:18446744073709551615:5:C";
+    an_spdi_deletion_running_past_usize: "NC_TEST.1:18446744073709551615:A:C";
+}
+
 #[test]
 fn an_insertion_before_the_first_base_reads_back_as_a_delins_of_that_base() {
     // HGVS has no insertion before base 1. An allele that puts T in front of

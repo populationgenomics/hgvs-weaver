@@ -1358,7 +1358,9 @@ integer weaver holds it in is a `ParseError` naming the number, not a value read
 Read as 0, an out-of-range count turned a repeat or an insertion into a different variant without a word; kept as text,
 a stop distance could not be compared or projected. No real sequence comes near these limits, so a number past them is a
 typo or a corrupted record, and the answer is an error. A number before a protein repeat's count is not in the grammar:
-it was taken as the count's lower bound, and names neither the repeated residues nor the count.
+it was taken as the count's lower bound, and names neither the repeated residues nor the count. An SPDI read by
+`from_spdi` is held to the same line: a deletion length, or a range, past what an index can hold is a `ValidationError`,
+where it was read as an insertion.
 
 **Example:**
 
@@ -1376,7 +1378,9 @@ NP_W.1:p.(Gln18)5[(6_7)]                     →  ParseError    was read as p.(G
   `::a_transcript_position_past_i32`, `::an_intronic_offset_past_i32`, `::a_repeat_count_past_i32`,
   `::a_repeat_range_end_past_i32`, `::an_inserted_length_past_usize`, `::a_copy_count_past_i32`,
   `::a_frameshift_count_past_u32_is_a_parse_error`, `::an_extension_count_past_u32_is_a_parse_error`,
-  `::a_protein_repeat_with_a_number_before_its_count_is_a_parse_error`.
+  `::a_protein_repeat_with_a_number_before_its_count_is_a_parse_error`;
+  `vrs_round_trip_test::an_spdi_deletion_length_past_usize`, `::an_spdi_deletion_length_running_past_usize`,
+  `::an_spdi_deletion_running_past_usize`.
 
 ## The data contract
 

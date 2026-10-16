@@ -2419,19 +2419,20 @@ impl<'a> VariantMapper<'a> {
             HgvsError::ValidationError(format!("SPDI position {pos:?} is not a number"))
         })?;
         let kind = self.sequence_kind(ac)?;
+        let past_any_sequence =
+            || HgvsError::ValidationError(format!("SPDI {spdi:?} runs past any sequence"));
         let end = if !del.is_empty() && del.chars().all(|c| c.is_ascii_digit()) {
-            start + del.parse::<usize>().unwrap_or(0)
+            let length: usize = del.parse().map_err(|_| past_any_sequence())?;
+            start.checked_add(length).ok_or_else(past_any_sequence)?
         } else {
-            let actual = self
-                .refs
-                .reference(ac, kind)
-                .slice(start, start + del.len())?;
+            let end = start.checked_add(del.len()).ok_or_else(past_any_sequence)?;
+            let actual = self.refs.reference(ac, kind).slice(start, end)?;
             if actual != del {
                 return Err(HgvsError::ValidationError(format!(
                     "SPDI deletion {del:?} is not what {ac} holds at {start}: {actual:?}"
                 )));
             }
-            start + del.len()
+            end
         };
         self.allele_to_variant(ac, kind, start, end, ins.to_string())
     }
