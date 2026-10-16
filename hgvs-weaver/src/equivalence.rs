@@ -515,9 +515,15 @@ struct Outcome {
     anchored: bool,
 }
 
-/// Whether `var` is `r.(?)`.
+/// Whether `var` is `r.(?)`, alone or as the one member of a cis allele.
 fn follows_the_dna(var: &SequenceVariant) -> bool {
-    matches!(var, SequenceVariant::Rna(r) if r.follows_the_dna())
+    match var {
+        SequenceVariant::Rna(r) => r.follows_the_dna(),
+        SequenceVariant::CisPhased(cis) => {
+            matches!(cis.members.as_slice(), [m] if follows_the_dna(m))
+        }
+        _ => false,
+    }
 }
 
 /// The accession without its version: `NP_000050` of `NP_000050.3`.

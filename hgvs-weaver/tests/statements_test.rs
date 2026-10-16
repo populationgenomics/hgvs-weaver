@@ -307,6 +307,22 @@ fn predicted_r_unknown_is_not_the_unknown_effect() {
 }
 
 #[test]
+fn predicted_r_unknown_is_its_one_member_cis_allele() {
+    assert_eq!(
+        level("NM_W.1:r.[(?)]", "NM_W.1:r.(?)"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_one_member_cis_allele_of_predicted_r_unknown_is_not_the_unknown_effect() {
+    assert_eq!(
+        level("NM_W.1:r.[(?)]", "NM_W.1:r.?"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
 fn predicted_r_unknown_is_itself() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
