@@ -80,7 +80,6 @@ fn apply_hgvs_question(vp: &PVariant) -> PVariant {
                         start: AAPosition {
                             base: pos.start.base,
                             aa: "Met".to_string(),
-                            uncertain: false,
                         },
                         end: None,
                         uncertain: false,

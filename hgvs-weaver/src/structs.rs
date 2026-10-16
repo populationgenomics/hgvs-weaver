@@ -353,7 +353,7 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
 /// Refuses these shapes p. cannot write: a statement about the whole protein
 /// at a residue, and any statement but `p.(=)` predicted; the unknown change
 /// over a range or an uncertain interval; a change without a position, or
-/// with no edit; a residue numbered below 1, or uncertain itself; an
+/// with no edit; a residue numbered below 1; an
 /// uncertain posedit.
 fn check_p_posedit(
     posedit: PosEdit<AaInterval, StoredAaEdit>,
@@ -365,10 +365,7 @@ fn check_p_posedit(
         }
         (StoredAaEdit::Edit(edit), pos) => (pos, edit),
         (StoredAaEdit::SubstitutionToUnknown, Some(pos)) if pos.start.base.0 == 0 => {
-            let bare = pos.end.is_none()
-                && !pos.uncertain
-                && !pos.start.uncertain
-                && pos.start.aa.is_empty();
+            let bare = pos.end.is_none() && !pos.uncertain && pos.start.aa.is_empty();
             if !bare {
                 return Err(HgvsError::ValidationError(format!(
                     "p. cannot write a substitution to ? at residue 0 but p.0?, not {pos:?}"
@@ -394,7 +391,7 @@ fn check_p_posedit(
         uncertain: posedit.uncertain,
         predicted: posedit.predicted,
     };
-    let numbered = |p: &AAPosition| p.base.0 >= 1 && !p.uncertain;
+    let numbered = |p: &AAPosition| p.base.0 >= 1;
     let writable = !posedit.uncertain
         && match (&posedit.edit, &posedit.pos) {
             (AaEdit::Statement(ProteinStatement::Unchanged), None) => true,
@@ -850,10 +847,37 @@ impl AaInterval {
     }
 }
 
-/// A position in a protein sequence.
+/// A position in a protein sequence. An uncertain position is the
+/// interval's, `p.(Arg2_Gly5)`; a residue alone is never uncertain.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "AAPositionFields")]
 pub struct AAPosition {
     pub base: HgvsProteinPos,
     pub aa: String,
-    pub uncertain: bool,
+}
+
+/// The fields of a protein position as deserialised: older dicts carry an
+/// `uncertain` flag, which loads only when false.
+#[derive(Deserialize)]
+struct AAPositionFields {
+    base: HgvsProteinPos,
+    aa: String,
+    #[serde(default)]
+    uncertain: bool,
+}
+
+impl TryFrom<AAPositionFields> for AAPosition {
+    type Error = HgvsError;
+    fn try_from(fields: AAPositionFields) -> Result<Self, HgvsError> {
+        if fields.uncertain {
+            return Err(HgvsError::ValidationError(format!(
+                "p. cannot write an uncertain residue, ({}{})",
+                fields.aa, fields.base.0
+            )));
+        }
+        Ok(AAPosition {
+            base: fields.base,
+            aa: fields.aa,
+        })
+    }
 }

@@ -291,7 +291,6 @@ impl Writer<'_> {
         AAPosition {
             base: ProteinPos(i as i32).to_hgvs(),
             aa: aa1_to_aa3(self.ref_aa.get(i).copied().unwrap_or('*')).to_string(),
-            uncertain: false,
         }
     }
 
@@ -433,7 +432,6 @@ impl Writer<'_> {
                 start: AAPosition {
                     base: ProteinPos(i as i32).to_hgvs(),
                     aa: "Ter".to_string(),
-                    uncertain: false,
                 },
                 end: None,
                 uncertain: false,

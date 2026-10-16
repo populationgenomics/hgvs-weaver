@@ -270,19 +270,12 @@ impl fmt::Display for AaInterval {
 
 impl fmt::Display for AAPosition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.uncertain {
-            write!(f, "(")?;
-        }
         let aa_normalized = if self.aa.len() == 1 {
             aa1_to_aa3(self.aa.chars().next().unwrap())
         } else {
             &self.aa
         };
-        write!(f, "{}{}", aa_normalized, self.base.0)?;
-        if self.uncertain {
-            write!(f, ")")?;
-        }
-        Ok(())
+        write!(f, "{}{}", aa_normalized, self.base.0)
     }
 }
 

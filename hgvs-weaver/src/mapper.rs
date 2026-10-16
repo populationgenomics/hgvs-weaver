@@ -362,7 +362,6 @@ fn protein_variant(
         Ok(AAPosition {
             base: ProteinPos(i as i32).to_hgvs(),
             aa: seq1_to_aa3(&reference.slice(i, i + 1)?),
-            uncertain: false,
         })
     };
     let aa_edit = match edit {
@@ -482,7 +481,6 @@ fn statement_about_transcript(
             start: AAPosition {
                 base: ProteinPos(0).to_hgvs(),
                 aa: "Met".to_string(),
-                uncertain: false,
             },
             end: None,
             uncertain: false,

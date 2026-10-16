@@ -409,7 +409,6 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
     Ok(AAPosition {
         base: HgvsProteinPos(pos),
         aa,
-        uncertain: false,
     })
 }
 
