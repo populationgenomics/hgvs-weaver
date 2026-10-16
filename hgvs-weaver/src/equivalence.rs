@@ -462,8 +462,8 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     fn normalize_format(&self, s: &str) -> String {
-        // Strip parentheses and replace '?' with 'X' (unknown amino acid, analogous to Xaa)
-        let mut s = s.replace(['(', ')'], "").replace('?', "X");
+        // A ? is kept: p.Met1? is an unknown change from Met1, not p.Met1Xaa.
+        let mut s = s.replace(['(', ')'], "");
         // Normalize 3-letter AA codes to 1-letter
         let replacements = [
             ("Ala", "A"),
