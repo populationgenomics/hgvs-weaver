@@ -424,12 +424,12 @@ fn protein_variant(
 
 /// What a coding variant does to its protein.
 enum CodingOutcome {
-    /// A statement rather than a change: `p.?`, `p.Met1?`, `p.0?`.
+    /// A statement rather than a change: `p.?`, `p.(Met1?)`, `p.0?`, `p.(=)`.
     Statement(PVariant),
     Change(crate::protein::CodingChange),
 }
 
-/// `p.?`, `p.Met1?`, `p.0?` or `p.(=)` for an edit whose codons cannot be
+/// `p.?`, `p.(Met1?)`, `p.0?` or `p.(=)` for an edit whose codons cannot be
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
 /// upstream says nothing, since an upstream start may be created), or an
@@ -449,7 +449,11 @@ fn statement_about_transcript(
         posedit: PosEdit {
             // Bracketed as HGVS writes each prediction: `p.(=)` and `p.(Met1?)`,
             // but `p.?` and `p.0?` bare.
-            predicted: statement == ProteinStatement::Unchanged || pos.is_some(),
+            predicted: match statement {
+                ProteinStatement::Unchanged => true,
+                ProteinStatement::Unknown => pos.is_some(),
+                ProteinStatement::NoProtein { .. } => false,
+            },
             pos,
             edit: crate::edits::AaEdit::Statement(statement),
             uncertain: false,
@@ -1626,7 +1630,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// What a coding variant does to the protein: a statement (`p.?`,
-    /// `p.Met1?`, `p.0?`) when the edit lies outside or across the CDS
+    /// `p.(Met1?)`, `p.0?`, `p.(=)`) when the edit lies outside or across the CDS
     /// boundary, else the resolved change to describe or read.
     fn coding_outcome(
         &self,

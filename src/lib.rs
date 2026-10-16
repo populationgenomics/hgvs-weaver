@@ -687,7 +687,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.\n\nThe residues from the first change to the end of the protein become the\nresidues the edited transcript encodes, up to its new stop, then the allele\nis canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,\nextensions and stop losses. The predicted p. description is carried as an\nhgvs.p expression.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If the consequence is a statement (p.?, p.Met1?), or the translated CDS is not the protein the provider serves."]
+    #[doc = "Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.\n\nThe residues from the first change to the end of the protein become the\nresidues the edited transcript encodes, up to its new stop, then the allele\nis canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,\nextensions and stop losses. The predicted p. description is carried as an\nhgvs.p expression.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If the consequence is a statement (p.?, p.(Met1?)), or the translated CDS is not the protein the provider serves."]
     fn protein_vrs(
         &self,
         py: Python,

@@ -295,7 +295,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_c is not a coding variant.
-            HGVSError: If the consequence is a statement (p.?, p.Met1?), or the
+            HGVSError: If the consequence is a statement (p.?, p.(Met1?)), or the
                 translated CDS is not the protein the provider serves.
         """
     def protein_spdi(self, var_c: Variant, protein_ac: str | None = ...) -> str:
