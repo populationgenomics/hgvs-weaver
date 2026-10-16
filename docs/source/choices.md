@@ -1319,14 +1319,13 @@ NM_X.1:c.-5_10del          →  parses
 
 ### A number too large to hold is refused when parsed
 
-**A position, offset, repeat count, inserted length, copy count or stop distance too large for the integer weaver holds
-it in is a `ParseError` naming the number, not a value read as 0 or kept as text.**
+**A position, residue number, offset, repeat count, inserted length, copy count or stop distance too large for the
+integer weaver holds it in is a `ParseError` naming the number, not a value read as 0 or kept as text.**
 
 Read as 0, an out-of-range count turned a repeat or an insertion into a different variant without a word; kept as text,
 a stop distance could not be compared or projected. No real sequence comes near these limits, so a number past them is a
-typo or a corrupted record, and the answer is an error. For the same reason a number before a protein repeat's count,
-which the grammar reads but which is neither the repeated residues nor the count, is refused rather than taken as the
-count.
+typo or a corrupted record, and the answer is an error. A number before a protein repeat's count is not in the grammar:
+it was taken as the count's lower bound, and names neither the repeated residues nor the count.
 
 **Example:**
 
@@ -1340,10 +1339,10 @@ NP_W.1:p.(Gln18)5[(6_7)]                     →  ParseError    was read as p.(G
 
 - **Spec (silent):** HGVS sets no bound on a number.
 - *Not checked:* biocommons, VariantValidator and ClinVar.
-- **Tests:** `src/parser.rs::tests::a_genomic_position_past_i32`, `::a_transcript_position_past_i32`,
-  `::an_intronic_offset_past_i32`, `::a_repeat_count_past_i32`, `::a_repeat_range_end_past_i32`,
-  `::an_inserted_length_past_usize`, `::a_copy_count_past_i32`, `::a_frameshift_count_past_u32_is_a_parse_error`,
-  `::an_extension_count_past_u32_is_a_parse_error`,
+- **Tests:** `src/parser.rs::tests::a_genomic_position_past_i32`, `::a_residue_number_past_i32`,
+  `::a_transcript_position_past_i32`, `::an_intronic_offset_past_i32`, `::a_repeat_count_past_i32`,
+  `::a_repeat_range_end_past_i32`, `::an_inserted_length_past_usize`, `::a_copy_count_past_i32`,
+  `::a_frameshift_count_past_u32_is_a_parse_error`, `::an_extension_count_past_u32_is_a_parse_error`,
   `::a_protein_repeat_with_a_number_before_its_count_is_a_parse_error`.
 
 ## The data contract

@@ -707,12 +707,6 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
         Rule::pro_fs => pro_fs(edit)?,
         Rule::pro_ext => pro_ext(edit)?,
         Rule::pro_repeat => {
-            if edit.as_str().starts_with(|c: char| c.is_ascii_digit()) {
-                return Err(HgvsError::PestError(format!(
-                    "a protein repeat names no residues before its count: {}",
-                    edit.as_str()
-                )));
-            }
             let (ref_, min, max) = repeat_parts(edit, |r| r == Rule::aat13_seq)?;
             AaEdit::Repeat {
                 ref_,
@@ -920,6 +914,7 @@ mod tests {
 
     out_of_range_is_a_parse_error! {
         a_genomic_position_past_i32: "NC_W.1:g.99999999999A>G", "99999999999";
+        a_residue_number_past_i32: "NP_W.1:p.Arg99999999999Gly", "99999999999";
         a_transcript_position_past_i32: "NM_W.1:c.99999999999A>G", "99999999999";
         an_intronic_offset_past_i32: "NM_W.1:c.10+99999999999A>G", "99999999999";
         a_repeat_count_past_i32: "NM_W.1:c.10_12CAG[99999999999]", "99999999999";
