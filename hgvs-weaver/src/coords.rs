@@ -221,9 +221,22 @@ impl From<HgvsGenomicPos> for GenomicPos {
     }
 }
 
-/// 1-based HGVS transcript coordinate (c. or n.).
+/// 1-based HGVS transcript coordinate (c. or n.): negative before the
+/// anchor, positive from it, and never 0.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(try_from = "i32")]
 pub struct HgvsTranscriptPos(pub i32);
+
+impl TryFrom<i32> for HgvsTranscriptPos {
+    type Error = String;
+    fn try_from(n: i32) -> Result<Self, String> {
+        if n == 0 {
+            Err("a c., n. or r. position is never 0".into())
+        } else {
+            Ok(HgvsTranscriptPos(n))
+        }
+    }
+}
 impl HgvsTranscriptPos {
     /// Converts a 1-based HGVS transcript coordinate to a 0-based internal sequence index.
     /// Correctly handles the non-existent position 0 in HGVS cDNA coordinates.

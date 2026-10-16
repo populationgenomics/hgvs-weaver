@@ -338,13 +338,17 @@ pub fn parse_base_offset_pos_with_default(
         anchor = Anchor::CdsEnd;
     }
 
-    let mut hgvs_base = 0;
+    let text = pair.as_str();
+    let mut hgvs_base = None;
     let mut hgvs_offset: Option<IntronicOffset> = None;
 
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::num | Rule::base => {
-                hgvs_base = number(p.as_str())?;
+                hgvs_base = Some(
+                    HgvsTranscriptPos::try_from(number::<i32>(p.as_str())?)
+                        .map_err(HgvsError::PestError)?,
+                );
             }
             Rule::offset => {
                 let off_str = p.as_str();
@@ -357,7 +361,8 @@ pub fn parse_base_offset_pos_with_default(
     }
 
     Ok(BaseOffsetPosition {
-        base: HgvsTranscriptPos(hgvs_base),
+        base: hgvs_base
+            .ok_or_else(|| HgvsError::PestError(format!("position {text} has no base")))?,
         offset: hgvs_offset,
         anchor,
         uncertain: false,

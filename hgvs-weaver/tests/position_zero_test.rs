@@ -36,6 +36,20 @@ position_zero_is_a_parse_error! {
     a_genomic_range_from_zero: "NC_W.1:g.0_5del";
     an_uncertain_genomic_bound_at_zero: "NC_W.1:g.(0_5)_(10_12)del";
     a_mitochondrial_substitution_at_zero: "NC_W.1:m.0A>G";
+    a_coding_substitution_at_zero: "NM_W.1:c.0A>G";
+    a_coding_substitution_at_minus_zero: "NM_W.1:c.-0A>G";
+    a_coding_substitution_at_star_zero: "NM_W.1:c.*0A>G";
+    a_coding_range_to_zero: "NM_W.1:c.-5_0del";
+    a_non_coding_substitution_at_zero: "NR_W.1:n.0A>G";
+    an_rna_substitution_at_zero: "NM_W.1:r.0a>g";
+}
+
+#[test]
+fn a_dict_for_a_coding_position_of_zero_is_refused() {
+    let json = r#"{"variant_type": "Coding", "ac": "NM_W.1", "gene": null, "posedit": {"pos": {"start":
+        {"base": 0, "offset": null, "anchor": "CdsStart", "uncertain": false}, "end": null, "uncertain": false},
+        "edit": {"type": "Del", "ref_": null, "uncertain": false}, "uncertain": false, "predicted": false}}"#;
+    assert!(from_json(json).is_err(), "{json}");
 }
 
 #[test]

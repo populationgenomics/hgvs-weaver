@@ -1320,27 +1320,33 @@ NM_X.1:c.-5_10del          →  parses
 
 ### Positions number from 1, and an unknown one is not 0
 
-**`g.0` and `m.0` are a `ParseError`: a genomic or mitochondrial sequence numbers its bases from 1. A position that is
-not known, `?`, is held as unknown, never as a number.**
+**`g.0`, `m.0`, `n.0`, `r.0`, `c.0`, `c.-0` and `c.*0` are a `ParseError`: a sequence numbers its bases from 1, and a
+coding sequence runs `c.-1` to `c.1`, with `c.*1` the first base after the stop. A g. or m. position that is not known,
+`?`, is held as unknown, never as a number.**
 
 Were `?` held as position 0, a written 0 would read as `?`, and `g.0A>G` would be a substitution somewhere unknown
-rather than an error. A dict gives an unknown position as `"?"` and a known one as its number; a dict with position 0 is
-refused like the text.
+rather than an error; a transcript position 0 has no base to convert to, and lands on a neighbour's. A dict gives an
+unknown g. or m. position as `"?"` and a known one as its number; a dict with position 0 is refused like the text.
 
 **Example:**
 
 ```text
 NC_W.1:g.0A>G               →  ParseError
 NC_W.1:g.0_5del             →  ParseError
+NM_W.1:c.-0A>G              →  ParseError
+NM_W.1:c.*0A>G              →  ParseError
 NC_W.1:g.(?_5)_(10_?)del    →  NC_W.1:g.(?_5)_(10_?)del
 ```
 
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "numbering is `g.1`,
-  `g.2`, `g.3`, ..., etc., from the first to the last nucleotide", and the same for `m.`.
+  `g.2`, `g.3`, ..., etc., from the first to the last nucleotide", the same for `m.` and `n.`, and "there is no
+  nucleotide `c.0`".
 - *Not checked:* biocommons, VariantValidator and ClinVar.
 - **Tests:** `position_zero_test::a_genomic_substitution_at_zero`, `::a_genomic_range_from_zero`,
-  `::an_uncertain_genomic_bound_at_zero`, `::a_mitochondrial_substitution_at_zero`,
-  `::an_unknown_genomic_bound_reparses_to_itself`,
+  `::an_uncertain_genomic_bound_at_zero`, `::a_mitochondrial_substitution_at_zero`, `::a_coding_substitution_at_zero`,
+  `::a_coding_substitution_at_minus_zero`, `::a_coding_substitution_at_star_zero`, `::a_coding_range_to_zero`,
+  `::a_non_coding_substitution_at_zero`, `::an_rna_substitution_at_zero`,
+  `::a_dict_for_a_coding_position_of_zero_is_refused`, `::an_unknown_genomic_bound_reparses_to_itself`,
   `::a_dict_for_an_unknown_genomic_bound_names_it_with_a_question_mark`,
   `::a_dict_for_a_genomic_position_of_zero_is_refused`.
 
