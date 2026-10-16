@@ -87,7 +87,8 @@ read against the reference protein:
   change starts, and match an outcome whose change starts at that residue.
 
 Parentheses that mark a prediction are spelling. Those of `r.(?)` mark no prediction but a statement of its own: the RNA
-follows the DNA change it accompanies, which is not `r.?`'s effect of unknown kind, so it is the same only as itself.
+follows the DNA change it accompanies, which is not `r.?`'s effect of unknown kind, so it is the same only as itself,
+also inside a cis allele.
 
 Judging needs the protein sequence. With no sequence to read the description against the result is an error (`Unknown`
 in the harness), not a guess from the residues the descriptions happen to name.

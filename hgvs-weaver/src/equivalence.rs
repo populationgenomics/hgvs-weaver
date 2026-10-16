@@ -103,10 +103,8 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<EquivalenceLevel, HgvsError> {
         // The text comparison drops parentheses, and those of r.(?) are part
         // of what it states.
-        if let (Some(a), Some(b)) = (rna_statement(var1), rna_statement(var2)) {
-            if a != b {
-                return Ok(EquivalenceLevel::Different);
-            }
+        if rna_statements(var1) != rna_statements(var2) {
+            return Ok(EquivalenceLevel::Different);
         }
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
@@ -519,19 +517,16 @@ struct Outcome {
     anchored: bool,
 }
 
-/// What `var` states about the whole RNA (`r.0`, `r.(?)`), alone or as the
-/// one member of a cis allele; `None` when it is no such statement.
-fn rna_statement(var: &SequenceVariant) -> Option<RnaStatement> {
+/// What `var` states about the whole RNA (`r.0`, `r.(?)`), itself or through
+/// the members of a cis allele, in the order written.
+fn rna_statements(var: &SequenceVariant) -> Vec<RnaStatement> {
     match var {
         SequenceVariant::Rna(r) => match r.posedit.edit {
-            NaEdit::Statement(statement) => Some(statement),
-            _ => None,
+            NaEdit::Statement(statement) => vec![statement],
+            _ => vec![],
         },
-        SequenceVariant::CisPhased(cis) => match cis.members.as_slice() {
-            [m] => rna_statement(m),
-            _ => None,
-        },
-        _ => None,
+        SequenceVariant::CisPhased(cis) => cis.members.iter().flat_map(rna_statements).collect(),
+        _ => vec![],
     }
 }
 

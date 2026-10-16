@@ -324,6 +324,14 @@ fn one_member_cis_alleles_of_r_follows_the_dna_and_the_unknown_effect_differ() {
 }
 
 #[test]
+fn a_cis_allele_holding_r_follows_the_dna_is_not_one_holding_the_unknown_effect() {
+    assert_eq!(
+        level("NM_W.1:r.[(?);10c>g]", "NM_W.1:r.[?;10c>g]"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
 fn r_follows_the_dna_is_itself() {
     assert_eq!(
         level("NM_W.1:r.(?)", "NM_W.1:r.(?)"),

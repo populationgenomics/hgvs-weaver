@@ -320,8 +320,8 @@ mark a prediction. The uncertain page reads it as "RNA was not analysed but … 
 other than those simply derived from the change on the DNA level", and the deletion page pairs it with that change's own
 consequence, `c.1521_1523del r.(?) p.(Phe508del)`. It says the RNA follows a DNA change it does not carry, so weaver
 gives it no protein consequence (`r_to_p` is an `UnsupportedOperation`, where `r.?` gives `p.?`), and in equivalence it
-is the same as itself and different from `r.?`. No statement about the RNA is predicted, so a dict that marks `r.?`
-predicted is refused rather than read as `r.(?)`.
+is the same as itself and different from `r.?`, alone or among the members of a cis allele. No statement about the RNA
+is predicted, so a dict that marks `r.?` predicted is refused rather than read as `r.(?)`.
 
 **Example:**
 
@@ -351,7 +351,10 @@ NM_W.1:r.(?)  vs  NM_W.1:r.?                                    Different
   `::statements_about_the_transcript_round_trip`, `::r_predicts_the_protein_like_c`,
   `::r_normalises_validates_and_has_alleles_like_c`,
   `::an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself`;
-  `rna_is_the_transcript_in_other_letters` (property); `statements_test::r_follows_the_dna_prints_back_as_parsed`,
+  `rna_is_the_transcript_in_other_letters` (property); `statements_test::r_follows_the_dna_is_its_own_statement`,
+  `::r_follows_the_dna_prints_back_as_parsed`, `::r_follows_the_dna_survives_json`,
+  `::a_one_member_cis_allele_of_r_follows_the_dna_is_not_the_unknown_effect`,
+  `::a_cis_allele_holding_r_follows_the_dna_is_not_one_holding_the_unknown_effect`,
   `::r_follows_the_dna_has_no_protein_consequence_of_its_own`, `::r_follows_the_dna_is_not_the_unknown_effect`,
   `::one_member_cis_alleles_of_r_follows_the_dna_and_the_unknown_effect_differ`, `::r_follows_the_dna_is_itself`,
   `::r_follows_the_dna_is_its_one_member_cis_allele`, `::a_dict_for_r_follows_the_dna_names_its_statement`,
@@ -1235,7 +1238,7 @@ NM_R.1:r.*5u>a
 - **Tests:** `cis_phased_test::cis_alleles_parse_and_print_back_in_every_coordinate_system`;
   `rna_test::predicted_changes_keep_their_parentheses`, `::statements_about_the_transcript_round_trip`;
   `spec_summary_test::test_uncertain_intervals`, `::test_spec_summary_variants`;
-  `statements_test::predicted_p_unknown_prints_back_as_parsed`;
+  `statements_test::predicted_p_unknown_prints_back_as_parsed`, `::r_follows_the_dna_prints_back_as_parsed`;
   `vrs_length_test::the_older_spelling_gives_the_same_allele`, `::an_uncertain_length_is_a_range`.
 
 ### Recommended spellings on output
