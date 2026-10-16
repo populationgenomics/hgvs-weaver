@@ -258,6 +258,20 @@ impl<'a> VariantEquivalence<'a> {
                 if matches!(c.posedit.edit, crate::edits::NaEdit::WholeIdentity) {
                     continue;
                 }
+                // `p.Met1?` predicts no residues, only where the change starts.
+                if let Ok(statement) = self.mapper.c_to_p(c, Some(&vp.ac)) {
+                    if statement.posedit.pos.is_some()
+                        && matches!(statement.posedit.edit, crate::edits::AaEdit::Statement(_))
+                    {
+                        if same_protein(
+                            self.protein_outcome_on(&statement, &vp.ac)?,
+                            outcome.clone(),
+                        ) {
+                            analogous = true;
+                        }
+                        continue;
+                    }
+                }
                 let predicted = self
                     .mapper
                     .predicted_protein(c, Some(&vp.ac))?

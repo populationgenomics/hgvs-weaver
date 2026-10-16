@@ -331,6 +331,16 @@ fn an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there(
 }
 
 #[test]
+fn a_start_loss_matches_an_unknown_residue_in_place_of_met1() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NM_W.1:c.-3_4del"), &parse("NP_W.1:p.Met1Xaa"))
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Analogous);
+}
+
+#[test]
 fn a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it() {
     let p = c_to_p("NM_W.1:c.*5T>A");
     assert_eq!(p.to_string(), "NP_W.1:p.(=)");
