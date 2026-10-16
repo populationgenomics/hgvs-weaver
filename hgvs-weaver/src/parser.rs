@@ -575,15 +575,15 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
     })
 }
 
-/// The parts of `fs...` or `ext...`: the terminator or residue named, and the
-/// count or offset, wherever the grammar nests them.
-fn fs_ext_parts(pair: Pair<Rule>) -> (Option<String>, Option<String>) {
+/// The parts of `fs...`: the terminator named, and the count, wherever the
+/// grammar nests them.
+fn fs_parts(pair: Pair<Rule>) -> (Option<String>, Option<String>) {
     let mut named = None;
     let mut count = None;
     for p in pair.into_inner().flatten() {
         match p.as_rule() {
-            Rule::term13 | Rule::aa13 => named = Some(text(p)),
-            Rule::fsext_offset | Rule::snum => count = Some(text(p)),
+            Rule::term13 => named = Some(text(p)),
+            Rule::fsext_offset => count = Some(text(p)),
             _ => {}
         }
     }
@@ -598,7 +598,7 @@ fn pro_fs(pair: Pair<Rule>) -> AaEdit {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aat13 => alt = text(p),
-            Rule::fs => (term, length) = fs_ext_parts(p),
+            Rule::fs => (term, length) = fs_parts(p),
             _ => {}
         }
     }
@@ -611,24 +611,63 @@ fn pro_fs(pair: Pair<Rule>) -> AaEdit {
     }
 }
 
-/// `Ter#Xxxext*N`: the residue read through the stop, then the extension's
-/// terminator and distance (or a residue and signed offset).
-fn pro_ext(pair: Pair<Rule>) -> AaEdit {
+/// `Ter#Xxxext*N`, `Met1ext-5`: the residue that replaces the stop or start,
+/// then what follows `ext`.
+fn pro_ext(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
     let mut alt = String::new();
-    let mut aaterm = None;
-    let mut length = None;
+    let mut end = ExtensionEnd::Unstated;
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aat13 => alt = text(p),
-            Rule::ext => (aaterm, length) = fs_ext_parts(p),
+            Rule::ext => {
+                if let Some(tail) = p.into_inner().next() {
+                    end = extension_end(tail)?;
+                }
+            }
             _ => {}
         }
     }
-    AaEdit::Ext {
-        alt,
-        aaterm,
-        length,
+    Ok(AaEdit::Ext { alt, end })
+}
+
+/// `aa13_ext`: a stop and its distance, or an optional residue and a count,
+/// signed or not.
+fn extension_end(pair: Pair<Rule>) -> Result<ExtensionEnd, HgvsError> {
+    let count = |s: &str| {
+        s.parse::<u32>()
+            .map_err(|_| HgvsError::PestError(format!("extension count {s} is out of range")))
+    };
+    let mut residue = None;
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::aa13 => residue = Some(text(p)),
+            Rule::fsext_offset => {
+                let distance = match p.as_str() {
+                    "" => StopDistance::Unstated,
+                    "?" => StopDistance::Unknown,
+                    n => StopDistance::Residues { count: count(n)? },
+                };
+                return Ok(ExtensionEnd::Stop { distance });
+            }
+            Rule::snum => {
+                let n = p.as_str();
+                return Ok(match n.strip_prefix('-') {
+                    Some(n) => ExtensionEnd::Upstream {
+                        residue,
+                        distance: count(n)?,
+                    },
+                    None => ExtensionEnd::Count {
+                        residue,
+                        count: count(n.trim_start_matches('+'))?,
+                    },
+                });
+            }
+            _ => {}
+        }
     }
+    Err(HgvsError::PestError(
+        "an extension's end has neither a stop distance nor a count".into(),
+    ))
 }
 
 pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
@@ -662,7 +701,7 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
             uncertain,
         },
         Rule::pro_fs => pro_fs(edit),
-        Rule::pro_ext => pro_ext(edit),
+        Rule::pro_ext => pro_ext(edit)?,
         Rule::pro_repeat => {
             let (ref_, min, max) = repeat_parts(edit, |r| r == Rule::aat13_seq);
             AaEdit::Repeat {
@@ -839,18 +878,27 @@ mod tests {
         let v_p = parse_hgvs_variant("NP_001116078.1:p.Ter312Argext*5").unwrap();
         match v_p {
             crate::coords::SequenceVariant::Protein(v) => match v.posedit.edit {
-                crate::edits::AaEdit::Ext {
-                    alt,
-                    aaterm,
-                    length,
-                } => {
+                crate::edits::AaEdit::Ext { alt, end } => {
                     assert_eq!(alt, "Arg");
-                    assert_eq!(aaterm, Some("Ter".to_string()));
-                    assert_eq!(length, Some("5".to_string()));
+                    assert_eq!(
+                        end,
+                        crate::edits::ExtensionEnd::Stop {
+                            distance: crate::edits::StopDistance::Residues { count: 5 }
+                        }
+                    );
                 }
                 _ => panic!("Expected Extension edit"),
             },
             _ => panic!("Expected Protein variant"),
         }
+    }
+
+    #[test]
+    fn an_extension_count_past_u32_is_a_parse_error() {
+        let err = parse_hgvs_variant("NP_W.1:p.Ter30GlnextTer4294967296").unwrap_err();
+        assert!(
+            matches!(&err, crate::error::HgvsError::PestError(m) if m.contains("4294967296")),
+            "{err}"
+        );
     }
 }

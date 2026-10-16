@@ -3,7 +3,9 @@ pub use crate::coords::{
     ProteinPos, SequenceVariant, TranscriptPos,
 };
 pub use crate::data::{IdentifierKind, IdentifierType};
-pub use crate::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
+pub use crate::edits::{
+    AaEdit, ExtensionEnd, NaEdit, ProteinStatement, RnaStatement, StopDistance,
+};
 use crate::error::HgvsError;
 use serde::{Deserialize, Serialize};
 
@@ -364,11 +366,18 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
 /// Refuses these shapes p. cannot write: a statement about the whole protein
 /// at a residue, and any statement but `p.(=)` and `p.(?)` predicted; the unknown change
 /// over a range or an uncertain interval; a change without a position, or
-/// with no edit; a residue numbered below 1; an
-/// uncertain posedit.
+/// with no edit; a residue numbered below 1; an extension whose end names
+/// anything but an amino acid's code; an uncertain posedit.
 fn check_p_posedit(
     posedit: PosEdit<AaInterval, StoredAaEdit>,
 ) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
+    if let StoredAaEdit::Edit(AaEdit::Ext { end, .. }) = &posedit.edit {
+        if !end.names_a_residue_code() {
+            return Err(HgvsError::ValidationError(format!(
+                "p. cannot write an extension whose end is {end:?}"
+            )));
+        }
+    }
     let (pos, edit) = match (posedit.edit, posedit.pos) {
         // The shape older dicts give the p.(=) predicted past the stop.
         (StoredAaEdit::Edit(AaEdit::Identity { uncertain: false }), None) if posedit.predicted => {

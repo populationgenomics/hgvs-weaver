@@ -1,4 +1,4 @@
-use crate::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
+use crate::edits::{AaEdit, ExtensionEnd, NaEdit, ProteinStatement, RnaStatement, StopDistance};
 use crate::structs::*;
 use crate::utils::{residue_3, terminator_3};
 use std::fmt;
@@ -450,6 +450,31 @@ impl fmt::Display for ProteinStatement {
     }
 }
 
+impl fmt::Display for ExtensionEnd {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ExtensionEnd::Unstated => Ok(()),
+            ExtensionEnd::Stop { distance } => write!(f, "Ter{distance}"),
+            ExtensionEnd::Upstream { residue, distance } => {
+                write!(f, "{}-{distance}", residue.as_deref().unwrap_or(""))
+            }
+            ExtensionEnd::Count { residue, count } => {
+                write!(f, "{}{count}", residue.as_deref().unwrap_or(""))
+            }
+        }
+    }
+}
+
+impl fmt::Display for StopDistance {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StopDistance::Residues { count } => write!(f, "{count}"),
+            StopDistance::Unknown => write!(f, "?"),
+            StopDistance::Unstated => Ok(()),
+        }
+    }
+}
+
 impl fmt::Display for AaEdit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -505,21 +530,7 @@ impl fmt::Display for AaEdit {
                 }
                 Ok(())
             }
-            AaEdit::Ext {
-                alt,
-                length,
-                aaterm,
-                ..
-            } => {
-                write!(f, "{}ext", residue_3(alt))?;
-                if let Some(t) = aaterm {
-                    write!(f, "{}", terminator_3(t))?;
-                }
-                if let Some(l) = length {
-                    write!(f, "{}", l)?;
-                }
-                Ok(())
-            }
+            AaEdit::Ext { alt, end } => write!(f, "{}ext{end}", residue_3(alt)),
             AaEdit::Repeat { ref_, min, max, .. } => {
                 if let Some(r) = ref_ {
                     write!(f, "{}", r)?;

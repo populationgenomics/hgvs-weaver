@@ -90,6 +90,42 @@ reparses_to_itself! {
     an_n_terminal_extension_from_a_named_residue: "NP_W.1:p.M1extM-5";
 }
 
+reparses_to_itself! {
+    an_extension_with_nothing_after_ext: "NP_W.1:p.Ter30Glnext";
+    an_extension_to_a_stop_at_no_stated_distance: "NP_W.1:p.Ter30Glnext*";
+    an_extension_to_a_stop_at_an_unknown_distance: "NP_W.1:p.Ter30Glnext*?";
+    an_n_terminal_extension: "NP_W.1:p.Met1ext-5";
+    an_extension_by_a_bare_count: "NP_W.1:p.Ter30Glnext5";
+    an_extension_by_a_count_after_a_residue: "NP_W.1:p.Ter30GlnextLeu5";
+    an_extension_by_a_count_written_plus: "NP_W.1:p.Ter30Glnext+5";
+    an_extension_by_a_count_written_plus_after_x: "NP_W.1:p.Ter30GlnextX+5";
+    an_extension_count_with_leading_zeros: "NP_W.1:p.Ter30GlnextTer007";
+}
+
+#[test]
+fn an_extension_count_written_plus_is_the_bare_count() {
+    assert_eq!(
+        parse("NP_W.1:p.Ter30Glnext+5"),
+        parse("NP_W.1:p.Ter30Glnext5")
+    );
+}
+
+#[test]
+fn an_extension_count_with_leading_zeros_is_the_number() {
+    assert_eq!(
+        parse("NP_W.1:p.Ter30GlnextTer007"),
+        parse("NP_W.1:p.Ter30GlnextTer7")
+    );
+}
+
+#[test]
+fn an_extension_count_after_x_is_the_distance_to_a_stop() {
+    assert_eq!(
+        parse("NP_W.1:p.Ter30GlnextX+5"),
+        parse("NP_W.1:p.Ter30GlnextTer5")
+    );
+}
+
 #[test]
 fn an_extension_from_a_stop_written_x_is_the_one_written_ter() {
     assert_eq!(

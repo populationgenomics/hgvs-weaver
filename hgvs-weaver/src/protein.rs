@@ -9,7 +9,7 @@
 //! the stop codon, and the stop lands at its shifted index. Every other stop
 //! was created by the edit, so nothing has to guess from the edit's kind.
 
-use crate::edits::{AaEdit, ProteinStatement, ResolvedEdit};
+use crate::edits::{AaEdit, ExtensionEnd, ProteinStatement, ResolvedEdit, StopDistance};
 use crate::error::HgvsError;
 use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit, ProteinPos};
 use crate::utils::{aa1_to_aa3, translate};
@@ -457,7 +457,14 @@ impl Writer<'_> {
     /// next stop, or `?` if translation runs off the end.
     fn extension(&self, i: usize) -> Result<PVariant, HgvsError> {
         let alt_c = self.alt_aa.get(i).copied().unwrap_or('*');
-        let next_stop = self.alt_aa[i + 1..].iter().position(|&c| c == '*');
+        let distance = match self.alt_aa[i + 1..].iter().position(|&c| c == '*') {
+            Some(k) => StopDistance::Residues {
+                count: u32::try_from(k + 1).map_err(|_| {
+                    HgvsError::ValidationError(format!("a stop {} residues on", k + 1))
+                })?,
+            },
+            None => StopDistance::Unknown,
+        };
         self.variant(
             Some(AaInterval {
                 start: AAPosition {
@@ -469,8 +476,7 @@ impl Writer<'_> {
             }),
             AaEdit::Ext {
                 alt: aa1_to_aa3(alt_c).to_string(),
-                aaterm: Some("Ter".to_string()),
-                length: Some(next_stop.map_or("?".to_string(), |k| (k + 1).to_string())),
+                end: ExtensionEnd::Stop { distance },
             },
         )
     }

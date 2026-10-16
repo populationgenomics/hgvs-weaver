@@ -347,9 +347,9 @@ impl<'a> VariantEquivalence<'a> {
                 }
             }
             // `Ter#Xxxext*N`: the stop becomes Xxx, then N - 1 residues, then a stop.
-            AaEdit::Ext { alt, length, .. } => {
+            AaEdit::Ext { alt, end } => {
                 let mut alt = crate::utils::residues_1(alt)?;
-                match count(length) {
+                match end.residues_to_stop().map(|n| n as usize) {
                     Some(n) if n >= 1 => {
                         while alt.len() < n {
                             alt.push('X');

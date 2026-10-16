@@ -138,12 +138,9 @@ pub enum AaEdit {
         length: Option<String>,
         uncertain: bool,
     },
-    /// Extension of the protein (stop codon loss).
-    Ext {
-        alt: String,
-        aaterm: Option<String>,
-        length: Option<String>,
-    },
+    /// Extension of the protein: `alt` is the residue that replaces the
+    /// stop or the start (empty if unnamed), `end` what follows `ext`.
+    Ext { alt: String, end: ExtensionEnd },
     /// Repeat sequence.
     Repeat {
         ref_: Option<String>,
@@ -179,6 +176,93 @@ pub enum ProteinStatement {
     Unchanged,
 }
 
+/// What follows `ext` in an extension. Each variant is a form the grammar
+/// reads, and prints as one that parses back to it.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum ExtensionEnd {
+    /// `ext`: nothing.
+    Unstated,
+    /// `extTer17`, `extTer?`, `extTer`: the new stop downstream.
+    Stop { distance: StopDistance },
+    /// `ext-5`, `extMet-5`: a new initiation site `distance` residues
+    /// upstream, and the residue there, if named.
+    Upstream {
+        residue: Option<String>,
+        distance: u32,
+    },
+    /// `ext5`, `extMet5`: a count with no sign, after no residue or one that
+    /// is not a stop. The grammar reads it and HGVS does not write it; `ext+5`
+    /// is read as `ext5`, and a count after a stop is [`ExtensionEnd::Stop`].
+    Count { residue: Option<String>, count: u32 },
+}
+
+/// How far on a new stop is, counting the stop itself: `17`, `?`, or nothing.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum StopDistance {
+    Residues { count: u32 },
+    Unknown,
+    Unstated,
+}
+
+impl ExtensionEnd {
+    /// The end in the form it prints: a residue in three-letter code, and a
+    /// count after a stop the distance to that stop.
+    fn into_canonical(self) -> Self {
+        use crate::utils::{residue_3, terminator_3};
+        match self {
+            ExtensionEnd::Upstream { residue, distance } => ExtensionEnd::Upstream {
+                residue: residue.map(|r| residue_3(&r).to_string()),
+                distance,
+            },
+            ExtensionEnd::Count {
+                residue: Some(r),
+                count,
+            } if terminator_3(&r) == "Ter" => ExtensionEnd::Stop {
+                distance: StopDistance::Residues { count },
+            },
+            ExtensionEnd::Count { residue, count } => ExtensionEnd::Count {
+                residue: residue.map(|r| residue_3(&r).to_string()),
+                count,
+            },
+            other => other,
+        }
+    }
+
+    /// Whether the residue the end names, if it names one, is one the grammar
+    /// reads there: an amino acid's one-letter code in upper case, or its
+    /// three-letter code. Neither a stop nor an empty string is one.
+    pub(crate) fn names_a_residue_code(&self) -> bool {
+        const AA1: &str = "ACDEFGHIKLMNPQRSTVWYBZXU";
+        match self {
+            ExtensionEnd::Upstream {
+                residue: Some(r), ..
+            }
+            | ExtensionEnd::Count {
+                residue: Some(r), ..
+            } => {
+                (r.len() == 1 && AA1.contains(r.as_str()))
+                    || AA1.chars().any(|c| crate::utils::aa1_to_aa3(c) == r)
+            }
+            _ => true,
+        }
+    }
+
+    /// The number of residues to the new stop, counting the stop, where the
+    /// end gives one. A count with no sign, `ext5` or `extLeu5`, is read as
+    /// that distance.
+    pub fn residues_to_stop(&self) -> Option<u32> {
+        match self {
+            ExtensionEnd::Stop {
+                distance: StopDistance::Residues { count },
+            }
+            | ExtensionEnd::Count { count, .. } => Some(*count),
+            _ => None,
+        }
+    }
+}
+
 impl AaEdit {
     /// The edit with every residue the formatter rewrites in the form it
     /// prints, so that a one-letter description equals its printed form.
@@ -207,34 +291,12 @@ impl AaEdit {
                 length,
                 uncertain,
             },
-            AaEdit::Ext {
-                alt,
-                aaterm,
-                length,
-            } => {
-                // ext-5 names the new first residue; ext*5 the new stop.
-                let new_start = AaEdit::is_signed(length.as_deref());
-                AaEdit::Ext {
-                    alt: residue_3(&alt).to_string(),
-                    aaterm: aaterm.map(|t| {
-                        if new_start {
-                            residue_3(&t)
-                        } else {
-                            terminator_3(&t)
-                        }
-                        .to_string()
-                    }),
-                    length,
-                }
-            }
+            AaEdit::Ext { alt, end } => AaEdit::Ext {
+                alt: residue_3(&alt).to_string(),
+                end: end.into_canonical(),
+            },
             other => other,
         }
-    }
-
-    /// Whether an extension's count is a signed offset, `ext-5`: an
-    /// extension at the N-terminus, from a new start upstream.
-    pub(crate) fn is_signed(length: Option<&str>) -> bool {
-        length.is_some_and(|l| l.starts_with(['-', '+']))
     }
 
     /// The residue a description of this edit starts at, as the formatter
@@ -243,7 +305,7 @@ impl AaEdit {
     pub(crate) fn canonical_start(&self, aa: &str) -> String {
         use crate::utils::{residue_3, terminator_3};
         match self {
-            AaEdit::Ext { length, .. } if !AaEdit::is_signed(length.as_deref()) => {
+            AaEdit::Ext { end, .. } if !matches!(end, ExtensionEnd::Upstream { .. }) => {
                 terminator_3(aa).to_string()
             }
             _ => residue_3(aa).to_string(),

@@ -855,7 +855,18 @@ fn a_dict_in_one_letter_code_loads_as_its_printed_description() {
 fn a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter() {
     let json = p_json_at(
         r#"{"start": {"base": 30, "aa": "X"}, "end": null, "uncertain": false}"#,
-        r#"{"type": "Ext", "alt": "Q", "aaterm": "X", "length": "5"}"#,
+        r#"{"type": "Ext", "alt": "Q", "end": {"kind": "Stop", "distance": {"kind": "Residues", "count": 5}}}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Ter30GlnextTer5"));
+}
+
+#[test]
+fn a_dict_for_an_extension_by_a_count_after_x_loads_as_the_distance_to_a_stop() {
+    let json = p_json_at(
+        r#"{"start": {"base": 30, "aa": "Ter"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "alt": "Gln", "end": {"kind": "Count", "residue": "X", "count": 5}}"#,
         false,
         false,
     );
@@ -866,11 +877,69 @@ fn a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter() {
 fn a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue() {
     let json = p_json_at(
         r#"{"start": {"base": 1, "aa": "M"}, "end": null, "uncertain": false}"#,
-        r#"{"type": "Ext", "alt": "", "aaterm": "X", "length": "-5"}"#,
+        r#"{"type": "Ext", "alt": "", "end": {"kind": "Upstream", "residue": "X", "distance": 5}}"#,
         false,
         false,
     );
     assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Met1extXaa-5"));
+}
+
+#[test]
+fn a_dict_for_an_n_terminal_extension_to_a_stop_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "alt": "", "end": {"kind": "Upstream", "residue": "*", "distance": 5}}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_an_n_terminal_extension_naming_an_empty_residue_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "alt": "", "end": {"kind": "Upstream", "residue": "", "distance": 5}}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_an_n_terminal_extension_naming_a_letter_no_residue_has_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "alt": "", "end": {"kind": "Upstream", "residue": "J", "distance": 5}}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_an_extension_by_a_count_after_two_residues_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 30, "aa": "Ter"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "alt": "Gln", "end": {"kind": "Count", "residue": "LeuSer", "count": 5}}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_an_extension_with_its_end_as_text_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 30, "aa": "Ter"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "alt": "Gln", "aaterm": "Ter", "length": "5"}"#,
+        false,
+        false,
+    );
+    assert!(
+        from_json(&json).is_err_and(|e| e.to_string().contains("missing field `end`")),
+        "{json}"
+    );
 }
 
 // --- Older p. dicts give p.Met1? and p.0? as a substitution to ? ---
