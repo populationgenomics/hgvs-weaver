@@ -87,6 +87,16 @@ pub enum RnaStatement {
 }
 
 impl NaEdit {
+    /// Whether the edit leaves its bases as they are: `=`, with or without
+    /// the bases it names.
+    pub fn is_identity(&self) -> bool {
+        match self {
+            NaEdit::RefAlt { ref_, alt, .. } => ref_ == alt,
+            NaEdit::None => true,
+            _ => false,
+        }
+    }
+
     /// Whether the edit describes the transcript as a whole rather than a
     /// change at a position: `r.spl`, `r.=`, `c.=`.
     pub fn is_whole_transcript(&self) -> bool {

@@ -337,6 +337,36 @@ fn a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it() {
     assert_eq!(parse(&p.to_string()), p);
 }
 
+#[test]
+fn an_identity_across_the_whole_transcript_predicts_the_protein_unchanged() {
+    assert_eq!(c_to_p("NM_W.1:c.-5_*15="), parse("NP_W.1:p.(=)"));
+}
+
+#[test]
+fn an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged() {
+    assert_eq!(c_to_p("NM_W.1:c.-3_4="), parse("NP_W.1:p.(=)"));
+}
+
+#[test]
+fn an_identity_in_the_5_utr_predicts_the_protein_unchanged() {
+    assert_eq!(c_to_p("NM_W.1:c.-5_-1="), parse("NP_W.1:p.(=)"));
+}
+
+#[test]
+fn an_intronic_identity_predicts_the_protein_unchanged() {
+    assert_eq!(c_to_p("NM_W.1:c.45+1="), parse("NP_W.1:p.(=)"));
+}
+
+#[test]
+fn an_identity_across_the_start_codon_is_not_no_protein() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NM_W.1:c.-5_*15="), &parse("NP_W.1:p.0"))
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Different);
+}
+
 // --- JSON in the current shape ---
 
 survives_json! {

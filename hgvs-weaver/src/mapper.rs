@@ -433,8 +433,9 @@ enum CodingOutcome {
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
 /// upstream says nothing, since an upstream start may be created), or an
-/// edit entirely in the 3'UTR, which cannot change the protein. `None` when
-/// the edit is a change to read.
+/// edit entirely in the 3'UTR, which cannot change the protein. An identity
+/// there changes nothing, so it predicts `p.(=)` wherever it lies. `None`
+/// when the edit is a change to read.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
@@ -453,15 +454,21 @@ fn statement_about_transcript(
             predicted: statement == ProteinStatement::Unchanged,
         },
     };
-    if has_intronic_offset(pos) {
-        return Some(statement(None, ProteinStatement::Unknown));
-    }
     // A start after the stop codon is an edit entirely in the 3'UTR.
-    if pos.start.anchor == Anchor::CdsEnd {
+    let in_3_utr = pos.start.anchor == Anchor::CdsEnd;
+    let in_5_utr = pos.start.anchor == Anchor::CdsStart && pos.start.base.0 < 0;
+    let intronic = has_intronic_offset(pos);
+    if !(intronic || in_3_utr || in_5_utr) {
+        return None;
+    }
+    if var_c.posedit.edit.is_identity() {
         return Some(statement(None, ProteinStatement::Unchanged));
     }
-    if pos.start.anchor != Anchor::CdsStart || pos.start.base.0 >= 0 {
-        return None;
+    if intronic {
+        return Some(statement(None, ProteinStatement::Unknown));
+    }
+    if in_3_utr {
+        return Some(statement(None, ProteinStatement::Unchanged));
     }
     let cds_len = transcript
         .cds_start_index
