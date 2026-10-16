@@ -316,6 +316,47 @@ fn predicted_r_unknown_is_itself() {
     assert_eq!(level, EquivalenceLevel::Identity);
 }
 
+/// The level `a` and `b` are judged at over the provider.
+fn level(a: &str, b: &str) -> EquivalenceLevel {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse(a), &parse(b))
+        .unwrap()
+}
+
+#[test]
+fn an_unknown_change_from_a_residue_matches_a_change_starting_there() {
+    assert_eq!(
+        level("NP_W.1:p.Arg12?", "NP_W.1:p.Arg12Gly"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_unknown_change_from_a_residue_does_not_match_a_change_starting_after_it() {
+    assert_eq!(
+        level("NP_W.1:p.Arg12?", "NP_W.1:p.Arg13Gly"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_unknown_change_from_a_residue_matches_a_coding_change_predicted_there() {
+    assert_eq!(
+        level("NM_W.1:c.34C>G", "NP_W.1:p.Arg12?"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_predicted_unknown_change_from_a_residue_is_the_stated_one() {
+    assert_eq!(
+        level("NP_W.1:p.(Arg12?)", "NP_W.1:p.Arg12?"),
+        EquivalenceLevel::Identity
+    );
+}
+
 #[test]
 fn predicted_p_identity_prints_back_as_parsed() {
     assert_eq!(parse("NP_W.1:p.(=)").to_string(), "NP_W.1:p.(=)");
@@ -489,6 +530,8 @@ survives_json! {
     predicted_p_identity_survives_json: "NP_W.1:p.(=)";
     predicted_p_unknown_survives_json: "NP_W.1:p.(?)";
     predicted_r_unknown_survives_json: "NM_W.1:r.(?)";
+    an_unknown_change_from_a_residue_survives_json: "NP_W.1:p.Arg12?";
+    a_predicted_unknown_change_from_a_residue_survives_json: "NP_W.1:p.(Arg12?)";
 }
 
 #[test]

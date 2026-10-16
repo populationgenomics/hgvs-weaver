@@ -25,6 +25,8 @@ macro_rules! reparses_to_itself {
 reparses_to_itself! {
     a_frameshift_to_a_stop_at_an_unknown_distance: "NP_W.1:p.Arg97fsTer?";
     a_frameshift_to_a_stop_at_a_stated_distance: "NP_W.1:p.Arg97fsTer5";
+    an_unknown_change_from_a_residue_past_met1: "NP_W.1:p.Arg12?";
+    a_predicted_unknown_change_from_a_residue_past_met1: "NP_W.1:p.(Arg12?)";
 }
 
 reparses_to_itself! {
