@@ -709,3 +709,36 @@ fn an_older_dict_for_an_unknown_substitution_at_an_uncertain_residue_0_is_refuse
     );
     assert!(refused_by_p(&json), "{json}");
 }
+
+#[test]
+fn a_dict_for_an_unknown_change_from_an_uncertain_residue_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "Met", "uncertain": true}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Statement", "statement": "Unknown"}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn a_dict_for_a_change_at_an_uncertain_residue_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg", "uncertain": true}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "Gly", "uncertain": false}"#,
+        false,
+        true,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn an_older_dict_for_the_protein_unchanged_past_the_stop_loads_as_its_statement() {
+    let json = p_json_at(
+        "null",
+        r#"{"type": "Identity", "uncertain": false}"#,
+        false,
+        true,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(=)"));
+}

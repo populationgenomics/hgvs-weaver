@@ -349,14 +349,20 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
 
 /// The posedit of a p. variant, with a substitution to `?` read as the text
 /// it stands for: `p.0?` at residue 0, the unknown change from a residue
-/// anywhere else. Refuses what p. cannot write: a statement about the whole
-/// protein at a residue, and any statement but `p.(=)` predicted; the unknown
-/// change over a range or an uncertain residue; a change without a position,
-/// or with no edit; a residue numbered below 1; an uncertain posedit.
+/// anywhere else, and a predicted identity at no residue read as `p.(=)`.
+/// Refuses these shapes p. cannot write: a statement about the whole protein
+/// at a residue, and any statement but `p.(=)` predicted; the unknown change
+/// over a range or an uncertain interval; a change without a position, or
+/// with no edit; a residue numbered below 1, or uncertain itself; an
+/// uncertain posedit.
 fn check_p_posedit(
     posedit: PosEdit<AaInterval, StoredAaEdit>,
 ) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
     let (pos, edit) = match (posedit.edit, posedit.pos) {
+        // The shape older dicts give the p.(=) predicted past the stop.
+        (StoredAaEdit::Edit(AaEdit::Identity { uncertain: false }), None) if posedit.predicted => {
+            (None, AaEdit::Statement(ProteinStatement::Unchanged))
+        }
         (StoredAaEdit::Edit(edit), pos) => (pos, edit),
         (StoredAaEdit::SubstitutionToUnknown, Some(pos)) if pos.start.base.0 == 0 => {
             let bare = pos.end.is_none()
@@ -388,7 +394,7 @@ fn check_p_posedit(
         uncertain: posedit.uncertain,
         predicted: posedit.predicted,
     };
-    let numbered = |p: &AAPosition| p.base.0 >= 1;
+    let numbered = |p: &AAPosition| p.base.0 >= 1 && !p.uncertain;
     let writable = !posedit.uncertain
         && match (&posedit.edit, &posedit.pos) {
             (AaEdit::Statement(ProteinStatement::Unchanged), None) => true,
