@@ -639,8 +639,9 @@ rewrites it on request.
 
 `p.Met1?` read from text is the same statement weaver writes: an unknown change from `Met1` on, not a substitution of
 `Met1` by an unknown residue, which would be `p.Met1Xaa`, the commitment the nomenclature declines to make. The
-bracketed `p.(Met1?)` the nomenclature writes is the same statement as a prediction. So whatever weaver writes for a
-start codon, from `c_to_p` or from the transform, reads back as itself.
+bracketed `p.(Met1?)` the nomenclature writes is the same statement as a prediction. So the `p.Met1?` that `c_to_p` and
+the transform write reads back as the value they built. The statement names one residue, certain: `p.Met1_Arg3?` and
+`p.(Met1)?` do not parse.
 
 **Example:**
 
@@ -655,18 +656,18 @@ parse NP_W.1:p.Met1?      →  the unknown change from Met1 that c_to_p builds f
 parse NP_W.1:p.(Met1?)    →  the same, predicted
 ```
 
-- **Differs:** biocommons and VariantValidator write `p.Met1?`, as the nomenclature recommends. A recorded difference.
-  biocommons reads the `?` of `p.Met1?` as a substitution to an unknown residue (its grammar table); weaver reads it as
-  the statement.
+- **Differs:** biocommons and VariantValidator write `p.Met1?`, the nomenclature's `p.(Met1?)` without its parentheses.
+  A recorded difference. biocommons reads the `?` of `p.Met1?` as a substitution to an unknown residue (its grammar
+  table); weaver reads it as the statement.
 - **Spec (differs):**
-  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/): `p.Met1?` when
+  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/): `p.(Met1?)` when
   "the consequence, on the protein level, of a variant affecting the translation initiation codon can not be predicted".
 - **Tests:** `mapping_test::test_mapper_c_to_p_start_codon_subst`;
   `real_transcripts_test::biocommons_real_transcript_cases` (INITMET01, recorded);
   `src/transform.rs::test_transform_met1_to_question`;
   `statements_test::p_met1_unknown_parses_to_what_the_mapper_builds`,
-  `::the_mappers_unknown_change_from_met1_reparses_to_itself`,
   `::the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself`,
+  `::the_start_codon_transform_of_a_one_letter_description_reparses_to_itself`,
   `::a_predicted_unknown_change_from_met1_prints_back_as_parsed`.
 
 ### Edits outside the CDS are statements
@@ -824,8 +825,8 @@ change starts there.**
 
 It does not match ClinVar's `Met1fs`, a commitment weaver did not make. Two ClinVar rows judge Different for this
 reason, on purpose. A `?` after any other residue, `p.Arg12?`, is read the same way, as a change from that residue on of
-which nothing more is said; the nomenclature defines the form only at the start codon. It names one residue, so
-`p.Met1_Arg3?` does not parse.
+which nothing more is said; the nomenclature defines the form only at the start codon. `p.Met1?` and `p.Met1Xaa`, an
+unknown residue in place of Met1, are Analogous, not the same text.
 
 **Example:**
 
@@ -840,7 +841,9 @@ NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
   defines `p.?` and `p.Met1?` as statements of what is not known.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
   `statements_test::a_start_loss_is_the_parsed_unknown_change_from_met1`,
-  `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`.
+  `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`,
+  `::an_unknown_change_from_an_uncertain_residue_does_not_parse`,
+  `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`.
 
 ### Judging with no protein sequence is an error
 

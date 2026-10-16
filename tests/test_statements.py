@@ -55,7 +55,7 @@ def test_a_dict_in_the_special_shape_still_loads(
     assert str(loaded) == expected
 
 
-def test_a_dict_for_no_protein_at_a_residue_is_refused() -> None:
+def test_a_dict_p_cannot_write_is_refused_as_a_value_error() -> None:
     d = {
         "variant_type": "Protein",
         "ac": "NP_W.1",

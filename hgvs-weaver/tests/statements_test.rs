@@ -7,6 +7,7 @@ mod support;
 use hgvs_weaver::data::Strand;
 use hgvs_weaver::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
+use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::{
     parse_hgvs_variant, transform_variant, SequenceVariant, StartCodonConvention,
@@ -61,6 +62,11 @@ fn r_to_p(s: &str) -> SequenceVariant {
     let hdp = provider();
     let p = VariantMapper::new(&hdp).r_to_p(&r, None).unwrap();
     SequenceVariant::Protein(p)
+}
+
+/// Whether `s` fails to parse, rather than parsing and failing later.
+fn is_parse_error(s: &str) -> bool {
+    matches!(parse_hgvs_variant(s), Err(HgvsError::PestError(_)))
 }
 
 fn na_edit(v: &SequenceVariant) -> &NaEdit {
@@ -161,17 +167,22 @@ fn p_met1_unknown_parses_to_what_the_mapper_builds() {
 
 #[test]
 fn an_unknown_change_over_a_range_does_not_parse() {
-    assert!(parse_hgvs_variant("NP_W.1:p.Met1_Arg3?").is_err());
+    assert!(is_parse_error("NP_W.1:p.Met1_Arg3?"));
+}
+
+#[test]
+fn an_unknown_change_from_an_uncertain_residue_does_not_parse() {
+    assert!(is_parse_error("NP_W.1:p.(Met1)?"));
 }
 
 #[test]
 fn a_predicted_probably_no_protein_does_not_parse() {
-    assert!(parse_hgvs_variant("NP_W.1:p.(0?)").is_err());
+    assert!(is_parse_error("NP_W.1:p.(0?)"));
 }
 
 #[test]
 fn a_residue_numbered_0_does_not_parse() {
-    assert!(parse_hgvs_variant("NP_W.1:p.Met0Val").is_err());
+    assert!(is_parse_error("NP_W.1:p.Met0Val"));
 }
 
 #[test]
@@ -266,12 +277,6 @@ fn the_mappers_no_protein_reparses_to_itself() {
 #[test]
 fn the_mappers_unknown_effect_reparses_to_itself() {
     let p = c_to_p("NM_W.1:c.45+1G>A");
-    assert_eq!(parse(&p.to_string()), p);
-}
-
-#[test]
-fn the_mappers_unknown_change_from_met1_reparses_to_itself() {
-    let p = c_to_p("NM_W.1:c.-3_4del");
     assert_eq!(parse(&p.to_string()), p);
 }
 
@@ -524,7 +529,7 @@ fn a_dict_for_an_unknown_change_over_a_range_is_refused() {
 
 #[test]
 fn a_predicted_no_protein_does_not_parse() {
-    assert!(parse_hgvs_variant("NP_W.1:p.(0)").is_err());
+    assert!(is_parse_error("NP_W.1:p.(0)"));
 }
 
 #[test]
