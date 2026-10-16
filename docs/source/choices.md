@@ -35,6 +35,7 @@ Representation Specification 2.0.1.
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |   agrees    |        –         |       differs        |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          |   agrees    |     differs      |          –           |        –         |
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |   agrees    |      agrees      |        agrees        |      agrees      |
+| [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |   agrees    |     differs      |          –           |      agrees      |
 | [A delins is not shifted](#a-delins-is-not-shifted)                                                                                 |      –      |      agrees      |          –           |        –         |
 | [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |   agrees    |     differs      |        agrees        |        –         |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |   agrees    |        –         |          –           |      agrees      |
@@ -448,7 +449,8 @@ NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
 ### Shift 3', cyclically over repeats
 
 **A deletion, duplication or insertion is shifted as far 3' as the reference keeps matching it cyclically, on the strand
-of the sequence the variant is written on.**
+of the sequence the variant is written on.** On a transcript the shift stays within one exon
+([below](#a-shift-stops-at-an-exonexon-junction)).
 
 An insertion that repeats the bases immediately before it becomes a duplication, and an insertion that slides has its
 bases rotated by how far it moved.
@@ -474,6 +476,89 @@ on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base
   `::shift_5_mirrors_shift_3` (the last two rows above, read from the 0-based ranges those tests assert);
   `transcript_coordinates_test::normalize_converts_genomic_and_noncoding_insertions_to_duplications`;
   `normalising_preserves_the_edited_sequence` and `ambiguous_range_is_sound_and_complete` (properties).
+
+### A shift stops at an exon/exon junction
+
+**On a transcript, a deletion, duplication or insertion shifts 3' only as far as the last base of the exon it is written
+in. No end of it moves into another exon.**
+
+A `c.`, `n.` or `r.` variant is normalised on the transcript's own sequence, which is spliced: the last base of one exon
+and the first base of the next are neighbours there, but an intron separates them on the genome. Where the bases either
+side of a junction are the same, the transcript cannot tell `c.4del` from `c.6del`, yet on the genome they delete
+different bases, one in each exon. Shifting across the junction would rewrite the variant as another change.
+
+The rule reaches every kind of edit that slides:
+
+- An insertion does not slide onto the junction. Between the two exons, `c.5_6ins` names no single place on the genome:
+  the end of one exon or the start of the next. An insertion written there is left as written.
+- An insertion that repeats the bases before it becomes a duplication only when those bases lie in one exon. A
+  duplication of bases from two exons would duplicate the intron with them.
+- A deletion or duplication that already spans a junction may shift while each end stays in its exon. Each spelling
+  covers the whole intron on the genome, and two spellings one base apart differ only in their first and last bases,
+  which are the same base, so on the genome they are one change.
+- The transcript's last base is the same kind of edge: an insertion does not slide past it.
+
+A shift still crosses the start or the end of the CDS. HGVS gives no exception there, and within one exon the genome
+change is the same either side.
+
+An exon aligned to the genome with gaps ([above](#gapped-exons-are-projected-locally)) is one stretch to the shift,
+which can therefore still cross a gap in its alignment, as it can cross a base where the record and the genome differ.
+
+On the ClinVar sample, the descriptions this decides are `NM_000069.3:c.5042_5048delTTTCCAG` and
+`NM_001354663.2:c.2449delA`. Each ends on the last base of an exon, the base across the junction repeats the deletion's
+first base, and each normalises to itself, with the SPDI ClinVar gives; shifted into the next exon, the first would
+delete the intron with it and the second would land 25 kb from ClinVar's position.
+
+**Example** (exon 1 of `NM_J.1` ends at c.5; c.4, c.5 and c.6 are all A, c.3 and c.7 both G; c.5 is g.20 and c.6 is
+g.31):
+
+```text
+NM_J.1:c.4del         →  NM_J.1:c.5del          g.20del, as c.4del is; c.6del would be g.31del
+NM_J.1:c.4dup         →  NM_J.1:c.5dup
+NM_J.1:c.3_4insA      →  NM_J.1:c.5dup          slides to the junction and duplicates the base before it
+NM_J.1:c.4_5insAC     →  NM_J.1:c.4_5insAC      not c.5_6insCA, on the junction
+NM_J.1:c.5_6insAA     →  NM_J.1:c.5_6insAA      written on the junction, so left as written
+NM_J.1:c.6_7insAAA    →  NM_J.1:c.6_7insAAA     not c.4_6dup, across two exons
+NM_J.1:c.3_6del       →  NM_J.1:c.4_7del        spans the junction; each end stays in its exon
+NM_J.1:r.4del         →  NM_J.1:r.5del          r. and n. alike
+NM_JM.1:c.4del        →  NM_JM.1:c.5del         the minus strand alike
+```
+
+- **Agrees:** biocommons, run with its default of not crossing boundaries, on the deletion, the duplication, the
+  insertion that becomes a duplication, `r.`, and both strands; ClinVar, on the two rows above.
+- **Differs:** biocommons slides `c.4_5insAC` onto the junction as `c.5_6insCA`; refuses `c.5_6insAA` and `c.3_6del` as
+  spanning an exon boundary; and also stops a shift at the CDS start and end. VariantValidator not checked.
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "the 3' rule is not
+  applied when there is a deletion/duplication around exon/exon junctions with identical nucleotides flanking the
+  junction, where shifting the variant 3' would place it in the next exon". The
+  [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/) page's example is
+  `LRG_199t1:c.3921del`, "not described as c.3922del since this would shift the position of the variant to the next
+  exon", and the [duplication](https://hgvs-nomenclature.org/stable/recommendations/DNA/duplication/) page's is
+  `NC_000023.11(NM_004006.2):c.3921dup`, not `c.3922dup`. The specification names deletions and duplications only;
+  holding insertions to the same line is weaver's reading of its reason. It gives no exception at the CDS bounds.
+- **Tests:** `exon_junction_test::a_deletion_shifts_to_the_last_base_of_its_exon_and_no_further`,
+  `::a_deletion_normalised_short_of_the_junction_projects_where_it_was_written`,
+  `::a_duplication_shifts_to_the_last_base_of_its_exon_and_no_further`,
+  `::an_insertion_that_slides_to_the_junction_duplicates_the_last_base_of_its_exon`,
+  `::an_insertion_does_not_slide_onto_the_junction`, `::an_insertion_written_on_the_junction_is_left_as_written`,
+  `::an_insertion_is_not_rewritten_as_a_duplication_across_the_junction`,
+  `::a_deletion_spanning_the_junction_shifts_while_each_end_stays_in_its_exon`,
+  `::a_deletion_spanning_the_junction_shifts_no_further_than_its_start_can_stay_in_its_exon`,
+  `::a_duplication_spanning_the_junction_shifts_while_each_end_stays_in_its_exon`,
+  `::a_deletion_beside_the_junction_does_not_shift_to_span_it`,
+  `::an_insertion_does_not_slide_past_the_last_base_of_the_transcript`,
+  `::a_shift_crosses_the_cds_start_within_one_exon`, `::a_shift_crosses_the_cds_end_within_one_exon`,
+  `::a_non_coding_deletion_stops_at_the_junction`,
+  `::a_non_coding_insertion_that_slides_to_the_junction_duplicates_the_last_base_of_its_exon`,
+  `::an_rna_deletion_stops_at_the_junction`,
+  `::an_rna_insertion_that_slides_to_the_junction_duplicates_the_last_base_of_its_exon`,
+  `::on_the_minus_strand_a_deletion_stops_at_the_junction`,
+  `::on_the_minus_strand_a_deletion_normalised_short_of_the_junction_projects_where_it_was_written`,
+  `::on_the_minus_strand_a_duplication_stops_at_the_junction`,
+  `::on_the_minus_strand_an_insertion_that_slides_to_the_junction_duplicates_the_last_base_of_its_exon`,
+  `::on_the_minus_strand_an_insertion_does_not_slide_onto_the_junction`;
+  `normalising_on_the_transcript_keeps_the_genomic_allele` and `normalising_beside_a_junction_keeps_the_genomic_allele`
+  (properties).
 
 ### A delins is not shifted
 

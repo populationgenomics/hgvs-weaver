@@ -8,7 +8,7 @@ mod support;
 
 use hgvs_weaver::coords::HgvsGenomicPos;
 use hgvs_weaver::data::IdentifierType;
-use hgvs_weaver::normalize::{ambiguous_range, normalize, PlacedEdit};
+use hgvs_weaver::normalize::{ambiguous_range, normalize, ExonBounds, PlacedEdit};
 use hgvs_weaver::reference::ReferenceStore;
 use hgvs_weaver::structs::{GVariant, LinearVariant, SimpleInterval, SimplePosition};
 use proptest::prelude::*;
@@ -29,11 +29,11 @@ proptest! {
         let r = store.reference("X", G);
 
         let before = PlacedEdit::from_hgvs_range(p.start, p.end, p.edit.clone());
-        let after = normalize(&r, before.clone()).unwrap();
+        let after = normalize(&r, before.clone(), &ExonBounds::unspliced()).unwrap();
         let after_hgvs = placed_to_hgvs(&after);
         prop_assert_eq!(apply(&seq, &p), apply(&seq, &after_hgvs), "normalisation changed the molecule");
 
-        let again = normalize(&r, after.clone()).unwrap();
+        let again = normalize(&r, after.clone(), &ExonBounds::unspliced()).unwrap();
         prop_assert_eq!(again, after, "normalisation is not idempotent");
     }
 
@@ -661,6 +661,68 @@ proptest! {
         prop_assert_eq!(mapper.canonical_allele(&vm).unwrap(), mapper.canonical_allele(&vg).unwrap());
         prop_assert_eq!(eq.equivalent_level(&vm, &vg).unwrap(), EquivalenceLevel::Identity);
     }
+
+    /// Normalising a transcript variant moves where it is written, never what
+    /// it does to the genome: where the transcript and the genome agree, the
+    /// canonical allele of its projection is the same before and after,
+    /// identical bases either side of an exon/exon junction included.
+    #[test]
+    fn normalising_on_the_transcript_keeps_the_genomic_allele((g, e) in gene_and_edit()) {
+        if !g.genome_agrees_with_transcript() {
+            return Ok(());
+        }
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = SequenceVariant::Coding(tx_edit_variant(&g, &am, &e));
+        let Ok(before) = mapper.canonical_allele(&vc) else { return Ok(()) };
+        let normalised = mapper.normalize_variant(vc.clone()).unwrap();
+        let after = mapper
+            .canonical_allele(&normalised)
+            .map_err(|err| TestCaseError::fail(format!("{vc} normalised to {normalised}: {err}")))?;
+        prop_assert_eq!(
+            after,
+            before,
+            "{} normalised to {}",
+            vc,
+            normalised
+        );
+    }
+
+    /// The same, for a deletion, duplication or insertion written just before
+    /// an exon/exon junction, where a slide on the transcript could carry it
+    /// into the next exon.
+    #[test]
+    fn normalising_beside_a_junction_keeps_the_genomic_allele(
+        g in gene(),
+        pick in 0usize..10_000,
+        back in 0usize..3,
+        len in 1usize..=3,
+        kind in 0u8..3,
+        alt in dna(1, 3),
+    ) {
+        if g.tx_exons.len() < 2 {
+            return Ok(());
+        }
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        // the first index of an exon after the first
+        let junction = g.tx_exons[1 + pick % (g.tx_exons.len() - 1)].0;
+        let last = junction - 1 - back.min(junction - 1);
+        let (start, end, edit) = match kind {
+            0 => (last + 1 - len.min(last + 1), last + 1, NaEdit::Del { ref_: None, uncertain: false }),
+            1 => (last + 1 - len.min(last + 1), last + 1, NaEdit::Dup { ref_: None, uncertain: false }),
+            _ => (last, last + 2, NaEdit::Ins { alt: Some(alt), uncertain: false }),
+        };
+        let vc = SequenceVariant::Coding(coding_variant(&g, &am, start, end, edit));
+        let Ok(before) = mapper.canonical_allele(&vc) else { return Ok(()) };
+        let normalised = mapper.normalize_variant(vc.clone()).unwrap();
+        let after = mapper
+            .canonical_allele(&normalised)
+            .map_err(|err| TestCaseError::fail(format!("{vc} normalised to {normalised}: {err}")))?;
+        prop_assert_eq!(after, before, "{} normalised to {}", vc, normalised);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -906,7 +968,7 @@ fn the_generated_edits_reach_every_projection() {
     let cases = 1000;
     // Each chain, and the tenths of the sample it must answer. Most edits
     // fall outside the CDS, where the protein is a statement.
-    let mut chains: [(&str, usize, usize); 12] = [
+    let mut chains: [(&str, usize, usize); 13] = [
         ("c_to_g", 7, 0),
         ("g_to_c", 7, 0),
         ("c_to_r", 7, 0),
@@ -917,6 +979,7 @@ fn the_generated_edits_reach_every_projection() {
         ("normalize c.", 7, 0),
         ("normalize g.", 7, 0),
         ("normalize r.", 7, 0),
+        ("canonical allele of c.", 7, 0),
         ("from_spdi", 7, 0),
         ("from_vrs", 7, 0),
     ];
@@ -946,6 +1009,7 @@ fn the_generated_edits_reach_every_projection() {
             mapper.normalize_variant(coding.clone()).is_ok(),
             vg.clone().is_some_and(|vg| mapper.normalize_variant(SequenceVariant::Genomic(vg)).is_ok()),
             vr.clone().is_some_and(|vr| mapper.normalize_variant(SequenceVariant::Rna(vr)).is_ok()),
+            mapper.canonical_allele(&coding).is_ok(),
             mapper
                 .to_spdi(&coding, false)
                 .is_ok_and(|spdi| mapper.from_spdi(&spdi).is_ok()),
@@ -958,8 +1022,7 @@ fn the_generated_edits_reach_every_projection() {
         for (chain, ok) in chains.iter_mut().zip(answered) {
             chain.2 += usize::from(ok);
         }
-        let exonic: Vec<TxPoint> = g.points().into_iter().filter(|p| p.offset == 0).collect();
-        discordant += usize::from(g.bases_at(&exonic) != g.transcript_seq);
+        discordant += usize::from(!g.genome_agrees_with_transcript());
     }
     for (name, floor, ok) in chains {
         assert!(
