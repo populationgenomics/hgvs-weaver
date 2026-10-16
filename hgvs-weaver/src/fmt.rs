@@ -289,6 +289,15 @@ fn write_length(f: &mut fmt::Formatter, min: usize, max: usize) -> fmt::Result {
     }
 }
 
+/// `[n]` for an exact number of copies, `[(min_max)]` for a range.
+fn write_count(f: &mut fmt::Formatter, min: i32, max: i32) -> fmt::Result {
+    if min == max {
+        write!(f, "[{}]", min)
+    } else {
+        write!(f, "[({}_{})]", min, max)
+    }
+}
+
 impl fmt::Display for NaEdit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -395,11 +404,7 @@ impl fmt::Display for NaEdit {
                 if let Some(r) = ref_ {
                     write!(f, "{}", r)?;
                 }
-                if min == max {
-                    write!(f, "[{}]", min)?;
-                } else {
-                    write!(f, "[{}_{}]", min, max)?;
-                }
+                write_count(f, *min, *max)?;
                 Ok(())
             }
             NaEdit::Statement(statement) => write!(f, "{statement}"),
@@ -551,11 +556,7 @@ impl fmt::Display for AaEdit {
                 if let Some(r) = ref_ {
                     write!(f, "{}", r)?;
                 }
-                if min == max {
-                    write!(f, "[{}]", min)?;
-                } else {
-                    write!(f, "[{}_{}]", min, max)?;
-                }
+                write_count(f, *min, *max)?;
                 Ok(())
             }
             AaEdit::Statement(statement) => write!(f, "{statement}"),

@@ -67,7 +67,11 @@ dna_dup    = { "dup" ~ dna? }
 dna_inv    = { "inv" ~ (num | dna)? }
 dna_con    = { "con" ~ hgvs_position }
 dna_copy   = { "copy" ~ num }
-dna_repeat = { dna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+dna_repeat = { dna? ~ repeat_count }
+// The copies of a repeat unit: [23], or a range as HGVS writes it,
+// [(70_80)], or as older descriptions do, (70_80).
+repeat_count = _{ ("[" ~ num ~ "]") | ("[" ~ "(" ~ num ~ "_" ~ num ~ ")" ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")") }
+
 // Inserted bases known only by number: insN[20] and insN[(20_30)] as HGVS
 // recommends (varnomen.hgvs.org, "insertion"), and the older ins(20),
 // ins(20_30) and insN[20_30]. Tried before a base string so that the N is
@@ -84,7 +88,7 @@ rna_ins    = { "ins" ~ (ins_length | rna) }
 rna_dup    = { "dup" ~ rna? }
 rna_inv    = { "inv" ~ (num | rna)? }
 rna_con    = { "con" ~ hgvs_position }
-rna_repeat = { rna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+rna_repeat = { rna? ~ repeat_count }
 
 pro_edit   = { pro_fs | pro_ext | pro_repeat | pro_ident | pro_subst | pro_delins | pro_del | pro_ins | pro_dup }
 pro_ident  = { "=" }
@@ -93,7 +97,7 @@ pro_delins = { "delins" ~ aat13_seq }
 pro_del    = { "del" }
 pro_ins    = { "ins" ~ aat13_seq }
 pro_dup    = { "dup" }
-pro_repeat = { (aat13_seq | num)? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+pro_repeat = { (aat13_seq | num)? ~ repeat_count }
 pro_fs     = { (aat13 | "") ~ fs }
 pro_ext    = { aat13? ~ ext }
 
