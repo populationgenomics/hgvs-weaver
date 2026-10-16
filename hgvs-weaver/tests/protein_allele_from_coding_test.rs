@@ -256,10 +256,10 @@ fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
 }
 
 #[test]
-fn edits_around_the_cds_start_are_statements_not_predictions() {
+fn edits_around_the_cds_start_are_statements() {
     // Entirely in the 5'UTR: nothing can be said. Reaching into the CDS from
-    // the 5'UTR: the start codon is disrupted. Covering the whole CDS: no
-    // protein is expected.
+    // the 5'UTR: the start codon is predicted disrupted. Covering the whole
+    // CDS: no protein is expected.
     let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let p = |c: &str| mapper.c_to_p(&coding(c), None).unwrap().to_string();

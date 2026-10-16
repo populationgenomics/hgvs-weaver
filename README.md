@@ -16,8 +16,9 @@ the Python package wraps it with typed exceptions and protocol-based data access
 
 - **Parsing and formatting** of `g.`, `m.`, `c.`, `n.`, `r.` and `p.` descriptions: substitutions, deletions,
   insertions, duplications, delins, inversions, repeats (`[n]`) and identity; intronic offsets and CDS anchors (`c.-12`,
-  `c.*5`, `c.88+2`); uncertain genomic breakpoints (`g.(?_100)_(200_?)del`); and the statements `p.?`, `p.0`, `p.Met1?`,
-  `r.0`, `r.spl`, `r.=`, `c.=`. The grammar is checked rule by rule against the biocommons `hgvs` grammar table.
+  `c.*5`, `c.88+2`); uncertain genomic breakpoints (`g.(?_100)_(200_?)del`); and the statements `p.?`, `p.(?)`, `p.0`,
+  `p.Met1?`, `r.0`, `r.spl`, `r.=`, `r.(?)`, `c.=`. The grammar is checked rule by rule against the biocommons `hgvs`
+  grammar table.
 - **Projection** between systems through transcript models: `g.` to and from `c.`/`n.`, intronic positions included;
   `r.` to and from `c.`/`n.` (the same positions in RNA letters, with a change across a splice junction refused a
   genomic form); `c.` and `r.` to `p.`; `p.` back to `c.` for substitutions.

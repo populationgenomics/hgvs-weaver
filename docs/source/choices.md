@@ -45,7 +45,7 @@ Representation Specification 2.0.1.
 | [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |   agrees    |        –         |          –           | spelling differs |
 | [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically)                                       | **differs** |     differs      |       differs        |        –         |
 | [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements)                                                       |   agrees    |      agrees      |       differs        |     differs      |
-| [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |   agrees    |     differs      |       differs        |        –         |
+| [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |   agrees    |     differs      |          –           |        –         |
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |   agrees    |        –         |          –           |        –         |
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |   agrees    |        –         |          –           |        –         |
 | [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else)                     |   agrees    |        –         |          –           |        –         |
@@ -724,7 +724,7 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
 - **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
   `p.0?` "when you predict that no protein is produced"; `p.Met1?` as above; `p.Met1ext-5` shows a 5'UTR change can
   activate an upstream initiation site.
-- **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements_not_predictions`,
+- **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements`,
   `::a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged`,
   `::statements_have_no_allele_and_a_wrong_protein_is_an_error`,
   `::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
@@ -753,38 +753,52 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
   to 2 … `p.?`"). What it says is that no prediction can be made, so there is nothing to bracket.
 - `p.0?`: "can be used when you predict that no protein is produced"; the `?` is the hedge, and `p.(0?)` appears
   nowhere.
-- `p.0`: the alleles page links it to "the absence of RNA (`r.0`)", bare, so `r_to_p` gives `r.0` as `p.0`.
+- `p.0`: `r_to_p` gives `r.0` as `p.0`, bare. This one is weaver's reading, kept from before: the alleles page writes
+  `p.[Ser86Arg];[0]` as an observed allele and says such a description is linked to "the absence of RNA (`r.0`)", but it
+  gives no predicted form, and "`p.0?` can be used when you predict that no protein is produced" points the other way.
+  Writing `p.0?` for `r.0` is the alternative.
+- `p.(?)`, which weaver parses but never writes: the alleles page writes it for "a variant expected but not yet
+  identified", in prose beside the allele `p.[(Ser68Arg)];[?]`, so it is read as `p.?` predicted.
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
 parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
-a prediction. In equivalence parentheses are spelling: `c.-3_4del` is the same text as `p.(Met1?)` (Identity) and the
-same description as `p.Met1?` in another spelling (Analogous), as `c.4C>G` is with `p.(Arg2Gly)` and `p.Arg2Gly`.
+a prediction. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and `p.Met1?` are
+Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and the same
+description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with `p.Met1?`, as
+`c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. `r.(?)` is the one
+statement whose parentheses change what it says ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
 
 **Example:**
 
 ```text
 NM_W.1:c.10C>G        →  NP_W.1:p.(Arg4Gly)
-NM_W.1:c.-3_4del      →  NP_W.1:p.(Met1?)       biocommons and VariantValidator write p.Met1?
+NM_W.1:c.-3_4del      →  NP_W.1:p.(Met1?)       biocommons writes p.Met1?
 NM_W.1:c.*5T>A        →  NP_W.1:p.(=)
-NM_W.1:c.-3G>A        →  NP_W.1:p.?
+NM_W.1:c.-3C>A        →  NP_W.1:p.?
 NM_W.1:c.-3_*2del     →  NP_W.1:p.0?
 NM_W.1:r.0            →  NP_W.1:p.0
 ```
 
-- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET02/03); VariantValidator likewise, as
-  recorded [above](#a-start-codon-change-is-written-specifically). The ClinVar sample has no start-codon statement.
-- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
-  for `p.(Trp24Cys)`, `p.(Met1?)` and `p.0?`;
-  [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) for `p.(=)`, `p.?` and `p.0?`;
-  [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for a predicted `p.?`;
-  [protein alleles](https://hgvs-nomenclature.org/stable/recommendations/protein/alleles/) for `p.0` beside `r.0`.
-- **Tests:** `statements_test::a_start_loss_is_predicted_bracketed_as_hgvs_writes_it`,
-  `::a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare`, `::a_deleted_cds_is_probably_no_protein`,
-  `::the_mappers_no_protein_reparses_to_itself`, `::a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it`,
+- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET02/03). VariantValidator: not
+  checked. The ClinVar sample has no start-codon statement.
+- **Spec (agrees, except `p.0` from `r.0`, where it is silent):**
+  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) for `p.(Trp24Cys)`,
+  `p.(Met1?)` and `p.0?`; [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) for `p.(=)`,
+  `p.?` and `p.0?`; [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for a
+  predicted `p.?`; [protein alleles](https://hgvs-nomenclature.org/stable/recommendations/protein/alleles/) for `p.0`
+  beside `r.0` and for `p.(?)`.
+- **Tests:** `statements_test::a_predicted_change_is_written_bracketed`,
+  `::a_start_loss_is_predicted_bracketed_as_hgvs_writes_it`,
+  `::a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare`,
+  `::predicted_p_unknown_is_the_unknown_effect_in_another_spelling`,
+  `::predicted_p_unknown_does_not_match_a_coding_change`,
+  `::a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it`,
   `::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
   `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`;
-  `real_transcripts_test::biocommons_real_transcript_cases` (INITMET02/03);
-  `src/transform.rs::test_transform_met1_to_question`, `::test_transform_stated_met1_to_stated_question`.
+  `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
+  `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0`); `real_transcripts_test::biocommons_real_transcript_cases`
+  (INITMET02/03); `src/transform.rs::test_transform_met1_to_question`,
+  `::test_transform_stated_met1_to_stated_question`.
 
 ### Frameshift length counts to the first new stop
 

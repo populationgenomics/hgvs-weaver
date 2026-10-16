@@ -174,7 +174,12 @@ fn a_start_loss_is_predicted_bracketed_as_hgvs_writes_it() {
 
 #[test]
 fn a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare() {
-    assert_eq!(c_to_p("NM_W.1:c.-3G>A").to_string(), "NP_W.1:p.?");
+    assert_eq!(c_to_p("NM_W.1:c.-3C>A").to_string(), "NP_W.1:p.?");
+}
+
+#[test]
+fn a_predicted_change_is_written_bracketed() {
+    assert_eq!(c_to_p("NM_W.1:c.10C>G").to_string(), "NP_W.1:p.(Arg4Gly)");
 }
 
 #[test]
@@ -231,14 +236,6 @@ fn p_identity_prints_back_as_parsed() {
 }
 
 #[test]
-fn predicted_p_unknown_carries_the_prediction_on_its_posedit() {
-    let SequenceVariant::Protein(p) = parse("NP_W.1:p.(?)") else {
-        panic!("not p.");
-    };
-    assert!(p.posedit.predicted);
-}
-
-#[test]
 fn predicted_p_unknown_prints_back_as_parsed() {
     assert_eq!(parse("NP_W.1:p.(?)").to_string(), "NP_W.1:p.(?)");
 }
@@ -254,21 +251,13 @@ fn predicted_p_unknown_is_the_unknown_effect_in_another_spelling() {
 }
 
 #[test]
-fn predicted_p_unknown_matches_no_change() {
+fn predicted_p_unknown_does_not_match_a_coding_change() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let level = VariantEquivalence::new(&mapper, &hdp)
         .equivalent_level(&parse("NP_W.1:p.(?)"), &parse("NM_W.1:c.10C>G"))
         .unwrap();
     assert_eq!(level, EquivalenceLevel::Different);
-}
-
-#[test]
-fn predicted_r_unknown_carries_the_prediction_on_its_posedit() {
-    let SequenceVariant::Rna(r) = parse("NM_W.1:r.(?)") else {
-        panic!("not r.");
-    };
-    assert!(r.posedit.predicted);
 }
 
 #[test]

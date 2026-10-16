@@ -83,8 +83,11 @@ read against the reference protein:
   substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
   number. An open outcome matches any outcome it is a prefix of;
 - `p.0` and `p.0?` leave no protein; `p.=` leaves the reference;
-- `p.?` says nothing and matches nothing; `p.Met1?` and its like are **anchored**: they say only where the change
-  starts, and match an outcome whose change starts at that residue.
+- `p.?` (and `p.(?)`) says nothing and matches nothing; `p.Met1?` and its like are **anchored**: they say only where the
+  change starts, and match an outcome whose change starts at that residue.
+
+Parentheses are spelling, with one exception: `r.(?)` says the RNA follows the DNA change it accompanies, which is not
+`r.?`'s effect of unknown kind, so it is the same only as itself.
 
 Judging needs the protein sequence. With no sequence to read the description against the result is an error (`Unknown`
 in the harness), not a guess from the residues the descriptions happen to name.
