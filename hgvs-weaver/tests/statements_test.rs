@@ -844,11 +844,36 @@ fn a_dict_for_a_residue_with_no_uncertain_flag_loads() {
 fn a_dict_in_one_letter_code_loads_as_its_printed_description() {
     let json = p_json_at(
         r#"{"start": {"base": 2, "aa": "R"}, "end": null, "uncertain": false}"#,
-        r#"{"type": "Fs", "ref_": "", "alt": "P", "term": "*", "length": "5", "uncertain": false}"#,
+        r#"{"type": "Fs", "ref_": "", "alt": "P", "stop": {"kind": "Residues", "count": 5}, "uncertain": false}"#,
         false,
         false,
     );
     assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Arg2ProfsTer5"));
+}
+
+#[test]
+fn a_dict_for_a_frameshift_naming_no_stop_loads_as_the_bare_frameshift() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Fs", "ref_": "", "alt": "Pro", "stop": null, "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Arg2Profs"));
+}
+
+#[test]
+fn a_dict_for_a_frameshift_with_its_stop_as_text_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "Arg"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Fs", "ref_": "", "alt": "Pro", "term": "Ter", "length": "5", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(
+        from_json(&json).is_err_and(|e| e.to_string().contains("missing field `stop`")),
+        "{json}"
+    );
 }
 
 #[test]

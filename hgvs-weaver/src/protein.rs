@@ -437,17 +437,20 @@ impl Writer<'_> {
             }
             return self.substitution(i, ref_c, '*');
         }
-        let length = self.alt_aa[i..]
-            .iter()
-            .position(|&c| c == '*')
-            .map_or("?".to_string(), |k| (k + 1).to_string());
+        let stop = match self.alt_aa[i..].iter().position(|&c| c == '*') {
+            Some(k) => StopDistance::Residues {
+                count: u32::try_from(k + 1).map_err(|_| {
+                    HgvsError::ValidationError(format!("a stop {} residues on", k + 1))
+                })?,
+            },
+            None => StopDistance::Unknown,
+        };
         self.variant(
             Some(self.span(i, None)),
             AaEdit::Fs {
                 ref_: String::new(),
                 alt: aa1_to_aa3(alt_c).to_string(),
-                term: Some("Ter".to_string()),
-                length: Some(length),
+                stop: Some(stop),
                 uncertain: false,
             },
         )

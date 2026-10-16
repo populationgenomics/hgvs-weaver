@@ -575,40 +575,46 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
     })
 }
 
-/// The parts of `fs...`: the terminator named, and the count, wherever the
-/// grammar nests them.
-fn fs_parts(pair: Pair<Rule>) -> (Option<String>, Option<String>) {
-    let mut named = None;
-    let mut count = None;
-    for p in pair.into_inner().flatten() {
-        match p.as_rule() {
-            Rule::term13 => named = Some(text(p)),
-            Rule::fsext_offset => count = Some(text(p)),
-            _ => {}
-        }
-    }
-    (named, count)
-}
-
-/// `Xxx#Yyyfs*N`: the new residue, then the frameshift's terminator and distance.
-fn pro_fs(pair: Pair<Rule>) -> AaEdit {
+/// `Xxx#Yyyfs*N`: the new residue, then the frameshift's stop and distance.
+fn pro_fs(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
     let mut alt = String::new();
-    let mut term = None;
-    let mut length = None;
+    let mut stop = None;
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aat13 => alt = text(p),
-            Rule::fs => (term, length) = fs_parts(p),
+            Rule::fs => {
+                let offset = p
+                    .into_inner()
+                    .flatten()
+                    .find(|q| q.as_rule() == Rule::fsext_offset);
+                if let Some(offset) = offset {
+                    stop = Some(stop_distance(offset.as_str())?);
+                }
+            }
             _ => {}
         }
     }
-    AaEdit::Fs {
+    Ok(AaEdit::Fs {
         ref_: String::new(),
         alt,
-        term,
-        length,
+        stop,
         uncertain: false,
-    }
+    })
+}
+
+/// `fsext_offset`: the distance to a new stop, `12`, `?` or nothing.
+fn stop_distance(s: &str) -> Result<StopDistance, HgvsError> {
+    Ok(match s {
+        "" => StopDistance::Unstated,
+        "?" => StopDistance::Unknown,
+        n => StopDistance::Residues { count: count(n)? },
+    })
+}
+
+/// A count after `fs` or `ext`.
+fn count(s: &str) -> Result<u32, HgvsError> {
+    s.parse()
+        .map_err(|_| HgvsError::PestError(format!("count {s} is out of range")))
 }
 
 /// `Ter#Xxxext*N`, `Met1ext-5`: the residue that replaces the stop or start,
@@ -633,21 +639,14 @@ fn pro_ext(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
 /// `aa13_ext`: a stop and its distance, or an optional residue and a count,
 /// signed or not.
 fn extension_end(pair: Pair<Rule>) -> Result<ExtensionEnd, HgvsError> {
-    let count = |s: &str| {
-        s.parse::<u32>()
-            .map_err(|_| HgvsError::PestError(format!("extension count {s} is out of range")))
-    };
     let mut residue = None;
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aa13 => residue = Some(text(p)),
             Rule::fsext_offset => {
-                let distance = match p.as_str() {
-                    "" => StopDistance::Unstated,
-                    "?" => StopDistance::Unknown,
-                    n => StopDistance::Residues { count: count(n)? },
-                };
-                return Ok(ExtensionEnd::Stop { distance });
+                return Ok(ExtensionEnd::Stop {
+                    distance: stop_distance(p.as_str())?,
+                });
             }
             Rule::snum => {
                 let n = p.as_str();
@@ -700,7 +699,7 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
             alt: first_child_text(edit).unwrap_or_default(),
             uncertain,
         },
-        Rule::pro_fs => pro_fs(edit),
+        Rule::pro_fs => pro_fs(edit)?,
         Rule::pro_ext => pro_ext(edit)?,
         Rule::pro_repeat => {
             let (ref_, min, max) = repeat_parts(edit, |r| r == Rule::aat13_seq);
@@ -891,6 +890,15 @@ mod tests {
             },
             _ => panic!("Expected Protein variant"),
         }
+    }
+
+    #[test]
+    fn a_frameshift_count_past_u32_is_a_parse_error() {
+        let err = parse_hgvs_variant("NP_W.1:p.Arg97ProfsTer4294967296").unwrap_err();
+        assert!(
+            matches!(&err, crate::error::HgvsError::PestError(m) if m.contains("4294967296")),
+            "{err}"
+        );
     }
 
     #[test]

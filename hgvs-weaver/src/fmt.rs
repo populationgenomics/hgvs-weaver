@@ -1,6 +1,6 @@
 use crate::edits::{AaEdit, ExtensionEnd, NaEdit, ProteinStatement, RnaStatement, StopDistance};
 use crate::structs::*;
-use crate::utils::{residue_3, terminator_3};
+use crate::utils::residue_3;
 use std::fmt;
 
 impl fmt::Display for SequenceVariant {
@@ -516,19 +516,12 @@ impl fmt::Display for AaEdit {
                     write!(f, "del")
                 }
             }
-            AaEdit::Fs {
-                alt, term, length, ..
-            } => {
-                write!(
-                    f,
-                    "{}fs{}",
-                    residue_3(alt),
-                    term.as_deref().map_or("", terminator_3)
-                )?;
-                if let Some(l) = length {
-                    write!(f, "{}", l)?;
+            AaEdit::Fs { alt, stop, .. } => {
+                write!(f, "{}fs", residue_3(alt))?;
+                match stop {
+                    Some(distance) => write!(f, "Ter{distance}"),
+                    None => Ok(()),
                 }
-                Ok(())
             }
             AaEdit::Ext { alt, end } => write!(f, "{}ext{end}", residue_3(alt)),
             AaEdit::Repeat { ref_, min, max, .. } => {

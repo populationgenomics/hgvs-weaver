@@ -1,6 +1,6 @@
 use crate::allele::CanonicalAllele;
 use crate::data::{IdentifierKind, TranscriptSearch};
-use crate::edits::{NaEdit, RnaStatement};
+use crate::edits::{NaEdit, RnaStatement, StopDistance};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{
@@ -327,14 +327,15 @@ impl<'a> VariantEquivalence<'a> {
                 anchored: true,
             }));
         }
-        // The count after `fs` or `ext`, when it is a number.
-        let count =
-            |length: &Option<String>| length.as_deref().and_then(|l| l.parse::<usize>().ok());
         let (start, end, alt, open) = match &vp.posedit.edit {
             // `Xxx#Yyyfs*N`: Yyy, then N - 2 residues it does not name, then a stop.
-            AaEdit::Fs { alt, length, .. } => {
+            AaEdit::Fs { alt, stop, .. } => {
                 let mut alt = crate::utils::residues_1(alt)?;
-                match count(length) {
+                let count = match stop {
+                    Some(StopDistance::Residues { count }) => Some(*count as usize),
+                    _ => None,
+                };
+                match count {
                     Some(n) if n >= 1 => {
                         while alt.len() < n - 1 {
                             alt.push('X');

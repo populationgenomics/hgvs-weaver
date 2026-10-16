@@ -130,12 +130,14 @@ pub enum AaEdit {
         alt: Option<String>,
         uncertain: bool,
     },
-    /// Frameshift.
+    /// Frameshift: `alt` is the first changed residue, `stop` the new stop
+    /// after `fs` (`fsTer12`, `fsTer?`, `fsTer`), or `None` for a bare `fs`.
     Fs {
         ref_: String,
         alt: String,
-        term: Option<String>,
-        length: Option<String>,
+        // deserialize_with: a dict without `stop` is refused, not read as `fs`.
+        #[serde(deserialize_with = "Option::deserialize")]
+        stop: Option<StopDistance>,
         uncertain: bool,
     },
     /// Extension of the protein: `alt` is the residue that replaces the
@@ -198,6 +200,8 @@ pub enum ExtensionEnd {
 }
 
 /// How far on a new stop is, counting the stop itself: `17`, `?`, or nothing.
+/// After `ext` the count runs from the residue that replaced the stop; after
+/// `fs`, from the first changed residue.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum StopDistance {
@@ -267,7 +271,7 @@ impl AaEdit {
     /// The edit with every residue the formatter rewrites in the form it
     /// prints, so that a one-letter description equals its printed form.
     pub(crate) fn into_canonical(self) -> Self {
-        use crate::utils::{residue_3, terminator_3};
+        use crate::utils::residue_3;
         match self {
             AaEdit::Subst {
                 ref_,
@@ -281,14 +285,12 @@ impl AaEdit {
             AaEdit::Fs {
                 ref_,
                 alt,
-                term,
-                length,
+                stop,
                 uncertain,
             } => AaEdit::Fs {
                 ref_,
                 alt: residue_3(&alt).to_string(),
-                term: term.map(|t| terminator_3(&t).to_string()),
-                length,
+                stop,
                 uncertain,
             },
             AaEdit::Ext { alt, end } => AaEdit::Ext {

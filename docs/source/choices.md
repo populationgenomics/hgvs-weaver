@@ -1258,9 +1258,9 @@ A description read in an older or shorter spelling is stored as the spelling it 
 to the same value. A position, a substituted residue, and the residues of a frameshift or extension are written in
 three-letter code: `p.M1?` is stored and printed as `p.Met1?`. Where only a stop can stand, `X` or `*` is `Ter`: after
 `fs`, after `ext` with a count (`ext*5` and `extX+5`, not the offset of `extXaa-5`), and at the start of an extension
-past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Elsewhere a one-letter `X` is `Xaa`. The count after `ext` is a
-number, so `ext+5` is `ext5` and `extTer007` is `extTer7`. The residues an insertion, deletion-insertion or repeat names
-are kept and printed as written, one letter or several (`p.Arg2delinsKL`, `p.Arg2_Lys3insX`).
+past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Elsewhere a one-letter `X` is `Xaa`. The count after `fs` or `ext`
+is a number, so `ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion, deletion-insertion or repeat
+names are kept and printed as written, one letter or several (`p.Arg2delinsKL`, `p.Arg2_Lys3insX`).
 
 **Example:**
 
@@ -1285,7 +1285,8 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
   `::a_repeat_of_a_range_of_copies_parses_as_hgvs_writes_it`, `::a_one_letter_frameshift_is_the_three_letter_one`,
   `::a_frameshift_to_a_stop_written_x`, `::an_extension_from_a_stop_written_x_is_the_one_written_ter`,
   `::an_n_terminal_extension_from_an_unknown_residue`, `::an_extension_count_written_plus_is_the_bare_count`,
-  `::an_extension_count_with_leading_zeros_is_the_number`, `::an_extension_count_after_x_is_the_distance_to_a_stop`;
+  `::an_extension_count_with_leading_zeros_is_the_number`, `::a_frameshift_count_with_leading_zeros_is_the_number`,
+  `::an_extension_count_after_x_is_the_distance_to_a_stop`;
   `statements_test::a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter`,
   `::a_dict_for_an_extension_by_a_count_after_x_loads_as_the_distance_to_a_stop`,
   `::a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue`.
