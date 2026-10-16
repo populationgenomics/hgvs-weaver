@@ -270,7 +270,7 @@ fn check_na_posedit<I: std::fmt::Display>(
         predicted: posedit.predicted,
     };
     if let (NaEdit::Statement(statement), true, "r") = (&posedit.edit, posedit.predicted, kind) {
-        // Printed, r.? predicted would read as r.(?), another statement.
+        // r.? predicted would print as r.(?), another statement.
         let hint = if *statement == RnaStatement::Unknown {
             format!("; r.(?) is the statement {:?}", RnaStatement::FollowsDna)
         } else {
