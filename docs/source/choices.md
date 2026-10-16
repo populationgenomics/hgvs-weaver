@@ -315,6 +315,13 @@ normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
 shared. Every `r.` operation is a conversion to the `c.` (coding transcript) or `n.` (non-coding) spelling and back; the
 statements `r.0`, `r.spl`, `r.?` and `r.(=)` map to `p.0`, `p.?`, `p.?` and `p.(=)`.
 
+`r.(?)` is not `r.?` predicted, although it parses to the same statement with the prediction flag. The uncertain page
+reads it as "RNA was not analysed but … no changes on the RNA level are expected other than those simply derived from
+the change on the DNA level", and the deletion page pairs it with that change's own consequence,
+`c.1521_1523del r.(?) p.(Phe508del)`. It says the RNA follows a DNA change it does not carry, so weaver gives it no
+protein consequence (`r_to_p` is an `UnsupportedOperation`, where `r.?` gives `p.?`), and in equivalence it is the same
+as itself and different from `r.?`: there the parentheses are not spelling, as they are for `r.(=)` and `r.=`.
+
 **Example:**
 
 ```text
@@ -325,6 +332,8 @@ NR_R.1:r.10c>g          ⇄  NR_R.1:n.10C>G
 NM_R.1:r.(10c>g)        →  NM_R.1:c.10C>G                        the prediction flag is dropped on the way
 NM_R.1:r.spl            →  NP_R.1:p.?
 NM_R.1:r.0              →  NP_R.1:p.0
+NM_W.1:r.(?)            →  p.: an error; the protein follows the DNA change, not this statement
+NM_W.1:r.(?)  vs  NM_W.1:r.?                                    Different
 ```
 
 - **Agrees:** HGVS, on the numbering.
@@ -333,13 +342,17 @@ NM_R.1:r.0              →  NP_R.1:p.0
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotide `r.123`
   relates to `c.123` or `n.123`";
   [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/) for `r.0`, `r.spl`, `r.?`,
-  `r.=`.
+  `r.=`; [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) and
+  [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for `r.(?)`. The
+  specification does not say what `r.(?)` implies for the protein or how it compares; those are weaver's reading.
 - **Tests:** `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;
   `rna_test::r_is_c_in_rna_letters`, `::r_on_a_non_coding_transcript_is_n`,
   `::statements_about_the_transcript_round_trip`, `::r_predicts_the_protein_like_c`,
   `::r_normalises_validates_and_has_alleles_like_c`,
   `::an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself`;
-  `rna_is_the_transcript_in_other_letters` (property).
+  `rna_is_the_transcript_in_other_letters` (property); `statements_test::predicted_r_unknown_prints_back_as_parsed`,
+  `::predicted_r_unknown_has_no_protein_consequence_of_its_own`, `::predicted_r_unknown_is_not_the_unknown_effect`,
+  `::a_dict_for_a_predicted_r_unknown_loads_as_it`.
 
 ### The whole transcript unchanged is a statement, not a change
 
@@ -1169,7 +1182,7 @@ genomic breakpoints; insertions of a stated length; copy number; `r.` positions 
 ```text
 NM_004006.2:c.[145C>T;147C>G]      NP_X.1:p.[Lys2Leu;Ala4del]      NM_X.1:r.[7c>u;13u>g]
 NM_R.1:r.(10c>g)                   NM_R.1:r.0   NM_R.1:r.?   NM_R.1:r.spl   NM_R.1:r.=
-NP_X.1:p.0   NP_X.1:p.0?   NP_X.1:p.Met1?   NP_X.1:p.(Met1?)   NP_X.1:p.(?)
+NP_X.1:p.0   NP_X.1:p.0?   NP_X.1:p.Met1?   NP_X.1:p.(Met1?)   NP_X.1:p.(?)   NM_R.1:r.(?)
 NC_000009.11:g.(?_108337304)_(108337428_?)del
 NC_TEST.1:g.10_11insN[20]   NC_TEST.1:g.10_11insN[(20_30)]   NC_TEST.1:g.10_12delinsN[5]   NC_TEST.1:g.10_11ins(20)
 NC_000014.8:g.88401076_88459508copy4

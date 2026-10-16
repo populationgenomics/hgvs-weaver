@@ -273,6 +273,7 @@ fn check_na_posedit<I: std::fmt::Display>(
     let writable = flags_writable
         && match (&posedit.edit, &posedit.pos) {
             (NaEdit::WholeIdentity, None) => kind == "c" || kind == "r",
+            (NaEdit::Statement(RnaStatement::Unknown), None) => kind == "r",
             (NaEdit::Statement(_), None) => kind == "r" && !posedit.predicted,
             (NaEdit::WholeIdentity | NaEdit::Statement(_), _) => false,
             (_, pos) => pos.is_some(),
@@ -498,6 +499,15 @@ pub struct RVariant {
     pub posedit: PosEdit<BaseOffsetInterval, NaEdit>,
 }
 impl_variant!(RVariant, "r");
+
+impl RVariant {
+    /// Whether this is `r.(?)`: the RNA not analysed, and expected to change
+    /// only as the DNA change it accompanies implies. It names no change of
+    /// its own, and is not `r.?`, an effect of unknown kind.
+    pub fn follows_the_dna(&self) -> bool {
+        self.posedit.predicted && self.posedit.edit == NaEdit::Statement(RnaStatement::Unknown)
+    }
+}
 
 /// Changes in cis, on one molecule: HGVS `NM_004006.2:c.[145C>T;147C>G]`.
 /// Every member is a plain variant in the same coordinate system on the same

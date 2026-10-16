@@ -133,7 +133,7 @@ fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
     match statement_parts(pair)? {
         (Rule::r_no_rna, uncertain) => Ok(RnaStatement::NoRna { uncertain }),
         (Rule::r_splicing_affected, uncertain) => Ok(RnaStatement::SplicingAffected { uncertain }),
-        (Rule::statement_unknown, _) => Ok(RnaStatement::Unknown),
+        (Rule::r_unknown, _) => Ok(RnaStatement::Unknown),
         (r, _) => Err(HgvsError::PestError(format!(
             "Unexpected RNA statement {r:?}"
         ))),

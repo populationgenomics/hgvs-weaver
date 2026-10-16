@@ -100,6 +100,10 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
+        // The parentheses of r.(?) are not spelling: it is not r.? predicted.
+        if follows_the_dna(var1) != follows_the_dna(var2) {
+            return Ok(EquivalenceLevel::Different);
+        }
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
         }
@@ -509,6 +513,11 @@ struct Outcome {
     /// A statement (`p.Met1?`): only where the change starts is known, and
     /// the other side must start its change there.
     anchored: bool,
+}
+
+/// Whether `var` is `r.(?)`.
+fn follows_the_dna(var: &SequenceVariant) -> bool {
+    matches!(var, SequenceVariant::Rna(r) if r.follows_the_dna())
 }
 
 /// The accession without its version: `NP_000050` of `NP_000050.3`.

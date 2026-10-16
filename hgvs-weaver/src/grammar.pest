@@ -38,8 +38,10 @@ whole_identity = { "=" }
 // p. have this form; on DNA, parentheses mark uncertain positions instead.
 r_posedit_predicted = { "(" ~ r_interval ~ rna_edit ~ ")" }
 // Statements about the transcript as a whole: no RNA (r.0), splicing
-// affected (r.spl), unknown effect (r.?).
-r_posedit_special = { r_no_rna | r_splicing_affected | statement_unknown }
+// affected (r.spl), unknown effect (r.?), and r.(?), the RNA not analysed
+// and expected to follow the DNA change.
+r_posedit_special = { r_no_rna | r_splicing_affected | r_unknown }
+r_unknown = { statement_unknown | "(" ~ statement_unknown ~ ")" }
 r_no_rna = { "0" ~ statement_uncertain? }
 r_splicing_affected = { "spl" ~ statement_uncertain? }
 // The ? of r.0?, r.spl? or p.0?: probably so.
