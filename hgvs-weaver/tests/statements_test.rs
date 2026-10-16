@@ -257,14 +257,6 @@ fn r_follows_the_dna_prints_back_as_parsed() {
 }
 
 #[test]
-fn r_follows_the_dna_is_not_marked_predicted() {
-    let SequenceVariant::Rna(r) = parse("NM_W.1:r.(?)") else {
-        panic!("not r.");
-    };
-    assert!(!r.posedit.predicted);
-}
-
-#[test]
 fn a_dict_for_r_follows_the_dna_names_its_statement() {
     let json = r_json(r#"{"type": "Statement", "statement": "FollowsDna"}"#);
     assert_eq!(from_json(&json).unwrap(), parse("NM_W.1:r.(?)"));

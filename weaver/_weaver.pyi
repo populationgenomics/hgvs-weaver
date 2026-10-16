@@ -194,6 +194,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_c is not a coding or RNA variant.
+            UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:

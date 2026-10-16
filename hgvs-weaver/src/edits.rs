@@ -63,7 +63,7 @@ pub enum NaEdit {
     /// Copy number change.
     NACopy { copy: i32, uncertain: bool },
     /// A statement about the whole RNA, with no position: `r.0`, `r.?`,
-    /// `r.spl`.
+    /// `r.(?)`, `r.spl`.
     Statement(RnaStatement),
     /// The whole transcript analysed and found unchanged, with no position:
     /// `c.=` (its DNA) or `r.=` (its RNA).

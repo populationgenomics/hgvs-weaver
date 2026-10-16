@@ -353,8 +353,10 @@ NM_W.1:r.(?)  vs  NM_W.1:r.?                                    Different
   `::an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself`;
   `rna_is_the_transcript_in_other_letters` (property); `statements_test::r_follows_the_dna_prints_back_as_parsed`,
   `::r_follows_the_dna_has_no_protein_consequence_of_its_own`, `::r_follows_the_dna_is_not_the_unknown_effect`,
-  `::one_member_cis_alleles_of_r_follows_the_dna_and_the_unknown_effect_differ`,
-  `::a_dict_for_r_follows_the_dna_names_its_statement`, `::a_dict_for_r_unknown_marked_predicted_is_refused`.
+  `::one_member_cis_alleles_of_r_follows_the_dna_and_the_unknown_effect_differ`, `::r_follows_the_dna_is_itself`,
+  `::r_follows_the_dna_is_its_one_member_cis_allele`, `::a_dict_for_r_follows_the_dna_names_its_statement`,
+  `::a_dict_for_r_unknown_marked_predicted_is_refused`, `::a_dict_for_a_special_unknown_marked_predicted_is_refused`;
+  `tests/test_statements.py::test_a_dict_names_r_follows_the_dna_as_its_own_statement_not_a_prediction`.
 
 ### The whole transcript unchanged is a statement, not a change
 

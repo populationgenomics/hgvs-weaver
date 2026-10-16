@@ -37,6 +37,11 @@ def test_a_dict_names_an_rna_statement_and_its_uncertainty() -> None:
     assert edit == {"type": "Statement", "statement": "SplicingAffected", "uncertain": True}
 
 
+def test_a_dict_names_r_follows_the_dna_as_its_own_statement_not_a_prediction() -> None:
+    posedit = weaver.parse("NM_W.1:r.(?)").to_dict()["posedit"]
+    assert (posedit["edit"], posedit["predicted"]) == ({"type": "Statement", "statement": "FollowsDna"}, False)
+
+
 @pytest.mark.parametrize(
     ("variant_type", "ac", "value", "predicted", "expected"),
     [

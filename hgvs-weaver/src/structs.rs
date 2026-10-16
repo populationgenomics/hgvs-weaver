@@ -269,12 +269,15 @@ fn check_na_posedit<I: std::fmt::Display>(
         uncertain: posedit.uncertain,
         predicted: posedit.predicted,
     };
-    if let (NaEdit::Statement(statement), true) = (&posedit.edit, posedit.predicted) {
-        // Printed, it would read as another statement: r.? predicted as r.(?).
+    if let (NaEdit::Statement(statement), true, "r") = (&posedit.edit, posedit.predicted, kind) {
+        // Printed, r.? predicted would read as r.(?), another statement.
+        let hint = if *statement == RnaStatement::Unknown {
+            format!("; r.(?) is the statement {:?}", RnaStatement::FollowsDna)
+        } else {
+            String::new()
+        };
         return Err(HgvsError::ValidationError(format!(
-            "a statement about the RNA is never predicted, and {statement:?} is marked so; \
-             r.(?) is the statement {:?}",
-            RnaStatement::FollowsDna
+            "a statement about the RNA is never predicted, and {statement:?} is marked so{hint}"
         )));
     }
     let flags_writable = !posedit.uncertain && (kind == "r" || !posedit.predicted);
