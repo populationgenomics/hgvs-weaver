@@ -429,6 +429,32 @@ enum CodingOutcome {
     Change(crate::protein::CodingChange),
 }
 
+/// The protein statement `statement` predicted from `var_c`, bracketed as
+/// HGVS writes each prediction: `p.(=)` and `p.(Met1?)`, but `p.?` and `p.0?`
+/// bare.
+fn predicted_statement(
+    var_c: &CVariant,
+    protein_ac: &str,
+    pos: Option<crate::structs::AaInterval>,
+    statement: crate::structs::ProteinStatement,
+) -> PVariant {
+    use crate::structs::ProteinStatement;
+    PVariant {
+        ac: protein_ac.to_string(),
+        gene: var_c.gene.clone(),
+        posedit: crate::structs::PosEdit {
+            predicted: match statement {
+                ProteinStatement::Unchanged => true,
+                ProteinStatement::Unknown => pos.is_some(),
+                ProteinStatement::NoProtein { .. } => false,
+            },
+            pos,
+            edit: crate::edits::AaEdit::Statement(statement),
+            uncertain: false,
+        },
+    }
+}
+
 /// `p.?`, `p.(Met1?)`, `p.0?` or `p.(=)` for an edit whose codons cannot be
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
@@ -441,23 +467,10 @@ fn statement_about_transcript(
     transcript: &TranscriptData,
     protein_ac: &str,
 ) -> Option<PVariant> {
-    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos, ProteinStatement};
+    use crate::structs::{AAPosition, AaInterval, ProteinPos, ProteinStatement};
     let pos = var_c.posedit.pos.as_ref()?;
-    let statement = |pos: Option<AaInterval>, statement: ProteinStatement| PVariant {
-        ac: protein_ac.to_string(),
-        gene: var_c.gene.clone(),
-        posedit: PosEdit {
-            // Bracketed as HGVS writes each prediction: `p.(=)` and `p.(Met1?)`,
-            // but `p.?` and `p.0?` bare.
-            predicted: match statement {
-                ProteinStatement::Unchanged => true,
-                ProteinStatement::Unknown => pos.is_some(),
-                ProteinStatement::NoProtein { .. } => false,
-            },
-            pos,
-            edit: crate::edits::AaEdit::Statement(statement),
-            uncertain: false,
-        },
+    let statement = |pos: Option<AaInterval>, statement: ProteinStatement| {
+        predicted_statement(var_c, protein_ac, pos, statement)
     };
     // A start after the stop codon is an edit entirely in the 3'UTR.
     let in_3_utr = pos.start.anchor == Anchor::CdsEnd;
@@ -1631,7 +1644,8 @@ impl<'a> VariantMapper<'a> {
 
     /// What a coding variant does to the protein: a statement (`p.?`,
     /// `p.(Met1?)`, `p.0?`, `p.(=)`) when the edit lies outside or across the CDS
-    /// boundary, else the resolved change to describe or read.
+    /// boundary or leaves no codon where the protein first changes, else the
+    /// resolved change to describe or read.
     fn coding_outcome(
         &self,
         var_c: &CVariant,
@@ -1670,7 +1684,7 @@ impl<'a> VariantMapper<'a> {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
             })
         };
-        Ok(CodingOutcome::Change(crate::protein::CodingChange {
+        let change = crate::protein::CodingChange {
             coding: ref_seq[cds_start..].to_string(),
             cds_len: cds_end + 1 - cds_start,
             edit: crate::edits::ResolvedEdit {
@@ -1680,7 +1694,16 @@ impl<'a> VariantMapper<'a> {
                 alt: resolved.alt,
             },
             protein_ac,
-        }))
+        };
+        if crate::protein::translation_runs_off(&change) {
+            return Ok(CodingOutcome::Statement(predicted_statement(
+                var_c,
+                &change.protein_ac,
+                None,
+                crate::structs::ProteinStatement::Unknown,
+            )));
+        }
+        Ok(CodingOutcome::Change(change))
     }
 
     /// `p.(=)` for `c.=`: the whole transcript unchanged predicts the protein

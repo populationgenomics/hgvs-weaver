@@ -249,6 +249,62 @@ fn a_3_open_cds_refuses_a_frameshift_or_a_change_reaching_its_last_codon() {
 }
 
 #[test]
+fn a_3_open_cds_deleting_residues_that_repeat_its_last_is_a_deletion() {
+    // MKLAA, the record ending at the last coding base: deleting codon 4
+    // leaves MKLA, a prefix of the reference, with no stop lost.
+    let record = "ATGAAACTGGCCGCC";
+    let mut model: TranscriptData = transcript(
+        "NM_OPENEND.1",
+        GENOME_AC,
+        Strand::Plus,
+        Some((0, 14)),
+        vec![exon((0, 15), (0, 14), Strand::Plus)],
+    );
+    model.cds_end_open = true;
+    let hdp = Provider::new()
+        .sequence(GENOME_AC, record)
+        .sequence("NM_OPENEND.1", record)
+        .sequence("NP_OPENEND.1", "MKLAA")
+        .transcript(model)
+        .protein_for("NM_OPENEND.1", "NP_OPENEND.1");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        c_to_p(&mapper, "NM_OPENEND.1:c.10_12del").unwrap(),
+        "NP_OPENEND.1:p.(Ala5del)"
+    );
+}
+
+#[test]
+fn a_cds_with_no_stop_shifted_to_the_end_of_its_record_says_nothing() {
+    // MKLAA and two bases, no stop, the end not declared open: each deletion
+    // shifts the frame and runs to the end of the record, so no codon is left
+    // where the protein first changes, and none of them makes a stop.
+    let record = "ATGAAACTGGCCGCCGG";
+    let model: TranscriptData = transcript(
+        "NM_NOSTOP.1",
+        GENOME_AC,
+        Strand::Plus,
+        Some((0, 14)),
+        vec![exon((0, 17), (0, 16), Strand::Plus)],
+    );
+    let hdp = Provider::new()
+        .sequence(GENOME_AC, record)
+        .sequence("NM_NOSTOP.1", record)
+        .sequence("NP_NOSTOP.1", "MKLAA")
+        .transcript(model)
+        .protein_for("NM_NOSTOP.1", "NP_NOSTOP.1");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        c_to_p(&mapper, "NM_NOSTOP.1:c.10_*2del").unwrap(),
+        "NP_NOSTOP.1:p.?"
+    );
+    assert_eq!(
+        c_to_p(&mapper, "NM_NOSTOP.1:c.13_*2del").unwrap(),
+        "NP_NOSTOP.1:p.?"
+    );
+}
+
+#[test]
 fn a_provider_that_says_nothing_about_open_ends_means_both_are_whole() {
     let model: TranscriptData = serde_json::from_str(
         r#"{"ac":"NM_X.1","gene":"X","cds_start_index":2,"cds_end_index":31,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,

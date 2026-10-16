@@ -696,11 +696,14 @@ parse NP_W.1:p.Met1?      →  the same, stated
 ### Edits outside the CDS are statements
 
 **A deletion of the whole CDS is `p.0?`; an edit that starts in the 5'UTR and reaches into the CDS is `p.(Met1?)`; an
-edit entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`.**
+edit entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon where the
+protein first changes is `p.?`.**
 
 weaver does not commit to a consequence upstream because the initiation site is not predictable: a 5'UTR change can
 create an upstream start. Downstream of the stop codon nothing can change the protein, so the prediction is no change,
-and no residue past the end of the protein is named.
+and no residue past the end of the protein is named. An edit that runs to the end of the transcript can leave fewer than
+three bases after the last intact codon: translation runs off the edited transcript with no stop and no residue to name
+at the first change, so weaver says nothing rather than read the missing codon as a stop.
 
 These statements are about a change. An identity, `=`, changes nothing wherever it lies, so outside the codons it
 predicts `p.(=)` too: one in the 5'UTR, in an intron, or spanning the start codon (`c.-5_*15=`, every base of the
@@ -717,6 +720,7 @@ NM_X.1:c.-3_2del           →  NP_X.1:p.(Met1?)   reaches into the start codon
 NM_X.1:c.-5_*14del         →  NP_X.1:p.0?        the whole CDS
 NM_X.1:c.*3A>G             →  NP_X.1:p.(=)       entirely downstream
 NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silently
+NM_X.1:c.10_*14del         →  NP_X.1:p.?         residue 4 to the end of the transcript
 NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity of the whole transcript
 NM_W.1:c.45+1=             →  NP_W.1:p.(=)       an intronic identity
 
@@ -731,11 +735,15 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   the 5'UTR VariantValidator writes `p.(=)` where weaver writes `p.?`; both are defensible.
 - **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
   `p.0?` "when you predict that no protein is produced"; `p.Met1?` as above; `p.Met1ext-5` shows a 5'UTR change can
-  activate an upstream initiation site.
+  activate an upstream initiation site. It is *silent* on an edit that leaves no codon where the protein changes.
+- *Not checked:* biocommons, VariantValidator and ClinVar on an edit that leaves no codon where the protein changes.
 - **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements`,
   `::a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged`,
+  `::an_edit_that_leaves_no_codon_where_the_protein_changes_says_nothing`,
   `::statements_have_no_allele_and_a_wrong_protein_is_an_error`,
   `::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
+  `open_cds_test::a_3_open_cds_deleting_residues_that_repeat_its_last_is_a_deletion`,
+  `::a_cds_with_no_stop_shifted_to_the_end_of_its_record_says_nothing`;
   `real_transcripts_test::biocommons_real_transcript_cases` (WHOLEGENE01/02, INITMET02/03);
   `statements_test::an_identity_across_the_whole_transcript_predicts_the_protein_unchanged`,
   `::an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged`,

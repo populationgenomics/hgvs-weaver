@@ -269,6 +269,37 @@ fn edits_around_the_cds_start_are_statements() {
 }
 
 #[test]
+fn a_stored_extension_reads_back_as_the_one_computed() {
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let computed =
+        SequenceVariant::Protein(mapper.c_to_p(&coding("NM_X.1:c.19T>C"), None).unwrap());
+    assert_eq!(parse_hgvs_variant(&computed.to_string()).unwrap(), computed);
+}
+
+#[test]
+fn an_edit_that_leaves_no_codon_where_the_protein_changes_says_nothing() {
+    // Each deletion runs to the end of the transcript, leaving fewer than
+    // three bases after the last intact codon: no residue, and no stop, at
+    // the first changed position.
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    for c in [
+        "NM_X.1:c.19_*12del", // in frame, the stop and all but two bases after it
+        "NM_X.1:c.19_*14del", // out of frame, the stop and everything after it
+        "NM_X.1:c.10_*14del", // out of frame, from residue 4 to the end
+    ] {
+        let vc = coding(c);
+        assert_eq!(
+            mapper.c_to_p(&vc, None).unwrap().to_string(),
+            "NP_X.1:p.?",
+            "{c}"
+        );
+        assert_eq!(mapper.predicted_protein(&vc, None).unwrap(), None, "{c}");
+    }
+}
+
+#[test]
 fn a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged() {
     // Issue #37: c.*N was read as CDS-relative and named a residue past the
     // end of the protein. Nothing after the stop codon changes the protein.
