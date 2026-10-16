@@ -1,6 +1,6 @@
 use crate::coords::SequenceVariant;
 use crate::edits::{AaEdit, ProteinStatement};
-use crate::structs::{AaInterval, AAPosition, PVariant, PosEdit};
+use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit};
 
 /// Controls how start-codon variants are represented in protein notation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
