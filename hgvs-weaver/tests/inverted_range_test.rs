@@ -111,12 +111,12 @@ fn a_range_built_backwards_is_an_error_wherever_it_is_resolved() {
         PosEdit {
             pos: Some(SimpleInterval {
                 start: SimplePosition {
-                    base: HgvsGenomicPos(40),
+                    base: HgvsGenomicPos(40).into(),
                     end: None,
                     uncertain: false,
                 },
                 end: Some(SimplePosition {
-                    base: HgvsGenomicPos(20),
+                    base: HgvsGenomicPos(20).into(),
                     end: None,
                     uncertain: false,
                 }),

@@ -101,7 +101,7 @@ pro_delins = { "delins" ~ aat13_seq }
 pro_del    = { "del" }
 pro_ins    = { "ins" ~ aat13_seq }
 pro_dup    = { "dup" }
-pro_repeat = { (aat13_seq | num)? ~ repeat_count }
+pro_repeat = { aat13_seq? ~ repeat_count }
 pro_fs     = { (aat13 | "") ~ fs }
 pro_ext    = { aat13? ~ ext }
 

@@ -201,6 +201,126 @@ fn alleles_from_other_producers_parse() {
     );
 }
 
+/// One test per case: the SPDI `$spdi` names a range no sequence can hold
+/// and is refused, rather than read as a different allele or overflowing.
+macro_rules! an_spdi_past_any_sequence_is_refused {
+    ($($name:ident: $spdi:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            let hdp = provider();
+            let mapper = VariantMapper::with_refget(&hdp, &hdp);
+            let result = mapper.from_spdi($spdi);
+            assert!(matches!(result, Err(HgvsError::ValidationError(_))), "{result:?}");
+        }
+    )*};
+}
+
+an_spdi_past_any_sequence_is_refused! {
+    an_spdi_deletion_length_past_usize: "NC_TEST.1:6:99999999999999999999999:C";
+    an_spdi_deletion_length_running_past_usize: "NC_TEST.1:18446744073709551615:5:C";
+    an_spdi_deletion_running_past_usize: "NC_TEST.1:18446744073709551615:A:C";
+    an_spdi_insertion_past_the_sequence: "NC_TEST.1:41:0:C";
+    an_spdi_insertion_past_i32: "NC_TEST.1:2147483648:0:C";
+    an_spdi_insertion_past_u32: "NC_TEST.1:4294967296:0:C";
+    an_spdi_insertion_at_the_last_index: "NC_TEST.1:18446744073709551615:0:C";
+    an_spdi_deletion_length_past_the_sequence: "NC_TEST.1:0:99999999999999:C";
+}
+
+/// A deletion from VRS bounds `start`, `end` on GENOME, as JSON.
+fn bounded_deletion_json(start: &str, end: &str) -> String {
+    let refget = refget_accession(GENOME);
+    format!(
+        r#"{{"type":"Allele","location":{{"type":"SequenceLocation",
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+            "start":{start},"end":{end}}},
+            "state":{{"type":"LiteralSequenceExpression","sequence":""}}}}"#
+    )
+}
+
+/// A location on GENOME from `start` to `end`, as the JSON of a VRS object.
+fn location_json(start: &str, end: &str) -> String {
+    let refget = refget_accession(GENOME);
+    format!(
+        r#""location":{{"type":"SequenceLocation",
+            "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+            "start":{start},"end":{end}}}"#
+    )
+}
+
+/// One test per case: the VRS object `$json` locates its change at
+/// coordinates no g. position holds, and is refused rather than written at a
+/// wrapped or zero position, or panicking.
+macro_rules! a_vrs_location_past_any_position_is_refused {
+    ($($name:ident: $json:expr;)*) => {$(
+        #[test]
+        fn $name() {
+            let hdp = provider();
+            let mapper = VariantMapper::with_refget(&hdp, &hdp);
+            let result = mapper.from_vrs(&$json, None);
+            assert!(matches!(result, Err(HgvsError::ValidationError(_))), "{result:?}");
+        }
+    )*};
+}
+
+a_vrs_location_past_any_position_is_refused! {
+    a_copy_number_at_the_last_u32: format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("4294967295", "4294967296")
+    );
+    a_copy_number_past_i32: format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("2147483647", "2147483648")
+    );
+    a_copy_number_past_u32: format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("4294967300", "4294967310")
+    );
+    a_deletion_range_from_the_last_index: format!(
+        r#"{{"type":"Allele",{},"state":{{"type":"LiteralSequenceExpression","sequence":""}}}}"#,
+        location_json("[18446744073709551615,null]", "[null,null]")
+    );
+    a_length_expression_at_the_last_index: format!(
+        r#"{{"type":"Allele",{},"state":{{"type":"LengthExpression","length":5}}}}"#,
+        location_json("18446744073709551615", "18446744073709551615")
+    );
+}
+
+#[test]
+fn a_copy_number_at_the_last_g_position_keeps_it() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let json = format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("2147483646", "2147483647")
+    );
+    assert_eq!(
+        mapper.from_vrs(&json, None).unwrap().to_string(),
+        "NC_TEST.1:g.2147483647copy3"
+    );
+}
+
+#[test]
+fn a_vrs_deletion_ending_at_interbase_zero_is_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let result = mapper.from_vrs(&bounded_deletion_json("[null,4]", "0"), None);
+    assert!(
+        matches!(result, Err(HgvsError::ValidationError(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_vrs_deletion_whose_end_range_starts_at_interbase_zero_is_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let result = mapper.from_vrs(&bounded_deletion_json("[null,4]", "[0,10]"), None);
+    assert!(
+        matches!(result, Err(HgvsError::ValidationError(_))),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn an_insertion_before_the_first_base_reads_back_as_a_delins_of_that_base() {
     // HGVS has no insertion before base 1. An allele that puts T in front of

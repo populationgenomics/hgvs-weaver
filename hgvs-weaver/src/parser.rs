@@ -76,16 +76,17 @@ pub fn parse_tx_posedit(
 }
 
 pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
-    let mut predicted = false;
-    let s = pair.as_str();
-    if s.starts_with('(') && s.ends_with(')') {
-        predicted = true;
-    }
-
+    let opens_with_bracket = pair.as_str().starts_with('(');
+    let start = pair.as_span().start();
     let mut inner = pair.into_inner();
     let inner_pair = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty p_posedit".into()))?;
+    // A prediction's bracket is p_posedit's own, so its first child starts
+    // after it; a statement's, p.(=) or p.(?), is inside the statement.
+    let predicted = opens_with_bracket
+        && (inner_pair.as_span().start() > start
+            || inner_pair.as_rule() == Rule::p_posedit_special);
     if inner_pair.as_rule() == Rule::p_unknown_from {
         let mut at = parse_aa_pos(
             inner_pair
@@ -199,8 +200,8 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
             )?;
             let end = parts.next().map(parse_simple_pos).transpose()?;
             if let Some(end) = &end {
-                if !start.base.is_unknown() && !end.base.is_unknown() {
-                    ordered(start.base.0, end.base.0, s)?;
+                if let (Some(a), Some(b)) = (start.base.known(), end.base.known()) {
+                    ordered(a.0, b.0, s)?;
                 }
             }
             Ok(SimpleInterval {
@@ -257,19 +258,13 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
 
 pub fn parse_simple_pos(pair: Pair<Rule>) -> Result<SimplePosition, HgvsError> {
     let s = pair.as_str();
-    if s == "?" {
-        // Unknown is carried by the base itself; `?` is not parenthesised.
-        return Ok(SimplePosition {
-            base: HgvsGenomicPos::UNKNOWN,
-            end: None,
-            uncertain: false,
-        });
-    }
-    let hgvs_base = s
-        .parse::<i32>()
-        .map_err(|_| HgvsError::PestError("Invalid position".into()))?;
+    let base = if s == "?" {
+        GenomicBound::Unknown
+    } else {
+        GenomicBound::At(HgvsGenomicPos::try_from(number::<i32>(s)?).map_err(HgvsError::PestError)?)
+    };
     Ok(SimplePosition {
-        base: HgvsGenomicPos(hgvs_base),
+        base,
         end: None,
         uncertain: false,
     })
@@ -344,20 +339,22 @@ pub fn parse_base_offset_pos_with_default(
         anchor = Anchor::CdsEnd;
     }
 
-    let mut hgvs_base = 0;
+    let text = pair.as_str();
+    let mut hgvs_base = None;
     let mut hgvs_offset: Option<IntronicOffset> = None;
 
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::num | Rule::base => {
-                hgvs_base = p.as_str().parse().unwrap_or(0);
+                hgvs_base = Some(
+                    HgvsTranscriptPos::try_from(number::<i32>(p.as_str())?)
+                        .map_err(HgvsError::PestError)?,
+                );
             }
             Rule::offset => {
                 let off_str = p.as_str();
                 if !off_str.is_empty() {
-                    hgvs_offset = Some(IntronicOffset(
-                        off_str.replace('+', "").parse().unwrap_or(0),
-                    ));
+                    hgvs_offset = Some(IntronicOffset(number(&off_str.replace('+', ""))?));
                 }
             }
             _ => {}
@@ -365,7 +362,8 @@ pub fn parse_base_offset_pos_with_default(
     }
 
     Ok(BaseOffsetPosition {
-        base: HgvsTranscriptPos(hgvs_base),
+        base: hgvs_base
+            .ok_or_else(|| HgvsError::PestError(format!("position {text} has no base")))?,
         offset: hgvs_offset,
         anchor,
         uncertain: false,
@@ -430,6 +428,12 @@ fn text(p: Pair<Rule>) -> String {
     p.as_str().to_string()
 }
 
+/// A number the grammar matched, in the type that holds it.
+fn number<T: std::str::FromStr>(s: &str) -> Result<T, HgvsError> {
+    s.parse()
+        .map_err(|_| HgvsError::PestError(format!("number {s} is out of range")))
+}
+
 /// The text of a pair's first child, if it has one.
 fn first_child_text(pair: Pair<Rule>) -> Option<String> {
     pair.into_inner().next().map(text)
@@ -437,41 +441,49 @@ fn first_child_text(pair: Pair<Rule>) -> Option<String> {
 
 /// `unit[n]` or `unit(min_max)`: the stated unit (a child for which `is_unit`
 /// holds) and the copy count or range. Shared by nucleotide and protein repeats.
-fn repeat_parts(pair: Pair<Rule>, is_unit: fn(Rule) -> bool) -> (Option<String>, i32, i32) {
+fn repeat_parts(
+    pair: Pair<Rule>,
+    is_unit: fn(Rule) -> bool,
+) -> Result<(Option<String>, i32, i32), HgvsError> {
     let mut unit = None;
     let mut counts: Vec<i32> = Vec::new();
     for p in pair.into_inner() {
         if is_unit(p.as_rule()) {
             unit = Some(text(p));
         } else if p.as_rule() == Rule::num {
-            counts.push(p.as_str().parse().unwrap_or(0));
+            counts.push(number(p.as_str())?);
         }
     }
-    let min = counts.first().copied().unwrap_or(0);
-    let max = counts.get(1).copied().unwrap_or(min);
-    (unit, min, max)
+    let (min, max) = min_max(&counts)?;
+    Ok((unit, min, max))
+}
+
+/// The first count and the second, or the first again when there is one.
+fn min_max<T: Copy>(counts: &[T]) -> Result<(T, T), HgvsError> {
+    let min = *counts
+        .first()
+        .ok_or_else(|| HgvsError::PestError("a count range with no count".into()))?;
+    Ok((min, counts.get(1).copied().unwrap_or(min)))
 }
 
 /// `N[20]`, `N[(20_30)]`, `(20)` or `(20_30)`: the number of inserted bases,
 /// as `(min, max)`, equal when exact.
-fn ins_length(pair: Pair<Rule>) -> (usize, usize) {
-    let counts: Vec<usize> = pair
+fn ins_length(pair: Pair<Rule>) -> Result<(usize, usize), HgvsError> {
+    let counts = pair
         .into_inner()
         .flatten()
         .filter(|p| p.as_rule() == Rule::num)
-        .map(|p| p.as_str().parse().unwrap_or(0))
-        .collect();
-    let min = counts.first().copied().unwrap_or(0);
-    let max = counts.get(1).copied().unwrap_or(min);
-    (min, max)
+        .map(|p| number(p.as_str()))
+        .collect::<Result<Vec<usize>, _>>()?;
+    min_max(&counts)
 }
 
 /// `ins` carries the inserted bases, or their number alone.
-fn na_ins(pair: Pair<Rule>) -> NaEdit {
+fn na_ins(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
     let uncertain = false;
-    match pair.into_inner().next() {
+    Ok(match pair.into_inner().next() {
         Some(p) if p.as_rule() == Rule::ins_length => {
-            let (min, max) = ins_length(p);
+            let (min, max) = ins_length(p)?;
             NaEdit::InsLength {
                 min,
                 max,
@@ -482,7 +494,7 @@ fn na_ins(pair: Pair<Rule>) -> NaEdit {
             alt: p.map(text),
             uncertain,
         },
-    }
+    })
 }
 
 /// `delins` carries the inserted bases (or their number alone) and,
@@ -497,7 +509,7 @@ fn na_delins(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
     }
     let deleted = parts.pop().map(text);
     if inserted.as_rule() == Rule::ins_length {
-        let (min, max) = ins_length(inserted);
+        let (min, max) = ins_length(inserted)?;
         return Ok(NaEdit::DelInsLength {
             ref_: deleted,
             min,
@@ -544,7 +556,7 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
             ref_: first_child_text(edit),
             uncertain,
         },
-        Rule::dna_ins | Rule::rna_ins => na_ins(edit),
+        Rule::dna_ins | Rule::rna_ins => na_ins(edit)?,
         Rule::dna_delins | Rule::rna_delins => na_delins(edit)?,
         Rule::dna_dup | Rule::rna_dup => NaEdit::Dup {
             ref_: first_child_text(edit),
@@ -556,7 +568,7 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
         },
         Rule::dna_ident | Rule::rna_ident => na_ident(edit),
         Rule::dna_repeat | Rule::rna_repeat => {
-            let (ref_, min, max) = repeat_parts(edit, |r| matches!(r, Rule::dna | Rule::rna));
+            let (ref_, min, max) = repeat_parts(edit, |r| matches!(r, Rule::dna | Rule::rna))?;
             NaEdit::Repeat {
                 ref_,
                 min,
@@ -565,9 +577,10 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
             }
         }
         Rule::dna_copy => NaEdit::NACopy {
-            copy: first_child_text(edit)
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(0),
+            copy: number(
+                &first_child_text(edit)
+                    .ok_or_else(|| HgvsError::PestError("copy with no count".into()))?,
+            )?,
             uncertain,
         },
         // Conversions are parsed but not modelled.
@@ -575,62 +588,94 @@ pub fn parse_na_edit(pair: Pair<Rule>) -> Result<NaEdit, HgvsError> {
     })
 }
 
-/// The parts of `fs...` or `ext...`: the terminator or residue named, and the
-/// count or offset, wherever the grammar nests them.
-fn fs_ext_parts(pair: Pair<Rule>) -> (Option<String>, Option<String>) {
-    let mut named = None;
-    let mut count = None;
-    for p in pair.into_inner().flatten() {
-        match p.as_rule() {
-            Rule::term13 | Rule::aa13 => named = Some(text(p)),
-            Rule::fsext_offset | Rule::snum => count = Some(text(p)),
-            _ => {}
-        }
-    }
-    (named, count)
-}
-
-/// `Xxx#Yyyfs*N`: the new residue, then the frameshift's terminator and distance.
-fn pro_fs(pair: Pair<Rule>) -> AaEdit {
+/// `Xxx#Yyyfs*N`: the new residue, then the frameshift's stop and distance.
+fn pro_fs(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
     let mut alt = String::new();
-    let mut term = None;
-    let mut length = None;
+    let mut stop = None;
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aat13 => alt = text(p),
-            Rule::fs => (term, length) = fs_ext_parts(p),
+            Rule::fs => {
+                let offset = p
+                    .into_inner()
+                    .flatten()
+                    .find(|q| q.as_rule() == Rule::fsext_offset);
+                if let Some(offset) = offset {
+                    stop = Some(stop_distance(offset.as_str())?);
+                }
+            }
             _ => {}
         }
     }
-    AaEdit::Fs {
-        ref_: String::new(),
-        alt,
-        term,
-        length,
-        uncertain: false,
-    }
+    Ok(AaEdit::Fs { alt, stop })
 }
 
-/// `Ter#Xxxext*N`: the residue read through the stop, then the extension's
-/// terminator and distance (or a residue and signed offset).
-fn pro_ext(pair: Pair<Rule>) -> AaEdit {
+/// A count after `fs` or `ext`, which is at least 1.
+fn count(s: &str) -> Result<std::num::NonZeroU32, HgvsError> {
+    std::num::NonZeroU32::new(number(s)?).ok_or_else(|| {
+        HgvsError::PestError(format!("a count after fs or ext is at least 1, not {s}"))
+    })
+}
+
+/// `fsext_offset`: the distance to a new stop, `12`, `?` or nothing.
+fn stop_distance(s: &str) -> Result<StopDistance, HgvsError> {
+    Ok(match s {
+        "" => StopDistance::Unstated,
+        "?" => StopDistance::Unknown,
+        n => StopDistance::Residues { count: count(n)? },
+    })
+}
+
+/// `Ter#Xxxext*N`, `Met1ext-5`: the residue that replaces the stop or start,
+/// then what follows `ext`.
+fn pro_ext(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
     let mut alt = String::new();
-    let mut aaterm = None;
-    let mut length = None;
+    let mut end = ExtensionEnd::Unstated;
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aat13 => alt = text(p),
-            Rule::ext => (aaterm, length) = fs_ext_parts(p),
+            Rule::ext => {
+                if let Some(tail) = p.into_inner().next() {
+                    end = extension_end(tail)?;
+                }
+            }
             _ => {}
         }
     }
-    AaEdit::Ext {
-        ref_: String::new(),
-        alt,
-        aaterm,
-        length,
-        uncertain: false,
+    Ok(AaEdit::Ext { alt, end })
+}
+
+/// `aa13_ext`: a stop and its distance, or an optional residue and a count,
+/// signed or not.
+fn extension_end(pair: Pair<Rule>) -> Result<ExtensionEnd, HgvsError> {
+    let mut residue = None;
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::aa13 => residue = Some(text(p)),
+            Rule::fsext_offset => {
+                return Ok(ExtensionEnd::Stop {
+                    distance: stop_distance(p.as_str())?,
+                });
+            }
+            Rule::snum => {
+                let n = p.as_str();
+                return Ok(match n.strip_prefix('-') {
+                    Some(n) => ExtensionEnd::Upstream {
+                        residue,
+                        distance: count(n)?,
+                    },
+                    None => ExtensionEnd::Count {
+                        residue,
+                        count: count(n.trim_start_matches('+'))?,
+                    },
+                });
+            }
+            _ => {}
+        }
     }
+    Err(HgvsError::PestError(
+        "an extension's end has neither a stop distance nor a count".into(),
+    ))
 }
 
 pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
@@ -663,10 +708,10 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
             alt: first_child_text(edit).unwrap_or_default(),
             uncertain,
         },
-        Rule::pro_fs => pro_fs(edit),
-        Rule::pro_ext => pro_ext(edit),
+        Rule::pro_fs => pro_fs(edit)?,
+        Rule::pro_ext => pro_ext(edit)?,
         Rule::pro_repeat => {
-            let (ref_, min, max) = repeat_parts(edit, |r| r == Rule::aat13_seq);
+            let (ref_, min, max) = repeat_parts(edit, |r| r == Rule::aat13_seq)?;
             AaEdit::Repeat {
                 ref_,
                 min,
@@ -841,21 +886,75 @@ mod tests {
         let v_p = parse_hgvs_variant("NP_001116078.1:p.Ter312Argext*5").unwrap();
         match v_p {
             crate::coords::SequenceVariant::Protein(v) => match v.posedit.edit {
-                crate::edits::AaEdit::Ext {
-                    ref_,
-                    alt,
-                    aaterm,
-                    length,
-                    ..
-                } => {
-                    assert_eq!(ref_, "");
+                crate::edits::AaEdit::Ext { alt, end } => {
                     assert_eq!(alt, "Arg");
-                    assert_eq!(aaterm, Some("Ter".to_string()));
-                    assert_eq!(length, Some("5".to_string()));
+                    assert_eq!(
+                        end,
+                        crate::edits::ExtensionEnd::Stop {
+                            distance: crate::edits::StopDistance::Residues {
+                                count: std::num::NonZeroU32::new(5).unwrap()
+                            }
+                        }
+                    );
                 }
                 _ => panic!("Expected Extension edit"),
             },
             _ => panic!("Expected Protein variant"),
         }
+    }
+
+    /// One test per case: a number past its type's range in `$hgvs` is a
+    /// parse error naming it, not a value read as 0.
+    macro_rules! out_of_range_is_a_parse_error {
+        ($($name:ident: $hgvs:literal, $number:literal;)*) => {$(
+            #[test]
+            fn $name() {
+                let err = parse_hgvs_variant($hgvs).unwrap_err();
+                assert!(
+                    matches!(&err, crate::error::HgvsError::PestError(m) if m.contains($number)),
+                    "{err}"
+                );
+            }
+        )*};
+    }
+
+    out_of_range_is_a_parse_error! {
+        a_genomic_position_past_i32: "NC_W.1:g.99999999999A>G", "99999999999";
+        a_residue_number_past_i32: "NP_W.1:p.Arg99999999999Gly", "99999999999";
+        a_transcript_position_past_i32: "NM_W.1:c.99999999999A>G", "99999999999";
+        an_intronic_offset_past_i32: "NM_W.1:c.10+99999999999A>G", "99999999999";
+        a_repeat_count_past_i32: "NM_W.1:c.10_12CAG[99999999999]", "99999999999";
+        a_repeat_range_end_past_i32: "NM_W.1:c.10_12CAG[(5_99999999999)]", "99999999999";
+        an_inserted_length_past_usize: "NC_W.1:g.10_11insN[99999999999999999999999]", "99999999999999999999999";
+        a_copy_count_past_i32: "NC_W.1:g.10_20copy99999999999", "99999999999";
+    }
+
+    #[test]
+    fn a_protein_repeat_with_a_number_before_its_count_is_a_parse_error() {
+        assert!(
+            matches!(
+                parse_hgvs_variant("NP_W.1:p.(Gln18)5[(6_7)]"),
+                Err(crate::error::HgvsError::PestError(_))
+            ),
+            "the 5 is neither the unit nor the count"
+        );
+    }
+
+    #[test]
+    fn a_frameshift_count_past_u32_is_a_parse_error() {
+        let err = parse_hgvs_variant("NP_W.1:p.Arg97ProfsTer4294967296").unwrap_err();
+        assert!(
+            matches!(&err, crate::error::HgvsError::PestError(m) if m.contains("4294967296")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn an_extension_count_past_u32_is_a_parse_error() {
+        let err = parse_hgvs_variant("NP_W.1:p.Ter30GlnextTer4294967296").unwrap_err();
+        assert!(
+            matches!(&err, crate::error::HgvsError::PestError(m) if m.contains("4294967296")),
+            "{err}"
+        );
     }
 }

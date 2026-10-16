@@ -9,7 +9,7 @@
 //! the stop codon, and the stop lands at its shifted index. Every other stop
 //! was created by the edit, so nothing has to guess from the edit's kind.
 
-use crate::edits::{AaEdit, ProteinStatement, ResolvedEdit};
+use crate::edits::{AaEdit, ExtensionEnd, ProteinStatement, ResolvedEdit, StopDistance};
 use crate::error::HgvsError;
 use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit, ProteinPos};
 use crate::utils::{aa1_to_aa3, translate};
@@ -437,18 +437,17 @@ impl Writer<'_> {
             }
             return self.substitution(i, ref_c, '*');
         }
-        let length = self.alt_aa[i..]
-            .iter()
-            .position(|&c| c == '*')
-            .map_or("?".to_string(), |k| (k + 1).to_string());
+        let stop = match self.alt_aa[i..].iter().position(|&c| c == '*') {
+            Some(k) => StopDistance::Residues {
+                count: residues_on(k)?,
+            },
+            None => StopDistance::Unknown,
+        };
         self.variant(
             Some(self.span(i, None)),
             AaEdit::Fs {
-                ref_: String::new(),
                 alt: aa1_to_aa3(alt_c).to_string(),
-                term: Some("Ter".to_string()),
-                length: Some(length),
-                uncertain: false,
+                stop: Some(stop),
             },
         )
     }
@@ -457,7 +456,12 @@ impl Writer<'_> {
     /// next stop, or `?` if translation runs off the end.
     fn extension(&self, i: usize) -> Result<PVariant, HgvsError> {
         let alt_c = self.alt_aa.get(i).copied().unwrap_or('*');
-        let next_stop = self.alt_aa[i + 1..].iter().position(|&c| c == '*');
+        let distance = match self.alt_aa[i + 1..].iter().position(|&c| c == '*') {
+            Some(k) => StopDistance::Residues {
+                count: residues_on(k)?,
+            },
+            None => StopDistance::Unknown,
+        };
         self.variant(
             Some(AaInterval {
                 start: AAPosition {
@@ -468,14 +472,19 @@ impl Writer<'_> {
                 uncertain: false,
             }),
             AaEdit::Ext {
-                ref_: String::new(),
                 alt: aa1_to_aa3(alt_c).to_string(),
-                aaterm: Some("Ter".to_string()),
-                length: Some(next_stop.map_or("?".to_string(), |k| (k + 1).to_string())),
-                uncertain: false,
+                end: ExtensionEnd::Stop { distance },
             },
         )
     }
+}
+
+/// The distance to a stop `k` residues after the first one counted.
+fn residues_on(k: usize) -> Result<std::num::NonZeroU32, HgvsError> {
+    u32::try_from(k)
+        .ok()
+        .and_then(|k| std::num::NonZeroU32::MIN.checked_add(k))
+        .ok_or_else(|| HgvsError::ValidationError(format!("a stop {} residues on", k + 1)))
 }
 
 #[cfg(test)]

@@ -135,16 +135,80 @@ impl Sub<IntronicOffset> for IntronicOffset {
 
 /// 1-based HGVS genomic coordinate.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(try_from = "i32")]
 pub struct HgvsGenomicPos(pub i32);
-impl HgvsGenomicPos {
-    /// A bound that is not given, HGVS `?`. Position 0 does not exist in
-    /// 1-based coordinates, so it can stand for "unknown".
-    pub const UNKNOWN: Self = Self(0);
 
-    pub fn is_unknown(&self) -> bool {
-        self.0 == 0
+impl TryFrom<i32> for HgvsGenomicPos {
+    type Error = String;
+    fn try_from(n: i32) -> Result<Self, String> {
+        if n >= 1 {
+            Ok(HgvsGenomicPos(n))
+        } else {
+            Err(format!("a g. or m. position numbers from 1, not {n}"))
+        }
     }
+}
 
+/// A g. or m. position as written: a base, or `?` where it is not known.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum GenomicBound {
+    At(HgvsGenomicPos),
+    Unknown,
+}
+
+impl GenomicBound {
+    /// The base, if it is known.
+    pub fn known(self) -> Option<HgvsGenomicPos> {
+        match self {
+            GenomicBound::At(pos) => Some(pos),
+            GenomicBound::Unknown => None,
+        }
+    }
+}
+
+impl From<HgvsGenomicPos> for GenomicBound {
+    fn from(pos: HgvsGenomicPos) -> Self {
+        GenomicBound::At(pos)
+    }
+}
+
+impl From<Option<HgvsGenomicPos>> for GenomicBound {
+    fn from(pos: Option<HgvsGenomicPos>) -> Self {
+        pos.map_or(GenomicBound::Unknown, GenomicBound::At)
+    }
+}
+
+/// A known base is its number and an unknown one `"?"`, as HGVS writes them.
+impl Serialize for GenomicBound {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            GenomicBound::At(pos) => pos.serialize(serializer),
+            GenomicBound::Unknown => serializer.serialize_str("?"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GenomicBound {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Written {
+            At(i32),
+            Text(String),
+        }
+        match Written::deserialize(deserializer)? {
+            Written::At(n) => HgvsGenomicPos::try_from(n)
+                .map(GenomicBound::At)
+                .map_err(serde::de::Error::custom),
+            Written::Text(t) if t == "?" => Ok(GenomicBound::Unknown),
+            Written::Text(t) => Err(serde::de::Error::custom(format!(
+                "a g. or m. position is a number or \"?\", not {t:?}"
+            ))),
+        }
+    }
+}
+
+impl HgvsGenomicPos {
     /// Converts a 1-based HGVS genomic coordinate to an internal 0-based `GenomicPos`.
     pub fn to_index(&self) -> GenomicPos {
         (*self).into()
@@ -157,9 +221,22 @@ impl From<HgvsGenomicPos> for GenomicPos {
     }
 }
 
-/// 1-based HGVS transcript coordinate (c. or n.).
+/// 1-based HGVS transcript coordinate (c. or n.): negative before the
+/// anchor, positive from it, and never 0.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(try_from = "i32")]
 pub struct HgvsTranscriptPos(pub i32);
+
+impl TryFrom<i32> for HgvsTranscriptPos {
+    type Error = String;
+    fn try_from(n: i32) -> Result<Self, String> {
+        if n == 0 {
+            Err("a c., n. or r. position is never 0".into())
+        } else {
+            Ok(HgvsTranscriptPos(n))
+        }
+    }
+}
 impl HgvsTranscriptPos {
     /// Converts a 1-based HGVS transcript coordinate to a 0-based internal sequence index.
     /// Correctly handles the non-existent position 0 in HGVS cDNA coordinates.

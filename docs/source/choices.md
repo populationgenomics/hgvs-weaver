@@ -65,6 +65,8 @@ Representation Specification 2.0.1.
 | [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |   agrees    |     differs      |          –           |        –         |
 | [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |   agrees    |        –         |       differs        |        –         |
 | [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |   agrees    |     differs      |        agrees        |        –         |
+| [Positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0)                        |   agrees    |        –         |          –           |        –         |
+| [A number too large to hold is refused when parsed](#a-number-too-large-to-hold-is-refused-when-parsed)                             |      –      |        –         |          –           |        –         |
 | [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) |      –      |        –         |          –           |        –         |
 | [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based)                                           |   agrees    |        –         |          –           |        –         |
 | [A mapper keeps its cache](#a-mapper-keeps-its-cache)                                                                               |      –      |        –         |          –           |        –         |
@@ -775,11 +777,13 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
 parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
-a prediction. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and `p.Met1?` are
-Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and the same
-description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with `p.Met1?`, as
-`c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. The parentheses of
-`r.(?)` are not a prediction but part of the statement
+a prediction. A prediction's parentheses enclose the whole description; those of an uncertain residue or range,
+`p.(Gln18)[(70_80)]`, belong to the position, so a description that opens with one is not a prediction, and
+`p.((Gln18)[(70_80)])` is. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and
+`p.Met1?` are Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and
+the same description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with
+`p.Met1?`, as `c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. The
+parentheses of `r.(?)` are not a prediction but part of the statement
 ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
 
 **Example:**
@@ -812,7 +816,10 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
   `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
   (INITMET02/03); `src/transform.rs::test_transform_met1_to_question`,
-  `::test_transform_stated_met1_to_stated_question`.
+  `::test_transform_stated_met1_to_stated_question`;
+  `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
+  `::a_change_over_an_uncertain_residue_range_is_not_a_prediction`,
+  `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`.
 
 ### Frameshift length counts to the first new stop
 
@@ -1257,10 +1264,10 @@ NM_R.1:r.*5u>a
 A description read in an older or shorter spelling is stored as the spelling it prints, so the printed text parses back
 to the same value. A position, a substituted residue, and the residues of a frameshift or extension are written in
 three-letter code: `p.M1?` is stored and printed as `p.Met1?`. Where only a stop can stand, `X` or `*` is `Ter`: after
-`fs`, after `ext` with a count (`ext*5`, not the offset of `extXaa-5`), and at the start of an extension past the stop
-(`p.X30Qext*5` is `p.Ter30GlnextTer5`). Elsewhere a one-letter `X` is `Xaa`. The residues an insertion,
-deletion-insertion or repeat names are kept and printed as written, one letter or several (`p.Arg2delinsKL`,
-`p.Arg2_Lys3insX`).
+`fs`, after `ext` with a count (`ext*5` and `extX+5`, not the offset of `extXaa-5`), and at the start of an extension
+past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Elsewhere a one-letter `X` is `Xaa`. The count after `fs` or `ext`
+is a number, so `ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion, deletion-insertion or repeat
+names are kept and printed as written, one letter or several (`p.Arg2delinsKL`, `p.Arg2_Lys3insX`).
 
 **Example:**
 
@@ -1284,8 +1291,11 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
   `printed_reparse_test::a_repeat_of_a_range_of_copies_prints_as_hgvs_writes_it`,
   `::a_repeat_of_a_range_of_copies_parses_as_hgvs_writes_it`, `::a_one_letter_frameshift_is_the_three_letter_one`,
   `::a_frameshift_to_a_stop_written_x`, `::an_extension_from_a_stop_written_x_is_the_one_written_ter`,
-  `::an_n_terminal_extension_from_an_unknown_residue`;
+  `::an_n_terminal_extension_from_an_unknown_residue`, `::an_extension_count_written_plus_is_the_bare_count`,
+  `::an_extension_count_with_leading_zeros_is_the_number`, `::a_frameshift_count_with_leading_zeros_is_the_number`,
+  `::an_extension_count_after_x_is_the_distance_to_a_stop`;
   `statements_test::a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter`,
+  `::a_dict_for_an_extension_by_a_count_after_x_loads_as_the_distance_to_a_stop`,
   `::a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue`.
 
 ### A range written backwards is refused when parsed
@@ -1312,6 +1322,88 @@ NM_X.1:c.-5_10del          →  parses
   in a range are given 5' to 3'.
 - **Tests:** `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
   `::a_range_built_backwards_is_an_error_wherever_it_is_resolved`.
+
+### Positions number from 1, and an unknown one is not 0
+
+**`g.0`, `m.0`, `n.0`, `r.0`, `c.0`, `c.-0` and `c.*0` are a `ParseError`: a sequence numbers its bases from 1, and a
+coding sequence runs `c.-1` to `c.1`, with `c.*1` the first base after the stop. A g. or m. position that is not known,
+`?`, is held as unknown, never as a number.**
+
+Were `?` held as position 0, a written 0 would read as `?`, and `g.0A>G` would be a substitution somewhere unknown
+rather than an error; a transcript position 0 has no base to convert to, and lands on a neighbour's. A dict gives an
+unknown g. or m. position as `"?"` and a known one as its number; a dict with position 0 is refused like the text.
+
+A count after `fs` or `ext` starts at 1 for the same reason. `fsTer1` puts the stop at the first changed residue and
+`extTer1` one past the residue that replaced the stop, so `fsTer0` and `extTer0` name a stop before either; `ext-0` puts
+the new start at the old one. Each is a `ParseError`, and a dict with a count of 0 is refused.
+
+**Example:**
+
+```text
+NC_W.1:g.0A>G               →  ParseError
+NC_W.1:g.0_5del             →  ParseError
+NM_W.1:c.-0A>G              →  ParseError
+NM_W.1:c.*0A>G              →  ParseError
+NP_W.1:p.Arg97ProfsTer0     →  ParseError
+NP_W.1:p.Met1ext-0          →  ParseError
+NC_W.1:g.(?_5)_(10_?)del    →  NC_W.1:g.(?_5)_(10_?)del
+```
+
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "numbering is `g.1`,
+  `g.2`, `g.3`, ..., etc., from the first to the last nucleotide", the same for `m.` and `n.`, and "there is no
+  nucleotide `c.0`". [Frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/): the stop is
+  counted "starting at the first amino acid changed by the frameshift (codon 1)";
+  [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): `p.Met1ext-5` places a new start
+  upstream, numbered like the coding sequence it sits in, which has no 0.
+- *Not checked:* biocommons, VariantValidator and ClinVar.
+- **Tests:** `position_zero_test::a_genomic_substitution_at_zero`, `::a_genomic_range_from_zero`,
+  `::an_uncertain_genomic_bound_at_zero`, `::a_mitochondrial_substitution_at_zero`, `::a_coding_substitution_at_zero`,
+  `::a_coding_substitution_at_minus_zero`, `::a_coding_substitution_at_star_zero`, `::a_coding_range_to_zero`,
+  `::a_non_coding_substitution_at_zero`, `::an_rna_substitution_at_zero`,
+  `::a_dict_for_a_coding_position_of_zero_is_refused`, `::a_frameshift_to_a_stop_zero_residues_on`,
+  `::an_extension_to_a_stop_zero_residues_on`, `::an_extension_to_a_start_zero_residues_upstream`,
+  `::an_extension_by_a_count_of_zero`, `::a_dict_for_a_frameshift_to_a_stop_zero_residues_on_is_refused`,
+  `::an_unknown_genomic_bound_reparses_to_itself`, `::an_unknown_genomic_bound_survives_a_dict`,
+  `::a_dict_for_an_unknown_genomic_bound_names_it_with_a_question_mark`,
+  `::a_dict_for_a_genomic_position_of_zero_is_refused`.
+
+### A number too large to hold is refused when parsed
+
+**A position, residue number, offset, repeat count, inserted length, copy count or stop distance too large for the
+integer weaver holds it in is a `ParseError` naming the number, not a value read as 0 or kept as text.**
+
+Read as 0, an out-of-range count turned a repeat or an insertion into a different variant without a word; kept as text,
+a stop distance could not be compared or projected. No real sequence comes near these limits, so a number past them is a
+typo or a corrupted record, and the answer is an error. A number before a protein repeat's count is not in the grammar:
+it was taken as the count's lower bound, and names neither the repeated residues nor the count. An SPDI or VRS location
+is held to the same line: a deletion length or range past what an index can hold, an SPDI or exact VRS Allele position
+past the end of its sequence, and a VRS coordinate no g. position can number (an end at interbase 0, one past
+`g.2147483647`) are each a `ValidationError`.
+
+**Example:**
+
+```text
+NM_W.1:c.99999999999A>G                      →  ParseError    a position is held in 32 bits, signed
+NM_W.1:c.10_12CAG[99999999999]               →  ParseError
+NC_W.1:g.10_11insN[99999999999999999999999]  →  ParseError
+NP_W.1:p.Arg97ProfsTer4294967296             →  ParseError    a stop distance is held in 32 bits
+NP_W.1:p.(Gln18)5[(6_7)]                     →  ParseError    was read as p.(Gln18)[(5_6)]
+```
+
+- **Spec (silent):** HGVS sets no bound on a number.
+- *Not checked:* biocommons, VariantValidator and ClinVar.
+- **Tests:** `src/parser.rs::tests::a_genomic_position_past_i32`, `::a_residue_number_past_i32`,
+  `::a_transcript_position_past_i32`, `::an_intronic_offset_past_i32`, `::a_repeat_count_past_i32`,
+  `::a_repeat_range_end_past_i32`, `::an_inserted_length_past_usize`, `::a_copy_count_past_i32`,
+  `::a_frameshift_count_past_u32_is_a_parse_error`, `::an_extension_count_past_u32_is_a_parse_error`,
+  `::a_protein_repeat_with_a_number_before_its_count_is_a_parse_error`;
+  `vrs_round_trip_test::an_spdi_deletion_length_past_usize`, `::an_spdi_deletion_length_running_past_usize`,
+  `::an_spdi_deletion_running_past_usize`, `::an_spdi_insertion_past_the_sequence`, `::an_spdi_insertion_past_i32`,
+  `::an_spdi_insertion_past_u32`, `::an_spdi_insertion_at_the_last_index`,
+  `::an_spdi_deletion_length_past_the_sequence`, `::a_vrs_deletion_ending_at_interbase_zero_is_refused`,
+  `::a_vrs_deletion_whose_end_range_starts_at_interbase_zero_is_refused`, `::a_copy_number_at_the_last_u32`,
+  `::a_copy_number_past_i32`, `::a_copy_number_past_u32`, `::a_deletion_range_from_the_last_index`,
+  `::a_length_expression_at_the_last_index`, `::a_copy_number_at_the_last_g_position_keeps_it`.
 
 ## The data contract
 
