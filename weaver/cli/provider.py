@@ -1,7 +1,9 @@
-"RefSeq data provider implementation."
+"""RefSeq data provider implementation."""
 
 # The biocommons Interface this module subclasses declares its methods without annotations.
 # pyright: reportIncompatibleMethodOverride=false
+
+from __future__ import annotations
 
 import collections
 import gzip
@@ -11,8 +13,7 @@ import os
 import sys
 import typing
 
-if typing.TYPE_CHECKING:
-    import weaver
+import weaver
 
 try:
     import hgvs.dataproviders.interface
@@ -27,6 +28,7 @@ except ImportError:
 
 try:
     import pysam
+    import pysam.libcfaidx
 except ImportError:
     print("Error: 'pysam' package not found. Please install it manually with: pip install pysam")
     sys.exit(1)
@@ -86,7 +88,7 @@ class SequenceProxy:
                 logger.warning("Replay mode enabled but cache file not found: %s", self.cache_path)
         elif os.path.exists(fasta_path):
             try:
-                self.fasta = pysam.FastaFile(fasta_path)
+                self.fasta = pysam.libcfaidx.FastaFile(fasta_path)
                 self.references = list(self.fasta.references)
             except Exception as e:
                 logger.error("Failed to load FASTA from %s: %s", fasta_path, e)
@@ -651,7 +653,7 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
     pyright comment at the top turns that one report off for this module.
     """
 
-    def __init__(self, refseq_provider: "weaver.DataProvider") -> None:
+    def __init__(self, refseq_provider: weaver.DataProvider) -> None:
         self.url = "local://refseq"
         self.required_version = "1.1"
         super().__init__()

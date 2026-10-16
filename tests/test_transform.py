@@ -1,5 +1,7 @@
 """Tests for the variant transform functionality."""
 
+from __future__ import annotations
+
 import weaver
 
 

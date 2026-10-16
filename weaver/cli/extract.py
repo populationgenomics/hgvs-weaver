@@ -1,6 +1,8 @@
 """
 Extraction of mapping disagreements."""
 
+from __future__ import annotations
+
 import argparse
 import csv
 

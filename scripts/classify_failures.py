@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 import csv
 import gzip
@@ -8,7 +10,7 @@ import sys
 import typing
 
 import weaver
-from weaver.cli.provider import RefSeqDataProvider
+from weaver.cli import provider as provider_mod
 
 GFF_PATH = "GRCh38_latest_genomic.gff.gz"
 FASTA_PATH = "GRCh38_latest_genomic.fna"
@@ -27,7 +29,7 @@ mapper: weaver.VariantMapper = typing.cast("weaver.VariantMapper", None)
 class CombinedProvider:
     def __init__(self, gff_path: str, fasta_path: str, protein_gpff_path: str) -> None:
         print(f"Loading RefSeq provider from {gff_path}...", file=sys.stderr)
-        self.refseq = RefSeqDataProvider(gff_path, fasta_path)
+        self.refseq = provider_mod.RefSeqDataProvider(gff_path, fasta_path)
         self.protein_seqs: dict[str, str] = {}
         if os.path.exists(protein_gpff_path):
             print(f"Loading protein sequences from {protein_gpff_path}...", file=sys.stderr)
@@ -61,7 +63,7 @@ class CombinedProvider:
                         seq_parts.extend(parts[1:])
         print(f"Loaded {len(self.protein_seqs)} protein sequences.", file=sys.stderr)
 
-    def get_identifier_type(self, identifier: str) -> "weaver.IdentifierType":
+    def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
         res = self.refseq.get_identifier_type(identifier)
         if isinstance(res, str):
             # Map string to enum if necessary
@@ -81,7 +83,7 @@ class CombinedProvider:
     def get_transcripts_for_region(self, chrom: str, start: int, end: int) -> list[str]:
         return self.refseq.get_transcripts_for_region(chrom, start, end)
 
-    def get_seq(self, ac: str, start: int, end: int, kind: "weaver.IdentifierType") -> str | None:
+    def get_seq(self, ac: str, start: int, end: int, kind: weaver.IdentifierType) -> str | None:
         # Try exact match
         if ac == "AC":
             return None
@@ -99,7 +101,7 @@ class CombinedProvider:
             e = min(len(seq), e_idx)
             return seq[int(s) : int(e)]
 
-        # RefSeqDataProvider.get_seq expects a string for 'kind' in its implementation
+        # provider_mod.RefSeqDataProvider.get_seq expects a string for 'kind' in its implementation
         # but the protocol/stub use IdentifierType.
         kind_str = str(kind)
         return self.refseq.get_seq(ac, start, end, kind_str)
@@ -121,7 +123,7 @@ else:
         def __init__(self) -> None:
             self.seq_cache: dict[str, str] = {}
 
-        def get_identifier_type(self, identifier: str) -> "weaver.IdentifierType":
+        def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
             if ":" in identifier:
                 ac = identifier.split(":")[0]
                 if ac.startswith(("NM_", "XM_")):
@@ -135,7 +137,7 @@ else:
         def get_transcript(self, _transcript_ac: str, _reference_ac: str | None) -> dict[str, typing.Any]:
             return {}
 
-        def get_seq(self, _ac: str, _start: int, _end: int, _kind: "weaver.IdentifierType") -> str | None:
+        def get_seq(self, _ac: str, _start: int, _end: int, _kind: weaver.IdentifierType) -> str | None:
             return None
 
         def get_symbol_accessions(self, _symbol: str, _source_kind: str, _target_kind: str) -> list[tuple[str, str]]:
@@ -166,7 +168,7 @@ def clean_hgvs(s_raw: str) -> str:
     return re.sub(r"p\.[A-Z][a-z][a-z]\d+=", "p.=", s)
 
 
-def get_equivalence_level(v1_str: str, v2_str: str) -> typing.Optional["weaver.EquivalenceLevel"]:
+def get_equivalence_level(v1_str: str, v2_str: str) -> weaver.EquivalenceLevel | None:
     """Checks for biological equivalence using weaver's sparse reference projection."""
     if not weaver or not v1_str or not v2_str or v1_str.startswith("ERR") or v2_str.startswith("ERR"):
         return None

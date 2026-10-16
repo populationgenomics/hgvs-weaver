@@ -1,5 +1,7 @@
 """r. variants through the bindings: respelling, projection and protein prediction."""
 
+from __future__ import annotations
+
 import typing
 
 import pytest

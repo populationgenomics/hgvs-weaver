@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 import argparse
 import csv
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 from typing import TypedDict
 
 
@@ -48,7 +50,7 @@ def get_relevant_commits(
     return commits
 
 
-REPO_ROOT = Path(__file__).parent.parent.resolve()
+REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 WORKTREE_DIR = REPO_ROOT.parent / "hgvs-rs-bench-tmp"
 INPUT_FILE = REPO_ROOT / "clinvar_baseline_validation.tsv"
 RESULTS_DIR = REPO_ROOT / "benchmark_results"
@@ -64,7 +66,7 @@ DATA_FILES = [
 
 def run(
     cmd: list[str],
-    cwd: Path | None = None,
+    cwd: pathlib.Path | None = None,
     check: bool = True,
     env: dict[str, str] | None = None,
     capture_output: bool = True,
@@ -96,7 +98,7 @@ def setup_worktree() -> None:
     run(["git", "worktree", "add", "--detach", str(WORKTREE_DIR), "HEAD"])
 
 
-def link_data(target_dir: Path) -> None:
+def link_data(target_dir: pathlib.Path) -> None:
     for f in DATA_FILES:
         src = REPO_ROOT / f
         dst = target_dir / f
@@ -112,7 +114,7 @@ def link_data(target_dir: Path) -> None:
         os.symlink(venv_src, venv_dst)
 
 
-def build_weaver(target_dir: Path) -> None:
+def build_weaver(target_dir: pathlib.Path) -> None:
     print(f"Building weaver in {target_dir}...")
     # Use the venv in the root
     venv_bin = REPO_ROOT / ".venv" / "bin"
@@ -127,7 +129,7 @@ def build_weaver(target_dir: Path) -> None:
     run([maturin_exe, "develop"], cwd=target_dir, env=env)
 
 
-def validate(target_dir: Path, commit_hash: str, max_variants: int = 100000) -> Path | None:
+def validate(target_dir: pathlib.Path, commit_hash: str, max_variants: int = 100000) -> pathlib.Path | None:
     output_file = RESULTS_DIR / f"results_{commit_hash}.tsv"
     print(f"Validating {commit_hash} in worktree (max={max_variants})...")
 
@@ -172,7 +174,7 @@ def standardize_p(s: str) -> str:
     return s.replace("Ter", "*")
 
 
-def analyze(results_file: Path | None) -> Stats | None:
+def analyze(results_file: pathlib.Path | None) -> Stats | None:
     if not results_file or not results_file.exists():
         return None
 

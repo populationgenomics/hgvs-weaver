@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import os
 
 import pytest
 
 import weaver
-from weaver.cli.provider import RefSeqDataProvider
+from weaver.cli import provider as provider_mod
 
 
 def test_intronic_cp() -> None:
@@ -12,7 +14,7 @@ def test_intronic_cp() -> None:
     if not (os.path.exists(gff_path) and os.path.exists(fasta_path)):
         pytest.skip("GRCh37 reference data (GFF and FASTA) not in the working directory")
 
-    hdp = RefSeqDataProvider(gff_path, fasta_path)
+    hdp = provider_mod.RefSeqDataProvider(gff_path, fasta_path)
     mapper = weaver.VariantMapper(hdp)
 
     # c.6833-1G>A is intronic

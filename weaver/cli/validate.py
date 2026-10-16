@@ -10,9 +10,12 @@
 
 """Full validation script against ClinVar variants."""
 
+from __future__ import annotations
+
 import argparse
 import concurrent.futures
 import csv
+import dataclasses
 import logging
 import sys
 import typing
@@ -44,29 +47,42 @@ except ImportError:
     print("  pip install hgvs-weaver-data")
     sys.exit(1)
 
-from . import provider
+from weaver.cli import provider
 
-_rp: wd_provider.BundleProvider | None = None
-_rs_mapper: weaver.VariantMapper | None = None
-_ref_vm: hgvs.variantmapper.VariantMapper | None = None
-_ref_hp: typing.Any = None  # hgvs.parser.Parser builds its parse_* methods at run time, so a checker cannot see them
-# Pre-computed ferro normalize results: nuc_hgvs → normalized_string | "ERR:..."
-_fh_results: dict[str, str] = {}
+
+@dataclasses.dataclass(frozen=True)
+class _Worker:
+    """What one worker process holds: the two mappers over the store, the biocommons parser, the ferro results."""
+
+    rp: wd_provider.BundleProvider
+    mapper: weaver.VariantMapper
+    ref_vm: hgvs.variantmapper.VariantMapper
+    ref_hp: typing.Any  # hgvs.parser.Parser builds its parse_* methods at run time, so a checker cannot see them
+    fh_results: dict[str, str]  # pre-computed ferro normalize results: nuc_hgvs -> normalized string or "ERR:..."
+
+
+# The pool's initializer sets this once per worker process; it is the one module-level slot a
+# ProcessPoolExecutor initializer can hand its work to.
+_worker: _Worker | None = None
 
 
 def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
-    """Initializes global mappers for worker processes over a weaver-data-provider store and genome."""
-    global _rp, _rs_mapper, _ref_vm, _ref_hp, _fh_results
+    """Initializes this worker process's mappers over a weaver-data-provider store and genome."""
+    global _worker
     rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
-    _rp = rp
-    _rs_mapper = weaver.VariantMapper(rp)
-    _ref_vm = hgvs.variantmapper.VariantMapper(provider.ReferenceHgvsDataProvider(rp))
-    _ref_hp = hgvs.parser.Parser()
+    fh_results: dict[str, str] = {}
     if fh_results_path:
         import json  # noqa: PLC0415
 
         with open(fh_results_path) as f:
-            _fh_results = json.load(f)
+            fh_results = json.load(f)
+    _worker = _Worker(
+        rp=rp,
+        mapper=weaver.VariantMapper(rp),
+        ref_vm=hgvs.variantmapper.VariantMapper(provider.ReferenceHgvsDataProvider(rp)),
+        ref_hp=hgvs.parser.Parser(),
+        fh_results=fh_results,
+    )
 
 
 def hgvs_lib_to_spdi(v: typing.Any, data_provider: typing.Any) -> str | None:
@@ -102,8 +118,8 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
     v_p = None
     rs_p = "ERR"
     rs_spdi = "ERR"
-    mapper, rp = _rs_mapper, _rp
-    if mapper is None or rp is None:
+    worker = _worker
+    if worker is None:
         res_row = row.copy()
         res_row.update(
             {
@@ -114,6 +130,7 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
             },
         )
         return res_row
+    mapper, rp = worker.mapper, worker.rp
     try:
         v_rs_raw = weaver.parse(nuc_hgvs)
         v_rs = mapper.normalize_variant(v_rs_raw)
@@ -137,19 +154,17 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
     ref_p = "ERR"
     ref_spdi = "ERR"
     try:
-        if not _ref_hp or not _ref_vm:
-            ref_p = ref_spdi = "ERR:RefMapperNotInit"
-        else:
-            v_ref = _ref_hp.parse_hgvs_variant(nuc_hgvs)
+        v_ref = worker.ref_hp.parse_hgvs_variant(nuc_hgvs)
+        if True:
             try:
                 if v_ref.type == "c":
-                    v_p_ref = _ref_vm.c_to_p(v_ref)
+                    v_p_ref = worker.ref_vm.c_to_p(v_ref)
                     ref_p = str(v_p_ref).split(":")[-1]
             except Exception as e:
                 ref_p = f"ERR:{e!s}"
 
             try:
-                vg_ref = _ref_vm.c_to_g(v_ref, spdi_ac) if v_ref.type != "g" else v_ref
+                vg_ref = worker.ref_vm.c_to_g(v_ref, spdi_ac) if v_ref.type != "g" else v_ref
                 ref_spdi = hgvs_lib_to_spdi(vg_ref, rp)
             except Exception as e:
                 ref_spdi = f"ERR:{e!s}"
@@ -159,7 +174,7 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
         ref_p = ref_spdi = "PANIC"
 
     # ferro-hgvs block: look up pre-computed normalize result
-    fh_parse = _fh_results.get(nuc_hgvs, "SKIP")
+    fh_parse = worker.fh_results.get(nuc_hgvs, "SKIP")
 
     # Equivalence Checks (Using weaver to judge both)
     rs_equiv = "Unknown"

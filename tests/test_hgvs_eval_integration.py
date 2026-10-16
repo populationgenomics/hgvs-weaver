@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 import os
 from collections.abc import Generator
@@ -6,7 +8,7 @@ from typing import Any
 import pytest
 
 import weaver
-from weaver.cli.provider import RefSeqDataProvider
+from weaver.cli import provider as provider_mod
 
 # Paths to data files
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -164,7 +166,7 @@ HGVS_EVAL_CASES: list[Any] = [
 
 
 @pytest.fixture(scope="session")
-def real_provider_38() -> Generator[RefSeqDataProvider, None, None]:
+def real_provider_38() -> Generator[provider_mod.RefSeqDataProvider, None, None]:
     setup_sequence_mocking()
     mode = os.environ.get("WEAVER_SEQ_MODE", "live")
 
@@ -175,14 +177,14 @@ def real_provider_38() -> Generator[RefSeqDataProvider, None, None]:
         pytest.skip("Real data files (GFF/FASTA) not found. Skipping integration tests.")
 
     print(f"Loading RefSeq provider (mode={mode}) with GFF: {GFF38_PATH}")
-    provider = RefSeqDataProvider(GFF38_PATH, FASTA38_PATH)
+    provider = provider_mod.RefSeqDataProvider(GFF38_PATH, FASTA38_PATH)
     yield provider
     if provider.fasta.mode == "record":
         provider.fasta.save_cache()
 
 
 @pytest.fixture(scope="session")
-def real_provider_37() -> Generator[RefSeqDataProvider | None, None, None]:
+def real_provider_37() -> Generator[provider_mod.RefSeqDataProvider | None, None, None]:
     setup_sequence_mocking()
     mode = os.environ.get("WEAVER_SEQ_MODE", "live")
 
@@ -195,7 +197,7 @@ def real_provider_37() -> Generator[RefSeqDataProvider | None, None, None]:
         return
 
     print(f"Loading RefSeq provider (mode={mode}) with GFF: {GFF37_PATH}")
-    provider = RefSeqDataProvider(GFF37_PATH, FASTA37_PATH)
+    provider = provider_mod.RefSeqDataProvider(GFF37_PATH, FASTA37_PATH)
     yield provider
     if provider.fasta.mode == "record":
         provider.fasta.save_cache()
@@ -203,8 +205,8 @@ def real_provider_37() -> Generator[RefSeqDataProvider | None, None, None]:
 
 @pytest.mark.parametrize("hgvs_eval_case", HGVS_EVAL_CASES)
 def test_hgvs_eval_equivalence(
-    real_provider_38: RefSeqDataProvider,
-    real_provider_37: RefSeqDataProvider | None,
+    real_provider_38: provider_mod.RefSeqDataProvider,
+    real_provider_37: provider_mod.RefSeqDataProvider | None,
     hgvs_eval_case: EvalCase,
 ) -> None:
     """

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from typing import Protocol, TypedDict
 
-from ._weaver import (  # type: ignore[attr-defined]
+from weaver._weaver import (  # type: ignore[attr-defined]
     CigarError,
     DataProviderError,
     EquivalenceLevel,

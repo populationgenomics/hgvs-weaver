@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import weaver
 import weaver.cli.provider as p
 

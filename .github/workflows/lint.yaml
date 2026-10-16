@@ -20,6 +20,11 @@ jobs:
         with:
           enable-cache: true
 
+      # rustup ships on every GitHub runner image; actions-rs/toolchain was
+      # archived in 2023 and an unmaintained action is a takeover vector.
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+
       # Everything but the project itself, from the lock: no hook imports weaver, and pyright reads the
       # extension's stub. The gate group and the extras are there so pyright resolves every import.
       - name: Install the dev and gate groups and the extras

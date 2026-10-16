@@ -30,7 +30,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from weaver import DataProviderError, IdentifierType, TranscriptData
+import weaver
 
 #: ``(url, accept) -> (status, body)``: how the provider talks HTTP. Tests
 #: substitute a recording.
@@ -40,16 +40,16 @@ Transport = typing.Callable[[str, str], tuple[int, bytes]]
 class TranscriptSource(typing.Protocol):
     """The part of a DataProvider that is not about sequences."""
 
-    def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> TranscriptData: ...
+    def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> weaver.TranscriptData: ...
 
     def get_symbol_accessions(
         self,
         symbol: str,
         source_kind: str,
         target_kind: str,
-    ) -> list[tuple[str, str]] | list[tuple[IdentifierType, str]]: ...
+    ) -> list[tuple[str, str]] | list[tuple[weaver.IdentifierType, str]]: ...
 
-    def get_identifier_type(self, identifier: str) -> str | IdentifierType: ...
+    def get_identifier_type(self, identifier: str) -> str | weaver.IdentifierType: ...
 
 
 _SEQUENCE_ACCEPT = "text/vnd.ga4gh.refget.v2.0.0+plain, text/vnd.ga4gh.refget.v1.0.0+plain, text/plain"
@@ -64,7 +64,7 @@ def urllib_transport(timeout: float = 30.0) -> Transport:
 
     def fetch(url: str, accept: str) -> tuple[int, bytes]:
         if urllib.parse.urlparse(url).scheme not in ("http", "https"):
-            raise DataProviderError(f"refget URL must be http or https: {url}")
+            raise weaver.DataProviderError(f"refget URL must be http or https: {url}")
         request = urllib.request.Request(url, headers={"Accept": accept})  # noqa: S310 - scheme checked above
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - scheme checked above
@@ -72,7 +72,7 @@ def urllib_transport(timeout: float = 30.0) -> Transport:
         except urllib.error.HTTPError as e:
             return e.code, e.read()
         except urllib.error.URLError as e:
-            raise DataProviderError(f"refget request to {url} failed: {e.reason}") from e
+            raise weaver.DataProviderError(f"refget request to {url} failed: {e.reason}") from e
 
     return fetch
 
@@ -105,7 +105,7 @@ class RefgetProvider:
         base_url: The server's refget root, the part before ``/sequence/``.
         transcripts: A provider answering ``get_transcript`` and
             ``get_symbol_accessions`` (and ``get_identifier_type``, if it has one).
-            Without it those calls raise ``DataProviderError`` and identifier types
+            Without it those calls raise ``weaver.DataProviderError`` and identifier types
             come from the accession prefix.
         timeout: Seconds per request.
         transport: Replaces the HTTP layer; see :data:`Transport`.
@@ -136,11 +136,11 @@ class RefgetProvider:
         if status == 404:  # noqa: PLR2004 - HTTP status
             return None
         if status != 200:  # noqa: PLR2004 - HTTP status
-            raise DataProviderError(f"refget metadata for {sequence_id}: HTTP {status}")
+            raise weaver.DataProviderError(f"refget metadata for {sequence_id}: HTTP {status}")
         record = json.loads(body)
         metadata = record.get("metadata", record)
         if not isinstance(metadata, dict):
-            raise DataProviderError(f"refget metadata for {sequence_id} is not an object")
+            raise weaver.DataProviderError(f"refget metadata for {sequence_id} is not an object")
         return metadata
 
     def _resolve(self, ac: str) -> tuple[str, dict[str, typing.Any]]:
@@ -153,11 +153,11 @@ class RefgetProvider:
             if metadata is not None:
                 self._known[ac] = (sequence_id, metadata)
                 return self._known[ac]
-        raise DataProviderError(f"refget server at {self._base} knows no sequence {ac}")
+        raise weaver.DataProviderError(f"refget server at {self._base} knows no sequence {ac}")
 
     # --- DataProvider ---
 
-    def get_seq(self, ac: str, start: int, end: int | None, kind: str | IdentifierType) -> str:  # noqa: ARG002
+    def get_seq(self, ac: str, start: int, end: int | None, kind: str | weaver.IdentifierType) -> str:  # noqa: ARG002
         """The bases of ``ac`` over ``[start, end)``; a range past the end returns what exists."""
         sequence_id, metadata = self._resolve(ac)
         length = int(metadata["length"])
@@ -168,7 +168,7 @@ class RefgetProvider:
         path = f"sequence/{urllib.parse.quote(sequence_id, safe=':.')}?start={start}&end={end}"
         status, body = self._get(path, _SEQUENCE_ACCEPT)
         if status != 200:  # noqa: PLR2004 - HTTP status
-            raise DataProviderError(f"refget sequence {ac}[{start}:{end}]: HTTP {status}")
+            raise weaver.DataProviderError(f"refget sequence {ac}[{start}:{end}]: HTTP {status}")
         return body.decode("ascii").strip()
 
     def get_refget_accession(self, ac: str) -> str | None:
@@ -195,9 +195,9 @@ class RefgetProvider:
                 return alias.split(":", 1)[1] if ":" in alias else alias
         return None
 
-    def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> TranscriptData:
+    def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> weaver.TranscriptData:
         if self._transcripts is None:
-            raise DataProviderError("RefgetProvider serves sequences only; give it a transcript provider")
+            raise weaver.DataProviderError("RefgetProvider serves sequences only; give it a transcript provider")
         return self._transcripts.get_transcript(transcript_ac, reference_ac)
 
     def get_symbol_accessions(
@@ -205,21 +205,21 @@ class RefgetProvider:
         symbol: str,
         source_kind: str,
         target_kind: str,
-    ) -> list[tuple[str, str]] | list[tuple[IdentifierType, str]]:
+    ) -> list[tuple[str, str]] | list[tuple[weaver.IdentifierType, str]]:
         if self._transcripts is None:
             return []
         return self._transcripts.get_symbol_accessions(symbol, source_kind, target_kind)
 
-    def get_identifier_type(self, identifier: str) -> str | IdentifierType:
+    def get_identifier_type(self, identifier: str) -> str | weaver.IdentifierType:
         if self._transcripts is not None:
             return self._transcripts.get_identifier_type(identifier)
         if identifier.startswith(("NP_", "XP_", "AP_")):
-            return IdentifierType.ProteinAccession
+            return weaver.IdentifierType.ProteinAccession
         if identifier.startswith(("NM_", "NR_", "XM_", "XR_")):
-            return IdentifierType.TranscriptAccession
+            return weaver.IdentifierType.TranscriptAccession
         if identifier.startswith(("NC_", "NT_", "NW_", "NG_", "AC_", "SQ.")):
-            return IdentifierType.GenomicAccession
-        return IdentifierType.GeneSymbol
+            return weaver.IdentifierType.GenomicAccession
+        return weaver.IdentifierType.GeneSymbol
 
 
 def sequence_digest(sequence: str) -> str:
@@ -272,9 +272,9 @@ class DigestTable:
 
         Needs ``pysam`` (the ``validation`` extra). About a minute for a human genome.
         """
-        import pysam  # noqa: PLC0415 - optional dependency
+        import pysam.libcfaidx  # noqa: PLC0415 - optional dependency
 
-        with pysam.FastaFile(str(path)) as fasta:
+        with pysam.libcfaidx.FastaFile(str(path)) as fasta:
             return cls(
                 (name, length, sequence_digest(fasta.fetch(name)))
                 for name, length in zip(fasta.references, fasta.lengths, strict=True)
