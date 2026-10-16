@@ -140,11 +140,9 @@ pub enum AaEdit {
     },
     /// Extension of the protein (stop codon loss).
     Ext {
-        ref_: String,
         alt: String,
         aaterm: Option<String>,
         length: Option<String>,
-        uncertain: bool,
     },
     /// Repeat sequence.
     Repeat {
@@ -210,16 +208,13 @@ impl AaEdit {
                 uncertain,
             },
             AaEdit::Ext {
-                ref_,
                 alt,
                 aaterm,
                 length,
-                uncertain,
             } => {
                 // ext-5 names the new first residue; ext*5 the new stop.
                 let new_start = AaEdit::is_signed(length.as_deref());
                 AaEdit::Ext {
-                    ref_,
                     alt: residue_3(&alt).to_string(),
                     aaterm: aaterm.map(|t| {
                         if new_start {
@@ -230,7 +225,6 @@ impl AaEdit {
                         .to_string()
                     }),
                     length,
-                    uncertain,
                 }
             }
             other => other,

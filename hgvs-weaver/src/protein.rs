@@ -468,11 +468,9 @@ impl Writer<'_> {
                 uncertain: false,
             }),
             AaEdit::Ext {
-                ref_: String::new(),
                 alt: aa1_to_aa3(alt_c).to_string(),
                 aaterm: Some("Ter".to_string()),
                 length: Some(next_stop.map_or("?".to_string(), |k| (k + 1).to_string())),
-                uncertain: false,
             },
         )
     }

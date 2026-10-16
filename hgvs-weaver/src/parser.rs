@@ -625,11 +625,9 @@ fn pro_ext(pair: Pair<Rule>) -> AaEdit {
         }
     }
     AaEdit::Ext {
-        ref_: String::new(),
         alt,
         aaterm,
         length,
-        uncertain: false,
     }
 }
 
@@ -842,13 +840,10 @@ mod tests {
         match v_p {
             crate::coords::SequenceVariant::Protein(v) => match v.posedit.edit {
                 crate::edits::AaEdit::Ext {
-                    ref_,
                     alt,
                     aaterm,
                     length,
-                    ..
                 } => {
-                    assert_eq!(ref_, "");
                     assert_eq!(alt, "Arg");
                     assert_eq!(aaterm, Some("Ter".to_string()));
                     assert_eq!(length, Some("5".to_string()));
