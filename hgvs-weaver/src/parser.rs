@@ -606,12 +606,7 @@ fn pro_fs(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
             _ => {}
         }
     }
-    Ok(AaEdit::Fs {
-        ref_: String::new(),
-        alt,
-        stop,
-        uncertain: false,
-    })
+    Ok(AaEdit::Fs { alt, stop })
 }
 
 /// `fsext_offset`: the distance to a new stop, `12`, `?` or nothing.

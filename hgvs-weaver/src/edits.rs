@@ -133,12 +133,10 @@ pub enum AaEdit {
     /// Frameshift: `alt` is the first changed residue, `stop` the new stop
     /// after `fs` (`fsTer12`, `fsTer?`, `fsTer`), or `None` for a bare `fs`.
     Fs {
-        ref_: String,
         alt: String,
         // deserialize_with: a dict without `stop` is refused, not read as `fs`.
         #[serde(deserialize_with = "Option::deserialize")]
         stop: Option<StopDistance>,
-        uncertain: bool,
     },
     /// Extension of the protein: `alt` is the residue that replaces the
     /// stop or the start (empty if unnamed), `end` what follows `ext`.
@@ -282,16 +280,9 @@ impl AaEdit {
                 alt: residue_3(&alt).to_string(),
                 uncertain,
             },
-            AaEdit::Fs {
-                ref_,
-                alt,
-                stop,
-                uncertain,
-            } => AaEdit::Fs {
-                ref_,
+            AaEdit::Fs { alt, stop } => AaEdit::Fs {
                 alt: residue_3(&alt).to_string(),
                 stop,
-                uncertain,
             },
             AaEdit::Ext { alt, end } => AaEdit::Ext {
                 alt: residue_3(&alt).to_string(),

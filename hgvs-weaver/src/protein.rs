@@ -448,10 +448,8 @@ impl Writer<'_> {
         self.variant(
             Some(self.span(i, None)),
             AaEdit::Fs {
-                ref_: String::new(),
                 alt: aa1_to_aa3(alt_c).to_string(),
                 stop: Some(stop),
-                uncertain: false,
             },
         )
     }

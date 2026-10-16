@@ -513,7 +513,7 @@ impl fmt::Display for AaEdit {
                     write!(f, "del")
                 }
             }
-            AaEdit::Fs { alt, stop, .. } => {
+            AaEdit::Fs { alt, stop } => {
                 write!(f, "{}fs", residue_3(alt))?;
                 match stop {
                     Some(distance) => write!(f, "Ter{distance}"),

@@ -329,7 +329,7 @@ impl<'a> VariantEquivalence<'a> {
         }
         let (start, end, alt, open) = match &vp.posedit.edit {
             // `Xxx#Yyyfs*N`: Yyy, then N - 2 residues it does not name, then a stop.
-            AaEdit::Fs { alt, stop, .. } => {
+            AaEdit::Fs { alt, stop } => {
                 let mut alt = crate::utils::residues_1(alt)?;
                 let count = match stop {
                     Some(StopDistance::Residues { count }) => Some(*count as usize),
