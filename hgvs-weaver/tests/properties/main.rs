@@ -129,7 +129,7 @@ proptest! {
 /// The g. variant on `ac` for an edit over an HGVS range.
 fn genomic_variant(ac: &str, p: &PlacedHgvs) -> GVariant {
     let position = |i: usize| SimplePosition {
-        base: HgvsGenomicPos(i as i32),
+        base: HgvsGenomicPos(i as i32).into(),
         end: None,
         uncertain: false,
     };

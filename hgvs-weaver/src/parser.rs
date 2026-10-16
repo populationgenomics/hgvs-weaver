@@ -199,8 +199,8 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
             )?;
             let end = parts.next().map(parse_simple_pos).transpose()?;
             if let Some(end) = &end {
-                if !start.base.is_unknown() && !end.base.is_unknown() {
-                    ordered(start.base.0, end.base.0, s)?;
+                if let (Some(a), Some(b)) = (start.base.known(), end.base.known()) {
+                    ordered(a.0, b.0, s)?;
                 }
             }
             Ok(SimpleInterval {
@@ -257,17 +257,13 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
 
 pub fn parse_simple_pos(pair: Pair<Rule>) -> Result<SimplePosition, HgvsError> {
     let s = pair.as_str();
-    if s == "?" {
-        // Unknown is carried by the base itself; `?` is not parenthesised.
-        return Ok(SimplePosition {
-            base: HgvsGenomicPos::UNKNOWN,
-            end: None,
-            uncertain: false,
-        });
-    }
-    let hgvs_base = number(s)?;
+    let base = if s == "?" {
+        GenomicBound::Unknown
+    } else {
+        GenomicBound::At(HgvsGenomicPos::try_from(number::<i32>(s)?).map_err(HgvsError::PestError)?)
+    };
     Ok(SimplePosition {
-        base: HgvsGenomicPos(hgvs_base),
+        base,
         end: None,
         uncertain: false,
     })

@@ -1,6 +1,6 @@
 pub use crate::coords::{
-    Anchor, GenomicPos, HgvsGenomicPos, HgvsProteinPos, HgvsTranscriptPos, IntronicOffset,
-    ProteinPos, SequenceVariant, TranscriptPos,
+    Anchor, GenomicBound, GenomicPos, HgvsGenomicPos, HgvsProteinPos, HgvsTranscriptPos,
+    IntronicOffset, ProteinPos, SequenceVariant, TranscriptPos,
 };
 pub use crate::data::{IdentifierKind, IdentifierType};
 pub use crate::edits::{
@@ -669,11 +669,11 @@ impl IntervalSpdi for SimpleInterval {
         ac: &str,
         _data_provider: &dyn crate::data::DataProvider,
     ) -> Result<(i32, i32, String), HgvsError> {
-        let start = self.start.base.to_index().0;
-        let end = self
-            .end
-            .as_ref()
-            .map_or(start + 1, |e| e.base.to_index().0 + 1);
+        let start = self.start.index()?.0;
+        let end = match &self.end {
+            Some(e) => e.index()?.0 + 1,
+            None => start + 1,
+        };
         Ok((start, end, ac.to_string()))
     }
 }
@@ -794,18 +794,28 @@ pub struct SimpleInterval {
 impl SimpleInterval {
     pub fn length(&self) -> Result<i32, HgvsError> {
         match &self.end {
-            Some(end) => Ok(end.base.0 - self.start.base.0 + 1),
+            Some(end) => Ok(end.index()?.0 - self.start.index()?.0 + 1),
             None => Ok(1),
         }
     }
 }
 
-/// A simple position in genomic or mitochondrial coordinates.
+/// A position in genomic or mitochondrial coordinates: a base, or with `end`
+/// the range `(base_end)` it lies somewhere in.
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct SimplePosition {
-    pub base: HgvsGenomicPos,
-    pub end: Option<HgvsGenomicPos>,
+    pub base: GenomicBound,
+    pub end: Option<GenomicBound>,
     pub uncertain: bool,
+}
+
+impl SimplePosition {
+    /// The 0-based index of the base, which has to be known.
+    pub fn index(&self) -> Result<GenomicPos, HgvsError> {
+        self.base.known().map(|b| b.to_index()).ok_or_else(|| {
+            HgvsError::ValidationError(format!("{self} names no base: it is not known"))
+        })
+    }
 }
 
 /// An interval spanning cDNA, n. or r. coordinates.

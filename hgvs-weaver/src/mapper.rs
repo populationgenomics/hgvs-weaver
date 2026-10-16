@@ -35,7 +35,7 @@ fn make_base_offset_position(
 
 fn make_simple_position(base: crate::coords::HgvsGenomicPos) -> crate::structs::SimplePosition {
     crate::structs::SimplePosition {
-        base,
+        base: base.into(),
         end: None,
         uncertain: false,
     }
@@ -197,12 +197,12 @@ pub(crate) fn aa_interval_range(
 /// `[a-1, b-1]` and ends at one in `[c, d]`; a single `(a_b)` removes one
 /// base somewhere in `a..=b`.
 fn uncertain_bounds(pos: &SimpleInterval) -> Option<(VrsBound, VrsBound)> {
-    let ranged = |p: &SimplePosition| p.end.is_some() || p.base.is_unknown();
+    let ranged = |p: &SimplePosition| p.end.is_some() || p.base.known().is_none();
     let last = pos.end.as_ref().unwrap_or(&pos.start);
     if !ranged(&pos.start) && !ranged(last) {
         return None;
     }
-    let known = |b: crate::coords::HgvsGenomicPos| (b.0 > 0).then_some(b.0 as usize);
+    let known = |b: crate::coords::GenomicBound| b.known().map(|p| p.0 as usize);
     let bound = |p: &SimplePosition, interbase: fn(usize) -> usize| match (p.end, known(p.base)) {
         (Some(e), lo) => VrsBound::Range(lo.map(interbase), known(e).map(interbase)),
         (None, Some(b)) => VrsBound::Exact(interbase(b)),
@@ -242,7 +242,7 @@ fn location_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, H
 /// The g. interval over the 0-based half-open range `[s, e)`.
 fn interval(s: usize, e: usize) -> SimpleInterval {
     let position = |i: usize| SimplePosition {
-        base: GenomicPos(i as i32).to_hgvs(),
+        base: GenomicPos(i as i32).to_hgvs().into(),
         end: None,
         uncertain: false,
     };
@@ -258,11 +258,10 @@ fn interval(s: usize, e: usize) -> SimpleInterval {
 fn bounded_interval(start: VrsBound, end: VrsBound) -> SimpleInterval {
     use crate::coords::HgvsGenomicPos;
     let position = |b: VrsBound, to_hgvs: fn(usize) -> i32| {
-        let known =
-            |v: Option<usize>| v.map_or(HgvsGenomicPos::UNKNOWN, |n| HgvsGenomicPos(to_hgvs(n)));
+        let known = |v: Option<usize>| v.map(|n| HgvsGenomicPos(to_hgvs(n))).into();
         match b {
             VrsBound::Exact(n) => SimplePosition {
-                base: HgvsGenomicPos(to_hgvs(n)),
+                base: HgvsGenomicPos(to_hgvs(n)).into(),
                 end: None,
                 uncertain: false,
             },
@@ -918,7 +917,7 @@ fn relettered_posedit(
 
 /// The 0-based half-open index range a g. interval names.
 fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsError> {
-    let start_i = pos.start.base.to_index().0;
+    let start_i = pos.start.index()?.0;
     if start_i < 0 {
         return Err(HgvsError::ValidationError(format!(
             "Genomic start position {} is negative or uncertain",
@@ -928,7 +927,7 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
     let start = start_i as usize;
     let last = match &pos.end {
         Some(e) => {
-            let end_i = e.base.to_index().0;
+            let end_i = e.index()?.0;
             if end_i < 0 {
                 return Err(HgvsError::ValidationError(format!(
                     "Genomic end position {} is negative or uncertain",
@@ -938,7 +937,7 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
             if (end_i as usize) < start {
                 return Err(HgvsError::ValidationError(format!(
                     "Genomic range runs backwards: {} is after {}",
-                    pos.start.base.0, e.base.0
+                    pos.start, e
                 )));
             }
             end_i as usize
@@ -1052,21 +1051,20 @@ impl<'a> VariantMapper<'a> {
             None => pos,
         };
         if let Some(end) = &pos.end {
-            if !end.base.is_unknown()
-                && !pos.start.base.is_unknown()
-                && end.base.0 < pos.start.base.0
-            {
-                return Err(HgvsError::ValidationError(format!(
-                    "Genomic range runs backwards: {} is after {}",
-                    pos.start.base.0, end.base.0
-                )));
+            if let (Some(s), Some(e)) = (pos.start.base.known(), end.base.known()) {
+                if e.0 < s.0 {
+                    return Err(HgvsError::ValidationError(format!(
+                        "Genomic range runs backwards: {} is after {}",
+                        s.0, e.0
+                    )));
+                }
             }
         }
         // Each end occupies a half-open transcript range: one base, or none
         // for a base the transcript lacks.
-        let fp_start = am.g_to_n_footprint(pos.start.base.to_index())?;
+        let fp_start = am.g_to_n_footprint(pos.start.index()?)?;
         let fp_end = match &pos.end {
-            Some(end) => am.g_to_n_footprint(end.base.to_index())?,
+            Some(end) => am.g_to_n_footprint(end.index()?)?,
             None => fp_start,
         };
         let (mut n_lo, mut off_lo) = (fp_start.range.0, fp_start.offset);
@@ -1222,7 +1220,7 @@ impl<'a> VariantMapper<'a> {
         Ok(Some(SimpleInterval {
             start: pos.start,
             end: Some(SimplePosition {
-                base: GenomicPos((resolved.end - 1) as i32).to_hgvs(),
+                base: GenomicPos((resolved.end - 1) as i32).to_hgvs().into(),
                 end: None,
                 uncertain: false,
             }),
@@ -1396,11 +1394,11 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        let start_0 = pos.start.base.to_index().0;
-        let end_0 = pos
-            .end
-            .as_ref()
-            .map_or(start_0 + 1, |e| e.base.to_index().0 + 1);
+        let start_0 = pos.start.index()?.0;
+        let end_0 = match &pos.end {
+            Some(e) => e.index()?.0 + 1,
+            None => start_0 + 1,
+        };
 
         let transcripts = searcher.get_transcripts_for_region(&var_g.ac, start_0, end_0)?;
         if transcripts.is_empty() {
@@ -1996,9 +1994,9 @@ impl<'a> VariantMapper<'a> {
         let pos = posedit.pos.as_mut().expect("checked above");
         if placement_changed(&before, &after) {
             let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
-            pos.start.base = GenomicPos(s as i32).to_hgvs();
+            pos.start.base = GenomicPos(s as i32).to_hgvs().into();
             pos.end = e.map(|last| SimplePosition {
-                base: GenomicPos(last as i32).to_hgvs(),
+                base: GenomicPos(last as i32).to_hgvs().into(),
                 end: None,
                 uncertain: false,
             });

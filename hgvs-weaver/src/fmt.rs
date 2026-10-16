@@ -195,12 +195,9 @@ impl fmt::Display for SimplePosition {
         if self.uncertain {
             write!(f, "(")?;
         }
-        let bound = |f: &mut fmt::Formatter, b: HgvsGenomicPos| {
-            if b.is_unknown() {
-                write!(f, "?")
-            } else {
-                write!(f, "{}", b.0)
-            }
+        let bound = |f: &mut fmt::Formatter, b: GenomicBound| match b {
+            GenomicBound::At(pos) => write!(f, "{}", pos.0),
+            GenomicBound::Unknown => write!(f, "?"),
         };
         bound(f, self.base)?;
         if let Some(end) = self.end {

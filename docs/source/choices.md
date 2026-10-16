@@ -65,6 +65,7 @@ Representation Specification 2.0.1.
 | [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |   agrees    |     differs      |          –           |        –         |
 | [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |   agrees    |        –         |       differs        |        –         |
 | [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |   agrees    |     differs      |        agrees        |        –         |
+| [Positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0)                        |   agrees    |        –         |          –           |        –         |
 | [A number too large to hold is refused when parsed](#a-number-too-large-to-hold-is-refused-when-parsed)                             |      –      |        –         |          –           |        –         |
 | [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) |      –      |        –         |          –           |        –         |
 | [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based)                                           |   agrees    |        –         |          –           |        –         |
@@ -1316,6 +1317,32 @@ NM_X.1:c.-5_10del          →  parses
   in a range are given 5' to 3'.
 - **Tests:** `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
   `::a_range_built_backwards_is_an_error_wherever_it_is_resolved`.
+
+### Positions number from 1, and an unknown one is not 0
+
+**`g.0` and `m.0` are a `ParseError`: a genomic or mitochondrial sequence numbers its bases from 1. A position that is
+not known, `?`, is held as unknown, never as a number.**
+
+Were `?` held as position 0, a written 0 would read as `?`, and `g.0A>G` would be a substitution somewhere unknown
+rather than an error. A dict gives an unknown position as `"?"` and a known one as its number; a dict with position 0 is
+refused like the text.
+
+**Example:**
+
+```text
+NC_W.1:g.0A>G               →  ParseError
+NC_W.1:g.0_5del             →  ParseError
+NC_W.1:g.(?_5)_(10_?)del    →  NC_W.1:g.(?_5)_(10_?)del
+```
+
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "numbering is `g.1`,
+  `g.2`, `g.3`, ..., etc., from the first to the last nucleotide", and the same for `m.`.
+- *Not checked:* biocommons, VariantValidator and ClinVar.
+- **Tests:** `position_zero_test::a_genomic_substitution_at_zero`, `::a_genomic_range_from_zero`,
+  `::an_uncertain_genomic_bound_at_zero`, `::a_mitochondrial_substitution_at_zero`,
+  `::an_unknown_genomic_bound_reparses_to_itself`,
+  `::a_dict_for_an_unknown_genomic_bound_names_it_with_a_question_mark`,
+  `::a_dict_for_a_genomic_position_of_zero_is_refused`.
 
 ### A number too large to hold is refused when parsed
 
