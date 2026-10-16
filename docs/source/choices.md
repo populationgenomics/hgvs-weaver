@@ -1220,22 +1220,35 @@ NM_R.1:r.*5u>a
 
 ### Recommended spellings on output
 
-**`insN[20]` rather than `ins(20)`; `extTer8` rather than `ext*8`; bare `del` and `dup`.**
+**`insN[20]` rather than `ins(20)`; `extTer8` rather than `ext*8`; a range of repeat copies as `[(70_80)]` rather than
+`(70_80)`; three-letter residues rather than one-letter; bare `del` and `dup`.**
+
+A description read in an older or shorter spelling is stored as the spelling it prints, so the printed text parses back
+to the same value: `p.M1?` is stored and printed as `p.Met1?`, and after `fs` or `ext` a stop written `X` or `*` is
+`Ter`. A sequence of several one-letter residues, `p.Arg2delinsKL`, is kept and printed as written.
 
 **Example:**
 
 ```text
 NC_TEST.1:g.10_11ins(20)       →  NC_TEST.1:g.10_11insN[20]
 NC_TEST.1:g.10_12del3insN[5]   →  NC_TEST.1:g.10_12delinsN[5]
+NM_W.1:c.10_12CAG(70_80)       →  NM_W.1:c.10_12CAG[(70_80)]
+NP_W.1:p.R97Pfs*23             →  NP_W.1:p.Arg97ProfsTer23
 NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocommons and VariantValidator write ext*4; compared as equal
 ```
 
 - **Differs:** VariantValidator and biocommons write `ext*`.
 - **Spec (agrees):** [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/);
   [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/), where "both notations are
-  acceptable"; [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/).
+  acceptable"; [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/);
+  [protein repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/protein/repeated/) for
+  `p.(Gln18)[(70_80)]`; [standards](https://hgvs-nomenclature.org/stable/background/standards/) for the three-letter
+  code and "use 'Xaa' only", since `X` has been used for a stop.
 - **Tests:** `vrs_length_test::length_expressions_read_back_as_the_recommended_spelling`;
-  `real_transcripts_test::biocommons_real_transcript_cases` (`ext*` compared equal to `extTer`).
+  `real_transcripts_test::biocommons_real_transcript_cases` (`ext*` compared equal to `extTer`);
+  `printed_reparse_test::a_repeat_of_a_range_of_copies_prints_as_hgvs_writes_it`,
+  `::a_repeat_of_a_range_of_copies_parses_as_hgvs_writes_it`, `::a_one_letter_frameshift_is_the_three_letter_one`,
+  `::a_frameshift_to_a_stop_written_x`.
 
 ### A range written backwards is refused when parsed
 
