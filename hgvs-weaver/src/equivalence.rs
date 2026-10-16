@@ -336,7 +336,7 @@ impl<'a> VariantEquivalence<'a> {
                     _ => None,
                 };
                 match count {
-                    Some(n) if n >= 1 => {
+                    Some(n) => {
                         while alt.len() < n - 1 {
                             alt.push('X');
                         }
@@ -351,7 +351,7 @@ impl<'a> VariantEquivalence<'a> {
             AaEdit::Ext { alt, end } => {
                 let mut alt = crate::utils::residues_1(alt)?;
                 match end.residues_to_stop().map(|n| n.get() as usize) {
-                    Some(n) if n >= 1 => {
+                    Some(n) => {
                         while alt.len() < n {
                             alt.push('X');
                         }
