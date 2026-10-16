@@ -896,44 +896,72 @@ proptest! {
 }
 
 /// The properties above pass vacuously on a case a projection refuses, so on
-/// a fixed sample each projection must answer most generated edits, and some
-/// genes must differ from their genome.
+/// a fixed sample each chain a property follows must answer most generated
+/// edits, and some genes must differ from their genome.
 #[test]
 fn the_generated_edits_reach_every_projection() {
     use proptest::strategy::ValueTree;
     let mut runner = proptest::test_runner::TestRunner::deterministic();
     let strategy = gene_and_edit();
     let cases = 1000;
-    let mut answered = [0usize; 4];
+    // Each chain, and the tenths of the sample it must answer. Most edits
+    // fall outside the CDS, where the protein is a statement.
+    let mut chains: [(&str, usize, usize); 12] = [
+        ("c_to_g", 7, 0),
+        ("g_to_c", 7, 0),
+        ("c_to_r", 7, 0),
+        ("r_to_c", 7, 0),
+        ("r_to_g", 7, 0),
+        ("r_to_p", 2, 0),
+        ("c_to_p", 2, 0),
+        ("normalize c.", 7, 0),
+        ("normalize g.", 7, 0),
+        ("normalize r.", 7, 0),
+        ("from_spdi", 7, 0),
+        ("from_vrs", 7, 0),
+    ];
     let mut discordant = 0;
+    // a statement (`p.?`, `p.(Met1?)`, `p.(=)`) describes no change
+    let describes_a_change =
+        |vp: &hgvs_weaver::structs::PVariant| !matches!(vp.posedit.edit, AaEdit::Statement(_));
     for _ in 0..cases {
         let (g, e) = strategy.new_tree(&mut runner).unwrap().current();
         let am = TranscriptMapper::new(g.transcript_data()).unwrap();
         let hdp = g.provider();
         let mapper = VariantMapper::new(&hdp);
         let vc = tx_edit_variant(&g, &am, &e);
-        answered[0] += usize::from(mapper.c_to_g(&vc, None).is_ok());
-        answered[1] += usize::from(mapper.c_to_r(&vc).is_ok());
-        // a statement (`p.?`, `p.(Met1?)`, `p.(=)`) describes no change
-        answered[2] += usize::from(matches!(
-            mapper.c_to_p(&vc, Some("NP_PROP.1")),
-            Ok(vp) if !matches!(vp.posedit.edit, AaEdit::Statement(_))
-        ));
-        answered[3] += usize::from(
+        let vg = mapper.c_to_g(&vc, None).ok();
+        let vr = mapper.c_to_r(&vc).ok();
+        let coding = SequenceVariant::Coding(vc.clone());
+        let answered = [
+            vg.is_some(),
+            vg.as_ref().is_some_and(|vg| mapper.g_to_c(vg, &g.ac).is_ok()),
+            vr.is_some(),
+            vr.as_ref().is_some_and(|vr| mapper.r_to_c(vr).is_ok()),
+            vr.as_ref().is_some_and(|vr| mapper.r_to_g(vr, None).is_ok()),
+            vr.as_ref().is_some_and(|vr| {
+                matches!(mapper.r_to_p(vr, Some("NP_PROP.1")), Ok(vp) if describes_a_change(&vp))
+            }),
+            matches!(mapper.c_to_p(&vc, Some("NP_PROP.1")), Ok(vp) if describes_a_change(&vp)),
+            mapper.normalize_variant(coding.clone()).is_ok(),
+            vg.clone().is_some_and(|vg| mapper.normalize_variant(SequenceVariant::Genomic(vg)).is_ok()),
+            vr.clone().is_some_and(|vr| mapper.normalize_variant(SequenceVariant::Rna(vr)).is_ok()),
             mapper
-                .normalize_variant(SequenceVariant::Coding(vc))
-                .is_ok(),
-        );
+                .to_spdi(&coding, false)
+                .is_ok_and(|spdi| mapper.from_spdi(&spdi).is_ok()),
+            mapper.to_vrs(&coding).is_ok_and(|vrs| {
+                mapper
+                    .from_vrs(&vrs.to_json(), Some(&g.reference_ac))
+                    .is_ok()
+            }),
+        ];
+        for (chain, ok) in chains.iter_mut().zip(answered) {
+            chain.2 += usize::from(ok);
+        }
         let exonic: Vec<TxPoint> = g.points().into_iter().filter(|p| p.offset == 0).collect();
         discordant += usize::from(g.bases_at(&exonic) != g.transcript_seq);
     }
-    // Most edits fall outside the CDS, where the protein is a statement.
-    let floors = [7, 7, 2, 7];
-    for ((name, ok), floor) in ["c_to_g", "c_to_r", "c_to_p", "normalize_variant"]
-        .into_iter()
-        .zip(answered)
-        .zip(floors)
-    {
+    for (name, floor, ok) in chains {
         assert!(
             ok * 10 >= cases * floor,
             "{name} answered {ok} of {cases} generated edits"
