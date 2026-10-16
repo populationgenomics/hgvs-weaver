@@ -42,6 +42,19 @@ position_zero_is_a_parse_error! {
     a_coding_range_to_zero: "NM_W.1:c.-5_0del";
     a_non_coding_substitution_at_zero: "NR_W.1:n.0A>G";
     an_rna_substitution_at_zero: "NM_W.1:r.0a>g";
+    a_frameshift_to_a_stop_zero_residues_on: "NP_W.1:p.Arg97ProfsTer0";
+    an_extension_to_a_stop_zero_residues_on: "NP_W.1:p.Ter30GlnextTer0";
+    an_extension_to_a_start_zero_residues_upstream: "NP_W.1:p.Met1ext-0";
+    an_extension_by_a_count_of_zero: "NP_W.1:p.Ter30Glnext0";
+}
+
+#[test]
+fn a_dict_for_a_frameshift_to_a_stop_zero_residues_on_is_refused() {
+    let json = r#"{"variant_type": "Protein", "ac": "NP_W.1", "gene": null, "posedit": {"pos": {"start":
+        {"base": 97, "aa": "Arg"}, "end": null, "uncertain": false},
+        "edit": {"type": "Fs", "alt": "Pro", "stop": {"kind": "Residues", "count": 0}},
+        "uncertain": false, "predicted": false}}"#;
+    assert!(from_json(json).is_err(), "{json}");
 }
 
 #[test]

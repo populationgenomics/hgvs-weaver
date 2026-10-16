@@ -439,9 +439,7 @@ impl Writer<'_> {
         }
         let stop = match self.alt_aa[i..].iter().position(|&c| c == '*') {
             Some(k) => StopDistance::Residues {
-                count: u32::try_from(k + 1).map_err(|_| {
-                    HgvsError::ValidationError(format!("a stop {} residues on", k + 1))
-                })?,
+                count: residues_on(k)?,
             },
             None => StopDistance::Unknown,
         };
@@ -460,9 +458,7 @@ impl Writer<'_> {
         let alt_c = self.alt_aa.get(i).copied().unwrap_or('*');
         let distance = match self.alt_aa[i + 1..].iter().position(|&c| c == '*') {
             Some(k) => StopDistance::Residues {
-                count: u32::try_from(k + 1).map_err(|_| {
-                    HgvsError::ValidationError(format!("a stop {} residues on", k + 1))
-                })?,
+                count: residues_on(k)?,
             },
             None => StopDistance::Unknown,
         };
@@ -481,6 +477,14 @@ impl Writer<'_> {
             },
         )
     }
+}
+
+/// The distance to a stop `k` residues after the first one counted.
+fn residues_on(k: usize) -> Result<std::num::NonZeroU32, HgvsError> {
+    u32::try_from(k)
+        .ok()
+        .and_then(|k| std::num::NonZeroU32::MIN.checked_add(k))
+        .ok_or_else(|| HgvsError::ValidationError(format!("a stop {} residues on", k + 1)))
 }
 
 #[cfg(test)]

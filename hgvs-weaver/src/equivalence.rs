@@ -332,7 +332,7 @@ impl<'a> VariantEquivalence<'a> {
             AaEdit::Fs { alt, stop } => {
                 let mut alt = crate::utils::residues_1(alt)?;
                 let count = match stop {
-                    Some(StopDistance::Residues { count }) => Some(*count as usize),
+                    Some(StopDistance::Residues { count }) => Some(count.get() as usize),
                     _ => None,
                 };
                 match count {
@@ -350,7 +350,7 @@ impl<'a> VariantEquivalence<'a> {
             // `Ter#Xxxext*N`: the stop becomes Xxx, then N - 1 residues, then a stop.
             AaEdit::Ext { alt, end } => {
                 let mut alt = crate::utils::residues_1(alt)?;
-                match end.residues_to_stop().map(|n| n as usize) {
+                match end.residues_to_stop().map(|n| n.get() as usize) {
                     Some(n) if n >= 1 => {
                         while alt.len() < n {
                             alt.push('X');

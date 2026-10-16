@@ -1328,6 +1328,10 @@ Were `?` held as position 0, a written 0 would read as `?`, and `g.0A>G` would b
 rather than an error; a transcript position 0 has no base to convert to, and lands on a neighbour's. A dict gives an
 unknown g. or m. position as `"?"` and a known one as its number; a dict with position 0 is refused like the text.
 
+A count after `fs` or `ext` starts at 1 for the same reason. `fsTer1` puts the stop at the first changed residue and
+`extTer1` one past the residue that replaced the stop, so `fsTer0` and `extTer0` name a stop before either; `ext-0` puts
+the new start at the old one. Each is a `ParseError`, and a dict with a count of 0 is refused.
+
 **Example:**
 
 ```text
@@ -1335,18 +1339,26 @@ NC_W.1:g.0A>G               →  ParseError
 NC_W.1:g.0_5del             →  ParseError
 NM_W.1:c.-0A>G              →  ParseError
 NM_W.1:c.*0A>G              →  ParseError
+NP_W.1:p.Arg97ProfsTer0     →  ParseError
+NP_W.1:p.Met1ext-0          →  ParseError
 NC_W.1:g.(?_5)_(10_?)del    →  NC_W.1:g.(?_5)_(10_?)del
 ```
 
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "numbering is `g.1`,
   `g.2`, `g.3`, ..., etc., from the first to the last nucleotide", the same for `m.` and `n.`, and "there is no
-  nucleotide `c.0`".
+  nucleotide `c.0`". [Frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/): the stop is
+  counted "starting at the first amino acid changed by the frameshift (codon 1)";
+  [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): `p.Met1ext-5` places a new start
+  upstream, numbered like the coding sequence it sits in, which has no 0.
 - *Not checked:* biocommons, VariantValidator and ClinVar.
 - **Tests:** `position_zero_test::a_genomic_substitution_at_zero`, `::a_genomic_range_from_zero`,
   `::an_uncertain_genomic_bound_at_zero`, `::a_mitochondrial_substitution_at_zero`, `::a_coding_substitution_at_zero`,
   `::a_coding_substitution_at_minus_zero`, `::a_coding_substitution_at_star_zero`, `::a_coding_range_to_zero`,
   `::a_non_coding_substitution_at_zero`, `::an_rna_substitution_at_zero`,
-  `::a_dict_for_a_coding_position_of_zero_is_refused`, `::an_unknown_genomic_bound_reparses_to_itself`,
+  `::a_dict_for_a_coding_position_of_zero_is_refused`, `::a_frameshift_to_a_stop_zero_residues_on`,
+  `::an_extension_to_a_stop_zero_residues_on`, `::an_extension_to_a_start_zero_residues_upstream`,
+  `::an_extension_by_a_count_of_zero`, `::a_dict_for_a_frameshift_to_a_stop_zero_residues_on_is_refused`,
+  `::an_unknown_genomic_bound_reparses_to_itself`,
   `::a_dict_for_an_unknown_genomic_bound_names_it_with_a_question_mark`,
   `::a_dict_for_a_genomic_position_of_zero_is_refused`.
 

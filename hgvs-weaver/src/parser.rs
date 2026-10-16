@@ -609,12 +609,19 @@ fn pro_fs(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
     Ok(AaEdit::Fs { alt, stop })
 }
 
+/// A count after `fs` or `ext`, which is at least 1.
+fn count(s: &str) -> Result<std::num::NonZeroU32, HgvsError> {
+    std::num::NonZeroU32::new(number(s)?).ok_or_else(|| {
+        HgvsError::PestError(format!("a count after fs or ext is at least 1, not {s}"))
+    })
+}
+
 /// `fsext_offset`: the distance to a new stop, `12`, `?` or nothing.
 fn stop_distance(s: &str) -> Result<StopDistance, HgvsError> {
     Ok(match s {
         "" => StopDistance::Unstated,
         "?" => StopDistance::Unknown,
-        n => StopDistance::Residues { count: number(n)? },
+        n => StopDistance::Residues { count: count(n)? },
     })
 }
 
@@ -654,11 +661,11 @@ fn extension_end(pair: Pair<Rule>) -> Result<ExtensionEnd, HgvsError> {
                 return Ok(match n.strip_prefix('-') {
                     Some(n) => ExtensionEnd::Upstream {
                         residue,
-                        distance: number(n)?,
+                        distance: count(n)?,
                     },
                     None => ExtensionEnd::Count {
                         residue,
-                        count: number(n.trim_start_matches('+'))?,
+                        count: count(n.trim_start_matches('+'))?,
                     },
                 });
             }
@@ -883,7 +890,9 @@ mod tests {
                     assert_eq!(
                         end,
                         crate::edits::ExtensionEnd::Stop {
-                            distance: crate::edits::StopDistance::Residues { count: 5 }
+                            distance: crate::edits::StopDistance::Residues {
+                                count: std::num::NonZeroU32::new(5).unwrap()
+                            }
                         }
                     );
                 }

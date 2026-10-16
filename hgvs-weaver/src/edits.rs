@@ -2,6 +2,7 @@ use crate::coords::SequenceVariant;
 use crate::error::HgvsError;
 use crate::reference::Reference;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 
 /// Nucleic acid edits (substitutions, deletions, insertions, etc.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -189,21 +190,25 @@ pub enum ExtensionEnd {
     /// upstream, and the residue there, if named.
     Upstream {
         residue: Option<String>,
-        distance: u32,
+        distance: NonZeroU32,
     },
     /// `ext5`, `extMet5`: a count with no sign, after no residue or one that
     /// is not a stop. The grammar reads it and HGVS does not write it; `ext+5`
     /// is read as `ext5`, and a count after a stop is [`ExtensionEnd::Stop`].
-    Count { residue: Option<String>, count: u32 },
+    Count {
+        residue: Option<String>,
+        count: NonZeroU32,
+    },
 }
 
-/// How far on a new stop is, counting the stop itself: `17`, `?`, or nothing.
-/// After `ext` the count runs from the residue that replaced the stop; after
-/// `fs`, from the first changed residue.
+/// How far on a new stop is: `17`, `?`, or nothing. After `fs` the count
+/// runs from the first changed residue, counted as 1, to the stop; after
+/// `ext`, from the residue that replaced the stop to the new one. Either way
+/// the stop is at least one residue on.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum StopDistance {
-    Residues { count: u32 },
+    Residues { count: NonZeroU32 },
     Unknown,
     Unstated,
 }
@@ -254,7 +259,7 @@ impl ExtensionEnd {
     /// The number of residues to the new stop, counting the stop, where the
     /// end gives one. A count with no sign, `ext5` or `extLeu5`, is read as
     /// that distance.
-    pub fn residues_to_stop(&self) -> Option<u32> {
+    pub fn residues_to_stop(&self) -> Option<NonZeroU32> {
         match self {
             ExtensionEnd::Stop {
                 distance: StopDistance::Residues { count },
