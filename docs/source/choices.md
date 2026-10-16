@@ -65,6 +65,7 @@ Representation Specification 2.0.1.
 | [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |   agrees    |     differs      |          –           |        –         |
 | [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |   agrees    |        –         |       differs        |        –         |
 | [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |   agrees    |     differs      |        agrees        |        –         |
+| [A number too large to hold is refused when parsed](#a-number-too-large-to-hold-is-refused-when-parsed)                             |      –      |        –         |          –           |        –         |
 | [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) |      –      |        –         |          –           |        –         |
 | [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based)                                           |   agrees    |        –         |          –           |        –         |
 | [A mapper keeps its cache](#a-mapper-keeps-its-cache)                                                                               |      –      |        –         |          –           |        –         |
@@ -1315,6 +1316,31 @@ NM_X.1:c.-5_10del          →  parses
   in a range are given 5' to 3'.
 - **Tests:** `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
   `::a_range_built_backwards_is_an_error_wherever_it_is_resolved`.
+
+### A number too large to hold is refused when parsed
+
+**A position, offset, repeat count, inserted length, copy count or stop distance too large for the integer weaver holds
+it in is a `ParseError` naming the number, not a value read as 0 or kept as text.**
+
+Read as 0, an out-of-range count turned a repeat or an insertion into a different variant without a word; kept as text,
+a stop distance could not be compared or projected. No real sequence comes near these limits, so a number past them is a
+typo or a corrupted record, and the answer is an error.
+
+**Example:**
+
+```text
+NM_W.1:c.99999999999A>G                      →  ParseError    a position is held in 32 bits, signed
+NM_W.1:c.10_12CAG[99999999999]               →  ParseError
+NC_W.1:g.10_11insN[99999999999999999999999]  →  ParseError
+NP_W.1:p.Arg97ProfsTer4294967296             →  ParseError    a stop distance is held in 32 bits
+```
+
+- **Spec (silent):** HGVS sets no bound on a number.
+- *Not checked:* biocommons, VariantValidator and ClinVar.
+- **Tests:** `src/parser.rs::tests::a_transcript_position_past_i32`, `::an_intronic_offset_past_i32`,
+  `::a_repeat_count_past_i32`, `::a_repeat_range_end_past_i32`, `::an_inserted_length_past_usize`,
+  `::a_copy_count_past_i32`, `::a_frameshift_count_past_u32_is_a_parse_error`,
+  `::an_extension_count_past_u32_is_a_parse_error`.
 
 ## The data contract
 
