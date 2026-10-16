@@ -276,6 +276,15 @@ fn the_mappers_unknown_change_from_met1_reparses_to_itself() {
 }
 
 #[test]
+fn the_start_codon_transform_of_a_one_letter_description_reparses_to_itself() {
+    let settings = VariantTransformSettings {
+        start_codon: StartCodonConvention::HgvsQuestion,
+    };
+    let p = transform_variant(&parse("NP_W.1:p.(M1V)"), &settings);
+    assert_eq!(parse(&p.to_string()), p);
+}
+
+#[test]
 fn the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself() {
     let settings = VariantTransformSettings {
         start_codon: StartCodonConvention::HgvsQuestion,

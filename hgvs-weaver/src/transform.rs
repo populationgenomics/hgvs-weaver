@@ -79,7 +79,7 @@ fn apply_hgvs_question(vp: &PVariant) -> PVariant {
                     pos: Some(AaInterval {
                         start: AAPosition {
                             base: pos.start.base,
-                            aa: pos.start.aa.clone(),
+                            aa: "Met".to_string(),
                             uncertain: false,
                         },
                         end: None,
