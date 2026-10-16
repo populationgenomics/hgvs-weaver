@@ -38,7 +38,7 @@ class StartCodonConvention:
     """
 
     HgvsQuestion: ClassVar[StartCodonConvention]
-    """Use the HGVS `p.Met1?` notation for any non-silent change at the first codon."""
+    """Use the HGVS `p.Met1?` notation for any non-silent change at the first codon, `p.(Met1?)` for a prediction."""
     Specific: ClassVar[StartCodonConvention]
     """Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default."""
     def __eq__(self, value: object) -> bool: ...
@@ -118,10 +118,12 @@ class Variant:
             provider: The data provider instance for sequence retrieval.
 
         Returns:
-            True if the reference sequence matches, False otherwise.
+            True if the reference sequence matches, False otherwise. c.= names no
+            bases and is True once its transcript is found to have a CDS.
 
         Raises:
-            ValidationError: If transcript sequence is too short or coordinates are out of bounds.
+            ValidationError: If transcript sequence is too short or coordinates are out of bounds,
+                or c.= is on a transcript without a CDS.
             DataProviderError: If sequence data cannot be retrieved.
         """
 
@@ -177,7 +179,11 @@ class VariantMapper:
 
         An r. variant is predicted from its c. spelling; a statement about the
         transcript (r.0, r.spl, r.?, r.=) becomes the matching statement about the
-        protein (p.0, p.?, p.(=)).
+        protein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts
+        p.(=) on the protein the transcript encodes; a protein_ac naming another
+        protein is an error. Every form needs a transcript with a CDS. r.(?)
+        says the RNA follows a DNA change it does not carry, so it has no
+        protein consequence of its own and raises UnsupportedOperationError.
 
         Args:
             var_c: The coding or RNA Variant to project.
@@ -188,6 +194,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_c is not a coding or RNA variant.
+            UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
@@ -291,7 +298,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_c is not a coding variant.
-            HGVSError: If the consequence is a statement (p.?, p.Met1?), or the
+            HGVSError: If the consequence is a statement (p.?, p.(Met1?)), or the
                 translated CDS is not the protein the provider serves.
         """
     def protein_spdi(self, var_c: Variant, protein_ac: str | None = ...) -> str:

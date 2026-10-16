@@ -25,7 +25,8 @@ pub fn parse_g_posedit(pair: Pair<Rule>) -> Result<PosEdit<SimpleInterval, NaEdi
 
 /// Parses a transcript-space posedit (`c.`, `n.` or `r.`); positions without
 /// an explicit anchor get `default_anchor`. Only the r. grammar has a
-/// predicted form, `r.(123a>g)`, its own rule.
+/// predicted form, `r.(123a>g)`, its own rule. A statement about the whole
+/// transcript, `c.=` or `r.spl`, has no position.
 pub fn parse_tx_posedit(
     pair: Pair<Rule>,
     default_anchor: Anchor,
@@ -35,15 +36,22 @@ pub fn parse_tx_posedit(
     let mut first = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?;
-    if first.as_rule() == Rule::r_posedit_special {
+    // The parentheses of r.(=) mark a prediction; those of r.(?) belong to
+    // its statement.
+    let statement = match first.as_rule() {
+        Rule::whole_identity => Some((NaEdit::WholeIdentity, text.starts_with('('))),
+        Rule::r_posedit_special => Some((
+            NaEdit::Statement(parse_rna_statement(first.clone())?),
+            false,
+        )),
+        _ => None,
+    };
+    if let Some((edit, predicted)) = statement {
         return Ok(PosEdit {
             pos: None,
-            edit: NaEdit::Special {
-                value: first.as_str().replace(['(', ')'], ""),
-                uncertain: false,
-            },
+            edit,
             uncertain: false,
-            predicted: text.starts_with('('),
+            predicted,
         });
     }
     let predicted = first.as_rule() == Rule::r_posedit_predicted;
@@ -78,15 +86,29 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
     let inner_pair = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty p_posedit".into()))?;
-    if inner_pair.as_rule() == Rule::p_posedit_special {
-        let special = inner_pair.as_str();
-        let edit = AaEdit::Special {
-            value: special.replace(['(', ')'], ""),
+    if inner_pair.as_rule() == Rule::p_unknown_from {
+        let mut at = parse_aa_pos(
+            inner_pair
+                .into_inner()
+                .next()
+                .ok_or_else(|| HgvsError::PestError("Missing residue".into()))?,
+        )?;
+        at.aa = crate::utils::residue_3(&at.aa).to_string();
+        return Ok(PosEdit {
+            pos: Some(AaInterval {
+                start: at,
+                end: None,
+                uncertain: false,
+            }),
+            edit: AaEdit::Statement(ProteinStatement::Unknown),
             uncertain: false,
-        };
+            predicted,
+        });
+    }
+    if inner_pair.as_rule() == Rule::p_posedit_special {
         return Ok(PosEdit {
             pos: None,
-            edit,
+            edit: AaEdit::Statement(parse_protein_statement(inner_pair)?),
             uncertain: false,
             predicted,
         });
@@ -100,6 +122,12 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
         if let Some(e) = inner.next() {
             edit = parse_pro_edit(e)?;
         }
+        if let Some(pos) = pos.as_mut() {
+            pos.start.aa = edit.canonical_start(&pos.start.aa);
+            if let Some(end) = pos.end.as_mut() {
+                end.aa = crate::utils::residue_3(&end.aa).to_string();
+            }
+        }
     } else if inner_pair.as_rule() == Rule::pro_edit {
         edit = parse_pro_edit(inner_pair)?;
     }
@@ -110,6 +138,44 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
         uncertain: false,
         predicted,
     })
+}
+
+/// The statement an `r_posedit_special` names.
+fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
+    match statement_parts(pair)? {
+        (Rule::r_no_rna, uncertain) => Ok(RnaStatement::NoRna { uncertain }),
+        (Rule::r_splicing_affected, uncertain) => Ok(RnaStatement::SplicingAffected { uncertain }),
+        (Rule::r_unknown, _) => Ok(RnaStatement::Unknown),
+        (Rule::r_follows_dna, _) => Ok(RnaStatement::FollowsDna),
+        (r, _) => Err(HgvsError::PestError(format!(
+            "Unexpected RNA statement {r:?}"
+        ))),
+    }
+}
+
+/// The statement a `p_posedit_special` names.
+fn parse_protein_statement(pair: Pair<Rule>) -> Result<ProteinStatement, HgvsError> {
+    match statement_parts(pair)? {
+        (Rule::p_unchanged, _) => Ok(ProteinStatement::Unchanged),
+        (Rule::p_no_protein, uncertain) => Ok(ProteinStatement::NoProtein { uncertain }),
+        (Rule::p_unknown, _) => Ok(ProteinStatement::Unknown),
+        (r, _) => Err(HgvsError::PestError(format!(
+            "Unexpected protein statement {r:?}"
+        ))),
+    }
+}
+
+/// The rule of a statement, and whether it carries `statement_uncertain`.
+fn statement_parts(pair: Pair<Rule>) -> Result<(Rule, bool), HgvsError> {
+    let statement = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| HgvsError::PestError("Missing statement".into()))?;
+    let rule = statement.as_rule();
+    let uncertain = statement
+        .into_inner()
+        .any(|p| p.as_rule() == Rule::statement_uncertain);
+    Ok((rule, uncertain))
 }
 
 pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsError> {
@@ -344,8 +410,10 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
             Rule::aa13 | Rule::term13 | Rule::aa3 | Rule::aa1 | Rule::term3 | Rule::term1 => {
                 aa = p.as_str().to_string();
             }
-            Rule::num => {
-                pos = p.as_str().parse().unwrap_or(0);
+            Rule::residue_num => {
+                pos = p.as_str().parse().map_err(|_| {
+                    HgvsError::PestError(format!("residue number {} is out of range", p.as_str()))
+                })?;
             }
             _ => {}
         }
@@ -354,7 +422,6 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
     Ok(AAPosition {
         base: HgvsProteinPos(pos),
         aa,
-        uncertain: false,
     })
 }
 
@@ -608,7 +675,8 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
             }
         }
         _ => AaEdit::None,
-    })
+    }
+    .into_canonical())
 }
 
 #[cfg(test)]
@@ -770,7 +838,7 @@ mod tests {
                 } => {
                     assert_eq!(ref_, "");
                     assert_eq!(alt, "Arg");
-                    assert_eq!(aaterm, Some("*".to_string()));
+                    assert_eq!(aaterm, Some("Ter".to_string()));
                     assert_eq!(length, Some("5".to_string()));
                 }
                 _ => panic!("Expected Extension edit"),

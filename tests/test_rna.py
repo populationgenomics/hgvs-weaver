@@ -60,7 +60,7 @@ def test_r_is_c_in_rna_letters() -> None:
     assert str(mapper.r_to_g(r)) == str(mapper.c_to_g(c))
     assert str(mapper.c_to_p(r)) == str(mapper.c_to_p(c)) == "NP_TEST.1:p.(Gly2Arg)"
     assert str(mapper.c_to_p(weaver.parse("NM_TEST.1:r.spl"))) == "NP_TEST.1:p.?"
-    assert str(mapper.c_to_p(weaver.parse("NM_TEST.1:r.0"))) == "NP_TEST.1:p.0"
+    assert str(mapper.c_to_p(weaver.parse("NM_TEST.1:r.0"))) == "NP_TEST.1:p.0?"
     with pytest.raises(weaver.UnsupportedOperationError):
         mapper.r_to_n(r)  # the transcript has a CDS
     with pytest.raises(ValueError, match="RNA variant"):

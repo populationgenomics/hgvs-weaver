@@ -1,6 +1,6 @@
-use crate::edits::{AaEdit, NaEdit};
+use crate::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use crate::structs::*;
-use crate::utils::aa1_to_aa3;
+use crate::utils::{residue_3, terminator_3};
 use std::fmt;
 
 impl fmt::Display for SequenceVariant {
@@ -270,19 +270,7 @@ impl fmt::Display for AaInterval {
 
 impl fmt::Display for AAPosition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.uncertain {
-            write!(f, "(")?;
-        }
-        let aa_normalized = if self.aa.len() == 1 {
-            aa1_to_aa3(self.aa.chars().next().unwrap())
-        } else {
-            &self.aa
-        };
-        write!(f, "{}{}", aa_normalized, self.base.0)?;
-        if self.uncertain {
-            write!(f, ")")?;
-        }
-        Ok(())
+        write!(f, "{}{}", residue_3(&self.aa), self.base.0)
     }
 }
 
@@ -293,6 +281,15 @@ fn write_length(f: &mut fmt::Formatter, min: usize, max: usize) -> fmt::Result {
         write!(f, "N[{}]", min)
     } else {
         write!(f, "N[({}_{})]", min, max)
+    }
+}
+
+/// `[n]` for an exact number of copies, `[(min_max)]` for a range.
+fn write_count(f: &mut fmt::Formatter, min: i32, max: i32) -> fmt::Result {
+    if min == max {
+        write!(f, "[{}]", min)
+    } else {
+        write!(f, "[({}_{})]", min, max)
     }
 }
 
@@ -402,20 +399,10 @@ impl fmt::Display for NaEdit {
                 if let Some(r) = ref_ {
                     write!(f, "{}", r)?;
                 }
-                if min == max {
-                    write!(f, "[{}]", min)?;
-                } else {
-                    write!(f, "[{}_{}]", min, max)?;
-                }
+                write_count(f, *min, *max)?;
                 Ok(())
             }
-            NaEdit::Special { value, uncertain } => {
-                write!(f, "{}", value)?;
-                if *uncertain {
-                    write!(f, "?")?;
-                }
-                Ok(())
-            }
+            NaEdit::Statement(statement) => write!(f, "{statement}"),
             NaEdit::NACopy { copy, uncertain } => {
                 write!(f, "copy{}", copy)?;
                 if *uncertain {
@@ -423,8 +410,42 @@ impl fmt::Display for NaEdit {
                 }
                 Ok(())
             }
-            NaEdit::None => write!(f, "="),
+            NaEdit::WholeIdentity | NaEdit::None => write!(f, "="),
             _ => write!(f, "unknown_na_edit"),
+        }
+    }
+}
+
+/// `?` when the statement is uncertain.
+fn uncertainty(uncertain: bool) -> &'static str {
+    if uncertain {
+        "?"
+    } else {
+        ""
+    }
+}
+
+impl fmt::Display for RnaStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RnaStatement::NoRna { uncertain } => write!(f, "0{}", uncertainty(*uncertain)),
+            RnaStatement::SplicingAffected { uncertain } => {
+                write!(f, "spl{}", uncertainty(*uncertain))
+            }
+            RnaStatement::Unknown => write!(f, "?"),
+            RnaStatement::FollowsDna => write!(f, "(?)"),
+        }
+    }
+}
+
+impl fmt::Display for ProteinStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProteinStatement::NoProtein { uncertain } => {
+                write!(f, "0{}", uncertainty(*uncertain))
+            }
+            ProteinStatement::Unknown => write!(f, "?"),
+            ProteinStatement::Unchanged => write!(f, "="),
         }
     }
 }
@@ -432,16 +453,7 @@ impl fmt::Display for NaEdit {
 impl fmt::Display for AaEdit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AaEdit::Subst { alt, .. } => {
-                let alt_normalized = if alt.len() == 1 {
-                    aa1_to_aa3(alt.chars().next().unwrap())
-                } else if alt == "*" {
-                    "Ter"
-                } else {
-                    alt
-                };
-                write!(f, "{}", alt_normalized)
-            }
+            AaEdit::Subst { alt, .. } => write!(f, "{}", residue_3(alt)),
             AaEdit::Del { ref_, .. } => {
                 write!(f, "del")?;
                 if !ref_.is_empty() {
@@ -482,27 +494,12 @@ impl fmt::Display for AaEdit {
             AaEdit::Fs {
                 alt, term, length, ..
             } => {
-                let alt_normalized = if alt.len() == 1 {
-                    aa1_to_aa3(alt.chars().next().unwrap())
-                } else if alt == "*" {
-                    "Ter"
-                } else {
-                    alt
-                };
-                if alt_normalized.is_empty() {
-                    write!(f, "fs")?;
-                } else {
-                    let term_normalized = term.as_deref().map(|t| {
-                        if t.len() == 1 {
-                            aa1_to_aa3(t.chars().next().unwrap())
-                        } else if t == "*" {
-                            "Ter"
-                        } else {
-                            t
-                        }
-                    });
-                    write!(f, "{}fs{}", alt_normalized, term_normalized.unwrap_or(""))?;
-                }
+                write!(
+                    f,
+                    "{}fs{}",
+                    residue_3(alt),
+                    term.as_deref().map_or("", terminator_3)
+                )?;
                 if let Some(l) = length {
                     write!(f, "{}", l)?;
                 }
@@ -514,19 +511,9 @@ impl fmt::Display for AaEdit {
                 aaterm,
                 ..
             } => {
-                let alt_normalized = if alt.len() == 1 {
-                    aa1_to_aa3(alt.chars().next().unwrap())
-                } else {
-                    alt
-                };
-                write!(f, "{}ext", alt_normalized)?;
+                write!(f, "{}ext", residue_3(alt))?;
                 if let Some(t) = aaterm {
-                    let t_normalized = if t.len() == 1 {
-                        aa1_to_aa3(t.chars().next().unwrap())
-                    } else {
-                        t
-                    };
-                    write!(f, "{}", t_normalized)?;
+                    write!(f, "{}", terminator_3(t))?;
                 }
                 if let Some(l) = length {
                     write!(f, "{}", l)?;
@@ -537,14 +524,10 @@ impl fmt::Display for AaEdit {
                 if let Some(r) = ref_ {
                     write!(f, "{}", r)?;
                 }
-                if min == max {
-                    write!(f, "[{}]", min)?;
-                } else {
-                    write!(f, "[{}_{}]", min, max)?;
-                }
+                write_count(f, *min, *max)?;
                 Ok(())
             }
-            AaEdit::Special { value, .. } => write!(f, "{}", value),
+            AaEdit::Statement(statement) => write!(f, "{statement}"),
             _ => write!(f, "unknown_aa_edit"),
         }
     }

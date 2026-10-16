@@ -1,5 +1,6 @@
 use crate::allele::CanonicalAllele;
 use crate::data::{IdentifierKind, TranscriptSearch};
+use crate::edits::{NaEdit, RnaStatement};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{
@@ -84,9 +85,7 @@ impl<'a> VariantEquivalence<'a> {
         var: std::borrow::Cow<'v, SequenceVariant>,
     ) -> Result<std::borrow::Cow<'v, SequenceVariant>, HgvsError> {
         match &*var {
-            SequenceVariant::Rna(r)
-                if !matches!(r.posedit.edit, crate::edits::NaEdit::Special { .. }) =>
-            {
+            SequenceVariant::Rna(r) if !r.posedit.edit.is_whole_transcript() => {
                 Ok(std::borrow::Cow::Owned(self.mapper.r_as_transcript(r)?))
             }
             _ => Ok(var),
@@ -102,6 +101,11 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
+        // The text comparison drops parentheses, and those of r.(?) are part
+        // of what it states.
+        if rna_statements(var1) != rna_statements(var2) {
+            return Ok(EquivalenceLevel::Different);
+        }
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
         }
@@ -255,6 +259,11 @@ impl<'a> VariantEquivalence<'a> {
             let outcome = self.protein_outcome_on(vp, &vp.ac)?;
             let reference = self.reference_protein(&vp.ac)?;
             for c in &coding {
+                // predicted_protein raises for c.= named against another protein;
+                // on its own, p.(=) names no residues to compare.
+                if matches!(c.posedit.edit, crate::edits::NaEdit::WholeIdentity) {
+                    continue;
+                }
                 let predicted = self
                     .mapper
                     .predicted_protein(c, Some(&vp.ac))?
@@ -283,7 +292,7 @@ impl<'a> VariantEquivalence<'a> {
     /// extension or frameshift of unknown length). `None` when it says
     /// nothing about the sequence: `p.?`, `p.Met1?`.
     fn protein_outcome_on(&self, vp: &PVariant, ac: &str) -> Result<Option<Outcome>, HgvsError> {
-        use crate::edits::AaEdit;
+        use crate::edits::{AaEdit, ProteinStatement};
         let reference = self
             .mapper
             .refs
@@ -299,11 +308,10 @@ impl<'a> VariantEquivalence<'a> {
         };
         let Some(pos) = &vp.posedit.pos else {
             return Ok(match &vp.posedit.edit {
-                AaEdit::Identity { .. } => Some(closed(protein.to_string(), len)),
-                AaEdit::Special { value, .. } if value == "=" => {
+                AaEdit::Statement(ProteinStatement::Unchanged) => {
                     Some(closed(protein.to_string(), len))
                 }
-                AaEdit::Special { value, .. } if value.starts_with('0') => {
+                AaEdit::Statement(ProteinStatement::NoProtein { .. }) => {
                     Some(closed(String::new(), 0))
                 }
                 _ => None,
@@ -311,8 +319,8 @@ impl<'a> VariantEquivalence<'a> {
         };
         let (start, end) = crate::mapper::aa_interval_range(pos)?;
         // `p.Met1?`: something happens from this residue on; what, it does not say.
-        if let AaEdit::Special { value, .. } = &vp.posedit.edit {
-            return Ok((value == "?").then(|| Outcome {
+        if let AaEdit::Statement(statement) = &vp.posedit.edit {
+            return Ok((*statement == ProteinStatement::Unknown).then(|| Outcome {
                 residues: protein[..start.min(len)].to_string(),
                 open: true,
                 changed_from: start.min(len),
@@ -351,7 +359,7 @@ impl<'a> VariantEquivalence<'a> {
                     _ => (len, len, alt, true),
                 }
             }
-            AaEdit::Special { .. } | AaEdit::None => return Ok(None),
+            AaEdit::Statement(_) | AaEdit::None => return Ok(None),
             edit => {
                 let r = edit.resolve(&reference, start, end)?;
                 // A change at the stop itself that does not stop again reads on
@@ -460,8 +468,8 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     fn normalize_format(&self, s: &str) -> String {
-        // Strip parentheses and replace '?' with 'X' (unknown amino acid, analogous to Xaa)
-        let mut s = s.replace(['(', ')'], "").replace('?', "X");
+        // A ? is kept: p.Met1? is an unknown change from Met1, not p.Met1Xaa.
+        let mut s = s.replace(['(', ')'], "");
         // Normalize 3-letter AA codes to 1-letter
         let replacements = [
             ("Ala", "A"),
@@ -507,6 +515,19 @@ struct Outcome {
     /// A statement (`p.Met1?`): only where the change starts is known, and
     /// the other side must start its change there.
     anchored: bool,
+}
+
+/// What `var` states about the whole RNA (`r.0`, `r.(?)`), itself or through
+/// the members of a cis allele, in the order written.
+fn rna_statements(var: &SequenceVariant) -> Vec<RnaStatement> {
+    match var {
+        SequenceVariant::Rna(r) => match r.posedit.edit {
+            NaEdit::Statement(statement) => vec![statement],
+            _ => vec![],
+        },
+        SequenceVariant::CisPhased(cis) => cis.members.iter().flat_map(rna_statements).collect(),
+        _ => vec![],
+    }
 }
 
 /// The accession without its version: `NP_000050` of `NP_000050.3`.

@@ -6,7 +6,7 @@ import weaver
 
 
 def test_transform_met1_to_question() -> None:
-    """Tests that p.(Met1Val) transforms to p.Met1? with HgvsQuestion convention."""
+    """Tests that p.(Met1Val) transforms to p.(Met1?) with HgvsQuestion convention."""
     settings = weaver.VariantTransformSettings(
         start_codon=weaver.StartCodonConvention.HgvsQuestion,
     )
@@ -14,7 +14,7 @@ def test_transform_met1_to_question() -> None:
     v = weaver.parse("NP_000051.2:p.(Met1Val)")
     transformed = v.transform(settings)
 
-    assert transformed.format() == "NP_000051.2:p.Met1?"
+    assert transformed.format() == "NP_000051.2:p.(Met1?)"
 
 
 def test_transform_specific_unchanged() -> None:
@@ -78,12 +78,12 @@ def test_transform_default_settings() -> None:
 
 
 def test_transform_met1_leu_to_question() -> None:
-    """Tests p.(Met1Leu) transforms to p.Met1? under HgvsQuestion."""
+    """Tests p.Met1Leu, stated, transforms to p.Met1? under HgvsQuestion."""
     settings = weaver.VariantTransformSettings(
         start_codon=weaver.StartCodonConvention.HgvsQuestion,
     )
 
-    v = weaver.parse("NP_000051.2:p.(Met1Leu)")
+    v = weaver.parse("NP_000051.2:p.Met1Leu")
     transformed = v.transform(settings)
 
     assert transformed.format() == "NP_000051.2:p.Met1?"

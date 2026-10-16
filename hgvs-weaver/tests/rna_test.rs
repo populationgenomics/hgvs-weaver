@@ -216,7 +216,7 @@ fn r_predicts_the_protein_like_c() {
         p_from_c("NM_R.1:c.44_47del")
     );
     assert!(p_from_c("NM_R.1:c.44_47del").contains("fs"));
-    assert_eq!(p_from_r("NM_R.1:r.0").unwrap(), "NP_R.1:p.0");
+    assert_eq!(p_from_r("NM_R.1:r.0").unwrap(), "NP_R.1:p.0?");
     assert_eq!(p_from_r("NM_R.1:r.0?").unwrap(), "NP_R.1:p.0?");
     assert_eq!(p_from_r("NM_R.1:r.spl").unwrap(), "NP_R.1:p.?");
     assert_eq!(p_from_r("NM_R.1:r.?").unwrap(), "NP_R.1:p.?");
@@ -296,4 +296,15 @@ fn r_normalises_validates_and_has_alleles_like_c() {
         .equivalent_level(&r, &parse("NM_R.1:c.10del"))
         .unwrap()
         .is_equivalent());
+}
+
+#[test]
+fn an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let r = parse("NM_ABSENT.1:r.10c>g");
+    assert!(matches!(
+        VariantEquivalence::new(&mapper, &hdp).equivalent_level(&r, &r),
+        Err(HgvsError::DataProviderError(m)) if m.contains("NM_ABSENT.1")
+    ));
 }

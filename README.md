@@ -16,15 +16,16 @@ the Python package wraps it with typed exceptions and protocol-based data access
 
 - **Parsing and formatting** of `g.`, `m.`, `c.`, `n.`, `r.` and `p.` descriptions: substitutions, deletions,
   insertions, duplications, delins, inversions, repeats (`[n]`) and identity; intronic offsets and CDS anchors (`c.-12`,
-  `c.*5`, `c.88+2`); uncertain genomic breakpoints (`g.(?_100)_(200_?)del`); and the statements `p.?`, `p.0`, `p.Met1?`,
-  `r.0`, `r.spl`, `r.=`. The grammar is checked rule by rule against the biocommons `hgvs` grammar table.
+  `c.*5`, `c.88+2`); uncertain genomic breakpoints (`g.(?_100)_(200_?)del`); and the statements `p.?`, `p.(?)`, `p.0`,
+  `p.Met1?`, `r.0`, `r.spl`, `r.=`, `r.(?)`, `c.=`. The grammar is checked rule by rule against the biocommons `hgvs`
+  grammar table.
 - **Projection** between systems through transcript models: `g.` to and from `c.`/`n.`, intronic positions included;
   `r.` to and from `c.`/`n.` (the same positions in RNA letters, with a change across a splice junction refused a
   genomic form); `c.` and `r.` to `p.`; `p.` back to `c.` for substitutions.
 - **Protein consequences read from codons**, not from a protein-string diff: silent, missense, nonsense, in-frame
   changes written 3'-most, frameshifts with the distance to the new stop, stop losses as extensions, a stop formed
   inside inserted bases, selenocysteine `TGA` not read as a stop, the declared CDS end as the reference stop; an edit
-  across the start codon gives `p.Met1?`, a deleted CDS `p.0?`.
+  across the start codon gives `p.(Met1?)`, a deleted CDS `p.0?`.
 - **Normalisation** by the 3' rule, cyclic over repeats, with insertions that repeat their neighbours written as
   duplications; `del` and `dup` are written bare; intronic edits are left as written. **Validation** checks stated bases
   and residues against the sequence.

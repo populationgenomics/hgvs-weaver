@@ -137,7 +137,7 @@ impl PyEquivalenceLevel {
 pub enum PyStartCodonConvention {
     /// Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default.
     Specific,
-    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first codon.
+    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first codon, `p.(Met1?)` for a prediction.
     HgvsQuestion,
 }
 
@@ -289,7 +289,7 @@ impl PyVariant {
             .unbind())
     }
 
-    #[doc = "Validates the variant's reference sequence against the provided DataProvider.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if the reference sequence matches, False otherwise.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds.\n    DataProviderError: If sequence data cannot be retrieved."]
+    #[doc = "Validates the variant's reference sequence against the provided DataProvider.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if the reference sequence matches, False otherwise. c.= names no\n    bases and is True once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
         VariantMapper::new(&bridge)
@@ -663,7 +663,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0, p.?, p.(=)).\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
+    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts\np.(=) on the protein the transcript encodes; a protein_ac naming another\nprotein is an error. Every form needs a transcript with a CDS. r.(?)\nsays the RNA follows a DNA change it does not carry, so it has no\nprotein consequence of its own and raises UnsupportedOperationError.\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
     fn c_to_p(
         &self,
         _py: Python,
@@ -687,7 +687,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.\n\nThe residues from the first change to the end of the protein become the\nresidues the edited transcript encodes, up to its new stop, then the allele\nis canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,\nextensions and stop losses. The predicted p. description is carried as an\nhgvs.p expression.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If the consequence is a statement (p.?, p.Met1?), or the translated CDS is not the protein the provider serves."]
+    #[doc = "Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.\n\nThe residues from the first change to the end of the protein become the\nresidues the edited transcript encodes, up to its new stop, then the allele\nis canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,\nextensions and stop losses. The predicted p. description is carried as an\nhgvs.p expression.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If the consequence is a statement (p.?, p.(Met1?)), or the translated CDS is not the protein the provider serves."]
     fn protein_vrs(
         &self,
         py: Python,

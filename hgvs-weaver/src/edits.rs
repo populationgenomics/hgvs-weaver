@@ -62,11 +62,46 @@ pub enum NaEdit {
     },
     /// Copy number change.
     NACopy { copy: i32, uncertain: bool },
-    /// A statement about the whole molecule, with no position: `r.0` (no
-    /// transcript), `r.?`, `r.spl` (splicing affected), `r.=`.
-    Special { value: String, uncertain: bool },
+    /// A statement about the whole RNA, with no position: `r.0`, `r.?`,
+    /// `r.(?)`, `r.spl`.
+    Statement(RnaStatement),
+    /// The whole transcript analysed and found unchanged, with no position:
+    /// `c.=` (its DNA) or `r.=` (its RNA).
+    WholeIdentity,
     /// No change (identity).
     None,
+}
+
+/// What an `r.` description with no position says about the transcript's
+/// RNA. `uncertain` is the trailing `?` of `r.0?` and `r.spl?`; HGVS writes
+/// no uncertain `r.?` or `r.(?)`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "statement")]
+pub enum RnaStatement {
+    /// `r.0`: no RNA detected.
+    NoRna { uncertain: bool },
+    /// `r.spl`: splicing affected, the RNA not analysed further.
+    SplicingAffected { uncertain: bool },
+    /// `r.?`: an effect on the RNA, of unknown kind.
+    Unknown,
+    /// `r.(?)`: the RNA not analysed, and expected to change only as the DNA
+    /// change it accompanies implies. It names no change of its own.
+    FollowsDna,
+}
+
+impl NaEdit {
+    /// Whether the edit leaves its bases as they are: `=`, with or without
+    /// the bases it names. `NaEdit::None` is not one: the parser gives it to
+    /// edits it does not model, such as a conversion.
+    pub fn is_identity(&self) -> bool {
+        matches!(self, NaEdit::RefAlt { ref_, alt, .. } if ref_ == alt)
+    }
+
+    /// Whether the edit describes the transcript as a whole rather than a
+    /// change at a position: `r.spl`, `r.=`, `c.=`.
+    pub fn is_whole_transcript(&self) -> bool {
+        matches!(self, NaEdit::Statement(_) | NaEdit::WholeIdentity)
+    }
 }
 
 /// Amino acid edits (substitutions, frameshifts, extensions, etc.).
@@ -125,19 +160,107 @@ pub enum AaEdit {
     },
     /// Silent variant (no change).
     Identity { uncertain: bool },
-    /// Special cases (e.g., `p.0`, `p.?`).
-    Special { value: String, uncertain: bool },
+    /// A statement about the whole protein: `p.0`, `p.?`, `p.=`. At a
+    /// residue, `Unknown` is `p.Met1?`, an unknown change from that residue on.
+    Statement(ProteinStatement),
     /// Placeholder for no edit.
     None,
 }
 
+/// What a `p.` description says about the protein as a whole. `uncertain`
+/// is the trailing `?` of `p.0?`. A prediction, `p.(=)`, is the posedit's
+/// `predicted` flag.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "statement")]
+pub enum ProteinStatement {
+    /// `p.0`: no protein produced.
+    NoProtein { uncertain: bool },
+    /// `p.?`: an effect on the protein, of unknown kind.
+    Unknown,
+    /// `p.=`: the protein unchanged.
+    Unchanged,
+}
+
 impl AaEdit {
-    pub fn is_identity(&self) -> bool {
+    /// The edit with every residue the formatter rewrites in the form it
+    /// prints, so that a one-letter description equals its printed form.
+    pub(crate) fn into_canonical(self) -> Self {
+        use crate::utils::{residue_3, terminator_3};
         match self {
-            AaEdit::Identity { .. } => true,
-            AaEdit::Special { value, .. } if value == "=" => true,
-            _ => false,
+            AaEdit::Subst {
+                ref_,
+                alt,
+                uncertain,
+            } => AaEdit::Subst {
+                ref_,
+                alt: residue_3(&alt).to_string(),
+                uncertain,
+            },
+            AaEdit::Fs {
+                ref_,
+                alt,
+                term,
+                length,
+                uncertain,
+            } => AaEdit::Fs {
+                ref_,
+                alt: residue_3(&alt).to_string(),
+                term: term.map(|t| terminator_3(&t).to_string()),
+                length,
+                uncertain,
+            },
+            AaEdit::Ext {
+                ref_,
+                alt,
+                aaterm,
+                length,
+                uncertain,
+            } => {
+                // ext-5 names the new first residue; ext*5 the new stop.
+                let new_start = AaEdit::is_signed(length.as_deref());
+                AaEdit::Ext {
+                    ref_,
+                    alt: residue_3(&alt).to_string(),
+                    aaterm: aaterm.map(|t| {
+                        if new_start {
+                            residue_3(&t)
+                        } else {
+                            terminator_3(&t)
+                        }
+                        .to_string()
+                    }),
+                    length,
+                    uncertain,
+                }
+            }
+            other => other,
         }
+    }
+
+    /// Whether an extension's count is a signed offset, `ext-5`: an
+    /// extension at the N-terminus, from a new start upstream.
+    pub(crate) fn is_signed(length: Option<&str>) -> bool {
+        length.is_some_and(|l| l.starts_with(['-', '+']))
+    }
+
+    /// The residue a description of this edit starts at, as the formatter
+    /// prints it: an extension past the stop starts at the stop, so an `X`
+    /// there is `Ter`.
+    pub(crate) fn canonical_start(&self, aa: &str) -> String {
+        use crate::utils::{residue_3, terminator_3};
+        match self {
+            AaEdit::Ext { length, .. } if !AaEdit::is_signed(length.as_deref()) => {
+                terminator_3(aa).to_string()
+            }
+            _ => residue_3(aa).to_string(),
+        }
+    }
+
+    pub fn is_identity(&self) -> bool {
+        matches!(
+            self,
+            AaEdit::Identity { .. } | AaEdit::Statement(ProteinStatement::Unchanged)
+        )
     }
 }
 
@@ -282,7 +405,8 @@ impl NaEdit {
             | NaEdit::DelInsLength { .. }
             | NaEdit::Con { .. }
             | NaEdit::NACopy { .. }
-            | NaEdit::Special { .. } => {
+            | NaEdit::Statement(_)
+            | NaEdit::WholeIdentity => {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "Edit type {:?} cannot be resolved to reference and alternate bases",
                     self
@@ -446,7 +570,7 @@ impl AaEdit {
                 let r = fetch(start, end)?;
                 (r.clone(), r)
             }
-            AaEdit::Fs { .. } | AaEdit::Ext { .. } | AaEdit::Special { .. } | AaEdit::None => {
+            AaEdit::Fs { .. } | AaEdit::Ext { .. } | AaEdit::Statement(_) | AaEdit::None => {
                 return unsupported()
             }
         };

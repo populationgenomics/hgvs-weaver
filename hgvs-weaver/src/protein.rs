@@ -9,7 +9,7 @@
 //! the stop codon, and the stop lands at its shifted index. Every other stop
 //! was created by the edit, so nothing has to guess from the edit's kind.
 
-use crate::edits::{AaEdit, ResolvedEdit};
+use crate::edits::{AaEdit, ProteinStatement, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit, ProteinPos};
 use crate::utils::{aa1_to_aa3, translate};
@@ -184,7 +184,7 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
         // A difference entirely past the stop is no change to the protein;
         // it is not written against a residue the protein does not have.
         if t.first_codon > t.stop {
-            return out.variant(None, AaEdit::Identity { uncertain: false });
+            return out.no_change();
         }
         return out.identity(t.first_codon, t.last_codon);
     }
@@ -291,7 +291,6 @@ impl Writer<'_> {
         AAPosition {
             base: ProteinPos(i as i32).to_hgvs(),
             aa: aa1_to_aa3(self.ref_aa.get(i).copied().unwrap_or('*')).to_string(),
-            uncertain: false,
         }
     }
 
@@ -316,11 +315,16 @@ impl Writer<'_> {
         }
     }
 
+    /// `p.(=)`: the protein unchanged, the statement the parser reads.
+    fn no_change(&self) -> Result<PVariant, HgvsError> {
+        self.variant(None, AaEdit::Statement(ProteinStatement::Unchanged))
+    }
+
     /// `p.(Xxx1=)` or `p.(Xxx1_Yyy2=)` over the codons the edit touched, or a
     /// bare `p.(=)` when they lie past the protein.
     fn identity(&self, first_codon: usize, last_codon: usize) -> Result<PVariant, HgvsError> {
         if first_codon >= self.ref_aa.len() {
-            return self.variant(None, AaEdit::Identity { uncertain: false });
+            return self.no_change();
         }
         let last = last_codon.min(self.ref_aa.len() - 1);
         let end = (last > first_codon).then_some(last);
@@ -428,7 +432,6 @@ impl Writer<'_> {
                 start: AAPosition {
                     base: ProteinPos(i as i32).to_hgvs(),
                     aa: "Ter".to_string(),
-                    uncertain: false,
                 },
                 end: None,
                 uncertain: false,

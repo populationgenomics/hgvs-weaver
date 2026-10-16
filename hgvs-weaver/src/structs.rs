@@ -3,7 +3,7 @@ pub use crate::coords::{
     ProteinPos, SequenceVariant, TranscriptPos,
 };
 pub use crate::data::{IdentifierKind, IdentifierType};
-pub use crate::edits::{AaEdit, NaEdit};
+pub use crate::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use crate::error::HgvsError;
 use serde::{Deserialize, Serialize};
 
@@ -161,8 +161,297 @@ fn noncoding_position_from_index(
     })
 }
 
+/// The fields of a nucleotide variant as deserialised, before
+/// [`check_na_posedit`] admits them as a variant of one system.
+#[derive(Deserialize)]
+pub(crate) struct NaVariantFields<I> {
+    ac: String,
+    gene: Option<String>,
+    posedit: PosEdit<I, StoredNaEdit>,
+}
+
+/// An edit as a dict names it: its `type`, and the rest of its fields.
+struct EditDict(serde_json::Value);
+
+impl EditDict {
+    fn type_is(&self, name: &str) -> bool {
+        self.0.get("type").and_then(serde_json::Value::as_str) == Some(name)
+    }
+
+    /// `edit`, refused if the dict named fields its statement does not have:
+    /// serde ignores fields it does not know, so `r.?` with `"uncertain":
+    /// true` would otherwise load as `r.?`.
+    fn statement_exactly<E: Serialize>(&self, edit: E) -> Result<E, String> {
+        if self.type_is("Statement") && serde_json::to_value(&edit).ok().as_ref() != Some(&self.0) {
+            return Err(format!(
+                "{} names fields its statement does not have",
+                self.0
+            ));
+        }
+        Ok(edit)
+    }
+
+    /// A statement in the `Special` shape, `{"type": "Special", "value":
+    /// "spl?", "uncertain": false}`: its HGVS text, whitespace removed. The
+    /// `?` belongs to the text, so a set `uncertain` flag is refused.
+    fn special_text(self) -> Result<String, String> {
+        #[derive(Deserialize)]
+        struct Special {
+            value: String,
+            uncertain: bool,
+        }
+        let Special { value, uncertain } =
+            serde_json::from_value(self.0).map_err(|e| e.to_string())?;
+        if uncertain {
+            return Err(format!("a Special \"{value}\" is never uncertain"));
+        }
+        Ok(value.split_whitespace().collect())
+    }
+}
+
+/// A nucleotide edit as a dict gives it: an edit, or the `Special` "=",
+/// which is `r.=` on an r. variant and nothing elsewhere.
+pub(crate) enum StoredNaEdit {
+    Edit(NaEdit),
+    SpecialIdentity,
+}
+
+impl<'de> Deserialize<'de> for StoredNaEdit {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let dict = EditDict(serde_json::Value::deserialize(deserializer)?);
+        if !dict.type_is("Special") {
+            let edit = NaEdit::deserialize(&dict.0).map_err(D::Error::custom)?;
+            return dict
+                .statement_exactly(edit)
+                .map(StoredNaEdit::Edit)
+                .map_err(D::Error::custom);
+        }
+        let statement = match dict.special_text().map_err(D::Error::custom)?.as_str() {
+            "=" => return Ok(StoredNaEdit::SpecialIdentity),
+            "0" => RnaStatement::NoRna { uncertain: false },
+            "0?" => RnaStatement::NoRna { uncertain: true },
+            "spl" => RnaStatement::SplicingAffected { uncertain: false },
+            "spl?" => RnaStatement::SplicingAffected { uncertain: true },
+            "?" => RnaStatement::Unknown,
+            other => {
+                return Err(D::Error::custom(format!(
+                    "\"{other}\" is not a statement about RNA"
+                )))
+            }
+        };
+        Ok(StoredNaEdit::Edit(NaEdit::Statement(statement)))
+    }
+}
+
+/// The posedit of a `kind` variant (`g`, `m`, `c`, `n` or `r`), with a
+/// `Special` "=" read as `r.=`. Refuses what `kind` cannot write: the whole
+/// transcript unchanged anywhere but `c.=`, `r.=` and `r.(=)`; another
+/// statement about the transcript anywhere but `r.`; a statement with a
+/// position, or a change without one; a prediction outside `r.`, or of a
+/// statement; an uncertain posedit, which no description writes.
+fn check_na_posedit<I: std::fmt::Display>(
+    kind: &str,
+    posedit: PosEdit<I, StoredNaEdit>,
+) -> Result<PosEdit<I, NaEdit>, HgvsError> {
+    let edit = match posedit.edit {
+        StoredNaEdit::Edit(edit) => edit,
+        StoredNaEdit::SpecialIdentity if kind == "r" => NaEdit::WholeIdentity,
+        StoredNaEdit::SpecialIdentity => {
+            return Err(HgvsError::ValidationError(format!(
+                "{kind}. cannot write a Special \"=\", which is r.="
+            )))
+        }
+    };
+    let posedit = PosEdit {
+        pos: posedit.pos,
+        edit,
+        uncertain: posedit.uncertain,
+        predicted: posedit.predicted,
+    };
+    if let (NaEdit::Statement(statement), true, "r") = (&posedit.edit, posedit.predicted, kind) {
+        // r.? predicted would print as r.(?), another statement.
+        let hint = if *statement == RnaStatement::Unknown {
+            format!("; r.(?) is the statement {:?}", RnaStatement::FollowsDna)
+        } else {
+            String::new()
+        };
+        return Err(HgvsError::ValidationError(format!(
+            "a statement about the RNA is never predicted, and {statement:?} is marked so{hint}"
+        )));
+    }
+    let flags_writable = !posedit.uncertain && (kind == "r" || !posedit.predicted);
+    let writable = flags_writable
+        && match (&posedit.edit, &posedit.pos) {
+            (NaEdit::WholeIdentity, None) => kind == "c" || kind == "r",
+            (NaEdit::Statement(_), None) => kind == "r",
+            (NaEdit::WholeIdentity | NaEdit::Statement(_), _) => false,
+            (_, pos) => pos.is_some(),
+        };
+    if writable {
+        Ok(posedit)
+    } else {
+        Err(HgvsError::ValidationError(format!(
+            "{kind}. cannot write {kind}.{posedit} ({:?})",
+            posedit.edit
+        )))
+    }
+}
+
+macro_rules! checked_na_variant {
+    ($struct_name:ident, $interval:ty, $kind:expr) => {
+        impl TryFrom<NaVariantFields<$interval>> for $struct_name {
+            type Error = HgvsError;
+            fn try_from(fields: NaVariantFields<$interval>) -> Result<Self, HgvsError> {
+                Ok($struct_name {
+                    ac: fields.ac,
+                    gene: fields.gene,
+                    posedit: check_na_posedit($kind, fields.posedit)?,
+                })
+            }
+        }
+    };
+}
+
+/// The fields of a protein variant as deserialised.
+#[derive(Deserialize)]
+pub(crate) struct PVariantFields {
+    ac: String,
+    gene: Option<String>,
+    posedit: PosEdit<AaInterval, StoredAaEdit>,
+}
+
+/// A protein edit as a dict gives it: an edit, in the current shape or the
+/// `Special` one, or a substitution to `?`, the shape older dicts give
+/// `p.Met1?` and `p.0?`.
+pub(crate) enum StoredAaEdit {
+    Edit(AaEdit),
+    SubstitutionToUnknown,
+}
+
+impl<'de> Deserialize<'de> for StoredAaEdit {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let dict = EditDict(serde_json::Value::deserialize(deserializer)?);
+        if !dict.type_is("Special") {
+            let edit = AaEdit::deserialize(&dict.0).map_err(D::Error::custom)?;
+            if matches!(&edit, AaEdit::Subst { alt, .. } if alt == "?") {
+                return Ok(StoredAaEdit::SubstitutionToUnknown);
+            }
+            return dict
+                .statement_exactly(edit)
+                .map(StoredAaEdit::Edit)
+                .map_err(D::Error::custom);
+        }
+        let statement = match dict.special_text().map_err(D::Error::custom)?.as_str() {
+            "=" => ProteinStatement::Unchanged,
+            "0" => ProteinStatement::NoProtein { uncertain: false },
+            "0?" => ProteinStatement::NoProtein { uncertain: true },
+            "?" => ProteinStatement::Unknown,
+            other => {
+                return Err(D::Error::custom(format!(
+                    "\"{other}\" is not a statement about a protein"
+                )))
+            }
+        };
+        Ok(StoredAaEdit::Edit(AaEdit::Statement(statement)))
+    }
+}
+
+/// The posedit of a p. variant, with a substitution to `?` read as the text
+/// it stands for: `p.0?` at residue 0, the unknown change from a residue
+/// anywhere else, and a predicted identity at no residue read as `p.(=)`.
+/// Refuses these shapes p. cannot write: a statement about the whole protein
+/// at a residue, and any statement but `p.(=)` and `p.(?)` predicted; the unknown change
+/// over a range or an uncertain interval; a change without a position, or
+/// with no edit; a residue numbered below 1; an
+/// uncertain posedit.
+fn check_p_posedit(
+    posedit: PosEdit<AaInterval, StoredAaEdit>,
+) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
+    let (pos, edit) = match (posedit.edit, posedit.pos) {
+        // The shape older dicts give the p.(=) predicted past the stop.
+        (StoredAaEdit::Edit(AaEdit::Identity { uncertain: false }), None) if posedit.predicted => {
+            (None, AaEdit::Statement(ProteinStatement::Unchanged))
+        }
+        (StoredAaEdit::Edit(edit), pos) => (pos, edit.into_canonical()),
+        (StoredAaEdit::SubstitutionToUnknown, Some(pos)) if pos.start.base.0 == 0 => {
+            let bare = pos.end.is_none() && !pos.uncertain && pos.start.aa.is_empty();
+            if !bare {
+                return Err(HgvsError::ValidationError(format!(
+                    "p. cannot write a substitution to ? at residue 0 but p.0?, not {pos:?}"
+                )));
+            }
+            (
+                None,
+                AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true }),
+            )
+        }
+        (StoredAaEdit::SubstitutionToUnknown, Some(pos)) => {
+            (Some(pos), AaEdit::Statement(ProteinStatement::Unknown))
+        }
+        (StoredAaEdit::SubstitutionToUnknown, None) => {
+            return Err(HgvsError::ValidationError(
+                "p. cannot write a substitution to ? at no residue".into(),
+            ))
+        }
+    };
+    let mut pos = pos;
+    if let Some(pos) = pos.as_mut() {
+        pos.start.aa = edit.canonical_start(&pos.start.aa);
+        if let Some(end) = pos.end.as_mut() {
+            end.aa = crate::utils::residue_3(&end.aa).to_string();
+        }
+    }
+    let posedit = PosEdit {
+        pos,
+        edit,
+        uncertain: posedit.uncertain,
+        predicted: posedit.predicted,
+    };
+    let numbered = |p: &AAPosition| p.base.0 >= 1;
+    let writable = !posedit.uncertain
+        && match (&posedit.edit, &posedit.pos) {
+            (AaEdit::Statement(ProteinStatement::Unchanged | ProteinStatement::Unknown), None) => {
+                true
+            }
+            (AaEdit::Statement(_), None) => !posedit.predicted,
+            (AaEdit::Statement(ProteinStatement::Unknown), Some(pos)) => {
+                pos.end.is_none() && !pos.uncertain && numbered(&pos.start)
+            }
+            (AaEdit::Statement(_) | AaEdit::None, _) | (_, None) => false,
+            (_, Some(pos)) => numbered(&pos.start) && pos.end.as_ref().is_none_or(numbered),
+        };
+    if writable {
+        Ok(posedit)
+    } else {
+        Err(HgvsError::ValidationError(format!(
+            "p. cannot write p.{posedit} ({:?})",
+            posedit.edit
+        )))
+    }
+}
+
+impl TryFrom<PVariantFields> for PVariant {
+    type Error = HgvsError;
+    fn try_from(fields: PVariantFields) -> Result<Self, HgvsError> {
+        Ok(PVariant {
+            ac: fields.ac,
+            gene: fields.gene,
+            posedit: check_p_posedit(fields.posedit)?,
+        })
+    }
+}
+
+checked_na_variant!(GVariant, SimpleInterval, "g");
+checked_na_variant!(MVariant, SimpleInterval, "m");
+checked_na_variant!(CVariant, BaseOffsetInterval, "c");
+checked_na_variant!(NVariant, BaseOffsetInterval, "n");
+checked_na_variant!(RVariant, BaseOffsetInterval, "r");
+
 /// Represents a genomic variant (g.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<SimpleInterval>")]
 pub struct GVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -173,6 +462,7 @@ impl_linear_variant!(GVariant);
 
 /// Represents a coding cDNA variant (c.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 pub struct CVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -183,6 +473,7 @@ impl_transcript_variant!(CVariant, Anchor::CdsStart, coding_position_from_index)
 
 /// Represents a protein variant (p.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "PVariantFields")]
 pub struct PVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -192,6 +483,7 @@ impl_variant!(PVariant, "p");
 
 /// Represents a mitochondrial variant (m.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<SimpleInterval>")]
 pub struct MVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -202,6 +494,7 @@ impl_linear_variant!(MVariant);
 
 /// Represents a non-coding transcript variant (n.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 pub struct NVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -216,6 +509,7 @@ impl_transcript_variant!(
 
 /// Represents an RNA variant (r.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 pub struct RVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -228,6 +522,7 @@ impl_variant!(RVariant, "r");
 /// accession; the members are kept in the order written. The trans form,
 /// `c.[145C>T];[147C>G]`, describes two molecules and is not a variant.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "CisPhasedFields")]
 pub struct CisPhasedVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -266,8 +561,30 @@ impl CisPhasedVariant {
                     m.ac()
                 )));
             }
+            if members.len() > 1 && m.is_whole_identity() {
+                return Err(HgvsError::ValidationError(format!(
+                    "{m} states the whole sequence unchanged, so it cannot share a cis \
+                     allele with other members"
+                )));
+            }
         }
         Ok(CisPhasedVariant { ac, gene, members })
+    }
+}
+
+/// The fields of a cis allele as deserialised, admitted through
+/// [`CisPhasedVariant::new`].
+#[derive(Deserialize)]
+pub(crate) struct CisPhasedFields {
+    ac: String,
+    gene: Option<String>,
+    members: Vec<SequenceVariant>,
+}
+
+impl TryFrom<CisPhasedFields> for CisPhasedVariant {
+    type Error = HgvsError;
+    fn try_from(fields: CisPhasedFields) -> Result<Self, HgvsError> {
+        CisPhasedVariant::new(fields.ac, fields.gene, fields.members)
     }
 }
 
@@ -393,7 +710,7 @@ impl EditSpdi for NaEdit {
             NaEdit::None
                 | NaEdit::Con { .. }
                 | NaEdit::NACopy { .. }
-                | NaEdit::Special { .. }
+                | NaEdit::Statement(_)
                 | NaEdit::InsLength { .. }
                 | NaEdit::DelInsLength { .. }
         ) {
@@ -550,10 +867,37 @@ impl AaInterval {
     }
 }
 
-/// A position in a protein sequence.
+/// A position in a protein sequence. An uncertain position is the
+/// interval's, `p.(Arg2_Gly5)`; a residue alone is never uncertain.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "AAPositionFields")]
 pub struct AAPosition {
     pub base: HgvsProteinPos,
     pub aa: String,
-    pub uncertain: bool,
+}
+
+/// The fields of a protein position as deserialised: older dicts carry an
+/// `uncertain` flag, which loads only when false.
+#[derive(Deserialize)]
+struct AAPositionFields {
+    base: HgvsProteinPos,
+    aa: String,
+    #[serde(default)]
+    uncertain: bool,
+}
+
+impl TryFrom<AAPositionFields> for AAPosition {
+    type Error = HgvsError;
+    fn try_from(fields: AAPositionFields) -> Result<Self, HgvsError> {
+        if fields.uncertain {
+            return Err(HgvsError::ValidationError(format!(
+                "p. cannot write an uncertain residue, ({}{})",
+                fields.aa, fields.base.0
+            )));
+        }
+        Ok(AAPosition {
+            base: fields.base,
+            aa: fields.aa,
+        })
+    }
 }

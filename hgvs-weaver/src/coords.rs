@@ -259,6 +259,20 @@ impl Variant for SequenceVariant {
     }
 }
 
+impl SequenceVariant {
+    /// Whether this states that the whole sequence was analysed and found
+    /// unchanged: `c.=`, `r.=`, `r.(=)`, `p.=`, `p.(=)`.
+    pub fn is_whole_identity(&self) -> bool {
+        use crate::edits::NaEdit;
+        match self {
+            SequenceVariant::Coding(v) => matches!(v.posedit.edit, NaEdit::WholeIdentity),
+            SequenceVariant::Rna(v) => matches!(v.posedit.edit, NaEdit::WholeIdentity),
+            SequenceVariant::Protein(v) => v.posedit.pos.is_none() && v.posedit.edit.is_identity(),
+            _ => false,
+        }
+    }
+}
+
 impl From<TranscriptPos> for HgvsTranscriptPos {
     fn from(pos: TranscriptPos) -> Self {
         if pos.0 >= 0 {

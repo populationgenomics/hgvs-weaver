@@ -123,6 +123,12 @@ const KNOWN_DIFFERENCES: &[(&str, &str)] = &[
     // ClinVar writes stop codons mid-insertion (p.Glu26_Glu27insTerGlu); we
     // accept them so that such descriptions can be compared.
     ("aat13_seq", "TerGly"),
+    // biocommons reads the ? of p.Met1? as a substitution to an unknown
+    // residue; we read it as an unknown change from that residue, its own rule.
+    ("pro_subst", "?"),
+    // The protein alleles page writes p.(?), a variant expected but not yet
+    // identified; biocommons has no predicted unknown effect.
+    ("p_posedit", "(?)"),
 ];
 
 #[test]

@@ -26,34 +26,39 @@ trans_alleles = { accn ~ opt_gene_expr ~ ":" ~ ASCII_ALPHA ~ "." ~ bracket_group
 bracket_group = { "[" ~ (!"]" ~ ANY)* ~ "]" }
 
 // PosEdits
-c_posedit = { c_interval ~ dna_edit }
+c_posedit = { (c_interval ~ dna_edit) | whole_identity }
 g_posedit = { g_interval ~ dna_edit }
 m_posedit = { m_interval ~ dna_edit }
 n_posedit = { n_interval ~ dna_edit }
-r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | r_posedit_special }
+r_posedit = { r_posedit_predicted | (r_interval ~ rna_edit) | whole_identity | ("(" ~ whole_identity ~ ")") | r_posedit_special }
+// The whole transcript analysed and found unchanged: c.= and r.=, and the
+// predicted r.(=). HGVS writes no n.=, g.= or m.=, and c. has no predicted form.
+whole_identity = { "=" }
 // A predicted RNA change, r.(123a>g): the RNA was not analysed. Only r. and
 // p. have this form; on DNA, parentheses mark uncertain positions instead.
 r_posedit_predicted = { "(" ~ r_interval ~ rna_edit ~ ")" }
-// Statements about the transcript as a whole: no RNA (r.0), unknown effect
-// (r.?), splicing affected (r.spl), no change (r.=).
-r_posedit_special = {
-      "(" ~ "=" ~ ")"
-    | "="
-    | "0" ~ "?"
-    | "0"
-    | "spl" ~ "?"
-    | "spl"
-    | "?"
-}
-p_posedit = { (p_interval ~ pro_edit) | ("(" ~ p_interval ~ pro_edit ~ ")") | p_posedit_special }
+// Statements about the transcript as a whole: no RNA (r.0), splicing
+// affected (r.spl), unknown effect (r.?), and r.(?), the RNA not analysed
+// and expected to follow the DNA change.
+r_posedit_special = { r_no_rna | r_splicing_affected | r_unknown | r_follows_dna }
+r_unknown = { statement_unknown }
+r_follows_dna = { "(" ~ statement_unknown ~ ")" }
+r_no_rna = { "0" ~ statement_uncertain? }
+r_splicing_affected = { "spl" ~ statement_uncertain? }
+// The ? of r.0?, r.spl? or p.0?: probably so.
+statement_uncertain = { "?" }
+statement_unknown = { "?" }
+p_posedit = { p_unknown_from | ("(" ~ p_unknown_from ~ ")") | (p_interval ~ pro_edit) | ("(" ~ p_interval ~ pro_edit ~ ")") | p_posedit_special }
+// An unknown change from one residue on, p.Met1? and predicted p.(Met1?):
+// the ? is the statement p.? at a residue, not a substitution.
+p_unknown_from = { p_pos ~ statement_unknown }
 
-p_posedit_special = {
-      "="
-    | "(" ~ "=" ~ ")"
-    | "0" ~ "?"
-    | "0"
-    | "?"
-}
+// Statements about the protein as a whole: unchanged (p.=, predicted p.(=)),
+// no protein (p.0), unknown effect (p.?, predicted p.(?)).
+p_posedit_special = { p_unchanged | p_no_protein | p_unknown }
+p_unchanged = { "=" | "(" ~ "=" ~ ")" }
+p_unknown = { statement_unknown | "(" ~ statement_unknown ~ ")" }
+p_no_protein = { "0" ~ statement_uncertain? }
 
 // Edits
 dna_edit = { dna_subst | dna_delins | dna_del | dna_ins | dna_dup | dna_inv | dna_con | dna_repeat | dna_copy | dna_ident }
@@ -66,7 +71,11 @@ dna_dup    = { "dup" ~ dna? }
 dna_inv    = { "inv" ~ (num | dna)? }
 dna_con    = { "con" ~ hgvs_position }
 dna_copy   = { "copy" ~ num }
-dna_repeat = { dna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+dna_repeat = { dna? ~ repeat_count }
+// The copies of a repeat unit: [23], or a range as HGVS writes it,
+// [(70_80)], or as older descriptions do, (70_80).
+repeat_count = _{ ("[" ~ num ~ "]") | ("[" ~ "(" ~ num ~ "_" ~ num ~ ")" ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")") }
+
 // Inserted bases known only by number: insN[20] and insN[(20_30)] as HGVS
 // recommends (varnomen.hgvs.org, "insertion"), and the older ins(20),
 // ins(20_30) and insN[20_30]. Tried before a base string so that the N is
@@ -83,16 +92,16 @@ rna_ins    = { "ins" ~ (ins_length | rna) }
 rna_dup    = { "dup" ~ rna? }
 rna_inv    = { "inv" ~ (num | rna)? }
 rna_con    = { "con" ~ hgvs_position }
-rna_repeat = { rna? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+rna_repeat = { rna? ~ repeat_count }
 
 pro_edit   = { pro_fs | pro_ext | pro_repeat | pro_ident | pro_subst | pro_delins | pro_del | pro_ins | pro_dup }
 pro_ident  = { "=" }
-pro_subst  = { (aat13 | "?") }
+pro_subst  = { aat13 }
 pro_delins = { "delins" ~ aat13_seq }
 pro_del    = { "del" }
 pro_ins    = { "ins" ~ aat13_seq }
 pro_dup    = { "dup" }
-pro_repeat = { (aat13_seq | num)? ~ (("[" ~ num ~ "]") | ("(" ~ num ~ "_" ~ num ~ ")")) }
+pro_repeat = { (aat13_seq | num)? ~ repeat_count }
 pro_fs     = { (aat13 | "") ~ fs }
 pro_ext    = { aat13? ~ ext }
 
@@ -123,7 +132,11 @@ c_pos = { ("*" ~ num ~ offset) | (base ~ offset) }
 g_pos = { num | "?" }
 m_pos = { num | "?" }
 n_pos = { base ~ offset }
-p_pos = { ((term13 | aa13) ~ num) | num }
+// Residues are numbered from 1, so `p.0?` is never a change at residue 0.
+// A residue is tried as a terminator and then as an amino acid, each with its
+// number: the X of Xaa12 is not the terminator X.
+p_pos = { (term13 ~ residue_num) | (aa13 ~ residue_num) | residue_num }
+residue_num = ${ !("0"+ ~ !ASCII_DIGIT) ~ num }
 // r. is numbered like c. on a coding transcript, so it takes * positions too.
 r_pos = { ("*" ~ num ~ offset) | (base ~ offset) }
 
@@ -168,8 +181,9 @@ fs = { "fs" ~ (aa13_fs | "") }
 ext = { "ext" ~ aa13_ext? }
 aa13_fs = { term13 ~ fsext_offset }
 // ext* / extTer8 / ext*? / extLeu-5 / ext-12: a terminator takes an optional
-// count, a residue (or nothing) needs a signed offset.
-aa13_ext = { term13 ~ fsext_offset | aa13? ~ snum }
+// count, a residue (or nothing) needs a signed offset. The residue is tried
+// first, so that the X of extXaa-5 is not read as a stop.
+aa13_ext = { aa13? ~ snum | term13 ~ fsext_offset }
 fsext_offset = { num | "?" | "" }
 
 base = { snum }

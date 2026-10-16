@@ -1,5 +1,5 @@
 use crate::coords::SequenceVariant;
-use crate::edits::AaEdit;
+use crate::edits::{AaEdit, ProteinStatement};
 use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit};
 
 /// Controls how start-codon variants are represented in protein notation.
@@ -7,7 +7,8 @@ use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit};
 pub enum StartCodonConvention {
     /// Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default.
     Specific,
-    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first position.
+    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first
+    /// position, bracketed, `p.(Met1?)`, when the change was a prediction.
     HgvsQuestion,
 }
 
@@ -58,7 +59,9 @@ fn transform_protein(vp: &PVariant, settings: &VariantTransformSettings) -> PVar
     }
 }
 
-/// Converts a start-codon protein variant to the `p.Met1?` notation if applicable.
+/// Converts a start-codon protein variant to the `p.Met1?` notation if
+/// applicable, keeping whether it was a prediction: `p.(Met1Val)` becomes
+/// `p.(Met1?)`, `p.Met1Val` becomes `p.Met1?`.
 ///
 /// Applies when:
 /// - The variant is at position 1 (single amino acid, no range end)
@@ -79,18 +82,14 @@ fn apply_hgvs_question(vp: &PVariant) -> PVariant {
                     pos: Some(AaInterval {
                         start: AAPosition {
                             base: pos.start.base,
-                            aa: pos.start.aa.clone(),
-                            uncertain: false,
+                            aa: "Met".to_string(),
                         },
                         end: None,
                         uncertain: false,
                     }),
-                    edit: AaEdit::Special {
-                        value: "?".to_string(),
-                        uncertain: false,
-                    },
+                    edit: AaEdit::Statement(ProteinStatement::Unknown),
                     uncertain: false,
-                    predicted: false,
+                    predicted: vp.posedit.predicted,
                 },
             };
         }
@@ -109,8 +108,18 @@ mod tests {
             start_codon: StartCodonConvention::HgvsQuestion,
         };
 
-        // p.(Met1Val) → p.Met1?
         let var = parse_hgvs_variant("NP_000051.2:p.(Met1Val)").unwrap();
+        let transformed = transform_variant(&var, &settings);
+        assert_eq!(transformed.to_string(), "NP_000051.2:p.(Met1?)");
+    }
+
+    #[test]
+    fn test_transform_stated_met1_to_stated_question() {
+        let settings = VariantTransformSettings {
+            start_codon: StartCodonConvention::HgvsQuestion,
+        };
+
+        let var = parse_hgvs_variant("NP_000051.2:p.Met1Val").unwrap();
         let transformed = transform_variant(&var, &settings);
         assert_eq!(transformed.to_string(), "NP_000051.2:p.Met1?");
     }
