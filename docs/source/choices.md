@@ -760,8 +760,8 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
 - `p.?`: written bare even where it is the predicted consequence ("the predicted consequences of a deletion of exons 1
   to 2 … `p.?`"). What it says is that no prediction can be made, so there is nothing to bracket.
 - `p.0?`: "can be used when you predict that no protein is produced"; the `?` is the hedge, and `p.(0?)` appears
-  nowhere. It is what weaver writes for a deleted CDS and for `r.0`: no RNA predicts no protein. The bare `p.0` is an
-  observation, as in the alleles page's `p.[Ser86Arg];[0]`, linked there to "the absence of RNA (`r.0`)".
+  nowhere. It is what weaver writes for a deleted CDS and for `r.0` and `r.0?`: no RNA predicts no protein. The bare
+  `p.0` is an observation, as in the alleles page's `p.[Ser86Arg];[0]`, linked there to "the absence of RNA (`r.0`)".
 - `p.(?)`, which weaver parses but never writes: the alleles page writes it for "a variant expected but not yet
   identified", in prose beside the allele `p.[(Ser68Arg)];[?]`, so it is read as `p.?` predicted.
 
