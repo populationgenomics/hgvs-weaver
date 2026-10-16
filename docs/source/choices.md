@@ -698,8 +698,9 @@ and no residue past the end of the protein is named.
 These statements are about a change. An identity, `=`, changes nothing wherever it lies, so outside the codons it
 predicts `p.(=)` too: one in the 5'UTR, in an intron, or spanning the start codon (`c.-5_*15=`, every base of the
 transcript) leaves the protein as it is, not disrupted from `Met1` and not unknown. An identity inside the codons is
-still written silently at the residues it covers, `p.(Arg2=)`. A conversion is not an identity, although weaver does not
-model its bases: intronic or upstream it stays `p.?`.
+still written silently at the residues it covers, `p.(Arg2=)`. A conversion is not counted as an identity here: intronic
+or upstream it stays `p.?`. weaver does not model a conversion's bases (it parses to an edit with none, printed `=`), so
+inside the codons one is still read as silent; that is an open defect, not a choice.
 
 **Example** (`NM_X.1` has a five-base 5'UTR and a fourteen-base 3'UTR):
 
