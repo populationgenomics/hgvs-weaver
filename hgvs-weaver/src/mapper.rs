@@ -1445,9 +1445,11 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// The protein consequence of an r. variant: a statement about the
-    /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching statement
-    /// about the protein; anything else is predicted from its c. spelling.
-    /// Either way the transcript must have a CDS.
+    /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching predicted
+    /// statement about the protein (`p.0?`, `p.?`, `p.?`, `p.(=)`); `r.(?)`,
+    /// which names no change of its own, is refused; anything else is
+    /// predicted from its c. spelling. Either way the transcript must have a
+    /// CDS.
     pub fn r_to_p(&self, r: &RVariant, protein_ac: Option<&str>) -> Result<PVariant, HgvsError> {
         use crate::structs::{ProteinStatement, RnaStatement};
         let statement = match &r.posedit.edit {
@@ -1458,8 +1460,9 @@ impl<'a> VariantMapper<'a> {
                      carry; predict the protein from that change"
                 )))
             }
-            crate::edits::NaEdit::Statement(RnaStatement::NoRna { uncertain }) => {
-                Some((ProteinStatement::NoProtein { uncertain: *uncertain }, false))
+            // No RNA predicts no protein, p.0? as HGVS writes that prediction.
+            crate::edits::NaEdit::Statement(RnaStatement::NoRna { .. }) => {
+                Some((ProteinStatement::NoProtein { uncertain: true }, false))
             }
             crate::edits::NaEdit::Statement(
                 RnaStatement::SplicingAffected { .. } | RnaStatement::Unknown,

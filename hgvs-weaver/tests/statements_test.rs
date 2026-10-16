@@ -55,15 +55,6 @@ fn c_to_p(s: &str) -> SequenceVariant {
     SequenceVariant::Protein(p)
 }
 
-fn r_to_p(s: &str) -> SequenceVariant {
-    let SequenceVariant::Rna(r) = parse(s) else {
-        panic!("{s} is not r.");
-    };
-    let hdp = provider();
-    let p = VariantMapper::new(&hdp).r_to_p(&r, None).unwrap();
-    SequenceVariant::Protein(p)
-}
-
 /// Whether `s` fails to parse, rather than parsing and failing later.
 fn is_parse_error(s: &str) -> bool {
     matches!(parse_hgvs_variant(s), Err(HgvsError::PestError(_)))
@@ -436,12 +427,6 @@ fn a_deleted_cds_is_probably_no_protein() {
 #[test]
 fn the_mappers_probably_no_protein_reparses_to_itself() {
     let p = c_to_p("NM_W.1:c.-3_*2del");
-    assert_eq!(parse(&p.to_string()), p);
-}
-
-#[test]
-fn the_mappers_no_protein_reparses_to_itself() {
-    let p = r_to_p("NM_W.1:r.0");
     assert_eq!(parse(&p.to_string()), p);
 }
 

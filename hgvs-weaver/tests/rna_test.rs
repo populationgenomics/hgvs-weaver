@@ -216,7 +216,7 @@ fn r_predicts_the_protein_like_c() {
         p_from_c("NM_R.1:c.44_47del")
     );
     assert!(p_from_c("NM_R.1:c.44_47del").contains("fs"));
-    assert_eq!(p_from_r("NM_R.1:r.0").unwrap(), "NP_R.1:p.0");
+    assert_eq!(p_from_r("NM_R.1:r.0").unwrap(), "NP_R.1:p.0?");
     assert_eq!(p_from_r("NM_R.1:r.0?").unwrap(), "NP_R.1:p.0?");
     assert_eq!(p_from_r("NM_R.1:r.spl").unwrap(), "NP_R.1:p.?");
     assert_eq!(p_from_r("NM_R.1:r.?").unwrap(), "NP_R.1:p.?");

@@ -313,7 +313,7 @@ normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
 
 `m.` and `g.` differ only in the letter they are written with: normalisation, SPDI, validation and equivalence are
 shared. Every `r.` operation is a conversion to the `c.` (coding transcript) or `n.` (non-coding) spelling and back; the
-statements `r.0`, `r.spl`, `r.?` and `r.(=)` map to `p.0`, `p.?`, `p.?` and `p.(=)`.
+statements `r.0`, `r.spl`, `r.?` and `r.(=)` map to `p.0?`, `p.?`, `p.?` and `p.(=)`.
 
 `r.(?)` is a statement of its own, not `r.?` predicted: its parentheses belong to the statement, where those of `r.(=)`
 mark a prediction. The uncertain page reads it as "RNA was not analysed but … no changes on the RNA level are expected
@@ -332,7 +332,7 @@ NM_R.1:r.-3_5delinsuu   ⇄  NM_R.1:c.-3_5delinsTT
 NR_R.1:r.10c>g          ⇄  NR_R.1:n.10C>G
 NM_R.1:r.(10c>g)        →  NM_R.1:c.10C>G                        the prediction flag is dropped on the way
 NM_R.1:r.spl            →  NP_R.1:p.?
-NM_R.1:r.0              →  NP_R.1:p.0
+NM_R.1:r.0              →  NP_R.1:p.0?
 NM_W.1:r.(?)            →  p.: an error; the protein follows the DNA change, not this statement
 NM_W.1:r.(?)  vs  NM_W.1:r.?                                    Different
 ```
@@ -742,7 +742,7 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
 ### A prediction is bracketed as HGVS writes it
 
 **A protein consequence predicted from a coding or RNA change is written in parentheses, `p.(Arg2Gly)`, as are the
-predicted statements `p.(=)` and `p.(Met1?)`; `p.?`, `p.0?` and the `p.0` that `r.0` gives are written bare.**
+predicted statements `p.(=)` and `p.(Met1?)`; `p.?` and `p.0?` are written bare.**
 
 The nomenclature marks a consequence that was predicted rather than observed by putting it in parentheses:
 "`p.(Trp24Cys)` amino acid `Trp24` is predicted to change to a `Cys` (no experimental proof, e.g., based on DNA level
@@ -755,11 +755,8 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
 - `p.?`: written bare even where it is the predicted consequence ("the predicted consequences of a deletion of exons 1
   to 2 … `p.?`"). What it says is that no prediction can be made, so there is nothing to bracket.
 - `p.0?`: "can be used when you predict that no protein is produced"; the `?` is the hedge, and `p.(0?)` appears
-  nowhere.
-- `p.0`: `r_to_p` gives `r.0` as `p.0`, bare. This one is weaver's reading, kept from before: the alleles page writes
-  `p.[Ser86Arg];[0]` as an observed allele and says such a description is linked to "the absence of RNA (`r.0`)", but it
-  gives no predicted form, and "`p.0?` can be used when you predict that no protein is produced" points the other way.
-  Writing `p.0?` for `r.0` is the alternative.
+  nowhere. It is what weaver writes for a deleted CDS and for `r.0`: no RNA predicts no protein. The bare `p.0` is an
+  observation, as in the alleles page's `p.[Ser86Arg];[0]`, linked there to "the absence of RNA (`r.0`)".
 - `p.(?)`, which weaver parses but never writes: the alleles page writes it for "a variant expected but not yet
   identified", in prose beside the allele `p.[(Ser68Arg)];[?]`, so it is read as `p.?` predicted.
 
@@ -780,17 +777,17 @@ NM_W.1:c.-3_4del      →  NP_W.1:p.(Met1?)       biocommons writes p.Met1?
 NM_W.1:c.*5T>A        →  NP_W.1:p.(=)
 NM_W.1:c.-3C>A        →  NP_W.1:p.?
 NM_W.1:c.-3_*2del     →  NP_W.1:p.0?
-NM_W.1:r.0            →  NP_W.1:p.0
+NM_W.1:r.0            →  NP_W.1:p.0?
 ```
 
 - **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET02/03). VariantValidator: not
   checked. The ClinVar sample has no start-codon statement.
-- **Spec (agrees, except `p.0` from `r.0`, where it is silent):**
-  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) for `p.(Trp24Cys)`,
-  `p.(Met1?)` and `p.0?`; [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) for `p.(=)`,
-  `p.?` and `p.0?`; [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for a
-  predicted `p.?`; [protein alleles](https://hgvs-nomenclature.org/stable/recommendations/protein/alleles/) for `p.0`
-  beside `r.0` and for `p.(?)`.
+- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
+  for `p.(Trp24Cys)`, `p.(Met1?)` and `p.0?`;
+  [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) for `p.(=)`, `p.?` and `p.0?`;
+  [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for a predicted `p.?`;
+  [protein alleles](https://hgvs-nomenclature.org/stable/recommendations/protein/alleles/) for `p.0` observed beside
+  `r.0` and for `p.(?)`.
 - **Tests:** `statements_test::a_predicted_change_is_written_bracketed`,
   `::a_start_loss_is_predicted_bracketed_as_hgvs_writes_it`,
   `::a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare`,
@@ -800,7 +797,7 @@ NM_W.1:r.0            →  NP_W.1:p.0
   `::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
   `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`;
   `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
-  `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0`); `real_transcripts_test::biocommons_real_transcript_cases`
+  `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
   (INITMET02/03); `src/transform.rs::test_transform_met1_to_question`,
   `::test_transform_stated_met1_to_stated_question`.
 
