@@ -218,6 +218,16 @@ fn p_0_uncertain_prints_back_as_parsed() {
 }
 
 #[test]
+fn an_unknown_change_from_an_unknown_residue_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.Xaa12?").to_string(), "NP_W.1:p.Xaa12?");
+}
+
+#[test]
+fn a_substitution_of_an_unknown_residue_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.Xaa12Val").to_string(), "NP_W.1:p.Xaa12Val");
+}
+
+#[test]
 fn an_unknown_change_from_a_residue_prints_back_as_parsed() {
     assert_eq!(parse("NP_W.1:p.Arg12?").to_string(), "NP_W.1:p.Arg12?");
 }
