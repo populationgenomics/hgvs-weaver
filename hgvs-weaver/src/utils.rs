@@ -108,9 +108,30 @@ pub fn aa1_to_aa3(aa1: char) -> &'static str {
         'W' => "Trp",
         'Y' => "Tyr",
         'V' => "Val",
+        'B' => "Asx",
+        'Z' => "Glx",
+        'U' => "Sec",
         '*' => "Ter",
         'X' => "Xaa",
         _ => "Xaa",
+    }
+}
+
+/// A residue as weaver stores and prints it: a one-letter code becomes its
+/// three-letter code (`*` is `Ter`, `X` is `Xaa`); anything longer is kept.
+pub fn residue_3(aa: &str) -> &str {
+    let mut chars = aa.chars();
+    match (chars.next(), chars.next()) {
+        (Some(one), None) => aa1_to_aa3(one),
+        _ => aa,
+    }
+}
+
+/// [`residue_3`] where the grammar reads `X` as a stop: after `fs` or `ext`.
+pub fn terminator_3(aa: &str) -> &str {
+    match aa {
+        "X" | "*" => "Ter",
+        other => residue_3(other),
     }
 }
 

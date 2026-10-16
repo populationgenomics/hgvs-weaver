@@ -620,6 +620,17 @@ fn a_dict_for_a_residue_with_no_uncertain_flag_loads() {
     assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(Arg2Gly)"));
 }
 
+#[test]
+fn a_dict_in_one_letter_code_loads_as_its_printed_description() {
+    let json = p_json_at(
+        r#"{"start": {"base": 2, "aa": "R"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Fs", "ref_": "", "alt": "P", "term": "*", "length": "5", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Arg2ProfsTer5"));
+}
+
 // --- Older p. dicts give p.Met1? and p.0? as a substitution to ? ---
 
 #[test]

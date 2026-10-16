@@ -395,7 +395,7 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aa13 | Rule::term13 | Rule::aa3 | Rule::aa1 | Rule::term3 | Rule::term1 => {
-                aa = p.as_str().to_string();
+                aa = crate::utils::residue_3(p.as_str()).to_string();
             }
             Rule::residue_num => {
                 pos = p.as_str().parse().map_err(|_| {
@@ -662,7 +662,8 @@ pub fn parse_pro_edit(pair: Pair<Rule>) -> Result<AaEdit, HgvsError> {
             }
         }
         _ => AaEdit::None,
-    })
+    }
+    .into_canonical())
 }
 
 #[cfg(test)]
@@ -824,7 +825,7 @@ mod tests {
                 } => {
                     assert_eq!(ref_, "");
                     assert_eq!(alt, "Arg");
-                    assert_eq!(aaterm, Some("*".to_string()));
+                    assert_eq!(aaterm, Some("Ter".to_string()));
                     assert_eq!(length, Some("5".to_string()));
                 }
                 _ => panic!("Expected Extension edit"),

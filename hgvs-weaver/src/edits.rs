@@ -172,6 +172,50 @@ pub enum ProteinStatement {
 }
 
 impl AaEdit {
+    /// The edit with every residue the formatter rewrites in the form it
+    /// prints, so that a one-letter description equals its printed form.
+    pub(crate) fn into_canonical(self) -> Self {
+        use crate::utils::{residue_3, terminator_3};
+        match self {
+            AaEdit::Subst {
+                ref_,
+                alt,
+                uncertain,
+            } => AaEdit::Subst {
+                ref_,
+                alt: residue_3(&alt).to_string(),
+                uncertain,
+            },
+            AaEdit::Fs {
+                ref_,
+                alt,
+                term,
+                length,
+                uncertain,
+            } => AaEdit::Fs {
+                ref_,
+                alt: residue_3(&alt).to_string(),
+                term: term.map(|t| terminator_3(&t).to_string()),
+                length,
+                uncertain,
+            },
+            AaEdit::Ext {
+                ref_,
+                alt,
+                aaterm,
+                length,
+                uncertain,
+            } => AaEdit::Ext {
+                ref_,
+                alt: residue_3(&alt).to_string(),
+                aaterm: aaterm.map(|t| terminator_3(&t).to_string()),
+                length,
+                uncertain,
+            },
+            other => other,
+        }
+    }
+
     pub fn is_identity(&self) -> bool {
         matches!(
             self,

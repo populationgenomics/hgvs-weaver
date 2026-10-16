@@ -363,7 +363,7 @@ fn check_p_posedit(
         (StoredAaEdit::Edit(AaEdit::Identity { uncertain: false }), None) if posedit.predicted => {
             (None, AaEdit::Statement(ProteinStatement::Unchanged))
         }
-        (StoredAaEdit::Edit(edit), pos) => (pos, edit),
+        (StoredAaEdit::Edit(edit), pos) => (pos, edit.into_canonical()),
         (StoredAaEdit::SubstitutionToUnknown, Some(pos)) if pos.start.base.0 == 0 => {
             let bare = pos.end.is_none() && !pos.uncertain && pos.start.aa.is_empty();
             if !bare {
@@ -877,7 +877,7 @@ impl TryFrom<AAPositionFields> for AAPosition {
         }
         Ok(AAPosition {
             base: fields.base,
-            aa: fields.aa,
+            aa: crate::utils::residue_3(&fields.aa).to_string(),
         })
     }
 }
