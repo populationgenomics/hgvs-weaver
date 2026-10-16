@@ -311,8 +311,8 @@ pub(crate) struct PVariantFields {
 }
 
 /// A protein edit as a dict gives it: an edit, in the current shape or the
-/// `Special` one, or a substitution to `?`, which is how `p.Met1?` and `p.0?`
-/// were stored when the parser read the `?` as a residue.
+/// `Special` one, or a substitution to `?`, the shape older dicts give
+/// `p.Met1?` and `p.0?`.
 pub(crate) enum StoredAaEdit {
     Edit(AaEdit),
     SubstitutionToUnknown,
@@ -348,7 +348,7 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
 }
 
 /// The posedit of a p. variant, with a substitution to `?` read as the text
-/// it was parsed from: `p.0?` at residue 0, the unknown change from a residue
+/// it stands for: `p.0?` at residue 0, the unknown change from a residue
 /// anywhere else. Refuses what p. cannot write: a statement about the whole
 /// protein at a residue, and any statement but `p.(=)` predicted; the unknown
 /// change over a range or an uncertain residue; a change without a position,
@@ -359,7 +359,11 @@ fn check_p_posedit(
     let (pos, edit) = match (posedit.edit, posedit.pos) {
         (StoredAaEdit::Edit(edit), pos) => (pos, edit),
         (StoredAaEdit::SubstitutionToUnknown, Some(pos)) if pos.start.base.0 == 0 => {
-            if pos.end.is_some() || !pos.start.aa.is_empty() {
+            let bare = pos.end.is_none()
+                && !pos.uncertain
+                && !pos.start.uncertain
+                && pos.start.aa.is_empty();
+            if !bare {
                 return Err(HgvsError::ValidationError(format!(
                     "p. cannot write a substitution to ? at residue 0 but p.0?, not {pos:?}"
                 )));
@@ -369,8 +373,13 @@ fn check_p_posedit(
                 AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true }),
             )
         }
-        (StoredAaEdit::SubstitutionToUnknown, pos) => {
-            (pos, AaEdit::Statement(ProteinStatement::Unknown))
+        (StoredAaEdit::SubstitutionToUnknown, Some(pos)) => {
+            (Some(pos), AaEdit::Statement(ProteinStatement::Unknown))
+        }
+        (StoredAaEdit::SubstitutionToUnknown, None) => {
+            return Err(HgvsError::ValidationError(
+                "p. cannot write a substitution to ? at no residue".into(),
+            ))
         }
     };
     let posedit = PosEdit {

@@ -575,7 +575,7 @@ fn a_dict_for_a_change_at_a_residue_still_loads() {
     assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(Arg2Gly)"));
 }
 
-// --- p. dicts written when ? after a residue parsed as a substitution ---
+// --- Older p. dicts give p.Met1? and p.0? as a substitution to ? ---
 
 #[test]
 fn an_older_dict_for_p_met1_unknown_loads_as_the_unknown_change_from_met1() {
@@ -638,6 +638,28 @@ fn a_special_dict_for_the_protein_unchanged_at_a_residue_is_refused() {
     let json = p_json_at(
         r#"{"start": {"base": 2, "aa": "Arg", "uncertain": false}, "end": null, "uncertain": false}"#,
         r#"{"type": "Special", "value": "=", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn an_older_dict_for_an_unknown_substitution_with_no_position_is_refused() {
+    let json = p_json_at(
+        "null",
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert!(refused_by_p(&json), "{json}");
+}
+
+#[test]
+fn an_older_dict_for_an_unknown_substitution_at_an_uncertain_residue_0_is_refused() {
+    let json = p_json_at(
+        r#"{"start": {"base": 0, "aa": "", "uncertain": true}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Subst", "ref_": "", "alt": "?", "uncertain": false}"#,
         false,
         false,
     );
