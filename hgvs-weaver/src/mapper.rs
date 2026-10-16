@@ -1445,8 +1445,8 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// The protein consequence of an r. variant: a statement about the
-    /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching predicted
-    /// statement about the protein (`p.0?`, `p.?`, `p.?`, `p.(=)`); `r.(?)`,
+    /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching statement
+    /// about the protein (`p.0?`, `p.?`, `p.?`, `p.(=)`); `r.(?)`,
     /// which names no change of its own, is refused; anything else is
     /// predicted from its c. spelling. Either way the transcript must have a
     /// CDS.
