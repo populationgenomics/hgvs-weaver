@@ -1,5 +1,6 @@
 use crate::allele::CanonicalAllele;
 use crate::data::{IdentifierKind, TranscriptSearch};
+use crate::edits::{NaEdit, RnaStatement};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{
@@ -100,9 +101,12 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // The parentheses of r.(?) are not spelling: it is not r.? predicted.
-        if follows_the_dna(var1) != follows_the_dna(var2) {
-            return Ok(EquivalenceLevel::Different);
+        // The text comparison drops parentheses, and those of r.(?) are part
+        // of what it states.
+        if let (Some(a), Some(b)) = (rna_statement(var1), rna_statement(var2)) {
+            if a != b {
+                return Ok(EquivalenceLevel::Different);
+            }
         }
         if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
             return Ok(EquivalenceLevel::Identity);
@@ -515,14 +519,19 @@ struct Outcome {
     anchored: bool,
 }
 
-/// Whether `var` is `r.(?)`, alone or as the one member of a cis allele.
-fn follows_the_dna(var: &SequenceVariant) -> bool {
+/// What `var` states about the whole RNA (`r.0`, `r.(?)`), alone or as the
+/// one member of a cis allele; `None` when it is no such statement.
+fn rna_statement(var: &SequenceVariant) -> Option<RnaStatement> {
     match var {
-        SequenceVariant::Rna(r) => r.follows_the_dna(),
-        SequenceVariant::CisPhased(cis) => {
-            matches!(cis.members.as_slice(), [m] if follows_the_dna(m))
-        }
-        _ => false,
+        SequenceVariant::Rna(r) => match r.posedit.edit {
+            NaEdit::Statement(statement) => Some(statement),
+            _ => None,
+        },
+        SequenceVariant::CisPhased(cis) => match cis.members.as_slice() {
+            [m] => rna_statement(m),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

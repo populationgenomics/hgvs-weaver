@@ -433,6 +433,7 @@ impl fmt::Display for RnaStatement {
                 write!(f, "spl{}", uncertainty(*uncertain))
             }
             RnaStatement::Unknown => write!(f, "?"),
+            RnaStatement::FollowsDna => write!(f, "(?)"),
         }
     }
 }

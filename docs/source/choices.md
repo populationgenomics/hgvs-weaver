@@ -315,12 +315,13 @@ normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
 shared. Every `r.` operation is a conversion to the `c.` (coding transcript) or `n.` (non-coding) spelling and back; the
 statements `r.0`, `r.spl`, `r.?` and `r.(=)` map to `p.0`, `p.?`, `p.?` and `p.(=)`.
 
-`r.(?)` is not `r.?` predicted, although it parses to the same statement with the prediction flag. The uncertain page
-reads it as "RNA was not analysed but … no changes on the RNA level are expected other than those simply derived from
-the change on the DNA level", and the deletion page pairs it with that change's own consequence,
-`c.1521_1523del r.(?) p.(Phe508del)`. It says the RNA follows a DNA change it does not carry, so weaver gives it no
-protein consequence (`r_to_p` is an `UnsupportedOperation`, where `r.?` gives `p.?`), and in equivalence it is the same
-as itself and different from `r.?`: there the parentheses are not spelling, as they are for `r.(=)` and `r.=`.
+`r.(?)` is a statement of its own, not `r.?` predicted: its parentheses belong to the statement, where those of `r.(=)`
+mark a prediction. The uncertain page reads it as "RNA was not analysed but … no changes on the RNA level are expected
+other than those simply derived from the change on the DNA level", and the deletion page pairs it with that change's own
+consequence, `c.1521_1523del r.(?) p.(Phe508del)`. It says the RNA follows a DNA change it does not carry, so weaver
+gives it no protein consequence (`r_to_p` is an `UnsupportedOperation`, where `r.?` gives `p.?`), and in equivalence it
+is the same as itself and different from `r.?`. No statement about the RNA is predicted, so a dict that marks `r.?`
+predicted is refused rather than read as `r.(?)`.
 
 **Example:**
 
@@ -350,9 +351,10 @@ NM_W.1:r.(?)  vs  NM_W.1:r.?                                    Different
   `::statements_about_the_transcript_round_trip`, `::r_predicts_the_protein_like_c`,
   `::r_normalises_validates_and_has_alleles_like_c`,
   `::an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself`;
-  `rna_is_the_transcript_in_other_letters` (property); `statements_test::predicted_r_unknown_prints_back_as_parsed`,
-  `::predicted_r_unknown_has_no_protein_consequence_of_its_own`, `::predicted_r_unknown_is_not_the_unknown_effect`,
-  `::a_dict_for_a_predicted_r_unknown_loads_as_it`.
+  `rna_is_the_transcript_in_other_letters` (property); `statements_test::r_follows_the_dna_prints_back_as_parsed`,
+  `::r_follows_the_dna_has_no_protein_consequence_of_its_own`, `::r_follows_the_dna_is_not_the_unknown_effect`,
+  `::one_member_cis_alleles_of_r_follows_the_dna_and_the_unknown_effect_differ`,
+  `::a_dict_for_r_follows_the_dna_names_its_statement`, `::a_dict_for_r_unknown_marked_predicted_is_refused`.
 
 ### The whole transcript unchanged is a statement, not a change
 
@@ -766,8 +768,9 @@ parsed description keeps the parentheses it was written with, and the start-codo
 a prediction. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and `p.Met1?` are
 Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and the same
 description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with `p.Met1?`, as
-`c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. `r.(?)` is the one
-statement whose parentheses change what it says ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
+`c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. The parentheses of
+`r.(?)` are not a prediction but part of the statement
+([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
 
 **Example:**
 

@@ -26,7 +26,7 @@ def _special(variant_type: str, ac: str, value: str, *, predicted: bool = False)
 
 @pytest.mark.parametrize(
     "hgvs",
-    ["NM_W.1:r.spl?", "NP_W.1:p.0", "NP_W.1:p.0?", "NP_W.1:p.(=)", "NP_W.1:p.Met1?"],
+    ["NM_W.1:r.spl?", "NM_W.1:r.(?)", "NP_W.1:p.0", "NP_W.1:p.0?", "NP_W.1:p.(=)", "NP_W.1:p.Met1?"],
 )
 def test_a_statement_round_trips_through_a_dict(hgvs: str) -> None:
     assert str(weaver.Variant.from_dict(weaver.parse(hgvs).to_dict())) == hgvs

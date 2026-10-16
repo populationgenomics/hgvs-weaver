@@ -248,8 +248,8 @@ impl<'de> Deserialize<'de> for StoredNaEdit {
 /// `Special` "=" read as `r.=`. Refuses what `kind` cannot write: the whole
 /// transcript unchanged anywhere but `c.=`, `r.=` and `r.(=)`; another
 /// statement about the transcript anywhere but `r.`; a statement with a
-/// position, or a change without one; a prediction outside `r.`; an
-/// uncertain posedit, which no description writes.
+/// position, or a change without one; a prediction outside `r.`, or of a
+/// statement; an uncertain posedit, which no description writes.
 fn check_na_posedit<I: std::fmt::Display>(
     kind: &str,
     posedit: PosEdit<I, StoredNaEdit>,
@@ -269,12 +269,19 @@ fn check_na_posedit<I: std::fmt::Display>(
         uncertain: posedit.uncertain,
         predicted: posedit.predicted,
     };
+    if let (NaEdit::Statement(statement), true) = (&posedit.edit, posedit.predicted) {
+        // Printed, it would read as another statement: r.? predicted as r.(?).
+        return Err(HgvsError::ValidationError(format!(
+            "a statement about the RNA is never predicted, and {statement:?} is marked so; \
+             r.(?) is the statement {:?}",
+            RnaStatement::FollowsDna
+        )));
+    }
     let flags_writable = !posedit.uncertain && (kind == "r" || !posedit.predicted);
     let writable = flags_writable
         && match (&posedit.edit, &posedit.pos) {
             (NaEdit::WholeIdentity, None) => kind == "c" || kind == "r",
-            (NaEdit::Statement(RnaStatement::Unknown), None) => kind == "r",
-            (NaEdit::Statement(_), None) => kind == "r" && !posedit.predicted,
+            (NaEdit::Statement(_), None) => kind == "r",
             (NaEdit::WholeIdentity | NaEdit::Statement(_), _) => false,
             (_, pos) => pos.is_some(),
         };
@@ -506,15 +513,6 @@ pub struct RVariant {
     pub posedit: PosEdit<BaseOffsetInterval, NaEdit>,
 }
 impl_variant!(RVariant, "r");
-
-impl RVariant {
-    /// Whether this is `r.(?)`: the RNA not analysed, and expected to change
-    /// only as the DNA change it accompanies implies. It names no change of
-    /// its own, and is not `r.?`, an effect of unknown kind.
-    pub fn follows_the_dna(&self) -> bool {
-        self.posedit.predicted && self.posedit.edit == NaEdit::Statement(RnaStatement::Unknown)
-    }
-}
 
 /// Changes in cis, on one molecule: HGVS `NM_004006.2:c.[145C>T;147C>G]`.
 /// Every member is a plain variant in the same coordinate system on the same

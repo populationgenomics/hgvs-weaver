@@ -148,7 +148,7 @@ reads_as! { na_edit;
     r_spl_is_splicing_affected: "NM_W.1:r.spl" => NaEdit::Statement(RnaStatement::SplicingAffected { uncertain: false });
     r_spl_uncertain_is_splicing_probably_affected: "NM_W.1:r.spl?" => NaEdit::Statement(RnaStatement::SplicingAffected { uncertain: true });
     r_unknown_is_an_unknown_effect: "NM_W.1:r.?" => NaEdit::Statement(RnaStatement::Unknown);
-    predicted_r_unknown_is_the_unknown_statement: "NM_W.1:r.(?)" => NaEdit::Statement(RnaStatement::Unknown);
+    r_follows_the_dna_is_its_own_statement: "NM_W.1:r.(?)" => NaEdit::Statement(RnaStatement::FollowsDna);
     r_spl_with_a_space_before_its_question_mark_is_uncertain: "NM_W.1:r.spl ?" => NaEdit::Statement(RnaStatement::SplicingAffected { uncertain: true });
 }
 
@@ -261,19 +261,42 @@ fn predicted_p_unknown_does_not_match_a_coding_change() {
 }
 
 #[test]
-fn predicted_r_unknown_prints_back_as_parsed() {
+fn r_follows_the_dna_prints_back_as_parsed() {
     assert_eq!(parse("NM_W.1:r.(?)").to_string(), "NM_W.1:r.(?)");
 }
 
 #[test]
-fn a_dict_for_a_predicted_r_unknown_loads_as_it() {
-    let json = r#"{"variant_type": "Rna", "ac": "NM_W.1", "gene": null, "posedit": {"pos": null,
-        "edit": {"type": "Statement", "statement": "Unknown"}, "uncertain": false, "predicted": true}}"#;
-    assert_eq!(from_json(json).unwrap(), parse("NM_W.1:r.(?)"));
+fn r_follows_the_dna_is_not_marked_predicted() {
+    let SequenceVariant::Rna(r) = parse("NM_W.1:r.(?)") else {
+        panic!("not r.");
+    };
+    assert!(!r.posedit.predicted);
 }
 
 #[test]
-fn predicted_r_unknown_has_no_protein_consequence_of_its_own() {
+fn a_dict_for_r_follows_the_dna_names_its_statement() {
+    let json = r_json(r#"{"type": "Statement", "statement": "FollowsDna"}"#);
+    assert_eq!(from_json(&json).unwrap(), parse("NM_W.1:r.(?)"));
+}
+
+#[test]
+fn a_dict_for_r_unknown_marked_predicted_is_refused() {
+    let json = r#"{"variant_type": "Rna", "ac": "NM_W.1", "gene": null, "posedit": {"pos": null,
+        "edit": {"type": "Statement", "statement": "Unknown"}, "uncertain": false, "predicted": true}}"#;
+    let err = from_json(json).unwrap_err().to_string();
+    assert!(err.contains("never predicted"), "{err}");
+}
+
+#[test]
+fn a_dict_for_a_special_unknown_marked_predicted_is_refused() {
+    let json = r#"{"variant_type": "Rna", "ac": "NM_W.1", "gene": null, "posedit": {"pos": null,
+        "edit": {"type": "Special", "value": "?", "uncertain": false}, "uncertain": false, "predicted": true}}"#;
+    let err = from_json(json).unwrap_err().to_string();
+    assert!(err.contains("never predicted"), "{err}");
+}
+
+#[test]
+fn r_follows_the_dna_has_no_protein_consequence_of_its_own() {
     let SequenceVariant::Rna(r) = parse("NM_W.1:r.(?)") else {
         panic!("not r.");
     };
@@ -286,17 +309,15 @@ fn predicted_r_unknown_has_no_protein_consequence_of_its_own() {
 }
 
 #[test]
-fn predicted_r_unknown_is_not_the_unknown_effect() {
-    let hdp = provider();
-    let mapper = VariantMapper::new(&hdp);
-    let level = VariantEquivalence::new(&mapper, &hdp)
-        .equivalent_level(&parse("NM_W.1:r.(?)"), &parse("NM_W.1:r.?"))
-        .unwrap();
-    assert_eq!(level, EquivalenceLevel::Different);
+fn r_follows_the_dna_is_not_the_unknown_effect() {
+    assert_eq!(
+        level("NM_W.1:r.(?)", "NM_W.1:r.?"),
+        EquivalenceLevel::Different
+    );
 }
 
 #[test]
-fn predicted_r_unknown_is_its_one_member_cis_allele() {
+fn r_follows_the_dna_is_its_one_member_cis_allele() {
     assert_eq!(
         level("NM_W.1:r.[(?)]", "NM_W.1:r.(?)"),
         EquivalenceLevel::Identity
@@ -304,7 +325,7 @@ fn predicted_r_unknown_is_its_one_member_cis_allele() {
 }
 
 #[test]
-fn a_one_member_cis_allele_of_predicted_r_unknown_is_not_the_unknown_effect() {
+fn a_one_member_cis_allele_of_r_follows_the_dna_is_not_the_unknown_effect() {
     assert_eq!(
         level("NM_W.1:r.[(?)]", "NM_W.1:r.?"),
         EquivalenceLevel::Different
@@ -312,13 +333,19 @@ fn a_one_member_cis_allele_of_predicted_r_unknown_is_not_the_unknown_effect() {
 }
 
 #[test]
-fn predicted_r_unknown_is_itself() {
-    let hdp = provider();
-    let mapper = VariantMapper::new(&hdp);
-    let level = VariantEquivalence::new(&mapper, &hdp)
-        .equivalent_level(&parse("NM_W.1:r.(?)"), &parse("NM_W.1:r.(?)"))
-        .unwrap();
-    assert_eq!(level, EquivalenceLevel::Identity);
+fn one_member_cis_alleles_of_r_follows_the_dna_and_the_unknown_effect_differ() {
+    assert_eq!(
+        level("NM_W.1:r.[(?)]", "NM_W.1:r.[?]"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn r_follows_the_dna_is_itself() {
+    assert_eq!(
+        level("NM_W.1:r.(?)", "NM_W.1:r.(?)"),
+        EquivalenceLevel::Identity
+    );
 }
 
 /// The level `a` and `b` are judged at over the provider.
@@ -555,7 +582,7 @@ survives_json! {
     p_identity_survives_json: "NP_W.1:p.=";
     predicted_p_identity_survives_json: "NP_W.1:p.(=)";
     predicted_p_unknown_survives_json: "NP_W.1:p.(?)";
-    predicted_r_unknown_survives_json: "NM_W.1:r.(?)";
+    r_follows_the_dna_survives_json: "NM_W.1:r.(?)";
     an_unknown_change_from_a_residue_survives_json: "NP_W.1:p.Arg12?";
     a_predicted_unknown_change_from_a_residue_survives_json: "NP_W.1:p.(Arg12?)";
 }

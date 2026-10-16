@@ -36,17 +36,22 @@ pub fn parse_tx_posedit(
     let mut first = inner
         .next()
         .ok_or_else(|| HgvsError::PestError("Missing interval".into()))?;
+    // The parentheses of r.(=) mark a prediction; those of r.(?) belong to
+    // its statement.
     let statement = match first.as_rule() {
-        Rule::whole_identity => Some(NaEdit::WholeIdentity),
-        Rule::r_posedit_special => Some(NaEdit::Statement(parse_rna_statement(first.clone())?)),
+        Rule::whole_identity => Some((NaEdit::WholeIdentity, text.starts_with('('))),
+        Rule::r_posedit_special => Some((
+            NaEdit::Statement(parse_rna_statement(first.clone())?),
+            false,
+        )),
         _ => None,
     };
-    if let Some(edit) = statement {
+    if let Some((edit, predicted)) = statement {
         return Ok(PosEdit {
             pos: None,
             edit,
             uncertain: false,
-            predicted: text.starts_with('('),
+            predicted,
         });
     }
     let predicted = first.as_rule() == Rule::r_posedit_predicted;
@@ -141,6 +146,7 @@ fn parse_rna_statement(pair: Pair<Rule>) -> Result<RnaStatement, HgvsError> {
         (Rule::r_no_rna, uncertain) => Ok(RnaStatement::NoRna { uncertain }),
         (Rule::r_splicing_affected, uncertain) => Ok(RnaStatement::SplicingAffected { uncertain }),
         (Rule::r_unknown, _) => Ok(RnaStatement::Unknown),
+        (Rule::r_follows_dna, _) => Ok(RnaStatement::FollowsDna),
         (r, _) => Err(HgvsError::PestError(format!(
             "Unexpected RNA statement {r:?}"
         ))),

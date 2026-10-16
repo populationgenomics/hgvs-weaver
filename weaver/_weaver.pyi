@@ -181,7 +181,9 @@ class VariantMapper:
         transcript (r.0, r.spl, r.?, r.=) becomes the matching statement about the
         protein (p.0, p.?, p.(=)). c.=, the whole transcript unchanged, predicts
         p.(=) on the protein the transcript encodes; a protein_ac naming another
-        protein is an error. Every form needs a transcript with a CDS.
+        protein is an error. Every form needs a transcript with a CDS. r.(?)
+        says the RNA follows a DNA change it does not carry, so it has no
+        protein consequence of its own and raises UnsupportedOperationError.
 
         Args:
             var_c: The coding or RNA Variant to project.

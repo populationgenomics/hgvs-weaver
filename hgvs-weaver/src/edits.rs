@@ -74,7 +74,7 @@ pub enum NaEdit {
 
 /// What an `r.` description with no position says about the transcript's
 /// RNA. `uncertain` is the trailing `?` of `r.0?` and `r.spl?`; HGVS writes
-/// no uncertain `r.?`.
+/// no uncertain `r.?` or `r.(?)`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(tag = "statement")]
 pub enum RnaStatement {
@@ -84,6 +84,9 @@ pub enum RnaStatement {
     SplicingAffected { uncertain: bool },
     /// `r.?`: an effect on the RNA, of unknown kind.
     Unknown,
+    /// `r.(?)`: the RNA not analysed, and expected to change only as the DNA
+    /// change it accompanies implies. It names no change of its own.
+    FollowsDna,
 }
 
 impl NaEdit {

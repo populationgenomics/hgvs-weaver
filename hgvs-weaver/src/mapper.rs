@@ -1450,23 +1450,20 @@ impl<'a> VariantMapper<'a> {
     /// Either way the transcript must have a CDS.
     pub fn r_to_p(&self, r: &RVariant, protein_ac: Option<&str>) -> Result<PVariant, HgvsError> {
         use crate::structs::{ProteinStatement, RnaStatement};
-        if r.follows_the_dna() {
-            return Err(HgvsError::UnsupportedOperation(format!(
-                "{r} says the RNA follows the DNA change it accompanies, which it does not carry; \
-                 predict the protein from that change"
-            )));
-        }
         let statement = match &r.posedit.edit {
             crate::edits::NaEdit::WholeIdentity => Some((ProteinStatement::Unchanged, true)),
-            crate::edits::NaEdit::Statement(statement) => Some((
-                match *statement {
-                    RnaStatement::NoRna { uncertain } => ProteinStatement::NoProtein { uncertain },
-                    RnaStatement::SplicingAffected { .. } | RnaStatement::Unknown => {
-                        ProteinStatement::Unknown
-                    }
-                },
-                false,
-            )),
+            crate::edits::NaEdit::Statement(RnaStatement::FollowsDna) => {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{r} says the RNA follows the DNA change it accompanies, which it does not \
+                     carry; predict the protein from that change"
+                )))
+            }
+            crate::edits::NaEdit::Statement(RnaStatement::NoRna { uncertain }) => {
+                Some((ProteinStatement::NoProtein { uncertain: *uncertain }, false))
+            }
+            crate::edits::NaEdit::Statement(
+                RnaStatement::SplicingAffected { .. } | RnaStatement::Unknown,
+            ) => Some((ProteinStatement::Unknown, false)),
             _ => None,
         };
         if let Some((p, predicted)) = statement {
