@@ -1377,8 +1377,8 @@ a stop distance could not be compared or projected. No real sequence comes near 
 typo or a corrupted record, and the answer is an error. A number before a protein repeat's count is not in the grammar:
 it was taken as the count's lower bound, and names neither the repeated residues nor the count. An SPDI or VRS location
 is held to the same line: a deletion length or range past what an index can hold, an SPDI or exact VRS Allele position
-past the end of its sequence, and a VRS coordinate no g. position can number (an end at interbase 0, a coordinate past
-32 bits) are each a `ValidationError`.
+past the end of its sequence, and a VRS coordinate no g. position can number (an end at interbase 0, one past
+`g.2147483647`) are each a `ValidationError`.
 
 **Example:**
 
@@ -1403,7 +1403,7 @@ NP_W.1:p.(Gln18)5[(6_7)]                     →  ParseError    was read as p.(G
   `::an_spdi_deletion_length_past_the_sequence`, `::a_vrs_deletion_ending_at_interbase_zero_is_refused`,
   `::a_vrs_deletion_whose_end_range_starts_at_interbase_zero_is_refused`, `::a_copy_number_at_the_last_u32`,
   `::a_copy_number_past_i32`, `::a_copy_number_past_u32`, `::a_deletion_range_from_the_last_index`,
-  `::a_length_expression_at_the_last_index`.
+  `::a_length_expression_at_the_last_index`, `::a_copy_number_at_the_last_g_position_keeps_it`.
 
 ## The data contract
 

@@ -286,6 +286,20 @@ a_vrs_location_past_any_position_is_refused! {
 }
 
 #[test]
+fn a_copy_number_at_the_last_g_position_keeps_it() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let json = format!(
+        r#"{{"type":"CopyNumberCount","copies":3,{}}}"#,
+        location_json("2147483646", "2147483647")
+    );
+    assert_eq!(
+        mapper.from_vrs(&json, None).unwrap().to_string(),
+        "NC_TEST.1:g.2147483647copy3"
+    );
+}
+
+#[test]
 fn a_vrs_deletion_ending_at_interbase_zero_is_refused() {
     let hdp = provider();
     let mapper = VariantMapper::with_refget(&hdp, &hdp);
