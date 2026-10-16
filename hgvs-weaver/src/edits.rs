@@ -88,13 +88,10 @@ pub enum RnaStatement {
 
 impl NaEdit {
     /// Whether the edit leaves its bases as they are: `=`, with or without
-    /// the bases it names.
+    /// the bases it names. `NaEdit::None` is not one: the parser gives it to
+    /// edits it does not model, such as a conversion.
     pub fn is_identity(&self) -> bool {
-        match self {
-            NaEdit::RefAlt { ref_, alt, .. } => ref_ == alt,
-            NaEdit::None => true,
-            _ => false,
-        }
+        matches!(self, NaEdit::RefAlt { ref_, alt, .. } if ref_ == alt)
     }
 
     /// Whether the edit describes the transcript as a whole rather than a

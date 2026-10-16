@@ -507,7 +507,28 @@ fn an_intronic_identity_predicts_the_protein_unchanged() {
 }
 
 #[test]
-fn an_identity_across_the_start_codon_is_not_no_protein() {
+fn an_intronic_conversion_is_an_unknown_effect() {
+    assert_eq!(
+        c_to_p("NM_W.1:c.45+1_45+3conNM_W.1:c.10_12"),
+        parse("NP_W.1:p.?")
+    );
+}
+
+#[test]
+fn an_upstream_conversion_is_an_unknown_effect() {
+    assert_eq!(
+        c_to_p("NM_W.1:c.-5_-3conNM_W.1:c.10_12"),
+        parse("NP_W.1:p.?")
+    );
+}
+
+#[test]
+fn an_identity_inside_the_codons_is_written_silently_at_its_residues() {
+    assert_eq!(c_to_p("NM_W.1:c.4_6="), parse("NP_W.1:p.(Arg2=)"));
+}
+
+#[test]
+fn an_identity_across_the_whole_transcript_is_not_no_protein() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let level = VariantEquivalence::new(&mapper, &hdp)

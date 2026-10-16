@@ -698,7 +698,8 @@ and no residue past the end of the protein is named.
 These statements are about a change. An identity, `=`, changes nothing wherever it lies, so outside the codons it
 predicts `p.(=)` too: one in the 5'UTR, in an intron, or spanning the start codon (`c.-5_*15=`, every base of the
 transcript) leaves the protein as it is, not disrupted from `Met1` and not unknown. An identity inside the codons is
-still written silently at the residues it covers, `p.(Arg2=)`.
+still written silently at the residues it covers, `p.(Arg2=)`. A conversion is not an identity, although weaver does not
+model its bases: intronic or upstream it stays `p.?`.
 
 **Example** (`NM_X.1` has a five-base 5'UTR and a fourteen-base 3'UTR):
 
@@ -708,7 +709,7 @@ NM_X.1:c.-3_2del           →  NP_X.1:p.(Met1?)   reaches into the start codon
 NM_X.1:c.-5_*14del         →  NP_X.1:p.0?        the whole CDS
 NM_X.1:c.*3A>G             →  NP_X.1:p.(=)       entirely downstream
 NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silently
-NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity across the start codon
+NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity of the whole transcript
 NM_W.1:c.45+1=             →  NP_W.1:p.(=)       an intronic identity
 
 NM_000249.3:c.-7_*46del    →  NP_000240.1:p.0?
@@ -731,7 +732,9 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   `statements_test::an_identity_across_the_whole_transcript_predicts_the_protein_unchanged`,
   `::an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged`,
   `::an_identity_in_the_5_utr_predicts_the_protein_unchanged`, `::an_intronic_identity_predicts_the_protein_unchanged`,
-  `::an_identity_across_the_start_codon_is_not_no_protein`.
+  `::an_identity_across_the_whole_transcript_is_not_no_protein`,
+  `::an_identity_inside_the_codons_is_written_silently_at_its_residues`,
+  `::an_intronic_conversion_is_an_unknown_effect`, `::an_upstream_conversion_is_an_unknown_effect`.
 
 ### A prediction is bracketed as HGVS writes it
 
