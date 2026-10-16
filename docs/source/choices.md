@@ -742,7 +742,8 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   `::an_edit_that_leaves_no_codon_where_the_protein_changes_says_nothing`,
   `::statements_have_no_allele_and_a_wrong_protein_is_an_error`,
   `::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
-  `open_cds_test::a_3_open_cds_deleting_residues_that_repeat_its_last_is_a_deletion`;
+  `open_cds_test::a_3_open_cds_deleting_residues_that_repeat_its_last_is_a_deletion`,
+  `::a_cds_with_no_stop_shifted_to_the_end_of_its_record_says_nothing`;
   `real_transcripts_test::biocommons_real_transcript_cases` (WHOLEGENE01/02, INITMET02/03);
   `statements_test::an_identity_across_the_whole_transcript_predicts_the_protein_unchanged`,
   `::an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged`,

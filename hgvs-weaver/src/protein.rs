@@ -126,13 +126,14 @@ impl Reading {
         Ok(t)
     }
 
-    /// The edit lost the reference's stop and the edited transcript ends
-    /// before a codon at the first changed residue: there is no residue there
-    /// to name. A reference with no stop (a CDS open at its 3' end) loses
-    /// none, and an alternate that is a prefix of it is a deletion.
+    /// The edited transcript ends before a codon at the first changed
+    /// residue, and the edit lost the reference's stop or shifted the frame:
+    /// there is no residue there to name. An in-frame edit of a reference
+    /// with no stop (a CDS open at its 3' end) loses none, and an alternate
+    /// that is a prefix of it is a deletion.
     fn runs_off(&self) -> bool {
         !self.unchanged()
-            && self.stop < self.ref_aa.len()
+            && (self.stop < self.ref_aa.len() || !self.in_frame)
             && self.first_changed >= self.alt_aa.len()
     }
 
