@@ -157,6 +157,7 @@ reads_as! { aa_edit;
     p_identity_is_the_protein_unchanged: "NP_W.1:p.=" => AaEdit::Statement(ProteinStatement::Unchanged);
     predicted_p_identity_is_the_protein_unchanged: "NP_W.1:p.(=)" => AaEdit::Statement(ProteinStatement::Unchanged);
     p_0_uncertain_is_probably_no_protein: "NP_W.1:p.0?" => AaEdit::Statement(ProteinStatement::NoProtein { uncertain: true });
+    predicted_p_unknown_is_an_unknown_effect: "NP_W.1:p.(?)" => AaEdit::Statement(ProteinStatement::Unknown);
     an_unknown_change_from_a_residue_is_an_unknown_effect: "NP_W.1:p.Arg12?" => AaEdit::Statement(ProteinStatement::Unknown);
 }
 
@@ -226,6 +227,39 @@ fn p_unknown_prints_back_as_parsed() {
 #[test]
 fn p_identity_prints_back_as_parsed() {
     assert_eq!(parse("NP_W.1:p.=").to_string(), "NP_W.1:p.=");
+}
+
+#[test]
+fn predicted_p_unknown_carries_the_prediction_on_its_posedit() {
+    let SequenceVariant::Protein(p) = parse("NP_W.1:p.(?)") else {
+        panic!("not p.");
+    };
+    assert!(p.posedit.predicted);
+}
+
+#[test]
+fn predicted_p_unknown_prints_back_as_parsed() {
+    assert_eq!(parse("NP_W.1:p.(?)").to_string(), "NP_W.1:p.(?)");
+}
+
+#[test]
+fn predicted_p_unknown_is_the_unknown_effect_in_another_spelling() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NP_W.1:p.(?)"), &parse("NP_W.1:p.?"))
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Identity);
+}
+
+#[test]
+fn predicted_p_unknown_matches_no_change() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NP_W.1:p.(?)"), &parse("NM_W.1:c.10C>G"))
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Different);
 }
 
 #[test]
@@ -399,6 +433,7 @@ survives_json! {
     p_unknown_survives_json: "NP_W.1:p.?";
     p_identity_survives_json: "NP_W.1:p.=";
     predicted_p_identity_survives_json: "NP_W.1:p.(=)";
+    predicted_p_unknown_survives_json: "NP_W.1:p.(?)";
 }
 
 #[test]
@@ -593,14 +628,14 @@ fn a_dict_for_a_predicted_no_protein_is_refused() {
 }
 
 #[test]
-fn a_dict_for_a_predicted_unknown_effect_is_refused() {
+fn a_dict_for_a_predicted_unknown_effect_loads_as_it() {
     let json = p_json_at(
         "null",
         r#"{"type": "Statement", "statement": "Unknown"}"#,
         false,
         true,
     );
-    assert!(refused_by_p(&json), "{json}");
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.(?)"));
 }
 
 #[test]

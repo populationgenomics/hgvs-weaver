@@ -126,6 +126,9 @@ const KNOWN_DIFFERENCES: &[(&str, &str)] = &[
     // biocommons reads the ? of p.Met1? as a substitution to an unknown
     // residue; we read it as an unknown change from that residue, its own rule.
     ("pro_subst", "?"),
+    // The protein alleles page writes p.(?), a variant expected but not yet
+    // identified; biocommons has no predicted unknown effect.
+    ("p_posedit", "(?)"),
 ];
 
 #[test]

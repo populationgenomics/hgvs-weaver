@@ -51,9 +51,10 @@ p_posedit = { p_unknown_from | ("(" ~ p_unknown_from ~ ")") | (p_interval ~ pro_
 p_unknown_from = { p_pos ~ statement_unknown }
 
 // Statements about the protein as a whole: unchanged (p.=, predicted p.(=)),
-// no protein (p.0), unknown effect (p.?).
-p_posedit_special = { p_unchanged | p_no_protein | statement_unknown }
+// no protein (p.0), unknown effect (p.?, predicted p.(?)).
+p_posedit_special = { p_unchanged | p_no_protein | p_unknown }
 p_unchanged = { "=" | "(" ~ "=" ~ ")" }
+p_unknown = { statement_unknown | "(" ~ statement_unknown ~ ")" }
 p_no_protein = { "0" ~ statement_uncertain? }
 
 // Edits

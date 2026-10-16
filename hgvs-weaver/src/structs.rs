@@ -351,7 +351,7 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
 /// it stands for: `p.0?` at residue 0, the unknown change from a residue
 /// anywhere else, and a predicted identity at no residue read as `p.(=)`.
 /// Refuses these shapes p. cannot write: a statement about the whole protein
-/// at a residue, and any statement but `p.(=)` predicted; the unknown change
+/// at a residue, and any statement but `p.(=)` and `p.(?)` predicted; the unknown change
 /// over a range or an uncertain interval; a change without a position, or
 /// with no edit; a residue numbered below 1; an
 /// uncertain posedit.
@@ -394,7 +394,9 @@ fn check_p_posedit(
     let numbered = |p: &AAPosition| p.base.0 >= 1;
     let writable = !posedit.uncertain
         && match (&posedit.edit, &posedit.pos) {
-            (AaEdit::Statement(ProteinStatement::Unchanged), None) => true,
+            (AaEdit::Statement(ProteinStatement::Unchanged | ProteinStatement::Unknown), None) => {
+                true
+            }
             (AaEdit::Statement(_), None) => !posedit.predicted,
             (AaEdit::Statement(ProteinStatement::Unknown), Some(pos)) => {
                 pos.end.is_none() && !pos.uncertain && numbered(&pos.start)

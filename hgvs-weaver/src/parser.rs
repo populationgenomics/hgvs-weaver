@@ -145,7 +145,7 @@ fn parse_protein_statement(pair: Pair<Rule>) -> Result<ProteinStatement, HgvsErr
     match statement_parts(pair)? {
         (Rule::p_unchanged, _) => Ok(ProteinStatement::Unchanged),
         (Rule::p_no_protein, uncertain) => Ok(ProteinStatement::NoProtein { uncertain }),
-        (Rule::statement_unknown, _) => Ok(ProteinStatement::Unknown),
+        (Rule::p_unknown, _) => Ok(ProteinStatement::Unknown),
         (r, _) => Err(HgvsError::PestError(format!(
             "Unexpected protein statement {r:?}"
         ))),
