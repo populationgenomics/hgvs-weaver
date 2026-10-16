@@ -180,8 +180,9 @@ fs = { "fs" ~ (aa13_fs | "") }
 ext = { "ext" ~ aa13_ext? }
 aa13_fs = { term13 ~ fsext_offset }
 // ext* / extTer8 / ext*? / extLeu-5 / ext-12: a terminator takes an optional
-// count, a residue (or nothing) needs a signed offset.
-aa13_ext = { term13 ~ fsext_offset | aa13? ~ snum }
+// count, a residue (or nothing) needs a signed offset. The residue is tried
+// first, so that the X of extXaa-5 is not read as a stop.
+aa13_ext = { aa13? ~ snum | term13 ~ fsext_offset }
 fsext_offset = { num | "?" | "" }
 
 base = { snum }

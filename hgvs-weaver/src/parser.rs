@@ -82,12 +82,13 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty p_posedit".into()))?;
     if inner_pair.as_rule() == Rule::p_unknown_from {
-        let at = parse_aa_pos(
+        let mut at = parse_aa_pos(
             inner_pair
                 .into_inner()
                 .next()
                 .ok_or_else(|| HgvsError::PestError("Missing residue".into()))?,
         )?;
+        at.aa = crate::utils::residue_3(&at.aa).to_string();
         return Ok(PosEdit {
             pos: Some(AaInterval {
                 start: at,
@@ -115,6 +116,12 @@ pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, 
         pos = Some(parse_aa_interval(inner_pair)?);
         if let Some(e) = inner.next() {
             edit = parse_pro_edit(e)?;
+        }
+        if let Some(pos) = pos.as_mut() {
+            pos.start.aa = edit.canonical_start(&pos.start.aa);
+            if let Some(end) = pos.end.as_mut() {
+                end.aa = crate::utils::residue_3(&end.aa).to_string();
+            }
         }
     } else if inner_pair.as_rule() == Rule::pro_edit {
         edit = parse_pro_edit(inner_pair)?;
@@ -395,7 +402,7 @@ pub fn parse_aa_pos(pair: Pair<Rule>) -> Result<AAPosition, HgvsError> {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::aa13 | Rule::term13 | Rule::aa3 | Rule::aa1 | Rule::term3 | Rule::term1 => {
-                aa = crate::utils::residue_3(p.as_str()).to_string();
+                aa = p.as_str().to_string();
             }
             Rule::residue_num => {
                 pos = p.as_str().parse().map_err(|_| {

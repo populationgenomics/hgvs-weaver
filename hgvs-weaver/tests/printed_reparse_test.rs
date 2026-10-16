@@ -83,3 +83,17 @@ fn a_one_letter_frameshift_is_the_three_letter_one() {
 fn a_one_letter_ambiguous_residue_prints_as_its_three_letter_code() {
     assert_eq!(parse("NP_W.1:p.B2Z").to_string(), "NP_W.1:p.Asx2Glx");
 }
+
+reparses_to_itself! {
+    an_extension_from_a_stop_written_x: "NP_W.1:p.X30Qext*5";
+    an_n_terminal_extension_from_an_unknown_residue: "NP_W.1:p.Met1extXaa-5";
+    an_n_terminal_extension_from_a_named_residue: "NP_W.1:p.M1extM-5";
+}
+
+#[test]
+fn an_extension_from_a_stop_written_x_is_the_one_written_ter() {
+    assert_eq!(
+        parse("NP_W.1:p.X30Qext*5"),
+        parse("NP_W.1:p.Ter30GlnextTer5")
+    );
+}

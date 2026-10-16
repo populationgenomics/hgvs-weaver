@@ -386,6 +386,13 @@ fn check_p_posedit(
             ))
         }
     };
+    let mut pos = pos;
+    if let Some(pos) = pos.as_mut() {
+        pos.start.aa = edit.canonical_start(&pos.start.aa);
+        if let Some(end) = pos.end.as_mut() {
+            end.aa = crate::utils::residue_3(&end.aa).to_string();
+        }
+    }
     let posedit = PosEdit {
         pos,
         edit,
@@ -889,7 +896,7 @@ impl TryFrom<AAPositionFields> for AAPosition {
         }
         Ok(AAPosition {
             base: fields.base,
-            aa: crate::utils::residue_3(&fields.aa).to_string(),
+            aa: fields.aa,
         })
     }
 }

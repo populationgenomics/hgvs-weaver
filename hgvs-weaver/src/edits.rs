@@ -212,14 +212,44 @@ impl AaEdit {
                 aaterm,
                 length,
                 uncertain,
-            } => AaEdit::Ext {
-                ref_,
-                alt: residue_3(&alt).to_string(),
-                aaterm: aaterm.map(|t| terminator_3(&t).to_string()),
-                length,
-                uncertain,
-            },
+            } => {
+                // ext-5 names the new first residue; ext*5 the new stop.
+                let new_start = AaEdit::is_signed(length.as_deref());
+                AaEdit::Ext {
+                    ref_,
+                    alt: residue_3(&alt).to_string(),
+                    aaterm: aaterm.map(|t| {
+                        if new_start {
+                            residue_3(&t)
+                        } else {
+                            terminator_3(&t)
+                        }
+                        .to_string()
+                    }),
+                    length,
+                    uncertain,
+                }
+            }
             other => other,
+        }
+    }
+
+    /// Whether an extension's count is a signed offset, `ext-5`: an
+    /// extension at the N-terminus, from a new start upstream.
+    pub(crate) fn is_signed(length: Option<&str>) -> bool {
+        length.is_some_and(|l| l.starts_with(['-', '+']))
+    }
+
+    /// The residue a description of this edit starts at, as the formatter
+    /// prints it: an extension past the stop starts at the stop, so an `X`
+    /// there is `Ter`.
+    pub(crate) fn canonical_start(&self, aa: &str) -> String {
+        use crate::utils::{residue_3, terminator_3};
+        match self {
+            AaEdit::Ext { length, .. } if !AaEdit::is_signed(length.as_deref()) => {
+                terminator_3(aa).to_string()
+            }
+            _ => residue_3(aa).to_string(),
         }
     }
 

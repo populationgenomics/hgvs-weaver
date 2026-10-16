@@ -850,6 +850,28 @@ fn a_dict_in_one_letter_code_loads_as_its_printed_description() {
     assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Arg2ProfsTer5"));
 }
 
+#[test]
+fn a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter() {
+    let json = p_json_at(
+        r#"{"start": {"base": 30, "aa": "X"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "ref_": "", "alt": "Q", "aaterm": "X", "length": "5", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Ter30GlnextTer5"));
+}
+
+#[test]
+fn a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue() {
+    let json = p_json_at(
+        r#"{"start": {"base": 1, "aa": "M"}, "end": null, "uncertain": false}"#,
+        r#"{"type": "Ext", "ref_": "", "alt": "", "aaterm": "X", "length": "-5", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(from_json(&json).unwrap(), parse("NP_W.1:p.Met1extXaa-5"));
+}
+
 // --- Older p. dicts give p.Met1? and p.0? as a substitution to ? ---
 
 #[test]

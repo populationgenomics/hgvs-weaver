@@ -1227,8 +1227,12 @@ NM_R.1:r.*5u>a
 `(70_80)`; three-letter residues rather than one-letter; bare `del` and `dup`.**
 
 A description read in an older or shorter spelling is stored as the spelling it prints, so the printed text parses back
-to the same value: `p.M1?` is stored and printed as `p.Met1?`, and after `fs` or `ext` a stop written `X` or `*` is
-`Ter`. A sequence of several one-letter residues, `p.Arg2delinsKL`, is kept and printed as written.
+to the same value. A position, a substituted residue, and the residues of a frameshift or extension are written in
+three-letter code: `p.M1?` is stored and printed as `p.Met1?`. Where only a stop can stand, `X` or `*` is `Ter`: after
+`fs`, after `ext` with a count (`ext*5`, not the offset of `extXaa-5`), and at the start of an extension past the stop
+(`p.X30Qext*5` is `p.Ter30GlnextTer5`). Elsewhere a one-letter `X` is `Xaa`. The residues an insertion,
+deletion-insertion or repeat names are kept and printed as written, one letter or several (`p.Arg2delinsKL`,
+`p.Arg2_Lys3insX`).
 
 **Example:**
 
@@ -1251,7 +1255,10 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
   `real_transcripts_test::biocommons_real_transcript_cases` (`ext*` compared equal to `extTer`);
   `printed_reparse_test::a_repeat_of_a_range_of_copies_prints_as_hgvs_writes_it`,
   `::a_repeat_of_a_range_of_copies_parses_as_hgvs_writes_it`, `::a_one_letter_frameshift_is_the_three_letter_one`,
-  `::a_frameshift_to_a_stop_written_x`.
+  `::a_frameshift_to_a_stop_written_x`, `::an_extension_from_a_stop_written_x_is_the_one_written_ter`,
+  `::an_n_terminal_extension_from_an_unknown_residue`;
+  `statements_test::a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter`,
+  `::a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue`.
 
 ### A range written backwards is refused when parsed
 
