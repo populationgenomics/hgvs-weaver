@@ -73,7 +73,6 @@ fn project_edit(
     edit: &crate::edits::NaEdit,
     source: Option<(&crate::reference::Reference<'_, '_>, (usize, usize))>,
     target: &crate::reference::Reference<'_, '_>,
-    target_kind: IdentifierType,
     target_range: (usize, usize),
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
@@ -103,7 +102,7 @@ fn project_edit(
     if target_ref == source_ref {
         return Ok(carried());
     }
-    hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
+    normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
 /// The edit to write on the target where the source range touches a run of
@@ -123,7 +122,6 @@ fn project_edit_over_run(
         (usize, usize),
     ),
     target: &crate::reference::Reference<'_, '_>,
-    target_kind: IdentifierType,
     target_range: (usize, usize),
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
@@ -145,7 +143,7 @@ fn project_edit_over_run(
     let (t_lo, t_hi) = target_range;
     let target_ref = target.slice(t_lo, t_hi)?;
     debug_assert_ne!(target_ref, source_ref, "the target lacks the run");
-    hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
+    normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
 fn apply_strand_complement(
@@ -767,106 +765,6 @@ fn codon_change(
     }
 }
 
-/// `ref_` and `alt` with what they share at both ends removed, prefix first,
-/// and the index the remainder starts at. Prefix first so that a fully
-/// justified insertion or deletion lands at the 3' end of its run, where HGVS
-/// writes it.
-fn trim_ends(start: usize, ref_: &str, alt: &str) -> (usize, String, String) {
-    let prefix = ref_
-        .bytes()
-        .zip(alt.bytes())
-        .take_while(|(x, y)| x == y)
-        .count();
-    let (r, a) = (&ref_[prefix..], &alt[prefix..]);
-    let suffix = r
-        .bytes()
-        .rev()
-        .zip(a.bytes().rev())
-        .take_while(|(x, y)| x == y)
-        .count();
-    (
-        start + prefix,
-        r[..r.len() - suffix].to_string(),
-        a[..a.len() - suffix].to_string(),
-    )
-}
-
-/// The HGVS edit, and the range it is written over before normalisation, for
-/// "the bases over `[start, end)` (which are `ref_`) become `alt`": identity,
-/// substitution, inversion, deletion, insertion or delins.
-fn hgvs_edit_for(
-    reference: &crate::reference::Reference<'_, '_>,
-    kind: IdentifierType,
-    start: usize,
-    end: usize,
-    ref_: &str,
-    alt: &str,
-) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
-    use crate::edits::NaEdit;
-    let (at, r, a) = trim_ends(start, ref_, alt);
-    let uncertain = false;
-    Ok(if r.is_empty() && a.is_empty() {
-        let edit = NaEdit::RefAlt {
-            ref_: None,
-            alt: None,
-            uncertain,
-        };
-        if end > start {
-            (edit, start, end)
-        } else {
-            // Nothing over an empty range: say so of the base before it.
-            let s = start.saturating_sub(1);
-            (edit, s, s + 1)
-        }
-    } else if r.is_empty() && at == 0 {
-        // HGVS has no insertion before the first base; it is written as a
-        // delins of that base.
-        let first = reference.slice(0, 1)?;
-        let edit = NaEdit::RefAlt {
-            ref_: Some(String::new()),
-            alt: Some(format!("{a}{first}")),
-            uncertain,
-        };
-        (edit, 0, 1)
-    } else if r.is_empty() {
-        let edit = NaEdit::Ins {
-            alt: Some(a),
-            uncertain,
-        };
-        (edit, at - 1, at + 1)
-    } else if a.is_empty() {
-        let edit = NaEdit::Del {
-            ref_: None,
-            uncertain,
-        };
-        (edit, at, at + r.len())
-    } else if r.len() == 1 && a.len() == 1 {
-        let edit = NaEdit::RefAlt {
-            ref_: Some(r),
-            alt: Some(a),
-            uncertain,
-        };
-        (edit, at, at + 1)
-    } else if kind != IdentifierType::ProteinAccession
-        && r.len() > 1
-        && a == crate::utils::reverse_complement(&r)
-    {
-        let edit = NaEdit::Inv {
-            ref_: None,
-            uncertain,
-        };
-        (edit, at, at + r.len())
-    } else {
-        // A delins, written without the deleted bases.
-        let edit = NaEdit::RefAlt {
-            ref_: Some(String::new()),
-            alt: Some(a),
-            uncertain,
-        };
-        (edit, at, at + r.len())
-    })
-}
-
 /// The alphabet a transcript edit is written in.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Letters {
@@ -1180,7 +1078,6 @@ impl<'a> VariantMapper<'a> {
                     &var_g.posedit.edit,
                     (&source, named, wide),
                     &target,
-                    IdentifierType::TranscriptAccession,
                     (t_lo, t_hi),
                     am.transcript.strand,
                 )?
@@ -1189,7 +1086,6 @@ impl<'a> VariantMapper<'a> {
                     &var_g.posedit.edit,
                     Some((&source, named)),
                     &target,
-                    IdentifierType::TranscriptAccession,
                     (t_lo, t_hi),
                     am.transcript.strand,
                 )?
@@ -1438,7 +1334,6 @@ impl<'a> VariantMapper<'a> {
                 &var_c.posedit().edit,
                 (&source, named, wide),
                 &target,
-                IdentifierType::GenomicAccession,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
             )?
@@ -1447,7 +1342,6 @@ impl<'a> VariantMapper<'a> {
                 &var_c.posedit().edit,
                 exonic.then_some((&source, named)),
                 &target,
-                IdentifierType::GenomicAccession,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
             )?
@@ -2844,7 +2738,7 @@ impl<'a> VariantMapper<'a> {
                 "{ac} is shorter than position {end}"
             )));
         }
-        let (edit, s, e) = hgvs_edit_for(&reference, kind, start, end, &ref_, &alt)?;
+        let (edit, s, e) = normalize::minimal_edit(&reference, start, end, &ref_, &alt)?;
         let placed = normalize::normalize(
             &reference,
             PlacedEdit::from_hgvs_range(s, e, edit),

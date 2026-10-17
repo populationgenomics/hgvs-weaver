@@ -190,6 +190,10 @@ impl<'s, 'a> Reference<'s, 'a> {
         &self.ac
     }
 
+    pub fn kind(&self) -> IdentifierType {
+        self.kind
+    }
+
     /// Bases in `[start, end)`. Shorter than requested if the sequence ends first,
     /// and empty if `start` is at or past the end.
     pub fn slice(&self, start: usize, end: usize) -> Result<String, HgvsError> {

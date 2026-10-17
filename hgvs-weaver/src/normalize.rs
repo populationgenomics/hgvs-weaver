@@ -7,6 +7,7 @@
 //! c., n.) only convert their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
 
+use crate::data::IdentifierType;
 use crate::edits::{NaEdit, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::reference::Reference;
@@ -278,6 +279,104 @@ pub fn shift_5(reference: &Reference<'_, '_>, resolved: &ResolvedEdit) -> Result
         Some((start, _, pattern)) => reference.run_left(start, pattern.as_bytes()),
         None => Ok(0),
     }
+}
+
+/// `ref_` and `alt` with what they share at both ends removed, prefix first,
+/// and the index the remainder starts at. Prefix first so that a fully
+/// justified insertion or deletion lands at the 3' end of its run, where HGVS
+/// writes it.
+fn trim_ends(start: usize, ref_: &str, alt: &str) -> (usize, String, String) {
+    let prefix = ref_
+        .bytes()
+        .zip(alt.bytes())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (r, a) = (&ref_[prefix..], &alt[prefix..]);
+    let suffix = r
+        .bytes()
+        .rev()
+        .zip(a.bytes().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    (
+        start + prefix,
+        r[..r.len() - suffix].to_string(),
+        a[..a.len() - suffix].to_string(),
+    )
+}
+
+/// The HGVS edit, and the range it is written over before normalisation, for
+/// "the bases over `[start, end)` (which are `ref_`) become `alt`": identity,
+/// substitution, inversion, deletion, insertion or delins.
+pub(crate) fn minimal_edit(
+    reference: &Reference<'_, '_>,
+    start: usize,
+    end: usize,
+    ref_: &str,
+    alt: &str,
+) -> Result<(NaEdit, usize, usize), HgvsError> {
+    let (at, r, a) = trim_ends(start, ref_, alt);
+    let uncertain = false;
+    Ok(if r.is_empty() && a.is_empty() {
+        let edit = NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain,
+        };
+        if end > start {
+            (edit, start, end)
+        } else {
+            // Nothing over an empty range: say so of the base before it.
+            let s = start.saturating_sub(1);
+            (edit, s, s + 1)
+        }
+    } else if r.is_empty() && at == 0 {
+        // HGVS has no insertion before the first base; it is written as a
+        // delins of that base.
+        let first = reference.slice(0, 1)?;
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(format!("{a}{first}")),
+            uncertain,
+        };
+        (edit, 0, 1)
+    } else if r.is_empty() {
+        let edit = NaEdit::Ins {
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at - 1, at + 1)
+    } else if a.is_empty() {
+        let edit = NaEdit::Del {
+            ref_: None,
+            uncertain,
+        };
+        (edit, at, at + r.len())
+    } else if r.len() == 1 && a.len() == 1 {
+        let edit = NaEdit::RefAlt {
+            ref_: Some(r),
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at, at + 1)
+    } else if reference.kind() != IdentifierType::ProteinAccession
+        && r.len() > 1
+        && a == crate::utils::reverse_complement(&r)
+    {
+        let edit = NaEdit::Inv {
+            ref_: None,
+            uncertain,
+        };
+        (edit, at, at + r.len())
+    } else {
+        // A delins, written without the deleted bases.
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at, at + r.len())
+    })
 }
 
 #[cfg(test)]
