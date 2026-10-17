@@ -43,13 +43,11 @@ fn splice(seq: &str, start: usize, end: usize, insert: &str) -> String {
 }
 
 /// A coding change read at the protein level: both translations, and the
-/// indices every rule about stops and frames refers to. Translating is the
-/// cost of a reading, so a caller that both asks whether translation
-/// [runs off](Self::runs_off) and then describes the change reads it once.
+/// indices every rule about stops and frames refers to. Building one is two
+/// translations, so a caller that asks whether translation
+/// [runs off](Self::runs_off) and then describes the change translates once.
 pub(crate) struct Reading {
     change: CodingChange,
-    start: usize,
-    alt_len: usize,
     ref_aa: Vec<char>,
     alt_aa: Vec<char>,
     /// The reference stop: the codon the CDS end declares, when that codon
@@ -73,11 +71,11 @@ impl Reading {
         let ResolvedEdit {
             start, end, alt, ..
         } = &change.edit;
-        let (start, end, alt_len) = (*start, *end, alt.len());
+        let (start, end) = (*start, *end);
         let alt_nt = splice(&change.coding, start, end, alt);
         let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
         let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
-        let net = alt_len as i64 - (end - start) as i64;
+        let net = alt.len() as i64 - (end - start) as i64;
         let declared = change.cds_len.saturating_sub(1) / 3;
         let stop = if ref_aa.get(declared) == Some(&'*') {
             declared
@@ -102,8 +100,6 @@ impl Reading {
         }
         Reading {
             change,
-            start,
-            alt_len,
             ref_aa,
             alt_aa,
             stop,
@@ -119,6 +115,16 @@ impl Reading {
     /// The change this is a reading of.
     pub(crate) fn change(&self) -> &CodingChange {
         &self.change
+    }
+
+    /// Where the edit starts in the coding sequence.
+    fn start(&self) -> usize {
+        self.change.edit.start
+    }
+
+    /// Where the bases the edit inserts end in the edited sequence.
+    fn inserted_end(&self) -> usize {
+        self.change.edit.start + self.change.edit.alt.len()
     }
 
     /// Refuses a change whose protein cannot be predicted: one that
@@ -166,7 +172,7 @@ impl Reading {
             Some(j)
         } else if !self.in_frame {
             None
-        } else if j >= (self.start + self.alt_len).div_ceil(3) {
+        } else if j >= self.inserted_end().div_ceil(3) {
             Some((j as i64 - self.net / 3).max(0) as usize)
         } else {
             Some(j)
@@ -194,20 +200,7 @@ impl Reading {
             .max(self.first_changed + 1)
             .min(self.ref_aa.len())
     }
-}
 
-/// The reference protein and the protein `change` produces, in 1-letter code
-/// without their stops: what a protein allele is made of.
-pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
-    Reading::new(change.clone()).proteins()
-}
-
-/// Describes the protein consequence of `change` in HGVS p. terms.
-pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
-    Reading::new(change.clone()).describe()
-}
-
-impl Reading {
     /// [`proteins`](crate::protein::proteins) of the change read.
     pub(crate) fn proteins(&self) -> Result<(String, String), HgvsError> {
         self.check_predictable()?;
@@ -242,15 +235,26 @@ impl Reading {
     }
 }
 
+/// The reference protein and the protein `change` produces, in 1-letter code
+/// without their stops: what a protein allele is made of.
+pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
+    Reading::new(change.clone()).proteins()
+}
+
+/// Describes the protein consequence of `change` in HGVS p. terms.
+pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
+    Reading::new(change.clone()).describe()
+}
+
 /// An out-of-frame edit: a frameshift, unless a stop formed entirely from the
 /// inserted bases ends translation before the new frame reads a reference
 /// base (then the touched codons are replaced up to that stop), or the first
 /// changed residue is the stop itself (then it reads through: an extension).
 fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
-    let inserted_end = t.start + t.alt_len;
+    let inserted_end = t.inserted_end();
     if let Some(j) = (i..t.alt_aa.len()).find(|&j| t.alt_aa[j] == '*') {
-        if j * 3 >= t.start && (j + 1) * 3 <= inserted_end {
+        if j * 3 >= t.start() && (j + 1) * 3 <= inserted_end {
             if j == i {
                 return out.substitution(i, t.ref_aa[i], '*');
             }
