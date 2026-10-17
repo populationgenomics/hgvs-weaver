@@ -3,12 +3,12 @@
 `VariantMapper.equivalent_level(a, b, searcher)` says whether two HGVS descriptions name the same change. It answers at
 one of four levels:
 
-| Level       | Meaning                                                                                  |
-| :---------- | :--------------------------------------------------------------------------------------- |
-| `Identity`  | The same text after spelling normalisation, or a prediction written exactly as given.    |
-| `Analogous` | Different text, the same change: the same allele, or the same protein left behind.       |
-| `Different` | Both descriptions are understood and they name different changes.                        |
-| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence). |
+| Level       | Meaning                                                                                                                                                           |
+| :---------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Identity`  | The same text after spelling normalisation, or a prediction written exactly as given. A prediction's parentheses and a one-member allele's brackets are spelling. |
+| `Analogous` | Different text, the same change: the same allele, or the same protein left behind.                                                                                |
+| `Different` | Both descriptions are understood and they name different changes.                                                                                                 |
+| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                          |
 
 `equivalent(a, b, searcher)` is `Identity` or `Analogous`.
 
@@ -29,7 +29,7 @@ flowchart TD
     Text -- no --> Kind{kinds}
     Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
     Proj -- yes --> Identity
-    Proj -- no --> Allele{"canonical alleles<br/>equal?"}
+    Proj -- no --> Allele{"same sequence made?<br/>(on the genome)"}
     Kind -- "nucleotide, protein" --> Pred{"prediction written<br/>exactly as given?"}
     Pred -- yes --> Identity
     Pred -- no --> Spell{"same description,<br/>other spelling?"}
@@ -48,11 +48,24 @@ flowchart TD
 
 ### Nucleotide against nucleotide
 
-Two `g.`, `c.` or `n.` variants are the same change exactly when their **canonical alleles** are equal. A canonical
-allele is the change projected onto the genomic reference, trimmed to what it alters, then widened over the whole region
-in which it could equally be written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run
-of the same trinucleotide, `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection
-all have one allele. Edits without an allele (conversions, copy numbers) are `Different` unless the text matches.
+Two `g.`, `c.` or `n.` descriptions are the same change when they make the same sequence on the genome. For two single
+variants that change the sequence that is exactly when their **canonical alleles** are equal; every description that
+makes the reference, a positional identity anywhere or an allele whose members cancel, is `Analogous` to every other. A
+canonical allele is the change projected onto the genomic reference, trimmed to what it alters, then widened over the
+whole region in which it could equally be written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and
+`c.10_12del` in a run of the same trinucleotide, `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against
+its own `g.` projection all have one allele. Edits without an allele (conversions, copy numbers) are `Different` unless
+the text matches.
+
+A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
+there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
+them. Where the provider has no genome, the transcript is used only if nothing the comparison reads reaches outside the
+exons or crosses a junction or gap; otherwise the comparison is an error (`Unknown` in the harness).
+[The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make) has the reasoning and the members that cannot be
+applied. An allele whose members are
+[contradictory or ambiguous](choices.md#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous) is not
+compared: the judgement is that error. A one-member allele is its member, and its brackets are spelling, as a
+prediction's parentheses are: `c.[7C>T]` and `c.7C>T` are `Identity`.
 
 ### Nucleotide against protein
 
