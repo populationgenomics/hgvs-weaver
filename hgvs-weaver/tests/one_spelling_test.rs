@@ -10,9 +10,19 @@ use hgvs_weaver::parse_hgvs_variant;
 use support::Provider;
 
 /// `NC_000099.1` is the ten bases `TTCAGCAGTT`: g.3 to g.5 and g.6 to g.8 are
-/// both `CAG`.
+/// both `CAG`. `NP_000099.1` is the protein `MAAAKL`.
 fn provider() -> Provider {
-    Provider::new().sequence("NC_000099.1", "TTCAGCAGTT")
+    Provider::new()
+        .sequence("NC_000099.1", "TTCAGCAGTT")
+        .sequence("NP_000099.1", "MAAAKL")
+}
+
+fn from_spdi(spdi: &str) -> String {
+    let hdp = provider();
+    VariantMapper::new(&hdp)
+        .from_spdi(spdi)
+        .unwrap_or_else(|e| panic!("reading {spdi}: {e}"))
+        .to_string()
 }
 
 fn normalized(s: &str) -> String {
@@ -253,5 +263,31 @@ fn a_change_with_uncertain_ends_is_left_as_written() {
     assert_eq!(
         normalized("NC_000099.1:g.(1_3)_(5_6)delinsT"),
         "NC_000099.1:g.(1_3)_(5_6)delinsT"
+    );
+}
+
+#[test]
+fn an_insertion_written_after_the_last_base_is_a_delins_of_the_last_base() {
+    assert_eq!(
+        normalized("NC_000099.1:g.10_11insA"),
+        "NC_000099.1:g.10delinsTA"
+    );
+}
+
+#[test]
+fn an_insertion_written_after_the_last_base_that_repeats_it_is_a_duplication() {
+    assert_eq!(normalized("NC_000099.1:g.10_11insT"), "NC_000099.1:g.10dup");
+}
+
+#[test]
+fn an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins() {
+    assert_eq!(from_spdi("NC_000099.1:9:T:TA"), "NC_000099.1:g.10delinsTA");
+}
+
+#[test]
+fn an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue() {
+    assert_eq!(
+        from_spdi("NP_000099.1:6::Q"),
+        "NP_000099.1:p.Leu6delinsLeuGln"
     );
 }

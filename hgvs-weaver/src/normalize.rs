@@ -179,6 +179,17 @@ pub fn normalize(
                 edit,
             })
         }
+        NaEdit::Ins {
+            alt: Some(seq),
+            uncertain,
+        } if start > 0 && reference.base(start)?.is_none() => insertion_in_exon(
+            reference,
+            start,
+            seq,
+            *uncertain,
+            exons.exon(start - 1),
+            exons,
+        ),
         NaEdit::Ins { .. } if start > 0 && !exons.same_exon(start - 1, start) => {
             Ok(PlacedEdit { start, end, edit })
         }

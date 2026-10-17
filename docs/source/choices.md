@@ -185,7 +185,7 @@ Representation Specification 2.0.1.
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |                agrees                |      agrees      |        agrees        |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |                agrees                |     differs      |          –           |      agrees      |
 | [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                agrees                |   agrees on g.   |          –           |        –         |
-| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                agrees                |      agrees      |        agrees        |        –         |
+| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                agrees                |  differs on two  |        agrees        |        –         |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                agrees                |        –         |          –           |      agrees      |
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                  –                   |     differs      |          –           |        –         |
 | [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension)                       |                agrees                |      agrees      |          –           |      agrees      |
@@ -702,7 +702,7 @@ of the sequence the variant is written on.** On a transcript the shift stays wit
 
 An insertion that repeats the bases immediately before it becomes a duplication, and an insertion that slides has its
 bases rotated by how far it moved. An insertion does not slide past the last base of the sequence, after which HGVS has
-no position to name.
+no position to name; one written or read there, from SPDI or VRS, is a delins of that base, or the duplication it is.
 
 **Example** (on `ACGT` repeated, and on the ten bases `TTCAGCAGTT`):
 
@@ -715,13 +715,18 @@ NM_PLUS0.1:n.12_13insT         →  NM_PLUS0.1:n.12dup             n. and g. ali
 on TTCAGCAGTT:  g.3_5del       →  g.6_8del                       the first CAG shifts onto the second
 on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base, so rotated by one
 on TTCAGCAGTT:  g.9_10insTA    →  g.9_10insTA                    not g.10_11insAT, after the last base
+on TTCAGCAGTT:  g.10_11insA    →  g.10delinsTA                   and NC_…:9:T:TA reads as the same
 ```
 
 - **Agrees:** biocommons, VariantValidator and ClinVar.
 - **Spec (agrees):** [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/): "tandem duplications are described
   as a duplication, not an insertion".
-- **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`;
+- **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`,
+  `::an_insertion_written_after_the_last_base_is_a_delins_of_the_last_base`,
+  `::an_insertion_written_after_the_last_base_that_repeats_it_is_a_duplication`,
+  `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
+  `::an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue`;
   `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
   `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
   `::shift_5_mirrors_shift_3` (the last two rows above, read from the 0-based ranges those tests assert);
@@ -891,9 +896,9 @@ NM_J.1:c.5_6delinsAGA    →  NM_J.1:c.5_6delinsAGA    removes the intron, which
   `::a_delins_spanning_the_junction_is_trimmed_while_each_end_stays_in_its_exon`,
   `::a_delins_of_the_two_bases_either_side_of_the_junction_stays_where_it_is`,
   `::on_the_minus_strand_a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base`,
-  `::on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction`;
-  `a_change_and_a_wider_delins_spelling_it_normalise_alike`, `normalising_preserves_the_edited_sequence`,
-  `normalising_a_transcript_variant_twice_is_normalising_it_once` and
+  `::on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction`,
+  `::a_delins_with_an_uncertain_position_is_left_as_written`; `a_change_and_a_wider_delins_spelling_it_normalise_alike`,
+  `normalising_preserves_the_edited_sequence`, `normalising_a_transcript_variant_twice_is_normalising_it_once` and
   `normalising_beside_a_junction_keeps_the_genomic_allele` (properties).
 
 ### Deletions and duplications are written bare

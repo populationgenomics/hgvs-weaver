@@ -27,8 +27,9 @@ the Python package wraps it with typed exceptions and protocol-based data access
   inside inserted bases, selenocysteine `TGA` not read as a stop, the declared CDS end as the reference stop; an edit
   across the start codon gives `p.(Met1?)`, a deleted CDS `p.0?`.
 - **Normalisation** by the 3' rule, cyclic over repeats, with insertions that repeat their neighbours written as
-  duplications; `del` and `dup` are written bare; intronic edits are left as written. **Stated bases and residues** are
-  checked against the sequence by every operation that reads them; one the reference lacks is an error.
+  duplications and a delins reduced to the edit it is first; on a transcript nothing moves across an exon junction; the
+  bases an edit states are written bare; intronic edits and uncertain positions are left as written. **Stated bases and
+  residues** are checked against the sequence by every operation that reads them; one the reference lacks is an error.
 - **Canonical alleles, SPDI and GA4GH VRS 2.0.** A canonical allele is a change on a sequence, fully justified over its
   region of ambiguity, so every spelling of one change is one allele with one computed identifier (`ga4gh:VA.…`).
   `to_spdi_unambiguous`, `to_vrs` and `vrs_id` render it for nucleotide variants (on the genome) and protein variants

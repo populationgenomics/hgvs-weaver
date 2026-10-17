@@ -416,3 +416,11 @@ fn on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction() {
     assert_eq!(normalized(&hdp, "NM_JM.1:c.3delinsGA"), "NM_JM.1:c.5dup");
     assert_eq!(genomic(&hdp, "NM_JM.1:c.3delinsGA"), "NC_JM.1:g.39dup");
 }
+
+#[test]
+fn a_delins_with_an_uncertain_position_is_left_as_written() {
+    assert_eq!(
+        normalized(&plus(), "NM_J.1:c.(3_4)delinsGA"),
+        "NM_J.1:c.(3_4)delinsGA"
+    );
+}
