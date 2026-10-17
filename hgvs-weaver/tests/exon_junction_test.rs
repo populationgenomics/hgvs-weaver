@@ -340,3 +340,87 @@ fn on_the_minus_strand_an_insertion_does_not_slide_onto_the_junction() {
         "NC_JM.1:g.38_39insGT"
     );
 }
+
+#[test]
+fn a_delins_that_is_an_insertion_shifts_to_the_last_base_of_its_exon_and_no_further() {
+    // G becomes GA: an A inserted after c.3 slides past c.4 and c.5 and
+    // duplicates c.5, as c.3_4insA does.
+    let hdp = plus();
+    assert_eq!(normalized(&hdp, "NM_J.1:c.3delinsGA"), "NM_J.1:c.5dup");
+    assert_eq!(genomic(&hdp, "NM_J.1:c.3delinsGA"), "NC_J.1:g.20dup");
+}
+
+#[test]
+fn a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base() {
+    // AA becomes AAC: a C after c.5, which written as c.5_6insC would sit on
+    // the junction, at either end of the intron on the genome.
+    let hdp = plus();
+    assert_eq!(
+        normalized(&hdp, "NM_J.1:c.4_5delinsAAC"),
+        "NM_J.1:c.5delinsAC"
+    );
+    assert_eq!(genomic(&hdp, "NM_J.1:c.4_5delinsAAC"), "NC_J.1:g.20_21insC");
+    assert_eq!(
+        genomic(&hdp, &normalized(&hdp, "NM_J.1:c.4_5delinsAAC")),
+        "NC_J.1:g.20_21insC"
+    );
+}
+
+#[test]
+fn a_delins_reduced_to_an_insertion_at_the_start_of_its_exon_keeps_the_exons_first_base() {
+    let hdp = plus();
+    assert_eq!(normalized(&hdp, "NM_J.1:c.6delinsCA"), "NM_J.1:c.6delinsCA");
+    assert_eq!(genomic(&hdp, "NM_J.1:c.6delinsCA"), "NC_J.1:g.30_31insC");
+}
+
+#[test]
+fn a_delins_spanning_the_junction_is_trimmed_while_each_end_stays_in_its_exon() {
+    // AAAG becomes AG: trimming c.4 and c.7 leaves c.5_6del, which still
+    // removes the intron; trimming further would leave one of the exons.
+    let hdp = plus();
+    assert_eq!(normalized(&hdp, "NM_J.1:c.4_7delinsAG"), "NM_J.1:c.5_6del");
+    assert_eq!(genomic(&hdp, "NM_J.1:c.4_7delinsAG"), "NC_J.1:g.20_31del");
+    assert_eq!(
+        genomic(&hdp, &normalized(&hdp, "NM_J.1:c.4_7delinsAG")),
+        "NC_J.1:g.20_31del"
+    );
+}
+
+#[test]
+fn a_delins_of_the_two_bases_either_side_of_the_junction_stays_where_it_is() {
+    // c.5 and c.6 are both A; c.5_6delinsAGA removes the intron between them,
+    // which c.5_6insG would not.
+    assert_eq!(
+        normalized(&plus(), "NM_J.1:c.5_6delinsAGA"),
+        "NM_J.1:c.5_6delinsAGA"
+    );
+}
+
+#[test]
+fn on_the_minus_strand_a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base(
+) {
+    let hdp = minus();
+    assert_eq!(
+        normalized(&hdp, "NM_JM.1:c.4_5delinsAAC"),
+        "NM_JM.1:c.5delinsAC"
+    );
+    assert_eq!(
+        genomic(&hdp, &normalized(&hdp, "NM_JM.1:c.4_5delinsAAC")),
+        "NC_JM.1:g.37_38insG"
+    );
+}
+
+#[test]
+fn on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction() {
+    let hdp = minus();
+    assert_eq!(normalized(&hdp, "NM_JM.1:c.3delinsGA"), "NM_JM.1:c.5dup");
+    assert_eq!(genomic(&hdp, "NM_JM.1:c.3delinsGA"), "NC_JM.1:g.39dup");
+}
+
+#[test]
+fn a_delins_with_an_uncertain_position_is_left_as_written() {
+    assert_eq!(
+        normalized(&plus(), "NM_J.1:c.(3_4)delinsGA"),
+        "NM_J.1:c.(3_4)delinsGA"
+    );
+}

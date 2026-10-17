@@ -73,7 +73,6 @@ fn project_edit(
     edit: &crate::edits::NaEdit,
     source: Option<(&crate::reference::Reference<'_, '_>, (usize, usize))>,
     target: &crate::reference::Reference<'_, '_>,
-    target_kind: IdentifierType,
     target_range: (usize, usize),
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
@@ -103,7 +102,7 @@ fn project_edit(
     if target_ref == source_ref {
         return Ok(carried());
     }
-    hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
+    normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
 /// The edit to write on the target where the source range touches a run of
@@ -123,7 +122,6 @@ fn project_edit_over_run(
         (usize, usize),
     ),
     target: &crate::reference::Reference<'_, '_>,
-    target_kind: IdentifierType,
     target_range: (usize, usize),
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
@@ -145,7 +143,7 @@ fn project_edit_over_run(
     let (t_lo, t_hi) = target_range;
     let target_ref = target.slice(t_lo, t_hi)?;
     debug_assert_ne!(target_ref, source_ref, "the target lacks the run");
-    hgvs_edit_for(target, target_kind, t_lo, t_hi, &target_ref, &alt)
+    normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
 fn apply_strand_complement(
@@ -767,106 +765,6 @@ fn codon_change(
     }
 }
 
-/// `ref_` and `alt` with what they share at both ends removed, prefix first,
-/// and the index the remainder starts at. Prefix first so that a fully
-/// justified insertion or deletion lands at the 3' end of its run, where HGVS
-/// writes it.
-fn trim_ends(start: usize, ref_: &str, alt: &str) -> (usize, String, String) {
-    let prefix = ref_
-        .bytes()
-        .zip(alt.bytes())
-        .take_while(|(x, y)| x == y)
-        .count();
-    let (r, a) = (&ref_[prefix..], &alt[prefix..]);
-    let suffix = r
-        .bytes()
-        .rev()
-        .zip(a.bytes().rev())
-        .take_while(|(x, y)| x == y)
-        .count();
-    (
-        start + prefix,
-        r[..r.len() - suffix].to_string(),
-        a[..a.len() - suffix].to_string(),
-    )
-}
-
-/// The HGVS edit, and the range it is written over before normalisation, for
-/// "the bases over `[start, end)` (which are `ref_`) become `alt`": identity,
-/// substitution, inversion, deletion, insertion or delins.
-fn hgvs_edit_for(
-    reference: &crate::reference::Reference<'_, '_>,
-    kind: IdentifierType,
-    start: usize,
-    end: usize,
-    ref_: &str,
-    alt: &str,
-) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
-    use crate::edits::NaEdit;
-    let (at, r, a) = trim_ends(start, ref_, alt);
-    let uncertain = false;
-    Ok(if r.is_empty() && a.is_empty() {
-        let edit = NaEdit::RefAlt {
-            ref_: None,
-            alt: None,
-            uncertain,
-        };
-        if end > start {
-            (edit, start, end)
-        } else {
-            // Nothing over an empty range: say so of the base before it.
-            let s = start.saturating_sub(1);
-            (edit, s, s + 1)
-        }
-    } else if r.is_empty() && at == 0 {
-        // HGVS has no insertion before the first base; it is written as a
-        // delins of that base.
-        let first = reference.slice(0, 1)?;
-        let edit = NaEdit::RefAlt {
-            ref_: Some(String::new()),
-            alt: Some(format!("{a}{first}")),
-            uncertain,
-        };
-        (edit, 0, 1)
-    } else if r.is_empty() {
-        let edit = NaEdit::Ins {
-            alt: Some(a),
-            uncertain,
-        };
-        (edit, at - 1, at + 1)
-    } else if a.is_empty() {
-        let edit = NaEdit::Del {
-            ref_: None,
-            uncertain,
-        };
-        (edit, at, at + r.len())
-    } else if r.len() == 1 && a.len() == 1 {
-        let edit = NaEdit::RefAlt {
-            ref_: Some(r),
-            alt: Some(a),
-            uncertain,
-        };
-        (edit, at, at + 1)
-    } else if kind != IdentifierType::ProteinAccession
-        && r.len() > 1
-        && a == crate::utils::reverse_complement(&r)
-    {
-        let edit = NaEdit::Inv {
-            ref_: None,
-            uncertain,
-        };
-        (edit, at, at + r.len())
-    } else {
-        // A delins, written without the deleted bases.
-        let edit = NaEdit::RefAlt {
-            ref_: Some(String::new()),
-            alt: Some(a),
-            uncertain,
-        };
-        (edit, at, at + r.len())
-    })
-}
-
 /// The alphabet a transcript edit is written in.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Letters {
@@ -1007,34 +905,29 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
     Ok((start, end))
 }
 
-/// Whether `after` names different bases than `before`, so HGVS positions must
-/// be rewritten.
-fn placement_changed(before: &PlacedEdit, after: &PlacedEdit) -> bool {
-    (before.start, before.end) != (after.start, after.end)
-        || before.is_insertion() != after.is_insertion()
+/// The certain g. position of the 0-based index `i`.
+fn simple_position(i: usize) -> SimplePosition {
+    SimplePosition {
+        base: GenomicPos(i as i32).to_hgvs().into(),
+        end: None,
+        uncertain: false,
+    }
 }
 
-/// The HGVS start index and optional end index to write for `after`.
-///
-/// An insertion that became a duplication names the duplicated bases, with an
-/// end only when there is more than one. Anything else keeps an end position
-/// exactly when the input had one.
-fn hgvs_positions(
-    before: &PlacedEdit,
-    after: &PlacedEdit,
-    had_end: bool,
-) -> (usize, Option<usize>) {
+/// Whether a bound of `pos` is known only to lie in a range, `(3_4)`, or is
+/// marked uncertain.
+fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
+    let uncertain = |p: &SimplePosition| p.uncertain || p.end.is_some();
+    pos.uncertain || uncertain(&pos.start) || pos.end.as_ref().is_some_and(uncertain)
+}
+
+/// The HGVS start index and optional end index to write for `after`: an end
+/// for an insertion, which names its two flanking bases, and for an edit of
+/// more than one base.
+fn hgvs_positions(after: &PlacedEdit) -> (usize, Option<usize>) {
     let (s, e) = after.hgvs_range();
     let last = e - 1;
-    let converted = before.is_insertion() && !after.is_insertion();
-    let end = if converted {
-        (last > s).then_some(last)
-    } else if had_end {
-        Some(last)
-    } else {
-        None
-    };
-    (s, end)
+    (s, (after.is_insertion() || last > s).then_some(last))
 }
 
 fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
@@ -1180,7 +1073,6 @@ impl<'a> VariantMapper<'a> {
                     &var_g.posedit.edit,
                     (&source, named, wide),
                     &target,
-                    IdentifierType::TranscriptAccession,
                     (t_lo, t_hi),
                     am.transcript.strand,
                 )?
@@ -1189,7 +1081,6 @@ impl<'a> VariantMapper<'a> {
                     &var_g.posedit.edit,
                     Some((&source, named)),
                     &target,
-                    IdentifierType::TranscriptAccession,
                     (t_lo, t_hi),
                     am.transcript.strand,
                 )?
@@ -1438,7 +1329,6 @@ impl<'a> VariantMapper<'a> {
                 &var_c.posedit().edit,
                 (&source, named, wide),
                 &target,
-                IdentifierType::GenomicAccession,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
             )?
@@ -1447,7 +1337,6 @@ impl<'a> VariantMapper<'a> {
                 &var_c.posedit().edit,
                 exonic.then_some((&source, named)),
                 &target,
-                IdentifierType::GenomicAccession,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
             )?
@@ -2072,21 +1961,20 @@ impl<'a> VariantMapper<'a> {
         let Some(pos) = &mut v.posedit_mut().pos else {
             return Ok(v);
         };
+        if is_uncertain_linear(pos) {
+            // A bound known only to lie in a range names no one placement to
+            // shift or reduce from. Leave the variant as written.
+            return Ok(v);
+        }
         let (start, end) = simple_interval_range(pos)?;
         let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self.refs.reference(&ac, IdentifierType::GenomicAccession);
         let after = normalize::normalize(&reference, before.clone(), &ExonBounds::unspliced())?;
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
-        if placement_changed(&before, &after) {
-            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
-            pos.start.base = GenomicPos(s as i32).to_hgvs().into();
-            pos.end = e.map(|last| SimplePosition {
-                base: GenomicPos(last as i32).to_hgvs().into(),
-                end: None,
-                uncertain: false,
-            });
-        }
+        let (s, e) = hgvs_positions(&after);
+        pos.start = simple_position(s);
+        pos.end = e.map(simple_position);
         posedit.edit = after.edit;
         Ok(v)
     }
@@ -2104,6 +1992,9 @@ impl<'a> VariantMapper<'a> {
             self.check_transcript_stated(&v)?;
             return Ok(v);
         }
+        if pos.uncertain || pos.start.uncertain || pos.end.as_ref().is_some_and(|e| e.uncertain) {
+            return Ok(v);
+        }
         let (start, end) = self.get_c_indices(pos, &am)?;
         let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self
@@ -2112,15 +2003,13 @@ impl<'a> VariantMapper<'a> {
         let after = normalize::normalize(&reference, before.clone(), &am.exon_bounds()?)?;
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
-        if placement_changed(&before, &after) {
-            // Re-derive positions from indices so that, for c., the c.0 gap and
-            // the CDS anchors come out right when a shift crosses the CDS bounds.
-            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
-            pos.start = V::position_from_index(&am, s as i32)?;
-            pos.end = e
-                .map(|last| V::position_from_index(&am, last as i32))
-                .transpose()?;
-        }
+        // Positions from indices, so that for c. the c.0 gap and the CDS
+        // anchors come out right when a shift crosses the CDS bounds.
+        let (s, e) = hgvs_positions(&after);
+        pos.start = V::position_from_index(&am, s as i32)?;
+        pos.end = e
+            .map(|last| V::position_from_index(&am, last as i32))
+            .transpose()?;
         posedit.edit = after.edit;
         Ok(v)
     }
@@ -2844,7 +2733,7 @@ impl<'a> VariantMapper<'a> {
                 "{ac} is shorter than position {end}"
             )));
         }
-        let (edit, s, e) = hgvs_edit_for(&reference, kind, start, end, &ref_, &alt)?;
+        let (edit, s, e) = normalize::minimal_edit(&reference, start, end, &ref_, &alt)?;
         let placed = normalize::normalize(
             &reference,
             PlacedEdit::from_hgvs_range(s, e, edit),

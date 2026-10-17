@@ -98,8 +98,9 @@ pub fn edit_on_kinds(len: usize, del_ins_only: bool) -> impl Strategy<Value = Pl
     let delins = (span, bases(6)).prop_map(|((s, e), alt)| PlacedHgvs {
         start: s,
         end: e,
+        // `delinsX`, as the parser reads it: the deleted bases unstated
         edit: NaEdit::RefAlt {
-            ref_: None,
+            ref_: Some(String::new()),
             alt: Some(alt),
             uncertain: false,
         },
@@ -128,8 +129,28 @@ pub fn apply(seq: &str, p: &PlacedHgvs) -> String {
                 &seq[anchor..]
             )
         }
+        // `=`, with no bases stated: the range as it is.
+        NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            ..
+        } => seq.to_string(),
         NaEdit::RefAlt { alt, .. } => {
             format!("{}{}{}", &seq[..s], alt.as_deref().unwrap_or(""), &seq[e..])
+        }
+        NaEdit::Inv { .. } => {
+            let inverted: String = seq[s..e]
+                .bytes()
+                .rev()
+                .map(|b| match b {
+                    b'A' => 'T',
+                    b'C' => 'G',
+                    b'G' => 'C',
+                    b'T' => 'A',
+                    other => panic!("apply: not a base: {}", other as char),
+                })
+                .collect();
+            format!("{}{inverted}{}", &seq[..s], &seq[e..])
         }
         other => panic!("apply: unsupported edit {other:?}"),
     }

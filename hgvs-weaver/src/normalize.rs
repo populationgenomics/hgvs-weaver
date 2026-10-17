@@ -1,12 +1,13 @@
 //! Normalisation of a nucleotide edit against one reference sequence.
 //!
-//! HGVS wants an edit at its 3'-most equivalent position, with deleted or
-//! duplicated bases spelled out, and an insertion that copies the bases just
-//! before it written as a duplication. All of that is decided here, on a
-//! 0-based half-open range over a [`Reference`]. The coordinate systems (g.,
-//! c., n.) only convert their positions in and out; see
+//! HGVS wants an edit at its 3'-most equivalent position, with the bases it
+//! deletes, duplicates or inverts left unstated, and an insertion that copies
+//! the bases just before it written as a duplication. All of that is decided
+//! here, on a 0-based half-open range over a [`Reference`]. The coordinate
+//! systems (g., c., n.) only convert their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
 
+use crate::data::IdentifierType;
 use crate::edits::{NaEdit, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::reference::Reference;
@@ -104,24 +105,47 @@ impl ExonBounds {
             .unwrap_or(usize::MAX)
     }
 
+    /// The first index of the exon holding `index`.
+    fn exon_start(&self, index: usize) -> usize {
+        match self.exon(index) {
+            0 => 0,
+            i => self.ends[i - 1],
+        }
+    }
+
     fn same_exon(&self, a: usize, b: usize) -> bool {
         self.exon(a) == self.exon(b)
     }
+
+    /// Whether an insertion in front of `index` has no single place on the
+    /// genome, or none HGVS can write: before the first base, on a junction,
+    /// or past the last exon.
+    fn is_edge(&self, index: usize) -> bool {
+        index == 0 || !self.same_exon(index - 1, index)
+    }
 }
 
-/// Normalises `placed` against `reference`: shifts it as far 3' as the
-/// sequence allows and rewrites an insertion as a duplication when the
-/// inserted bases repeat the bases immediately before it.
+/// Normalises `placed` against `reference`: reduces a delins to the edit it
+/// is, shifts it as far 3' as the sequence allows and rewrites an insertion
+/// as a duplication when the inserted bases repeat the bases immediately
+/// before it.
+///
+/// A delins is read from the reference's bases over its range, as its allele
+/// is, and loses what its inserted bases share with them at either end; what
+/// remains is written as the substitution, deletion, insertion, duplication,
+/// inversion or delins it is, and normalised as that. One that changes a base
+/// at each end cannot slide and stays where it is; a substitution is one.
 ///
 /// No end of the edit leaves the exon it was written in: the shift stops at
 /// the last base of the exon, and an insertion is neither slid onto a junction
 /// nor rewritten as a duplication of bases in two exons. One written on a
 /// junction is left as written.
 ///
-/// Bases a deletion or duplication states are kept where the edit did not
-/// move and dropped where it did, since they would then be stale. Nothing is
-/// filled in: the bases are the reference's to give, and HGVS writes `del`
-/// and `dup` bare.
+/// The bases an edit states as its reference are checked against the
+/// reference and then not written: a deletion, duplication or inversion, the
+/// deleted part of a delins and an identity come out bare, whether or not
+/// they moved. HGVS writes them bare; a substitution keeps its base, which is
+/// part of how it is written.
 ///
 /// # Errors
 ///
@@ -132,32 +156,39 @@ pub fn normalize(
     placed: PlacedEdit,
     exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
-    let PlacedEdit {
-        start,
-        end,
-        mut edit,
-    } = placed;
+    let PlacedEdit { start, end, edit } = placed;
     edit.check_stated(reference.accession(), start, end, |s, e| {
         reference.slice(s, e)
     })?;
-    // Only a deletion, duplication or insertion is slid: those are written
-    // without stating bases that would go stale, and a repeat is written
-    // against its run. A delins is left where it is.
+    let edit = without_stated_bases(edit);
     match &edit {
+        NaEdit::RefAlt {
+            alt: Some(alt),
+            uncertain,
+            ..
+        } if end > start && !edit.is_identity() => {
+            reduce_delins(reference, start, end, alt, *uncertain, exons)
+        }
         NaEdit::Del { .. } | NaEdit::Dup { .. } if end > start => {
             let room = (exons.exon_end(start) - 1 - start).min(exons.exon_end(end - 1) - end);
             let k = shift_3(reference, &edit.resolve(reference, start, end)?)?.min(room);
-            if k > 0 {
-                if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
-                    *ref_ = None;
-                }
-            }
             Ok(PlacedEdit {
                 start: start + k,
                 end: end + k,
                 edit,
             })
         }
+        NaEdit::Ins {
+            alt: Some(seq),
+            uncertain,
+        } if start > 0 && reference.base(start)?.is_none() => insertion_in_exon(
+            reference,
+            start,
+            seq,
+            *uncertain,
+            exons.exon(start - 1),
+            exons,
+        ),
         NaEdit::Ins { .. } if start > 0 && !exons.same_exon(start - 1, start) => {
             Ok(PlacedEdit { start, end, edit })
         }
@@ -175,11 +206,197 @@ pub fn normalize(
     }
 }
 
+/// `edit` with the reference bases it states, or their number, dropped,
+/// where they are not part of how the edit is written.
+fn without_stated_bases(edit: NaEdit) -> NaEdit {
+    match edit {
+        NaEdit::Del { uncertain, .. } => NaEdit::Del {
+            ref_: None,
+            uncertain,
+        },
+        NaEdit::Dup { uncertain, .. } => NaEdit::Dup {
+            ref_: None,
+            uncertain,
+        },
+        NaEdit::Inv { uncertain, .. } => NaEdit::Inv {
+            ref_: None,
+            uncertain,
+        },
+        NaEdit::DelInsLength {
+            min,
+            max,
+            uncertain,
+            ..
+        } => NaEdit::DelInsLength {
+            ref_: None,
+            min,
+            max,
+            uncertain,
+        },
+        NaEdit::RefAlt { uncertain, .. } if edit.is_identity() => NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain,
+        },
+        other => other,
+    }
+}
+
+/// The delins over `[start, end)` that inserts `alt`, reduced and normalised.
+///
+/// On a transcript, a delins whose range spans a junction removes the intron
+/// on the genome; it keeps at least one base in each exon, so that what it
+/// reduces to removes the intron too, and is never an inversion, which would
+/// turn the intron round instead.
+fn reduce_delins(
+    reference: &Reference<'_, '_>,
+    start: usize,
+    end: usize,
+    alt: &str,
+    uncertain: bool,
+    exons: &ExonBounds,
+) -> Result<PlacedEdit, HgvsError> {
+    let ref_ = reference.slice(start, end)?;
+    if ref_.len() != end - start {
+        return Err(HgvsError::ValidationError(format!(
+            "{} has {} bases over [{start}, {end}); the delins runs past its end",
+            reference.accession(),
+            ref_.len()
+        )));
+    }
+    let spans = !exons.same_exon(start, end - 1);
+    let (max_prefix, max_suffix) = if spans {
+        (
+            exons.exon_end(start) - 1 - start,
+            end - 1 - exons.exon_start(end - 1),
+        )
+    } else {
+        (usize::MAX, usize::MAX)
+    };
+    let (at, r, a) = trim_ends(start, &ref_, alt, max_prefix, max_suffix);
+    if r.is_empty() && a.is_empty() {
+        return Ok(PlacedEdit {
+            start,
+            end,
+            edit: NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                uncertain,
+            },
+        });
+    }
+    if r.is_empty() {
+        return insertion_in_exon(reference, at, &a, uncertain, exons.exon(start), exons);
+    }
+    let placed = replacement(reference, at, r, a, !spans, uncertain);
+    if matches!(placed.edit, NaEdit::Del { .. }) {
+        normalize(reference, placed, exons)
+    } else {
+        Ok(placed)
+    }
+}
+
+/// The insertion of `seq` in front of `at`, in the exon numbered `home`, slid
+/// 3' within it. Where it then sits on an edge of its exon, where an insertion
+/// names no single place on the genome, or after the sequence's last base,
+/// which HGVS cannot name, it moves one base back into the exon if the
+/// sequence allows, as a slid insertion stops there, and is otherwise written
+/// as a delins of the base beside it.
+fn insertion_in_exon(
+    reference: &Reference<'_, '_>,
+    at: usize,
+    seq: &str,
+    uncertain: bool,
+    home: usize,
+    exons: &ExonBounds,
+) -> Result<PlacedEdit, HgvsError> {
+    let resolved = ResolvedEdit {
+        start: at,
+        end: at,
+        ref_: String::new(),
+        alt: seq.to_string(),
+    };
+    let at_home_start = exons.is_edge(at) && exons.exon(at) == home;
+    let room = if at_home_start {
+        exons.exon_end(at) - at
+    } else {
+        exons.exon_end(at - 1) - at
+    };
+    let k = shift_3(reference, &resolved)?.min(room);
+    let placed = if k == 0 && at_home_start {
+        // At the start of its exon: the bases before it are another exon's,
+        // so it duplicates none of them.
+        PlacedEdit {
+            start: at,
+            end: at,
+            edit: NaEdit::Ins {
+                alt: Some(seq.to_string()),
+                uncertain,
+            },
+        }
+    } else {
+        place_insertion(reference, at, seq, uncertain, k, exons)?
+    };
+    let point = placed.start;
+    let NaEdit::Ins {
+        alt: Some(inserted),
+        ..
+    } = &placed.edit
+    else {
+        return Ok(placed);
+    };
+    if !exons.is_edge(point) && reference.base(point)?.is_some() {
+        return Ok(placed);
+    }
+    let after_home = point > 0 && exons.exon(point - 1) == home;
+    if after_home && !exons.is_edge(point - 1) {
+        // One base 5', inside the exon, where an insertion slid from there
+        // would also stop.
+        let back = ResolvedEdit {
+            start: point,
+            end: point,
+            ref_: String::new(),
+            alt: inserted.clone(),
+        };
+        if shift_5(reference, &back)? > 0 {
+            let n = inserted.len();
+            return Ok(PlacedEdit {
+                start: point - 1,
+                end: point - 1,
+                edit: NaEdit::Ins {
+                    alt: Some(format!("{}{}", &inserted[n - 1..], &inserted[..n - 1])),
+                    uncertain,
+                },
+            });
+        }
+    }
+    let (s, alt) = if after_home {
+        (
+            point - 1,
+            format!("{}{inserted}", reference.slice(point - 1, point)?),
+        )
+    } else {
+        (
+            point,
+            format!("{inserted}{}", reference.slice(point, point + 1)?),
+        )
+    };
+    Ok(PlacedEdit {
+        start: s,
+        end: s + 1,
+        edit: NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(alt),
+            uncertain,
+        },
+    })
+}
+
 /// An insertion at `at` slid `k` positions 3': a duplication where the bases
 /// before it repeat the insert and lie in one exon, else an insertion. `k` may
-/// take the insertion point onto the end of its exon, where only a
-/// duplication is kept; an insertion there would sit on a junction, or past
-/// the transcript's last base, and stops one base short.
+/// take the insertion point onto the end of its exon or of the sequence, where
+/// only a duplication is kept; an insertion there would sit on a junction, or
+/// past the last base, and stops one base short.
 fn place_insertion(
     reference: &Reference<'_, '_>,
     at: usize,
@@ -208,7 +425,7 @@ fn place_insertion(
             },
         });
     }
-    if k > 0 && !exons.same_exon(at, point) {
+    if k > 0 && (!exons.same_exon(at, point) || reference.base(point)?.is_none()) {
         return place_insertion(reference, at, seq, uncertain, k - 1, exons);
     }
     Ok(PlacedEdit {
@@ -277,6 +494,132 @@ pub fn shift_5(reference: &Reference<'_, '_>, resolved: &ResolvedEdit) -> Result
     match movable(resolved) {
         Some((start, _, pattern)) => reference.run_left(start, pattern.as_bytes()),
         None => Ok(0),
+    }
+}
+
+/// `ref_` and `alt` with what they share at both ends removed, prefix first,
+/// at most `max_prefix` and `max_suffix` bases, and the index the remainder
+/// starts at. Prefix first so that a fully justified insertion or deletion
+/// lands at the 3' end of its run, where HGVS writes it.
+fn trim_ends(
+    start: usize,
+    ref_: &str,
+    alt: &str,
+    max_prefix: usize,
+    max_suffix: usize,
+) -> (usize, String, String) {
+    let prefix = ref_
+        .bytes()
+        .zip(alt.bytes())
+        .take_while(|(x, y)| x == y)
+        .count()
+        .min(max_prefix);
+    let (r, a) = (&ref_[prefix..], &alt[prefix..]);
+    let suffix = r
+        .bytes()
+        .rev()
+        .zip(a.bytes().rev())
+        .take_while(|(x, y)| x == y)
+        .count()
+        .min(max_suffix);
+    (
+        start + prefix,
+        r[..r.len() - suffix].to_string(),
+        a[..a.len() - suffix].to_string(),
+    )
+}
+
+/// The HGVS edit, and the range it is written over before normalisation, for
+/// "the bases over `[start, end)` (which are `ref_`) become `alt`": identity,
+/// substitution, inversion, deletion, insertion or delins.
+pub(crate) fn minimal_edit(
+    reference: &Reference<'_, '_>,
+    start: usize,
+    end: usize,
+    ref_: &str,
+    alt: &str,
+) -> Result<(NaEdit, usize, usize), HgvsError> {
+    let (at, r, a) = trim_ends(start, ref_, alt, usize::MAX, usize::MAX);
+    let uncertain = false;
+    Ok(if r.is_empty() && a.is_empty() {
+        let edit = NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain,
+        };
+        if end > start {
+            (edit, start, end)
+        } else {
+            // Nothing over an empty range: say so of the base before it.
+            let s = start.saturating_sub(1);
+            (edit, s, s + 1)
+        }
+    } else if r.is_empty() && at == 0 {
+        // HGVS has no insertion before the first base; it is written as a
+        // delins of that base.
+        let first = reference.slice(0, 1)?;
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(format!("{a}{first}")),
+            uncertain,
+        };
+        (edit, 0, 1)
+    } else if r.is_empty() {
+        let edit = NaEdit::Ins {
+            alt: Some(a),
+            uncertain,
+        };
+        (edit, at - 1, at + 1)
+    } else {
+        let placed = replacement(reference, at, r, a, true, uncertain);
+        (placed.edit, placed.start, placed.end)
+    })
+}
+
+/// The edit that replaces the bases `r` at `at` by `a`, the two sharing
+/// neither their first nor their last base: a deletion, a substitution, an
+/// inversion where `inversion` allows one and the sequence is nucleotides, or
+/// a delins written without the deleted bases.
+fn replacement(
+    reference: &Reference<'_, '_>,
+    at: usize,
+    r: String,
+    a: String,
+    inversion: bool,
+    uncertain: bool,
+) -> PlacedEdit {
+    let end = at + r.len();
+    let edit = if a.is_empty() {
+        NaEdit::Del {
+            ref_: None,
+            uncertain,
+        }
+    } else if r.len() == 1 && a.len() == 1 {
+        NaEdit::RefAlt {
+            ref_: Some(r),
+            alt: Some(a),
+            uncertain,
+        }
+    } else if inversion
+        && reference.kind() != IdentifierType::ProteinAccession
+        && r.len() > 1
+        && a == crate::utils::reverse_complement(&r)
+    {
+        NaEdit::Inv {
+            ref_: None,
+            uncertain,
+        }
+    } else {
+        NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(a),
+            uncertain,
+        }
+    };
+    PlacedEdit {
+        start: at,
+        end,
+        edit,
     }
 }
 
@@ -361,18 +704,6 @@ mod tests {
                 edit: del(None)
             }
         );
-        // Stated bases survive when the edit does not move, and go when it
-        // does: they would be stale, and the reference has them anyway.
-        let out = run(
-            "TTCAGCAGTT",
-            PlacedEdit::from_hgvs_range(5, 8, del(Some("CAG"))),
-        );
-        assert_eq!(out.edit, del(Some("CAG")));
-        let out = run(
-            "TTCAGCAGTT",
-            PlacedEdit::from_hgvs_range(2, 5, del(Some("CAG"))),
-        );
-        assert_eq!((out.start, out.end, out.edit), (5, 8, del(None)));
     }
 
     #[test]
@@ -399,30 +730,6 @@ mod tests {
                 start: 2,
                 end: 2,
                 edit: ins("GGG")
-            }
-        );
-    }
-
-    #[test]
-    fn delins_is_not_shifted() {
-        // Deleting CAG at [2,5) and inserting TT: the base after the range (C)
-        // equals the first deleted base, but sliding would put TT after that C,
-        // which is a different sequence. Only the reference gets resolved.
-        let delins = NaEdit::RefAlt {
-            ref_: Some("3".into()),
-            alt: Some("TT".into()),
-            uncertain: false,
-        };
-        let out = run(
-            "TTCAGCAGTT",
-            PlacedEdit::from_hgvs_range(2, 5, delins.clone()),
-        );
-        assert_eq!(
-            out,
-            PlacedEdit {
-                start: 2,
-                end: 5,
-                edit: delins
             }
         );
     }
