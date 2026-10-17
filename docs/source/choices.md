@@ -1089,8 +1089,8 @@ So weaver normalises by what the members do together, and keeps going until noth
    joined by meeting, directly or through another, so the result does not depend on the order they are looked at. This
    repeats until no two groups meet; it ends, because each round merges.
 1. A member in a group of its own is normalised as a single variant is: a deletion, duplication or insertion is
-   [shifted 3'](#shift-3-cyclically-over-repeats), and a substitution or delins is
-   [left as written](#a-delins-is-not-shifted).
+   [shifted 3'](#shift-3-cyclically-over-repeats), a substitution is left as written, and a delins is
+   [reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted).
 1. Identities, written or left by a group that makes the reference, that overlap or touch within one exon are written as
    one.
 
@@ -1170,11 +1170,12 @@ duplication all stay on one side, so `c.[4A>T;5=;6A>T]` stays three members alth
 cannot be applied, a copy number or an uncertain position, is left as written too.
 
 The result is not a canonical form. `c.[5A>G;9G>T]` stays two members, and `c.5_9delinsGACTT`, which makes the same
-sequence, stays one delins, because a single delins is left as written. Equivalence compares sequences, so neither
-spelling is a different change; a normalised string is not a key to compare by. The rejected alternative splits the
-whole difference from the reference into blocks of changed bases, which would be canonical. It needs an alignment rule
-to say which bases an indel changes, and it would change how a single variant normalises, `c.5_9delinsGACTT` becoming
-`c.[5A>G;9G>T]`, away from the end-trimming biocommons and VRS do.
+sequence, stays one delins, because a delins that changes a base at each end
+[stays where it is](#a-delins-is-reduced-before-it-is-shifted). Equivalence compares sequences, so neither spelling is a
+different change; a normalised string is not a key to compare by. The rejected alternative splits the whole difference
+from the reference into blocks of changed bases, which would be canonical. It needs an alignment rule to say which bases
+an indel changes, and it would change how a single variant normalises, `c.5_9delinsGACTT` becoming `c.[5A>G;9G>T]`, away
+from the end-trimming biocommons and VRS do.
 
 `normalize` writes the members in order of position along the sequence the allele is written on, as the alleles page
 lists them "in genomic order", whatever order they were written in. When every member falls into one group, the result
