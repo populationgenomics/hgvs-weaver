@@ -37,6 +37,40 @@ proptest! {
         prop_assert_eq!(again, after, "normalisation is not idempotent");
     }
 
+    /// A change and a delins over a wider range that writes out the
+    /// reference's bases either side of it are one change, and normalise to
+    /// one spelling.
+    #[test]
+    fn a_change_and_a_wider_delins_spelling_it_normalise_alike(
+        (seq, p) in seq_and_edit(false),
+        pad_5 in 0usize..4,
+        pad_3 in 0usize..4,
+    ) {
+        let edited = apply(&seq, &p);
+        prop_assume!(edited != seq);
+        let (lo, hi) = touched(&p);
+        let (mut lo, mut hi) = (lo.saturating_sub(pad_5), (hi + pad_3).min(seq.len()));
+        // A delins replaces at least one base with at least one.
+        if edited.len() + hi - lo == seq.len() || hi == lo {
+            if hi < seq.len() { hi += 1 } else { lo -= 1 }
+        }
+        let alt = edited[lo..edited.len() - (seq.len() - hi)].to_string();
+        let wide = PlacedHgvs {
+            start: lo,
+            end: hi,
+            edit: NaEdit::RefAlt { ref_: Some(String::new()), alt: Some(alt), uncertain: false },
+        };
+        prop_assert_eq!(apply(&seq, &wide), edited.clone(), "the wider delins is another change");
+
+        let hdp = Provider::new().sequence("X", &seq);
+        let store = ReferenceStore::with_block_size(&hdp, 4);
+        let r = store.reference("X", G);
+        let normalised = |q: &PlacedHgvs| {
+            normalize(&r, PlacedEdit::from_hgvs_range(q.start, q.end, q.edit.clone()), &ExonBounds::unspliced()).unwrap()
+        };
+        prop_assert_eq!(normalised(&wide), normalised(&p), "{:?} and {:?} on {}", wide, p, seq);
+    }
+
     /// VRS and SPDI are lossless: an allele read back from either is the same
     /// allele, whatever spelling the input used.
     #[test]
@@ -147,6 +181,17 @@ fn genomic_variant(ac: &str, p: &PlacedHgvs) -> GVariant {
             predicted: false,
         },
     )
+}
+
+/// The reference bases an edit written over an HGVS range replaces, as a
+/// half-open range: empty, at the point the new bases go, for an insertion or
+/// a duplication.
+fn touched(p: &PlacedHgvs) -> (usize, usize) {
+    match p.edit {
+        NaEdit::Ins { .. } => (p.end - 1, p.end - 1),
+        NaEdit::Dup { .. } => (p.end, p.end),
+        _ => (p.start, p.end),
+    }
 }
 
 /// The HGVS range a placed (normalised) edit is written over.
@@ -689,17 +734,36 @@ proptest! {
         );
     }
 
+    /// On a transcript, normalising twice is normalising once, beside a
+    /// junction included.
+    #[test]
+    fn normalising_a_transcript_variant_twice_is_normalising_it_once((g, e) in gene_and_edit()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vc = SequenceVariant::Coding(tx_edit_variant(&g, &am, &e));
+        let Ok(once) = mapper.normalize_variant(vc.clone()) else { return Ok(()) };
+        let twice = mapper
+            .normalize_variant(once.clone())
+            .map_err(|err| TestCaseError::fail(format!("{vc} normalised to {once}: {err}")))?;
+        prop_assert_eq!(twice.to_string(), once.to_string(), "{} normalised to {}", vc, once);
+    }
+
     /// The same, for a deletion, duplication or insertion written just before
     /// an exon/exon junction, where a slide on the transcript could carry it
-    /// into the next exon.
+    /// into the next exon, and for a delins there, up to or across the
+    /// junction, that inserts or deletes inside the bases it keeps, which
+    /// trimming could carry off the exon.
     #[test]
     fn normalising_beside_a_junction_keeps_the_genomic_allele(
         g in gene(),
         pick in 0usize..10_000,
         back in 0usize..3,
         len in 1usize..=3,
-        kind in 0u8..3,
+        kind in 0u8..5,
         alt in dna(1, 3),
+        over in 0usize..3,
+        cut in 0usize..8,
     ) {
         if g.tx_exons.len() < 2 {
             return Ok(());
@@ -713,7 +777,22 @@ proptest! {
         let (start, end, edit) = match kind {
             0 => (last + 1 - len.min(last + 1), last + 1, NaEdit::Del { ref_: None, uncertain: false }),
             1 => (last + 1 - len.min(last + 1), last + 1, NaEdit::Dup { ref_: None, uncertain: false }),
-            _ => (last, last + 2, NaEdit::Ins { alt: Some(alt), uncertain: false }),
+            2 => (last, last + 2, NaEdit::Ins { alt: Some(alt), uncertain: false }),
+            _ => {
+                let (start, end) = (last + 1 - len.min(last + 1), (last + 1 + over).min(g.transcript_seq.len()));
+                let kept = &g.transcript_seq[start..end];
+                let at = cut % (kept.len() + 1);
+                let inserted = if kind == 3 {
+                    format!("{}{alt}{}", &kept[..at], &kept[at..])
+                } else {
+                    let at = at.min(kept.len() - 1);
+                    format!("{}{}", &kept[..at], &kept[at + 1..])
+                };
+                if inserted.is_empty() {
+                    return Ok(());
+                }
+                (start, end, NaEdit::RefAlt { ref_: Some(String::new()), alt: Some(inserted), uncertain: false })
+            }
         };
         let vc = SequenceVariant::Coding(coding_variant(&g, &am, start, end, edit));
         let Ok(before) = mapper.canonical_allele(&vc) else { return Ok(()) };
@@ -721,8 +800,21 @@ proptest! {
         let after = mapper
             .canonical_allele(&normalised)
             .map_err(|err| TestCaseError::fail(format!("{vc} normalised to {normalised}: {err}")))?;
-        prop_assert_eq!(after, before, "{} normalised to {}", vc, normalised);
+        // Compared by the genome each makes: a delins across a junction can
+        // change nothing on the genome, and an unchanged range has no one
+        // canonical extent.
+        prop_assert_eq!(made(&g.genome, &after), made(&g.genome, &before), "{} normalised to {}", vc, normalised);
     }
+}
+
+/// The genome with the allele applied.
+fn made(genome: &str, allele: &hgvs_weaver::allele::CanonicalAllele) -> String {
+    format!(
+        "{}{}{}",
+        &genome[..allele.start],
+        allele.alternate,
+        &genome[allele.end..]
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -912,27 +912,13 @@ fn placement_changed(before: &PlacedEdit, after: &PlacedEdit) -> bool {
         || before.is_insertion() != after.is_insertion()
 }
 
-/// The HGVS start index and optional end index to write for `after`.
-///
-/// An insertion that became a duplication names the duplicated bases, with an
-/// end only when there is more than one. Anything else keeps an end position
-/// exactly when the input had one.
-fn hgvs_positions(
-    before: &PlacedEdit,
-    after: &PlacedEdit,
-    had_end: bool,
-) -> (usize, Option<usize>) {
+/// The HGVS start index and optional end index to write for `after`: an end
+/// for an insertion, which names its two flanking bases, and for an edit of
+/// more than one base.
+fn hgvs_positions(after: &PlacedEdit) -> (usize, Option<usize>) {
     let (s, e) = after.hgvs_range();
     let last = e - 1;
-    let converted = before.is_insertion() && !after.is_insertion();
-    let end = if converted {
-        (last > s).then_some(last)
-    } else if had_end {
-        Some(last)
-    } else {
-        None
-    };
-    (s, end)
+    (s, (after.is_insertion() || last > s).then_some(last))
 }
 
 fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
@@ -1973,7 +1959,7 @@ impl<'a> VariantMapper<'a> {
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
         if placement_changed(&before, &after) {
-            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
+            let (s, e) = hgvs_positions(&after);
             pos.start.base = GenomicPos(s as i32).to_hgvs().into();
             pos.end = e.map(|last| SimplePosition {
                 base: GenomicPos(last as i32).to_hgvs().into(),
@@ -2009,7 +1995,7 @@ impl<'a> VariantMapper<'a> {
         if placement_changed(&before, &after) {
             // Re-derive positions from indices so that, for c., the c.0 gap and
             // the CDS anchors come out right when a shift crosses the CDS bounds.
-            let (s, e) = hgvs_positions(&before, &after, pos.end.is_some());
+            let (s, e) = hgvs_positions(&after);
             pos.start = V::position_from_index(&am, s as i32)?;
             pos.end = e
                 .map(|last| V::position_from_index(&am, last as i32))

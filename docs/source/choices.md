@@ -184,7 +184,7 @@ Representation Specification 2.0.1.
 | [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |  agrees; silent on the duplication   |        –         |          –           |        –         |
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |                agrees                |      agrees      |        agrees        |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |                agrees                |     differs      |          –           |      agrees      |
-| [A delins is not shifted](#a-delins-is-not-shifted)                                                                                 |                  –                   |      agrees      |          –           |        –         |
+| [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                agrees                |   agrees on g.   |          –           |        –         |
 | [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                agrees                |     differs      |        agrees        |        –         |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                agrees                |        –         |          –           |      agrees      |
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                  –                   |     differs      |          –           |        –         |
@@ -697,7 +697,8 @@ NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20d
 
 **A deletion, duplication or insertion is shifted as far 3' as the reference keeps matching it cyclically, on the strand
 of the sequence the variant is written on.** On a transcript the shift stays within one exon
-([below](#a-shift-stops-at-an-exonexon-junction)).
+([below](#a-shift-stops-at-an-exonexon-junction)); a delins is first reduced to the edit it is
+([below](#a-delins-is-reduced-before-it-is-shifted)).
 
 An insertion that repeats the bases immediately before it becomes a duplication, and an insertion that slides has its
 bases rotated by how far it moved.
@@ -807,26 +808,83 @@ NM_JM.1:c.4del        →  NM_JM.1:c.5del         the minus strand alike
   `normalising_on_the_transcript_keeps_the_genomic_allele` and `normalising_beside_a_junction_keeps_the_genomic_allele`
   (properties).
 
-### A delins is not shifted
+### A delins is reduced before it is shifted
 
-**Only pure deletions, duplications and insertions slide; a delins with bases on both sides stays where it was
-written.**
+**`normalize` drops the bases a delins shares with the reference at either end, and writes what remains as the edit it
+is: a substitution, deletion, insertion, duplication, inversion or delins. That edit is then normalised as usual,
+shifted 3' within its exon. A delins that changes a base at each end cannot slide, and stays where it is.**
 
-Shifting it was wrong on 72 ClinVar rows.
+One change has more than one spelling as a delins: `delCinsCA` and `insA` put the same A after the same C, and a delins
+written over a wider range than the change says the same thing again. The 3' rule is stated for every description, and a
+delins that is really an insertion has a 3'-most position like any insertion. Reducing first gives each change one
+spelling; reading the deleted bases from the reference, as the canonical allele does, means the bases a description
+states after `del` are not written back ([below](#deletions-and-duplications-are-written-bare)).
 
-**Example** (on `TTCAGCAGTT`; the base after the range equals the first deleted base, but sliding would put the new
-bases after it, a different sequence):
+On a transcript, the reduction respects the exons as a shift does ([above](#a-shift-stops-at-an-exonexon-junction)):
+
+- A delins whose range spans a junction removes the intron on the genome. It keeps at least one base in each exon, so
+  what it reduces to removes the intron too, and it is never rewritten as an inversion, which would turn the intron
+  round instead.
+- A delins inside one exon that reduces to an insertion at the edge of that exon would put the insertion on the
+  junction, where it names no single place on the genome. It is written as a delins of the exon's base beside it
+  instead. biocommons writes both `c.4_5delinsAAC` and `c.6delinsCA` below as `c.5_6insC`, one spelling for two changes
+  on either side of the intron.
+
+The sequence a description makes is unchanged: the property tests hold normalisation to the edited sequence, to the
+genomic allele across junctions, and to one output for a change and a wider delins spelling it.
+
+An earlier normaliser slid a delins with the rule for a deletion, which moves the inserted bases past the base it slides
+over and changes the sequence; that was wrong on 72 ClinVar rows at the time, and is why a delins was then left where it
+was. Reducing first never slides a delins as a delins. Of the 429 delins in the current 100,000-variant sample, the 40
+whose range the old rule would have slid all change a base at each end and normalise to themselves, and every delins
+normalises to the SPDI ClinVar gives.
+
+**Example** (on `TTCAGCAGTT`, and on `NM_J.1`, where exon 1 ends at c.5, c.3 is G, c.4 to c.6 are A and c.7 is G; c.5 is
+g.20 and c.6 is g.31):
 
 ```text
-g.3_5delinsTT   →  g.3_5delinsTT
-g.3C>T          →  g.3C>T
+g.3delinsCGG             →  g.3_4insGG               C becomes CGG: an insertion after the C
+g.3delinsCAA             →  g.4_5insAA               the insertion, slid past the A at g.4
+g.6delinsCAG             →  g.7_8dup                 slid to the end of the CAG, which it repeats
+g.2_5delinsT             →  g.6_8del                 TCAG becomes T: the CAG deleted, the 3'-most copy
+g.3_5delinsCTG           →  g.4A>T
+g.3_4delinsTG            →  g.3_4inv                 CA becomes its reverse complement
+g.3_5delinsTT            →  g.3_5delinsTT            a base changed at each end: it stays
+g.3_5delinsCAG           →  g.3_5=
+
+NM_J.1:c.3delinsGA       →  NM_J.1:c.5dup            as c.3_4insA does
+NM_J.1:c.4_5delinsAAC    →  NM_J.1:c.5delinsAC       g.20_21insC; c.5_6insC would be on the junction
+NM_J.1:c.6delinsCA       →  NM_J.1:c.6delinsCA       g.30_31insC, after the intron
+NM_J.1:c.4_7delinsAG     →  NM_J.1:c.5_6del          g.20_31del either way; each end stays in its exon
+NM_J.1:c.5_6delinsAGA    →  NM_J.1:c.5_6delinsAGA    removes the intron, which c.5_6insG would not
 ```
 
-- **Agrees:** biocommons.
-- **Spec (silent):** [deletion-insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/delins/) gives no
-  shift rule for delins; the 3' rule is stated for the equivalent placements of one change.
-- **Tests:** `src/normalize.rs::delins_is_not_shifted`, `::substitution_is_left_alone` (read from the 0-based ranges
-  they assert).
+- **Agrees:** biocommons on every genomic row, `c.3delinsGA` included.
+- **Differs:** biocommons writes `c.4_5delinsAAC` and `c.6delinsCA` as `c.5_6insC`, and refuses `c.4_7delinsAG` and
+  `c.5_6delinsAGA` as spanning an exon boundary. VariantValidator not checked.
+- **Spec (agrees):** [deletion-insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/delins/): a delins is
+  "a sequence change where, compared to a reference sequence, one or more nucleotides are replaced by one or more other
+  nucleotides and which is not a substitution or inversion"; "by definition, when one nucleotide is replaced by one
+  other nucleotide, the change is a substitution"; and "for all descriptions, the most 3' position possible of the
+  reference sequence is arbitrarily assigned to have been changed (3'rule)". Keeping a delins on the junction's edge
+  rather than writing an insertion there is weaver's reading of the exon/exon exception
+  ([above](#a-shift-stops-at-an-exonexon-junction)).
+- **Tests:** `one_spelling_test::a_delins_that_keeps_its_first_base_is_an_insertion`,
+  `::a_delins_that_is_an_insertion_is_shifted_3_prime`,
+  `::a_delins_that_is_an_insertion_repeating_the_bases_before_it_is_a_duplication`,
+  `::a_delins_that_keeps_its_last_base_is_an_insertion`, `::a_delins_that_is_a_deletion_is_shifted_3_prime`,
+  `::a_delins_that_changes_one_base_is_a_substitution`, `::a_delins_that_is_the_reverse_complement_is_an_inversion`,
+  `::a_delins_that_changes_a_base_at_each_end_stays_where_it_is`, `::a_delins_is_written_without_its_deleted_bases`,
+  `::a_delins_that_changes_nothing_is_an_identity`;
+  `exon_junction_test::a_delins_that_is_an_insertion_shifts_to_the_last_base_of_its_exon_and_no_further`,
+  `::a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base`,
+  `::a_delins_reduced_to_an_insertion_at_the_start_of_its_exon_keeps_the_exons_first_base`,
+  `::a_delins_spanning_the_junction_is_trimmed_while_each_end_stays_in_its_exon`,
+  `::a_delins_of_the_two_bases_either_side_of_the_junction_stays_where_it_is`,
+  `::on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction`;
+  `a_change_and_a_wider_delins_spelling_it_normalise_alike`, `normalising_preserves_the_edited_sequence`,
+  `normalising_a_transcript_variant_twice_is_normalising_it_once` and
+  `normalising_beside_a_junction_keeps_the_genomic_allele` (properties).
 
 ### Deletions and duplications are written bare
 
