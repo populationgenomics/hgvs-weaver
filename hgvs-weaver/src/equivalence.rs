@@ -225,7 +225,7 @@ impl<'a> VariantEquivalence<'a> {
             .nucleotide_allele(&SequenceVariant::Genomic(g))?
             .map(|a| {
                 if a.is_reference() {
-                    Comparand::Statement(StatedBases::new(&a.accession, [(a.start, a.end)]))
+                    Comparand::Statement(StatedBases::of_range(&a.accession, a.start, a.end))
                 } else {
                     Comparand::Change(a)
                 }

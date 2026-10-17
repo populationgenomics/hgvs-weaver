@@ -127,30 +127,21 @@ impl CanonicalAllele {
     }
 }
 
-/// The bases a description states unchanged on one sequence, as a set:
-/// 0-based half-open ranges, sorted, with ranges that overlap or touch
-/// merged, so that two spellings of one set of bases are one value.
+/// The bases a description states unchanged on one sequence: 0-based
+/// half-open ranges, in order along the sequence, none overlapping or
+/// touching another, so that one set of bases has one value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StatedBases {
+pub(crate) struct StatedBases {
     accession: String,
     ranges: Vec<(usize, usize)>,
 }
 
 impl StatedBases {
-    /// The bases of `ranges` on `accession`; an empty range names none.
-    pub fn new(accession: &str, ranges: impl IntoIterator<Item = (usize, usize)>) -> Self {
-        let mut sorted: Vec<(usize, usize)> = ranges.into_iter().filter(|(s, e)| e > s).collect();
-        sorted.sort_unstable();
-        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(sorted.len());
-        for (s, e) in sorted {
-            match merged.last_mut() {
-                Some(last) if s <= last.1 => last.1 = last.1.max(e),
-                _ => merged.push((s, e)),
-            }
-        }
+    /// The bases over `[start, end)` of `accession`.
+    pub(crate) fn of_range(accession: &str, start: usize, end: usize) -> Self {
         StatedBases {
             accession: accession.to_string(),
-            ranges: merged,
+            ranges: vec![(start, end)],
         }
     }
 }
@@ -288,27 +279,6 @@ mod tests {
         assert!(e.is_reference());
         assert_eq!(e.spdi(), "X:2:CAG:CAG");
         assert_eq!(e.repeat_subunit, Some(3));
-    }
-
-    #[test]
-    fn stated_bases_are_a_set_whatever_ranges_spell_it() {
-        // c.[7_9=;10=] and c.7_10= state one set; c.[10=;20=] states two bases.
-        assert_eq!(
-            StatedBases::new("X", [(9, 10), (6, 9)]),
-            StatedBases::new("X", [(6, 10)])
-        );
-        assert_eq!(
-            StatedBases::new("X", [(6, 9), (7, 8), (2, 3)]),
-            StatedBases::new("X", [(2, 3), (6, 9)])
-        );
-        assert_ne!(
-            StatedBases::new("X", [(9, 10), (19, 20)]),
-            StatedBases::new("X", [(9, 20)])
-        );
-        assert_ne!(
-            StatedBases::new("X", [(9, 10)]),
-            StatedBases::new("Y", [(9, 10)])
-        );
     }
 
     #[test]
