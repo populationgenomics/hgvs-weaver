@@ -1,6 +1,7 @@
 use crate::cigar::Projected;
 use crate::data::{ExonData, Strand, TranscriptData};
 use crate::error::HgvsError;
+use crate::normalize::ExonBounds;
 use crate::structs::{
     Anchor, BaseOffsetInterval, BaseOffsetPosition, GenomicPos, IntronicOffset, TranscriptPos,
 };
@@ -72,6 +73,33 @@ impl TranscriptMapper {
         })
     }
 
+    /// How many transcript bases exon `i` (transcript order) carries.
+    fn exon_tx_len(&self, i: usize) -> i32 {
+        let exon = &self.exons[i];
+        self.cigar_mappers[i]
+            .as_ref()
+            .map_or(exon.reference_end.0 - exon.reference_start.0 + 1, |cm| {
+                cm.tgt_len()
+            })
+    }
+
+    /// The transcript's exons, as transcript indices.
+    pub fn exon_bounds(&self) -> Result<ExonBounds, HgvsError> {
+        let lengths = (0..self.exons.len())
+            .map(|i| {
+                let len = self.exon_tx_len(i);
+                usize::try_from(len).map_err(|_| {
+                    HgvsError::ValidationError(format!(
+                        "{}: exon {} carries {len} transcript bases",
+                        self.transcript.ac,
+                        i + 1
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ExonBounds::from_lengths(lengths))
+    }
+
     /// Maps a 0-based genomic position to a 0-based transcript position and intronic offset.
     /// An exonic base the transcript lacks has no index and is an error; see
     /// [`Self::g_to_n_footprint`].
@@ -106,9 +134,7 @@ impl TranscriptMapper {
             let (e_start, e_end) = (exon.reference_start.0, exon.reference_end.0);
             // e_start and e_end are 0-based inclusive
             if g_pos.0 < e_start || g_pos.0 > e_end {
-                n_pos += self.cigar_mappers[i]
-                    .as_ref()
-                    .map_or(e_end - e_start + 1, |cm| cm.tgt_len());
+                n_pos += self.exon_tx_len(i);
                 continue;
             }
             let minus = exon.alt_strand == Strand::Minus;
@@ -179,19 +205,10 @@ impl TranscriptMapper {
                 best_n = if before_first_base {
                     TranscriptPos(curr_n)
                 } else {
-                    let e_tgt_len = if let Some(cm) = &self.cigar_mappers[i] {
-                        cm.tgt_len()
-                    } else {
-                        (e_end.0 - e_start.0) + 1
-                    };
-                    TranscriptPos(curr_n + e_tgt_len - 1)
+                    TranscriptPos(curr_n + self.exon_tx_len(i) - 1)
                 };
             }
-            curr_n += if let Some(cm) = &self.cigar_mappers[i] {
-                cm.tgt_len()
-            } else {
-                (e_end.0 - e_start.0) + 1
-            };
+            curr_n += self.exon_tx_len(i);
         }
         Ok(GenomicFootprint {
             range: (best_n, TranscriptPos(best_n.0 + 1)),
@@ -414,7 +431,7 @@ impl TranscriptMapper {
         for (i, exon) in self.exons.iter().enumerate() {
             let (e_start, e_end) = (exon.reference_start.0, exon.reference_end.0);
             let cm = self.cigar_mappers[i].as_ref();
-            let e_tgt_len = cm.map_or(e_end - e_start + 1, |cm| cm.tgt_len());
+            let e_tgt_len = self.exon_tx_len(i);
             if n_pos.0 < curr_n || n_pos.0 >= curr_n + e_tgt_len {
                 curr_n += e_tgt_len;
                 continue;

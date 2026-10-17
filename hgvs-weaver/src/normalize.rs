@@ -57,9 +57,66 @@ impl PlacedEdit {
     }
 }
 
+/// The exons of a spliced sequence, laid end to end in transcript order from
+/// index 0. A sequence that is not spliced, a genome or a protein, is one
+/// stretch with no end a shift has to respect. An index past the last exon is
+/// in none.
+///
+/// On a transcript, the bases either side of a junction are neighbours, but on
+/// the genome an intron lies between them: a change slid across a junction is
+/// a different change on the genome. An exon aligned to the genome with gaps
+/// is one stretch here, so a shift within it can still cross a gap.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExonBounds {
+    /// One past the last index of each exon, increasing.
+    ends: Vec<usize>,
+}
+
+impl ExonBounds {
+    /// A sequence that is not spliced.
+    pub fn unspliced() -> Self {
+        Self::default()
+    }
+
+    /// Exons of these lengths, in transcript order.
+    pub fn from_lengths(lengths: impl IntoIterator<Item = usize>) -> Self {
+        let ends = lengths
+            .into_iter()
+            .scan(0usize, |at, len| {
+                *at += len;
+                Some(*at)
+            })
+            .collect();
+        ExonBounds { ends }
+    }
+
+    /// Which exon holds `index`, counting from 0; the exon count for an index
+    /// past the last.
+    fn exon(&self, index: usize) -> usize {
+        self.ends.partition_point(|&e| e <= index)
+    }
+
+    /// One past the last index of the exon holding `index`.
+    fn exon_end(&self, index: usize) -> usize {
+        self.ends
+            .get(self.exon(index))
+            .copied()
+            .unwrap_or(usize::MAX)
+    }
+
+    fn same_exon(&self, a: usize, b: usize) -> bool {
+        self.exon(a) == self.exon(b)
+    }
+}
+
 /// Normalises `placed` against `reference`: shifts it as far 3' as the
 /// sequence allows and rewrites an insertion as a duplication when the
 /// inserted bases repeat the bases immediately before it.
+///
+/// No end of the edit leaves the exon it was written in: the shift stops at
+/// the last base of the exon, and an insertion is neither slid onto a junction
+/// nor rewritten as a duplication of bases in two exons. One written on a
+/// junction is left as written.
 ///
 /// Bases a deletion or duplication states are kept where the edit did not
 /// move and dropped where it did, since they would then be stale. Nothing is
@@ -68,6 +125,7 @@ impl PlacedEdit {
 pub fn normalize(
     reference: &Reference<'_, '_>,
     placed: PlacedEdit,
+    exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
     let PlacedEdit {
         start,
@@ -77,52 +135,82 @@ pub fn normalize(
     // Only a deletion, duplication or insertion is slid: those are written
     // without stating bases that would go stale, and a repeat is written
     // against its run. A delins is left where it is.
-    let k = if matches!(
-        edit,
-        NaEdit::Del { .. } | NaEdit::Dup { .. } | NaEdit::Ins { .. }
-    ) {
-        shift_3(reference, &edit.resolve(reference, start, end)?)?
-    } else {
-        0
-    };
-    let (start, end) = (start + k, end + k);
-    // Sliding an insertion 3' by k rotates what is inserted: the k bases it
-    // passed over now precede it, and the same k bases of the insert follow.
-    if k > 0 {
-        if let NaEdit::Ins { alt: Some(seq), .. } = &mut edit {
-            let n = seq.len();
-            if n > 0 {
-                let r = k % n;
-                *seq = format!("{}{}", &seq[r..], &seq[..r]);
+    match &edit {
+        NaEdit::Del { .. } | NaEdit::Dup { .. } if end > start => {
+            let room = (exons.exon_end(start) - 1 - start).min(exons.exon_end(end - 1) - end);
+            let k = shift_3(reference, &edit.resolve(reference, start, end)?)?.min(room);
+            if k > 0 {
+                if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
+                    *ref_ = None;
+                }
             }
+            Ok(PlacedEdit {
+                start: start + k,
+                end: end + k,
+                edit,
+            })
         }
-    }
-
-    if k > 0 {
-        if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
-            *ref_ = None;
+        NaEdit::Ins { .. } if start > 0 && !exons.same_exon(start - 1, start) => {
+            Ok(PlacedEdit { start, end, edit })
         }
+        NaEdit::Ins {
+            alt: Some(seq),
+            uncertain,
+        } => {
+            // The base before the insertion point may reach the last base of
+            // its exon, which puts the point on the junction.
+            let room = exons.exon_end(start.saturating_sub(1)) - start;
+            let k = shift_3(reference, &edit.resolve(reference, start, end)?)?.min(room);
+            place_insertion(reference, start, seq, *uncertain, k, exons)
+        }
+        _ => Ok(PlacedEdit { start, end, edit }),
     }
+}
 
-    if let NaEdit::Ins {
-        alt: Some(seq),
-        uncertain,
-    } = &edit
+/// An insertion at `at` slid `k` positions 3': a duplication where the bases
+/// before it repeat the insert and lie in one exon, else an insertion. `k` may
+/// take the insertion point onto the end of its exon, where only a
+/// duplication is kept; an insertion there would sit on a junction, or past
+/// the transcript's last base, and stops one base short.
+fn place_insertion(
+    reference: &Reference<'_, '_>,
+    at: usize,
+    seq: &str,
+    uncertain: bool,
+    k: usize,
+    exons: &ExonBounds,
+) -> Result<PlacedEdit, HgvsError> {
+    let n = seq.len();
+    let point = at + k;
+    // Sliding 3' by k rotates what is inserted: the k bases it passed over now
+    // precede it, and the same k bases of the insert follow.
+    let r = if n > 0 { k % n } else { 0 };
+    let rotated = format!("{}{}", &seq[r..], &seq[..r]);
+    if n > 0
+        && point >= n
+        && exons.same_exon(point - n, point - 1)
+        && reference.slice(point - n, point)? == rotated
     {
-        let n = seq.len();
-        if n > 0 && start >= n && reference.slice(start - n, start)? == *seq {
-            return Ok(PlacedEdit {
-                start: start - n,
-                end: start,
-                edit: NaEdit::Dup {
-                    ref_: None,
-                    uncertain: *uncertain,
-                },
-            });
-        }
+        return Ok(PlacedEdit {
+            start: point - n,
+            end: point,
+            edit: NaEdit::Dup {
+                ref_: None,
+                uncertain,
+            },
+        });
     }
-
-    Ok(PlacedEdit { start, end, edit })
+    if k > 0 && !exons.same_exon(at, point) {
+        return place_insertion(reference, at, seq, uncertain, k - 1, exons);
+    }
+    Ok(PlacedEdit {
+        start: point,
+        end: point,
+        edit: NaEdit::Ins {
+            alt: Some(rotated),
+            uncertain,
+        },
+    })
 }
 
 /// The part of a resolved edit that can slide: after dropping the bases the
@@ -239,6 +327,7 @@ mod tests {
         normalize(
             &store.reference("X", IdentifierType::GenomicAccession),
             placed,
+            &ExonBounds::unspliced(),
         )
         .unwrap()
     }

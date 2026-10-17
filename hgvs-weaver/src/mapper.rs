@@ -2,7 +2,7 @@ use crate::allele::CanonicalAllele;
 use crate::coords::TranscriptPos;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
 use crate::error::HgvsError;
-use crate::normalize::{self, PlacedEdit};
+use crate::normalize::{self, ExonBounds, PlacedEdit};
 use crate::reference::ReferenceStore;
 use crate::structs::Anchor;
 use crate::structs::Variant;
@@ -2005,7 +2005,7 @@ impl<'a> VariantMapper<'a> {
         let (start, end) = simple_interval_range(pos)?;
         let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self.refs.reference(&ac, IdentifierType::GenomicAccession);
-        let after = normalize::normalize(&reference, before.clone())?;
+        let after = normalize::normalize(&reference, before.clone(), &ExonBounds::unspliced())?;
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
         if placement_changed(&before, &after) {
@@ -2037,7 +2037,7 @@ impl<'a> VariantMapper<'a> {
         let reference = self
             .refs
             .reference(&ac, IdentifierType::TranscriptAccession);
-        let after = normalize::normalize(&reference, before.clone())?;
+        let after = normalize::normalize(&reference, before.clone(), &am.exon_bounds()?)?;
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
         if placement_changed(&before, &after) {
@@ -2768,7 +2768,11 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         let (edit, s, e) = hgvs_edit_for(&reference, kind, start, end, &ref_, &alt)?;
-        let placed = normalize::normalize(&reference, PlacedEdit::from_hgvs_range(s, e, edit))?;
+        let placed = normalize::normalize(
+            &reference,
+            PlacedEdit::from_hgvs_range(s, e, edit),
+            &ExonBounds::unspliced(),
+        )?;
         let (s, e) = placed.hgvs_range();
         Ok(match kind {
             IdentifierType::ProteinAccession => {

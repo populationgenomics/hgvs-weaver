@@ -323,6 +323,17 @@ impl Gene {
         points
     }
 
+    /// Whether every exonic base of the genome is the transcript's base:
+    /// false once [`gene_and_edit`] has made them disagree at one.
+    pub fn genome_agrees_with_transcript(&self) -> bool {
+        let exonic: Vec<TxPoint> = self
+            .points()
+            .into_iter()
+            .filter(|p| p.offset == 0)
+            .collect();
+        self.bases_at(&exonic) == self.transcript_seq
+    }
+
     /// The genome index a point names.
     pub fn genome_index(&self, p: TxPoint) -> usize {
         let exon = self
