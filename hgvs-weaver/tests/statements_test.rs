@@ -432,7 +432,7 @@ fn the_mappers_probably_no_protein_reparses_to_itself() {
 
 #[test]
 fn the_mappers_unknown_effect_reparses_to_itself() {
-    let p = c_to_p("NM_W.1:c.45+1G>A");
+    let p = c_to_p("NM_W.1:c.45+1C>A");
     assert_eq!(parse(&p.to_string()), p);
 }
 

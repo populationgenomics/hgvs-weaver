@@ -179,12 +179,11 @@ fn the_re_read_is_in_the_targets_orientation_on_the_minus_strand() {
 fn an_intronic_position_has_no_transcript_base_to_re_read() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-    // Genome index 52 is in the intron, an A; the edit is carried as given.
+    // Genome index 52 is in the intron, an A; the edit is carried as given,
+    // in both directions.
     assert_eq!(
         g_to_c(&mapper, "NC_D.1:g.53A>G", "NM_SPLICED.1"),
         "NM_SPLICED.1:c.40+3A>G"
     );
-    // And back to the genome it is re-read against the genome, which has it.
     assert_eq!(c_to_g(&mapper, "NM_SPLICED.1:c.40+3A>G"), "NC_D.1:g.53A>G");
-    assert_eq!(c_to_g(&mapper, "NM_SPLICED.1:c.40+3C>G"), "NC_D.1:g.53A>G");
 }

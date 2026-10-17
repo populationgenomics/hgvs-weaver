@@ -359,6 +359,7 @@ impl NaEdit {
             NaEdit::RefAlt { ref_: Some(r), .. }
             | NaEdit::Del { ref_: Some(r), .. }
             | NaEdit::Dup { ref_: Some(r), .. }
+            | NaEdit::Inv { ref_: Some(r), .. }
             | NaEdit::DelInsLength { ref_: Some(r), .. }
                 if !is_length(r) =>
             {
@@ -368,37 +369,89 @@ impl NaEdit {
         }
     }
 
+    /// The unit a repeat states (`CAG` of `CAG[12]`), which the sequence must
+    /// carry where the repeat starts.
+    pub fn stated_unit(&self) -> Option<&str> {
+        match self {
+            NaEdit::Repeat { ref_: Some(u), .. } if !is_length(u) => Some(u),
+            _ => None,
+        }
+    }
+
+    /// Whether the edit states bases the reference must hold: reference bases
+    /// or a repeat's unit.
+    pub fn states_bases(&self) -> bool {
+        self.stated_ref().is_some() || self.stated_unit().is_some()
+    }
+
+    /// Refuses the edit when the bases it states are not what `accession`
+    /// holds, read through `fetch`: the bases over `[start, end)`, or a
+    /// repeat's unit at `start`. `fetch` is called only for an edit that
+    /// states bases.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::ReferenceMismatch`] naming the stated and the held bases.
+    pub fn check_stated(
+        &self,
+        accession: &str,
+        start: usize,
+        end: usize,
+        fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+    ) -> Result<(), HgvsError> {
+        let (stated, end) = match (self.stated_ref(), self.stated_unit()) {
+            (Some(r), _) => (r, end),
+            (None, Some(u)) => (u, start + u.len()),
+            (None, None) => return Ok(()),
+        };
+        let found = fetch(start, end)?;
+        if stated.eq_ignore_ascii_case(&found) {
+            return Ok(());
+        }
+        Err(HgvsError::ReferenceMismatch {
+            accession: accession.to_string(),
+            expected: stated.to_string(),
+            found,
+            start,
+            end,
+        })
+    }
+
     /// Resolves the edit over `[start, end)` of `reference`.
     ///
     /// `[start, end)` is the range HGVS writes: the two flanking bases for an
-    /// insertion, the edited bases for everything else. Implied bases (an
-    /// unstated deletion, a duplication, an inversion) are read from the
-    /// reference here, once.
+    /// insertion, the edited bases for everything else. The reference bases
+    /// are read from the reference, once, and any the edit states are
+    /// checked against them.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::ReferenceMismatch`] when the edit states bases the
+    /// reference does not hold over the range.
     pub fn resolve(
         &self,
         reference: &Reference<'_, '_>,
         start: usize,
         end: usize,
     ) -> Result<ResolvedEdit, HgvsError> {
-        self.resolve_with(start, end, |s, e| reference.slice(s, e))
+        self.resolve_with(reference.accession(), start, end, |s, e| {
+            reference.slice(s, e)
+        })
     }
 
-    /// As [`resolve`](Self::resolve), reading reference bases through `fetch`.
+    /// As [`resolve`](Self::resolve), reading the bases of `accession`
+    /// through `fetch`.
     pub fn resolve_with(
         &self,
+        accession: &str,
         start: usize,
         end: usize,
         fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
     ) -> Result<ResolvedEdit, HgvsError> {
-        let stated_or_fetched = |stated: &Option<String>| -> Result<String, HgvsError> {
-            match stated {
-                Some(r) if !is_length(r) => Ok(r.clone()),
-                _ => fetch(start, end),
-            }
-        };
+        self.check_stated(accession, start, end, &fetch)?;
         let (ref_, alt) = match self {
             NaEdit::RefAlt { ref_, alt, .. } => {
-                let r = stated_or_fetched(ref_)?;
+                let r = fetch(start, end)?;
                 let a = if ref_.is_none() && alt.is_none() {
                     r.clone()
                 } else {
@@ -406,7 +459,7 @@ impl NaEdit {
                 };
                 (r, a)
             }
-            NaEdit::Del { ref_, .. } => (stated_or_fetched(ref_)?, String::new()),
+            NaEdit::Del { .. } => (fetch(start, end)?, String::new()),
             NaEdit::Ins { alt, .. } => {
                 let anchor = if end > start { end - 1 } else { start };
                 return Ok(ResolvedEdit {
@@ -416,8 +469,8 @@ impl NaEdit {
                     alt: alt.clone().unwrap_or_default(),
                 });
             }
-            NaEdit::Dup { ref_, .. } => {
-                let r = stated_or_fetched(ref_)?;
+            NaEdit::Dup { .. } => {
+                let r = fetch(start, end)?;
                 let a = format!("{r}{r}");
                 (r, a)
             }
@@ -426,21 +479,20 @@ impl NaEdit {
                 let a = crate::utils::reverse_complement(&r);
                 (r, a)
             }
-            NaEdit::Repeat { ref_, max, .. } => {
+            NaEdit::Repeat { max, .. } => {
                 // `unit[n]`: every existing copy of the unit, starting at `start`,
                 // becomes n copies. The reference is the whole run.
-                let unit = match ref_ {
-                    Some(u) if !is_length(u) => u.clone(),
-                    _ => fetch(start, end)?,
+                let unit = match self.stated_unit() {
+                    Some(u) => u.to_string(),
+                    None => fetch(start, end)?,
                 };
                 let mut run_end = start;
                 if !unit.is_empty() {
-                    while fetch(run_end, run_end + unit.len())? == unit {
+                    while fetch(run_end, run_end + unit.len())?.eq_ignore_ascii_case(&unit) {
                         run_end += unit.len();
                     }
                 }
                 if run_end == start {
-                    // The unit is not there at all; read the stated range.
                     run_end = end;
                 }
                 return Ok(ResolvedEdit {
@@ -543,17 +595,22 @@ impl AaEdit {
         start: usize,
         end: usize,
     ) -> Result<ResolvedEdit, HgvsError> {
-        self.resolve_with(start, end, |s, e| reference.slice(s, e))
+        self.resolve_with(reference.accession(), start, end, |s, e| {
+            reference.slice(s, e)
+        })
     }
 
-    /// [`AaEdit::resolve`] with `fetch(start, end)` supplying reference residues.
+    /// [`AaEdit::resolve`] with `fetch(start, end)` supplying the residues of
+    /// `accession`.
     ///
     /// Edits that describe a consequence rather than a sequence (frameshift,
     /// extension, `p.?`, `p.0`, `p.Xxx1?`) cannot be resolved and are
-    /// unsupported. Stated residues are not consulted; the reference is what
-    /// the sequence holds.
+    /// unsupported. The reference is what the sequence holds; a repeat unit
+    /// stated where the sequence does not carry it is a
+    /// [`HgvsError::ReferenceMismatch`].
     pub fn resolve_with(
         &self,
+        accession: &str,
         start: usize,
         end: usize,
         fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
@@ -598,11 +655,13 @@ impl AaEdit {
             AaEdit::Repeat { ref_, max, .. } => {
                 // `unit[n]`: every existing copy of the unit, starting at
                 // `start`, becomes n copies. The reference is the whole run.
-                let unit = match ref_ {
-                    Some(u) if !u.is_empty() && !u.chars().all(|c| c.is_ascii_digit()) => {
-                        residues_1(u)?
-                    }
-                    _ => fetch(start, end)?,
+                let stated = match ref_ {
+                    Some(u) if !is_length(u) => Some(residues_1(u)?),
+                    _ => None,
+                };
+                let unit = match &stated {
+                    Some(u) => u.clone(),
+                    None => fetch(start, end)?,
                 };
                 let mut run_end = start;
                 if !unit.is_empty() {
@@ -611,6 +670,9 @@ impl AaEdit {
                     }
                 }
                 if run_end == start {
+                    if let Some(u) = &stated {
+                        return Err(unit_absent(accession, u, start, &fetch)?);
+                    }
                     run_end = end;
                 }
                 return Ok(ResolvedEdit {
@@ -637,6 +699,22 @@ impl AaEdit {
     }
 }
 
+/// The error for a repeat whose stated unit is not at `start` of `accession`.
+fn unit_absent(
+    accession: &str,
+    unit: &str,
+    start: usize,
+    fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+) -> Result<HgvsError, HgvsError> {
+    Ok(HgvsError::ReferenceMismatch {
+        accession: accession.to_string(),
+        expected: unit.to_string(),
+        found: fetch(start, start + unit.len())?,
+        start,
+        end: start + unit.len(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -644,7 +722,7 @@ mod tests {
     fn resolve(edit: NaEdit, start: usize, end: usize) -> ResolvedEdit {
         //          0123456789
         let seq = "TTCAGCAGTT";
-        edit.resolve_with(start, end, |s, e| {
+        edit.resolve_with("X", start, end, |s, e| {
             Ok(seq[s.min(seq.len())..e.min(seq.len())].to_string())
         })
         .unwrap()

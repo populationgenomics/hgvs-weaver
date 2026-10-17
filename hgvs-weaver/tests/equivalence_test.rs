@@ -5,12 +5,11 @@ use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use support::Provider;
 
-/// ACGT repeated, served as the genome and as the "protein" of NP_0001.1 alike.
+/// ACGT repeated as the genome, and a protein NP_0001.1 with Trp2.
 fn provider() -> Provider {
-    let seq = "ACGT".repeat(1000);
     Provider::new()
-        .sequence("NC_TEST.1", &seq)
-        .sequence("NP_0001.1", &seq)
+        .sequence("NC_TEST.1", &"ACGT".repeat(1000))
+        .sequence("NP_0001.1", &format!("MW{}", "A".repeat(500)))
 }
 
 #[test]

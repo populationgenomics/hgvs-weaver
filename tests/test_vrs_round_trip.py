@@ -82,5 +82,5 @@ def test_spdi_reads_back() -> None:
     assert str(mapper.from_spdi("NC_TEST.1:6:G:C")) == "NC_TEST.1:g.7G>C"
     assert str(mapper.from_spdi("NC_TEST.1:6:1:C")) == "NC_TEST.1:g.7G>C"
     assert str(mapper.from_spdi("NP_TEST.1:3:AAA:AA")) == "NP_TEST.1:p.Ala6del"
-    with pytest.raises(weaver.ValidationError):
+    with pytest.raises(weaver.ReferenceMismatchError):
         mapper.from_spdi("NC_TEST.1:6:A:C")

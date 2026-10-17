@@ -217,7 +217,7 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
         if t.first_codon > t.stop {
             return out.no_change();
         }
-        return out.identity(t.first_codon, t.last_codon);
+        return out.identity(t.first_codon, t.last_codon.min(t.stop));
     }
     if t.in_frame {
         describe_in_frame(&t, &out)
@@ -497,7 +497,7 @@ mod tests {
     fn p(cds: &str, utr: &str, edit: NaEdit, start: usize, end: usize) -> String {
         let coding = format!("{cds}{utr}");
         let resolved = edit
-            .resolve_with(start, end, |s, e| {
+            .resolve_with("NM", start, end, |s, e| {
                 Ok(coding[s.min(coding.len())..e.min(coding.len())].to_string())
             })
             .unwrap();

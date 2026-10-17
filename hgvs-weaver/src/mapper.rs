@@ -65,6 +65,10 @@ fn resolves_over_range(edit: &crate::edits::NaEdit) -> bool {
 /// `c.12468C>A` is `g.…G>A`; the record's `c.1568=` over a genomic T is
 /// `g.…T>C`. This is biocommons hgvs's replace_reference, extended to the
 /// edits whose alternate is derived from the source's bases.
+///
+/// The bases the edit states are checked on the source. With no source, an
+/// intronic position, the edit is carried as given, and the caller checks
+/// what it states on the target.
 fn project_edit(
     edit: &crate::edits::NaEdit,
     source: Option<(&crate::reference::Reference<'_, '_>, (usize, usize))>,
@@ -75,24 +79,14 @@ fn project_edit(
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
     let (t_lo, t_hi) = target_range;
     let carried = || (apply_strand_complement(edit.clone(), strand), t_lo, t_hi);
+    let Some((source, (s_lo, s_hi))) = source else {
+        return Ok(carried());
+    };
+    edit.check_stated(source.accession(), s_lo, s_hi, |s, e| source.slice(s, e))?;
     if !resolves_over_range(edit) {
         return Ok(carried());
     }
-    let resolved = match source {
-        Some((source, (s_lo, s_hi))) => edit.resolve(source, s_lo, s_hi)?,
-        // No source bases (an intronic position of a transcript): only the
-        // bases the edit states can be checked, and an inversion states none.
-        None if edit.stated_ref().is_some()
-            && !matches!(edit, crate::edits::NaEdit::Inv { .. }) =>
-        {
-            edit.resolve_with(t_lo, t_hi, |_, _| {
-                Err(HgvsError::ValidationError(
-                    "no source bases at an intronic position".into(),
-                ))
-            })?
-        }
-        None => return Ok(carried()),
-    };
+    let resolved = edit.resolve(source, s_lo, s_hi)?;
     let orient = |b: &str| match strand {
         crate::data::Strand::Minus => crate::utils::reverse_complement(b),
         crate::data::Strand::Plus => b.to_string(),
@@ -165,20 +159,8 @@ fn apply_strand_complement(
     }
 }
 
-/// True unless the edit states literal reference bases that differ from `actual`.
-/// Whether the bases an edit states as its reference (`c.4G>A`'s G, `c.4delC`'s
-/// C, `c.4dupT`'s T, `c.4_5delGCinsTT`'s GC) are what the sequence holds over
-/// the edit's range. An edit that states none, or only a count (`del3insTT`),
-/// has nothing to check.
-fn stated_ref_matches(edit: &crate::edits::NaEdit, actual: &str) -> bool {
-    edit.stated_ref()
-        .is_none_or(|stated| stated.eq_ignore_ascii_case(actual))
-}
-
 /// The 0-based half-open residue range a p. interval names.
-pub(crate) fn aa_interval_range(
-    pos: &crate::structs::AaInterval,
-) -> Result<(usize, usize), HgvsError> {
+fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize), HgvsError> {
     let start = pos.start.base.to_index().0;
     let last = pos.end.as_ref().map_or(start, |e| e.base.to_index().0);
     if start < 0 || last < start {
@@ -189,6 +171,76 @@ pub(crate) fn aa_interval_range(
         )));
     }
     Ok((start as usize, last as usize + 1))
+}
+
+/// The 0-based half-open residue range a p. variant names on `reference`,
+/// once the residues it states are found there: the residue named at each end
+/// of its interval (`p.Arg2Leu`'s Arg), and any the edit states as its
+/// reference or as the unit a repeat starts with.
+///
+/// # Errors
+///
+/// [`HgvsError::ReferenceMismatch`] for a stated residue the protein does
+/// not hold, a position past its end included; a `ValidationError` for an
+/// interval that runs backwards or names no position.
+pub(crate) fn residue_range(
+    vp: &PVariant,
+    reference: &crate::reference::Reference<'_, '_>,
+) -> Result<(usize, usize), HgvsError> {
+    use crate::edits::AaEdit;
+    let pos = vp
+        .posedit
+        .pos
+        .as_ref()
+        .ok_or_else(|| HgvsError::ValidationError("Missing protein position".into()))?;
+    let (start, end) = aa_interval_range(pos)?;
+    let check = |stated: &str, at: usize, to: usize| -> Result<(), HgvsError> {
+        if stated.is_empty() {
+            return Ok(());
+        }
+        let stated = crate::utils::residues_1(stated)?;
+        let found = reference.slice(at, to)?;
+        // A protein sequence may end before its stop: Ter is then the
+        // position just past the last residue.
+        let stop_past_the_end = stated == "*"
+            && found.is_empty()
+            && at > 0
+            && reference.base(at - 1)?.is_some_and(|b| b != b'*');
+        if stated.eq_ignore_ascii_case(&found) || stop_past_the_end {
+            return Ok(());
+        }
+        Err(HgvsError::ReferenceMismatch {
+            accession: reference.accession().to_string(),
+            expected: stated,
+            found,
+            start: at,
+            end: to,
+        })
+    };
+    check(&pos.start.aa, start, start + 1)?;
+    if let Some(e) = &pos.end {
+        check(&e.aa, end - 1, end)?;
+    }
+    let stated = match &vp.posedit.edit {
+        AaEdit::Subst { ref_, .. } | AaEdit::DelIns { ref_, .. } | AaEdit::Del { ref_, .. } => {
+            Some(ref_.as_str())
+        }
+        AaEdit::Dup { ref_, .. } | AaEdit::RefAlt { ref_, .. } => ref_.as_deref(),
+        _ => None,
+    };
+    if let Some(stated) = stated {
+        check(stated, start, end)?;
+    }
+    if let AaEdit::Repeat {
+        ref_: Some(unit), ..
+    } = &vp.posedit.edit
+    {
+        if !crate::edits::is_length(unit) {
+            let n = crate::utils::residues_1(unit)?.len();
+            check(unit, start, start + n)?;
+        }
+    }
+    Ok((start, end))
 }
 
 /// The VRS bounds of a g. interval whose breakpoints are uncertain, HGVS
@@ -611,21 +663,10 @@ fn resolve_in_transcript(
         let s = s.min(ref_seq.len());
         &ref_seq[s..e.min(ref_seq.len()).max(s)]
     };
-    if let Some(stated) = var_c.posedit.edit.stated_ref() {
-        let actual = window(start, end);
-        if actual != stated {
-            return Err(HgvsError::TranscriptMismatch {
-                expected: stated.to_string(),
-                found: actual.to_string(),
-                start,
-                end,
-            });
-        }
-    }
     var_c
         .posedit
         .edit
-        .resolve_with(start, end, |s, e| Ok(window(s, e).to_string()))
+        .resolve_with(&var_c.ac, start, end, |s, e| Ok(window(s, e).to_string()))
 }
 
 /// The residue a `p.` substitution puts at which 1-based position.
@@ -1076,6 +1117,17 @@ impl<'a> VariantMapper<'a> {
                 }
             }
         }
+        // A g. variant states its bases on the genome, intronic or not.
+        if var_g.posedit.edit.states_bases() {
+            let (s, e) = simple_interval_range(pos)?;
+            let genome = self
+                .refs
+                .reference(&var_g.ac, IdentifierType::GenomicAccession);
+            var_g
+                .posedit
+                .edit
+                .check_stated(&var_g.ac, s, e, |a, b| genome.slice(a, b))?;
+        }
         // Each end occupies a half-open transcript range: one base, or none
         // for a base the transcript lacks.
         let fp_start = am.g_to_n_footprint(pos.start.index()?)?;
@@ -1327,7 +1379,8 @@ impl<'a> VariantMapper<'a> {
         }
 
         // An exonic edit is read on the record and written for the genome. An
-        // intronic one has no record bases; only what it states is checked.
+        // intronic one has no record bases: what it states is checked on the
+        // genome, read on the transcript's strand, and it is carried as given.
         let exonic = pos.start.offset.unwrap_or(zero).0 == 0
             && pos
                 .end
@@ -1352,6 +1405,34 @@ impl<'a> VariantMapper<'a> {
         let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
             (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
         });
+        if !exonic {
+            let (lo, hi) = (g_lo as usize, g_hi as usize);
+            // Offsets from `lo` count along the transcript: on the minus
+            // strand they run down from `hi`, complemented.
+            var_c
+                .posedit()
+                .edit
+                .check_stated(&target_ac, lo, hi, |s, e| {
+                    Ok(match am.transcript.strand {
+                        crate::data::Strand::Minus => crate::utils::reverse_complement(
+                            &target.slice((lo + hi).saturating_sub(e), lo + hi - s)?,
+                        ),
+                        crate::data::Strand::Plus => target.slice(s, e)?,
+                    })
+                })?;
+        }
+        // An intronic repeat at one position names its first unit by its
+        // first base; on the minus strand the unit lies below that base.
+        let (g_lo, g_hi) = match var_c.posedit().edit.stated_unit() {
+            Some(u)
+                if !exonic
+                    && pos.end.is_none()
+                    && am.transcript.strand == crate::data::Strand::Minus =>
+            {
+                ((g_hi - u.len() as i32).max(0), g_hi)
+            }
+            _ => (g_lo, g_hi),
+        };
         let (edit, s, e) = if touches_run {
             project_edit_over_run(
                 &var_c.posedit().edit,
@@ -1430,6 +1511,8 @@ impl<'a> VariantMapper<'a> {
         for tx_ac in transcripts {
             match self.g_to_c(var_g, &tx_ac) {
                 Ok(vc) => results.push(vc),
+                // A base the genome lacks fails on every transcript alike.
+                Err(e @ HgvsError::ReferenceMismatch { .. }) => return Err(e),
                 Err(e) => errors.push(format!("{}: {}", tx_ac, e)),
             }
         }
@@ -1680,6 +1763,11 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
+            // A statement reads no codon, but the bases the edit states must
+            // still be there.
+            if var_c.posedit.edit.states_bases() {
+                self.check_transcript_stated(var_c)?;
+            }
             return Ok(CodingOutcome::Statement(statement));
         }
         let ref_seq = self
@@ -1758,7 +1846,8 @@ impl<'a> VariantMapper<'a> {
     ///
     /// Only handles `AaEdit::Subst` currently. For ambiguous back-conversions (multiple
     /// codons with the same minimum nucleotide distance), the first alphabetically is chosen
-    /// and `is_unique` is set to false.
+    /// and `is_unique` is set to false. The residue it names is read on the
+    /// protein, so the provider must serve the protein's sequence.
     ///
     /// Returns `(CVariant, is_unique)`.
     pub fn p_to_c(
@@ -1767,6 +1856,12 @@ impl<'a> VariantMapper<'a> {
         transcript_ac: Option<&str>,
     ) -> Result<(CVariant, bool), HgvsError> {
         let (aa_pos, alt_aa) = substituted_residue(var_p)?;
+        residue_range(
+            var_p,
+            &self
+                .refs
+                .reference(&var_p.ac, IdentifierType::ProteinAccession),
+        )?;
         let tx_ac = self.transcript_for_protein(&var_p.ac, transcript_ac)?;
         let ref_codon = self.codon_at(&tx_ac, aa_pos)?;
         let (alt_codon, is_unique) = closest_codon(&ref_codon, alt_aa)?;
@@ -1829,137 +1924,107 @@ impl<'a> VariantMapper<'a> {
         Ok(tx_seq[codon_start..codon_end].to_uppercase())
     }
 
-    /// Normalizes a variant to its 3' most position.
-    /// Checks a variant's stated reference bases against the reference sequence.
+    /// Whether the bases and residues a variant states are what its reference
+    /// holds: a `g.` or `m.` base on the genome, an exonic `c.` or `n.` base
+    /// on the transcript record, an intronic one on the genome read on the
+    /// transcript's strand, a `p.` residue on the protein. Every member of a
+    /// cis allele must hold.
     ///
-    /// Returns `Ok(true)` when the stated reference matches, or when the edit
-    /// states no reference (or only a length) so there is nothing to check.
-    /// Intronic c. positions are accepted unchecked. Only g. and c. variants
-    /// are supported.
+    /// Returns `Ok(true)` when they hold, or when the edit states none (or
+    /// only a length); `Ok(false)` where an operation reading the variant
+    /// refuses it with [`HgvsError::ReferenceMismatch`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
+        match self.check_stated(var) {
+            Ok(()) => Ok(true),
+            Err(HgvsError::ReferenceMismatch { .. }) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// [`validate`](Self::validate) as an error: `Ok` when every base and
+    /// residue the variant states is there.
+    pub(crate) fn check_stated(&self, var: &crate::SequenceVariant) -> Result<(), HgvsError> {
         match var {
-            crate::SequenceVariant::Genomic(v) => self.validate_linear(v),
-            crate::SequenceVariant::Mitochondrial(v) => self.validate_linear(v),
+            crate::SequenceVariant::Genomic(v) => self.check_linear_stated(v),
+            crate::SequenceVariant::Mitochondrial(v) => self.check_linear_stated(v),
             crate::SequenceVariant::Coding(v)
                 if matches!(v.posedit.edit, crate::edits::NaEdit::WholeIdentity) =>
             {
-                self.validate_whole_identity(v)
+                self.check_whole_identity(v)
             }
-            crate::SequenceVariant::Coding(v) => self.validate_transcript(v),
-            crate::SequenceVariant::NonCoding(v) => self.validate_transcript(v),
-            crate::SequenceVariant::Protein(v) => self.validate_protein(v),
-            crate::SequenceVariant::Rna(r) => self.validate(&self.r_as_transcript(r)?),
-            // A cis allele holds when every member does.
+            crate::SequenceVariant::Coding(v) => self.check_transcript_stated(v),
+            crate::SequenceVariant::NonCoding(v) => self.check_transcript_stated(v),
+            // A statement about the whole protein (`p.=`, `p.?`) names no residue.
+            crate::SequenceVariant::Protein(v) if v.posedit.pos.is_none() => Ok(()),
+            crate::SequenceVariant::Protein(v) => residue_range(
+                v,
+                &self.refs.reference(&v.ac, IdentifierType::ProteinAccession),
+            )
+            .map(|_| ()),
+            // r.=, r.0, r.spl and their kind state no base.
+            crate::SequenceVariant::Rna(r) if r.posedit.edit.is_whole_transcript() => Ok(()),
+            crate::SequenceVariant::Rna(r) => self.check_stated(&self.r_as_transcript(r)?),
             crate::SequenceVariant::CisPhased(cis) => {
-                for m in &cis.members {
-                    if !self.validate(m)? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
+                cis.members.iter().try_for_each(|m| self.check_stated(m))
             }
         }
     }
 
     /// `c.=` names no bases, so there is nothing to check once its
     /// transcript is found to be a coding one.
-    fn validate_whole_identity(&self, v: &CVariant) -> Result<bool, HgvsError> {
+    fn check_whole_identity(&self, v: &CVariant) -> Result<(), HgvsError> {
         if !self.has_cds(&v.ac)? {
             return Err(HgvsError::ValidationError(format!(
                 "{v} describes a coding sequence, but {} has no CDS",
                 v.ac
             )));
         }
-        Ok(true)
+        Ok(())
     }
 
-    /// Whether the residues a p. variant names at its positions, and any it
-    /// states as reference, are what the protein sequence holds.
-    fn validate_protein(&self, v: &PVariant) -> Result<bool, HgvsError> {
-        let pos = v
-            .posedit
-            .pos
-            .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        let (start, end) = aa_interval_range(pos)?;
-        let actual = self
-            .refs
-            .reference(&v.ac, IdentifierType::ProteinAccession)
-            .slice(start, end)?;
-        if actual.len() != end - start {
-            return Ok(false); // the range runs past the end of the protein
-        }
-        let named = |aa: &str, at: usize| -> Result<bool, HgvsError> {
-            Ok(aa.is_empty() || crate::utils::residues_1(aa)? == actual[at..=at])
-        };
-        if !named(&pos.start.aa, 0)? {
-            return Ok(false);
-        }
-        if let Some(e) = &pos.end {
-            if !named(&e.aa, actual.len() - 1)? {
-                return Ok(false);
-            }
-        }
-        use crate::edits::AaEdit;
-        let stated = match &v.posedit.edit {
-            AaEdit::Subst { ref_, .. } | AaEdit::DelIns { ref_, .. } | AaEdit::Del { ref_, .. } => {
-                Some(ref_.as_str())
-            }
-            AaEdit::Dup { ref_, .. } | AaEdit::RefAlt { ref_, .. } => ref_.as_deref(),
-            AaEdit::Repeat { ref_, .. } => ref_
-                .as_deref()
-                .filter(|u| !u.chars().all(|c| c.is_ascii_digit())),
-            _ => None,
-        }
-        .filter(|r| !r.is_empty());
-        match stated {
-            Some(r) => Ok(crate::utils::residues_1(r)? == actual),
-            None => Ok(true),
-        }
-    }
-
-    fn validate_linear<L: LinearVariant>(&self, v: &L) -> Result<bool, HgvsError> {
+    fn check_linear_stated<L: LinearVariant>(&self, v: &L) -> Result<(), HgvsError> {
+        let edit = &v.posedit().edit;
         let pos = v
             .posedit()
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
         let (start, end) = simple_interval_range(pos)?;
-        let ref_seq = self
+        let reference = self
             .refs
-            .reference(v.ac(), IdentifierType::GenomicAccession)
-            .slice(start, end)?;
-        Ok(stated_ref_matches(&v.posedit().edit, &ref_seq))
+            .reference(v.ac(), IdentifierType::GenomicAccession);
+        edit.check_stated(v.ac(), start, end, |s, e| reference.slice(s, e))
     }
 
-    fn validate_transcript<V: TranscriptVariant>(&self, v: &V) -> Result<bool, HgvsError> {
-        let transcript = self.provider().get_transcript(v.ac(), None)?;
+    /// The bases a c. or n. variant states, on the record where it is exonic
+    /// and on the genome, through the projection, where it is not.
+    fn check_transcript_stated<V: TranscriptVariant>(&self, v: &V) -> Result<(), HgvsError> {
+        let edit = &v.posedit().edit;
         let pos = v
             .posedit()
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
         if has_intronic_offset(pos) {
-            return Ok(true);
+            if !edit.states_bases() {
+                return Ok(());
+            }
+            return self.tx_to_g(v, None).map(|_| ());
         }
-        let am = TranscriptMapper::new(transcript)?;
+        let am = TranscriptMapper::new(self.provider().get_transcript(v.ac(), None)?)?;
         let (n_start, n_end) = am.interval_to_n(pos)?;
-        let start_idx = checked_usize(n_start.0, "transcript start index")?;
-        let end_idx = checked_usize(n_end.0, "transcript end index")?;
-
-        let ref_seq = self
+        let start = checked_usize(n_start.0, "transcript start index")?;
+        let end = checked_usize(n_end.0, "transcript end index")?;
+        let reference = self
             .refs
-            .reference(v.ac(), IdentifierType::TranscriptAccession)
-            .whole()?;
-        if start_idx >= ref_seq.len() || end_idx > ref_seq.len() {
-            return Err(HgvsError::ValidationError(
-                "Transcript sequence too short".into(),
-            ));
+            .reference(v.ac(), IdentifierType::TranscriptAccession);
+        if reference.slice(start, end)?.len() != end - start {
+            return Err(HgvsError::ValidationError(format!(
+                "{} is shorter than the range {start}..{end} its variant names",
+                v.ac()
+            )));
         }
-        Ok(stated_ref_matches(
-            &v.posedit().edit,
-            &ref_seq[start_idx..end_idx],
-        ))
+        edit.check_stated(v.ac(), start, end, |s, e| reference.slice(s, e))
     }
 
     pub fn normalize_variant(
@@ -1993,7 +2058,12 @@ impl<'a> VariantMapper<'a> {
                     members,
                 })
             }
-            other => other,
+            // A p. description is not normalised, but what it names is read.
+            SV::Protein(v) => {
+                let p = SV::Protein(v);
+                self.check_stated(&p)?;
+                p
+            }
         })
     }
 
@@ -2029,7 +2099,9 @@ impl<'a> VariantMapper<'a> {
         };
         if has_intronic_offset(pos) {
             // An intronic base has no transcript index; there is nothing to
-            // normalise against in transcript space. Leave the variant as written.
+            // normalise against in transcript space. Leave the variant as
+            // written, once what it states is found on the genome.
+            self.check_transcript_stated(&v)?;
             return Ok(v);
         }
         let (start, end) = self.get_c_indices(pos, &am)?;
@@ -2088,15 +2160,10 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         if let crate::SequenceVariant::Protein(vp) = var {
-            let pos = vp
-                .posedit
-                .pos
-                .as_ref()
-                .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-            let (start, end) = aa_interval_range(pos)?;
             let reference = self
                 .refs
                 .reference(&vp.ac, IdentifierType::ProteinAccession);
+            let (start, end) = residue_range(vp, &reference)?;
             let mut resolved = vp.posedit.edit.resolve(&reference, start, end)?;
             // A stop among the new residues ends the protein there: everything
             // from it to the end of the reference goes too. p.Tyr165Ter and
@@ -2345,6 +2412,12 @@ impl<'a> VariantMapper<'a> {
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
         let (start, end) = interval_bounds(pos)?;
+        if let (VrsBound::Exact(s), VrsBound::Exact(e)) = (start, end) {
+            let genome = self.refs.reference(&g.ac, IdentifierType::GenomicAccession);
+            g.posedit
+                .edit
+                .check_stated(&g.ac, s, e, |a, b| genome.slice(a, b))?;
+        }
         let refget = self
             .refs
             .reference(&g.ac, IdentifierType::GenomicAccession)
@@ -2443,10 +2516,14 @@ impl<'a> VariantMapper<'a> {
         } else {
             let end = start.checked_add(del.len()).ok_or_else(past_any_sequence)?;
             let actual = self.refs.reference(ac, kind).slice(start, end)?;
-            if actual != del {
-                return Err(HgvsError::ValidationError(format!(
-                    "SPDI deletion {del:?} is not what {ac} holds at {start}: {actual:?}"
-                )));
+            if !actual.eq_ignore_ascii_case(del) {
+                return Err(HgvsError::ReferenceMismatch {
+                    accession: ac.to_string(),
+                    expected: del.to_string(),
+                    found: actual,
+                    start,
+                    end,
+                });
             }
             end
         };
@@ -2808,12 +2885,14 @@ impl<'a> VariantMapper<'a> {
 
     /// The variant as a `g.` variant on its reference: genomic and mitochondrial
     /// as written, transcript-space variants mapped through their transcript.
-    /// `None` for protein and RNA variants.
+    /// Either way the bases it states are checked, so a mismatch is a
+    /// [`HgvsError::ReferenceMismatch`]. `None` for protein variants and
+    /// cis alleles.
     pub fn as_genomic(&self, var: &crate::SequenceVariant) -> Option<Result<GVariant, HgvsError>> {
         use crate::SequenceVariant as SV;
         Some(match var {
-            SV::Genomic(v) => Ok(v.clone()),
-            SV::Mitochondrial(v) => Ok(v.to_genomic()),
+            SV::Genomic(v) => self.check_linear_stated(v).map(|()| v.clone()),
+            SV::Mitochondrial(v) => self.check_linear_stated(v).map(|()| v.to_genomic()),
             SV::Coding(v) => self.tx_to_g(v, None),
             SV::NonCoding(v) => self.tx_to_g(v, None),
             SV::Rna(r) => self.r_to_g(r, None),

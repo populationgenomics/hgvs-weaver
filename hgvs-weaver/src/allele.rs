@@ -246,15 +246,6 @@ mod tests {
     }
 
     #[test]
-    fn a_stated_reference_that_disagrees_with_the_sequence_is_ignored() {
-        // The variant claims G>A at index 4, but the sequence has A there:
-        // nothing changes, and the allele says so with the sequence's bases.
-        let e = canon(SEQ, sub("G", "A"), 3, 4);
-        assert!(e.is_reference());
-        assert_eq!(e.spdi(), "X:3:A:A");
-    }
-
-    #[test]
     fn identity_is_a_reference_allele_over_its_range() {
         let e = canon(
             SEQ,

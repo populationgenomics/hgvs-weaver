@@ -445,7 +445,7 @@ fn a_genome_base_the_transcript_lacks_on_the_minus_strand() {
 fn a_genome_base_the_transcript_lacks_at_the_edge_of_an_exon_has_no_transcript_position() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-    for s in ["NC_000099.1:g.11A>C", "NC_000099.1:g.13T>C"] {
+    for s in ["NC_000099.1:g.11C>G", "NC_000099.1:g.13A>C"] {
         let err = to_c(&mapper, s, "TX_DELEDGE.1").unwrap_err();
         assert!(err.contains("TX_DELEDGE.1 lacks"), "{s}: {err}");
         assert!(err.contains("edge of an exon"), "{s}: {err}");

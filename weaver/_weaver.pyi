@@ -28,6 +28,14 @@ class IdentifierType:
 
 class ParseError(HGVSError): ...
 
+class ReferenceMismatchError(HGVSError):
+    """A base or residue a description states is not what its reference holds.
+
+    The reference is the transcript record for an exonic c., n. or r. base, the genome (on the
+    transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by
+    every operation that reads the stated bases; Variant.validate answers False instead.
+    """
+
 @final
 class StartCodonConvention:
     """
@@ -44,7 +52,6 @@ class StartCodonConvention:
     def __eq__(self, value: object) -> bool: ...
     def __hash__(self) -> int: ...
 
-class TranscriptMismatchError(HGVSError): ...
 class UnsupportedOperationError(HGVSError): ...
 class ValidationError(HGVSError): ...
 
@@ -111,18 +118,24 @@ class Variant:
         """
     def validate(self, provider: Any) -> bool:
         """
-        Validates the variant's reference sequence against the provided DataProvider.
+        Validates the bases and residues the variant states against the provided DataProvider.
+
+        An exonic c., n. or r. base is read on the transcript record, an intronic one
+        on the genome (on the transcript's strand), a g. or m. base on the genome and a
+        p. residue on the protein.
 
         Args:
             provider: The data provider instance for sequence retrieval.
 
         Returns:
-            True if the reference sequence matches, False otherwise. c.= names no
-            bases and is True once its transcript is found to have a CDS.
+            True if every stated base is there, False where an operation reading the
+            variant would raise ReferenceMismatchError. c.= names no bases and is True
+            once its transcript is found to have a CDS.
 
         Raises:
             ValidationError: If transcript sequence is too short or coordinates are out of bounds,
-                or c.= is on a transcript without a CDS.
+                or c.= is on a transcript without a CDS. An intronic c. or n. variant
+                is projected to the genome to be read, so a projection's error is raised too.
             DataProviderError: If sequence data cannot be retrieved.
         """
 
@@ -176,6 +189,8 @@ class VariantMapper:
         Raises:
             ValueError: If var_c is not a coding variant or an allele
                 in cis of them.
+            ReferenceMismatchError: If a base the variant states is not the record's
+                (exonic) or the genome's on the transcript's strand (intronic).
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = ...) -> Variant:
@@ -415,7 +430,8 @@ class VariantMapper:
 
         Currently handles single amino acid substitutions only. When multiple codons
         could produce the target amino acid, the one requiring the fewest nucleotide
-        changes is chosen.
+        changes is chosen. The residue var_p names is read on the protein, so the
+        provider must serve the protein's sequence.
 
         Args:
             var_p: The protein Variant to back-convert.
@@ -427,6 +443,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_p is not a protein variant.
+            ReferenceMismatchError: If the residue var_p names is not the protein's.
             HGVSError: If back-conversion fails due to unsupported consequence or missing transcript.
         """
     def to_spdi(self, var: Variant, unambiguous: bool = ...) -> str:
