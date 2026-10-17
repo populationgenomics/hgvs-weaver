@@ -222,7 +222,11 @@ impl Reading {
         if self.unchanged() {
             // A difference entirely past the stop is no change to the protein;
             // it is not written against a residue the protein does not have.
-            if self.first_codon > self.stop {
+            // Nor is one over every codon through the stop written residue by
+            // residue: it is the whole protein.
+            if self.first_codon > self.stop
+                || (self.first_codon == 0 && self.last_codon >= self.stop)
+            {
                 return out.no_change();
             }
             return out.identity(self.first_codon, self.last_codon.min(self.stop));
