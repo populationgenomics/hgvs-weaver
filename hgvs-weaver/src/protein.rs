@@ -15,6 +15,7 @@ use crate::structs::{AAPosition, AaInterval, PVariant, PosEdit, ProteinPos};
 use crate::utils::{aa1_to_aa3, translate};
 
 /// A nucleotide edit placed on a coding sequence.
+#[derive(Debug, Clone)]
 pub struct CodingChange {
     /// Reference transcript bases from the first base of the CDS to the end
     /// of the transcript, so that read-through past the stop can be translated.
@@ -42,11 +43,11 @@ fn splice(seq: &str, start: usize, end: usize, insert: &str) -> String {
 }
 
 /// A coding change read at the protein level: both translations, and the
-/// indices every rule about stops and frames refers to. `describe` and
-/// `proteins` are two readers of the same reading.
-struct Reading {
-    start: usize,
-    alt_len: usize,
+/// indices every rule about stops and frames refers to. Building one is two
+/// translations, so a caller that asks whether translation
+/// [runs off](Self::runs_off) and then describes the change translates once.
+pub(crate) struct Reading {
+    change: CodingChange,
     ref_aa: Vec<char>,
     alt_aa: Vec<char>,
     /// The reference stop: the codon the CDS end declares, when that codon
@@ -66,11 +67,11 @@ struct Reading {
 }
 
 impl Reading {
-    fn new(change: &CodingChange) -> Self {
+    pub(crate) fn new(change: CodingChange) -> Self {
         let ResolvedEdit {
             start, end, alt, ..
         } = &change.edit;
-        let (start, end, alt) = (*start, *end, alt.as_str());
+        let (start, end) = (*start, *end);
         let alt_nt = splice(&change.coding, start, end, alt);
         let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
         let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
@@ -98,8 +99,7 @@ impl Reading {
             first_changed += 1;
         }
         Reading {
-            start,
-            alt_len: alt.len(),
+            change,
             ref_aa,
             alt_aa,
             stop,
@@ -112,18 +112,32 @@ impl Reading {
         }
     }
 
-    /// The reading of a change whose protein can be predicted: one that does
-    /// not [run off](Self::runs_off) the edited transcript.
-    fn predictable(change: &CodingChange) -> Result<Self, HgvsError> {
-        let t = Self::new(change);
-        if t.runs_off() {
+    /// The change this is a reading of.
+    pub(crate) fn change(&self) -> &CodingChange {
+        &self.change
+    }
+
+    /// Where the edit starts in the coding sequence.
+    fn start(&self) -> usize {
+        self.change.edit.start
+    }
+
+    /// Where the bases the edit inserts end in the edited sequence.
+    fn inserted_end(&self) -> usize {
+        self.change.edit.start + self.change.edit.alt.len()
+    }
+
+    /// Refuses a change whose protein cannot be predicted: one that
+    /// [runs off](Self::runs_off) the edited transcript.
+    fn check_predictable(&self) -> Result<(), HgvsError> {
+        if self.runs_off() {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "the edited transcript ends before a codon at residue {}: translation runs off its end \
                  with no residue to name, so what the protein becomes is not predicted",
-                t.first_changed + 1
+                self.first_changed + 1
             )));
         }
-        Ok(t)
+        Ok(())
     }
 
     /// The edited transcript ends before a codon at the first changed
@@ -131,7 +145,7 @@ impl Reading {
     /// there is no residue there to name. An in-frame edit of a reference
     /// with no stop (a CDS open at its 3' end) loses none, and an alternate
     /// that is a prefix of it is a deletion.
-    fn runs_off(&self) -> bool {
+    pub(crate) fn runs_off(&self) -> bool {
         !self.unchanged()
             && (self.stop < self.ref_aa.len() || !self.in_frame)
             && self.first_changed >= self.alt_aa.len()
@@ -158,7 +172,7 @@ impl Reading {
             Some(j)
         } else if !self.in_frame {
             None
-        } else if j >= (self.start + self.alt_len).div_ceil(3) {
+        } else if j >= self.inserted_end().div_ceil(3) {
             Some((j as i64 - self.net / 3).max(0) as usize)
         } else {
             Some(j)
@@ -186,44 +200,50 @@ impl Reading {
             .max(self.first_changed + 1)
             .min(self.ref_aa.len())
     }
-}
 
-/// Whether `change` leaves no codon where the protein first changes, so no
-/// protein can be predicted from it: `describe` and `proteins` refuse it.
-pub fn translation_runs_off(change: &CodingChange) -> bool {
-    Reading::new(change).runs_off()
+    /// [`proteins`](crate::protein::proteins) of the change read.
+    pub(crate) fn proteins(&self) -> Result<(String, String), HgvsError> {
+        self.check_predictable()?;
+        let reference: String = self.ref_aa[..self.stop.min(self.ref_aa.len())]
+            .iter()
+            .collect();
+        let alternate: String = self.alt_aa[..self.alt_stop()].iter().collect();
+        Ok((reference, alternate))
+    }
+
+    /// [`describe`](crate::protein::describe) of the change read.
+    pub(crate) fn describe(&self) -> Result<PVariant, HgvsError> {
+        self.check_predictable()?;
+        let out = Writer {
+            ref_aa: &self.ref_aa,
+            alt_aa: &self.alt_aa,
+            protein_ac: &self.change.protein_ac,
+        };
+        if self.unchanged() {
+            // A difference entirely past the stop is no change to the protein;
+            // it is not written against a residue the protein does not have.
+            if self.first_codon > self.stop {
+                return out.no_change();
+            }
+            return out.identity(self.first_codon, self.last_codon.min(self.stop));
+        }
+        if self.in_frame {
+            describe_in_frame(self, &out)
+        } else {
+            describe_frameshift(self, &out)
+        }
+    }
 }
 
 /// The reference protein and the protein `change` produces, in 1-letter code
 /// without their stops: what a protein allele is made of.
 pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
-    let t = Reading::predictable(change)?;
-    let reference: String = t.ref_aa[..t.stop.min(t.ref_aa.len())].iter().collect();
-    let alternate: String = t.alt_aa[..t.alt_stop()].iter().collect();
-    Ok((reference, alternate))
+    Reading::new(change.clone()).proteins()
 }
 
 /// Describes the protein consequence of `change` in HGVS p. terms.
 pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
-    let t = Reading::predictable(change)?;
-    let out = Writer {
-        ref_aa: &t.ref_aa,
-        alt_aa: &t.alt_aa,
-        protein_ac: &change.protein_ac,
-    };
-    if t.unchanged() {
-        // A difference entirely past the stop is no change to the protein;
-        // it is not written against a residue the protein does not have.
-        if t.first_codon > t.stop {
-            return out.no_change();
-        }
-        return out.identity(t.first_codon, t.last_codon.min(t.stop));
-    }
-    if t.in_frame {
-        describe_in_frame(&t, &out)
-    } else {
-        describe_frameshift(&t, &out)
-    }
+    Reading::new(change.clone()).describe()
 }
 
 /// An out-of-frame edit: a frameshift, unless a stop formed entirely from the
@@ -232,9 +252,9 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
 /// changed residue is the stop itself (then it reads through: an extension).
 fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
-    let inserted_end = t.start + t.alt_len;
+    let inserted_end = t.inserted_end();
     if let Some(j) = (i..t.alt_aa.len()).find(|&j| t.alt_aa[j] == '*') {
-        if j * 3 >= t.start && (j + 1) * 3 <= inserted_end {
+        if j * 3 >= t.start() && (j + 1) * 3 <= inserted_end {
             if j == i {
                 return out.substitution(i, t.ref_aa[i], '*');
             }

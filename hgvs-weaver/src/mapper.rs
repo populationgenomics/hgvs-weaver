@@ -693,7 +693,7 @@ fn protein_variant(
 enum CodingOutcome {
     /// A statement rather than a change: `p.?`, `p.(Met1?)`, `p.0?`, `p.(=)`.
     Statement(PVariant),
-    Change(crate::protein::CodingChange),
+    Change(crate::protein::Reading),
 }
 
 /// The protein statement `statement` predicted from `var_c`, bracketed as
@@ -1752,8 +1752,8 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<PVariant, HgvsError> {
         match self.coding_outcome(var_c, protein_ac)? {
             CodingOutcome::Statement(p) => Ok(p),
-            CodingOutcome::Change(change) => {
-                let mut var_p = crate::protein::describe(&change)?;
+            CodingOutcome::Change(reading) => {
+                let mut var_p = reading.describe()?;
                 var_p.posedit.predicted = true;
                 Ok(var_p)
             }
@@ -1794,8 +1794,9 @@ impl<'a> VariantMapper<'a> {
                     )))
                 }
             },
-            CodingOutcome::Change(change) => {
-                let (r, a) = crate::protein::proteins(&change)?;
+            CodingOutcome::Change(reading) => {
+                let (r, a) = reading.proteins()?;
+                let change = reading.change();
                 if r == a {
                     let first = change.edit.start / 3;
                     let last = change.edit.end.max(change.edit.start + 1) - 1;
@@ -1804,7 +1805,7 @@ impl<'a> VariantMapper<'a> {
                         (last / 3 + 1).clamp(first.min(r.len()), r.len()),
                     ));
                 }
-                (change.protein_ac, r, a)
+                (change.protein_ac.clone(), r, a)
             }
         };
         let np = self
@@ -1857,7 +1858,7 @@ impl<'a> VariantMapper<'a> {
                 }) => Some(String::new()),
                 _ => None,
             },
-            CodingOutcome::Change(change) => Some(crate::protein::proteins(&change)?.1),
+            CodingOutcome::Change(reading) => Some(reading.proteins()?.1),
         })
     }
 
@@ -1941,15 +1942,16 @@ impl<'a> VariantMapper<'a> {
             },
             protein_ac,
         };
-        if crate::protein::translation_runs_off(&change) {
+        let reading = crate::protein::Reading::new(change);
+        if reading.runs_off() {
             return Ok(CodingOutcome::Statement(predicted_statement(
                 var_c,
-                &change.protein_ac,
+                &reading.change().protein_ac,
                 None,
                 crate::structs::ProteinStatement::Unknown,
             )));
         }
-        Ok(CodingOutcome::Change(change))
+        Ok(CodingOutcome::Change(reading))
     }
 
     /// `p.(=)` for `c.=`: the whole transcript unchanged predicts the protein
