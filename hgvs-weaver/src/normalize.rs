@@ -134,8 +134,7 @@ impl ExonBounds {
 /// is, and loses what its inserted bases share with them at either end; what
 /// remains is written as the substitution, deletion, insertion, duplication,
 /// inversion or delins it is, and normalised as that. One that changes a base
-/// at each end cannot slide and stays where it is. A substitution is left as
-/// written.
+/// at each end cannot slide and stays where it is; a substitution is one.
 ///
 /// No end of the edit leaves the exon it was written in: the shift stops at
 /// the last base of the exon, and an insertion is neither slid onto a junction
@@ -167,7 +166,7 @@ pub fn normalize(
             alt: Some(alt),
             uncertain,
             ..
-        } if end > start && !edit.is_identity() && !is_substitution(&edit, start, end) => {
+        } if end > start && !edit.is_identity() => {
             reduce_delins(reference, start, end, alt, *uncertain, exons)
         }
         NaEdit::Del { .. } | NaEdit::Dup { .. } if end > start => {
@@ -241,14 +240,6 @@ fn without_stated_bases(edit: NaEdit) -> NaEdit {
         },
         other => other,
     }
-}
-
-/// A single base replaced by a single base, as written: `c.4G>A`. Its stated
-/// base is the description's own, so it is not read again from the reference.
-fn is_substitution(edit: &NaEdit, start: usize, end: usize) -> bool {
-    end - start == 1
-        && matches!(edit, NaEdit::RefAlt { alt: Some(a), .. } if a.len() == 1)
-        && edit.stated_ref().is_some_and(|r| r.len() == 1)
 }
 
 /// The delins over `[start, end)` that inserts `alt`, reduced and normalised.

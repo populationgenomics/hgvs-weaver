@@ -825,8 +825,9 @@ shifted 3' within its exon. A delins that changes a base at each end cannot slid
 One change has more than one spelling as a delins: `delCinsCA` and `insA` put the same A after the same C, and a delins
 written over a wider range than the change says the same thing again. The 3' rule is stated for every description, and a
 delins that is really an insertion has a 3'-most position like any insertion. Reducing first gives each change one
-spelling; reading the deleted bases from the reference, as the canonical allele does, means the bases a description
-states after `del` are not written back ([below](#deletions-and-duplications-are-written-bare)).
+spelling. Deleted bases a delins states are checked against the reference first
+([below](#a-stated-base-the-reference-lacks-is-an-error)), and are not written back
+([below](#deletions-and-duplications-are-written-bare)).
 
 On a transcript, the reduction respects the exons as a shift does ([above](#a-shift-stops-at-an-exonexon-junction)):
 
@@ -887,7 +888,7 @@ NM_J.1:c.5_6delinsAGA    →  NM_J.1:c.5_6delinsAGA    removes the intron, which
   `::a_delins_that_keeps_its_last_base_is_an_insertion`, `::a_delins_that_is_a_deletion_is_shifted_3_prime`,
   `::a_delins_that_changes_one_base_is_a_substitution`, `::a_delins_that_is_the_reverse_complement_is_an_inversion`,
   `::a_delins_that_changes_a_base_at_each_end_stays_where_it_is`, `::a_delins_is_written_without_its_deleted_bases`,
-  `::a_delins_that_changes_nothing_is_an_identity`, `::one_base_stated_over_two_is_a_delins_of_the_two`,
+  `::a_delins_that_changes_nothing_is_an_identity`,
   `::a_delins_reduced_to_an_insertion_after_the_last_base_keeps_the_last_base`,
   `::a_change_with_an_uncertain_position_is_left_as_written`, `::a_change_with_uncertain_ends_is_left_as_written`;
   `exon_junction_test::a_delins_that_is_an_insertion_shifts_to_the_last_base_of_its_exon_and_no_further`,
@@ -913,9 +914,9 @@ Written with their bases or without, `g.6_8delCAG` and `g.6_8del` would otherwis
 spellings of one change. The reference holds the bases, so writing them adds nothing, and they are not filled in either.
 For the same reason a range of one base is written as the base: `g.6_6dup` is `g.6dup`.
 
-Where an edit moves is decided by the reference's bases, not the ones it states, as its allele is
-([below](#stated-bases-are-checked-by-validate-and-nowhere-else)): a deletion of `CAG` that states `AAA` shifts as the
-deletion of `CAG` does. Whether the stated bases are the sequence's is `validate`'s question.
+The bases are dropped only once they have been checked: a stated base the reference lacks is an error in `normalize` as
+everywhere else ([below](#a-stated-base-the-reference-lacks-is-an-error)), so `g.3_5delAAA` over `CAG` is refused, not
+rewritten as the deletion of `CAG`.
 
 **Example** (on `TTCAGCAGTT`):
 
@@ -930,14 +931,14 @@ g.3C=                          →  g.3=
 g.3_5CAG=                      →  g.3_5=
 g.3_5delCAGinsTT               →  g.3_5delinsTT
 g.3_5delCAGinsN[2]             →  g.3_5delinsN[2]
-g.3_5delAAA                    →  g.6_8del                       the reference's CAG decides the shift
+g.3_5delAAA                    →  ReferenceMismatch              the AAA it states is not there
 g.3C>T                         →  g.3C>T                         a substitution keeps its base
 ```
 
 - **Agrees:** biocommons, as it prints by default (`max_ref_length` 0; it fills the bases into the value it returns), on
   every genomic row but two; VariantValidator on deletions and duplications, not checked on the rest.
-- **Differs:** biocommons shifts `g.3_5delAAA` by the bases it states, so leaves it at `g.3_5del`, and does not parse
-  `delinsN[2]`.
+- **Differs:** biocommons, run with `validate=False`, normalises `g.3_5delAAA` to `g.3_5del` rather than refusing it,
+  and does not parse `delinsN[2]`.
 - **Spec (agrees):** [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/): "the recommendation
   is not to describe the variant as NC_000023.11:g.33344591delA, i.e., describe the deleted nucleotide sequence. This
   description is longer, it contains redundant information, and chances to make an error increases";
@@ -951,8 +952,12 @@ g.3C>T                         →  g.3C>T                         a substitutio
   `::a_duplication_that_does_not_move_is_written_without_its_bases`, `::a_range_of_one_base_is_written_as_the_base`,
   `::an_inversion_is_written_without_its_bases`, `::an_identity_of_one_base_is_written_without_it`,
   `::an_identity_of_a_range_is_written_without_its_bases`, `::a_delins_is_written_without_its_deleted_bases`,
-  `::a_delins_of_a_number_of_bases_is_written_without_its_deleted_bases`,
-  `::a_deletion_is_shifted_by_the_references_bases_not_the_ones_it_states`, `::a_substitution_keeps_its_stated_base`;
+  `::a_delins_of_a_number_of_bases_is_written_without_its_deleted_bases`, `::a_substitution_keeps_its_stated_base`,
+  `::a_deletion_stating_bases_the_reference_lacks_is_refused`,
+  `::a_delins_whose_deleted_bases_the_reference_lacks_is_refused`,
+  `::a_delins_of_a_number_of_bases_whose_deleted_bases_the_reference_lacks_is_refused`,
+  `::an_inversion_stating_bases_the_reference_lacks_is_refused`,
+  `::an_identity_stating_a_base_the_reference_lacks_is_refused`, `::one_base_stated_over_two_is_refused`;
   `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;
   `stating_the_bases_an_edit_replaces_does_not_change_its_normalised_spelling` (properties);
   `tests/test_api.py::test_normalization`.
