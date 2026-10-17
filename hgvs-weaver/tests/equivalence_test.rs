@@ -4,7 +4,8 @@ use hgvs_weaver::data::Strand;
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
-use support::Provider;
+use hgvs_weaver::parse_hgvs_variant;
+use support::{single_exon_transcript, Provider};
 
 /// ACGT repeated as the genome, and a protein NP_0001.1 with Trp2.
 fn provider() -> Provider {
@@ -108,4 +109,248 @@ fn a_lone_copy_number_compares_by_projection() -> Result<(), HgvsError> {
         EquivalenceLevel::Different
     );
     Ok(())
+}
+
+/// `NM_X.1`: a five-base 5'UTR, the CDS `ATG AAA CTG GCC TAT CGC TAA` (Met Lys
+/// Leu Ala Tyr Arg Ter), a fourteen-base 3'UTR; it encodes `NP_X.1`, `MKLAYR`.
+fn coding_provider() -> Provider {
+    let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    Provider::new()
+        .sequence("NM_X.1", transcript)
+        .sequence("NP_X.1", "MKLAYR")
+        .transcript(single_exon_transcript(
+            "NM_X.1",
+            "NC_X.1",
+            100,
+            Strand::Plus,
+            5,
+            25,
+            transcript.len() as i32,
+        ))
+        .protein_for("NM_X.1", "NP_X.1")
+}
+
+/// The level at which `a` and `b` are judged the same on `NM_X.1`/`NP_X.1`.
+fn coding_level(a: &str, b: &str) -> EquivalenceLevel {
+    let hdp = coding_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let parse = |s: &str| parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+    VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse(a), &parse(b))
+        .unwrap()
+}
+
+#[test]
+fn silent_statements_at_different_residues_differ() {
+    assert_eq!(
+        coding_level("NP_X.1:p.(Leu3=)", "NP_X.1:p.(Ala4=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_silent_residue_is_not_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NP_X.1:p.(Leu3=)", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_silent_residue_is_its_statement_in_any_spelling() {
+    assert_eq!(
+        coding_level("NP_X.1:p.(Leu3=)", "NP_X.1:p.Leu3Leu"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_stop_inserted_before_the_stop_states_its_two_flanks() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Arg6_Ter7insTer", "NP_X.1:p.Arg6_Ter7="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn every_residue_through_the_stop_unchanged_is_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1_Ter7=", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn every_residue_but_the_stop_unchanged_is_not_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1_Arg6=", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_identity_of_every_codon_is_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.1_21=", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn an_identity_of_every_codon_from_the_5_utr_is_every_residue_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.-2_21=", "NP_X.1:p.Met1_Ter7="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_stop_inserted_before_the_stop_is_not_the_stop_unchanged() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Arg6_Ter7insTer", "NP_X.1:p.(Ter7=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_silent_change_in_the_stop_codon_is_not_a_stop_inserted_before_it() {
+    assert_eq!(
+        coding_level("NM_X.1:c.21A>G", "NP_X.1:p.Arg6_Ter7insTer"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_coding_change_predicted_silent_is_its_statement() {
+    assert_eq!(
+        coding_level("NM_X.1:c.9G>A", "NP_X.1:p.(Leu3=)"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_coding_change_predicted_silent_says_nothing_of_another_residue() {
+    assert_eq!(
+        coding_level("NM_X.1:c.9G>A", "NP_X.1:p.(Ala4=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_three_prime_utr_change_is_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.*3G>A", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_three_prime_utr_change_is_not_the_stop_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.*3G>A", "NP_X.1:p.Ter7="),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_silent_change_in_the_stop_codon_is_the_stop_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.21A>G", "NP_X.1:p.Ter7="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_silent_change_in_the_stop_codon_is_the_stop_written_as_itself() {
+    assert_eq!(
+        coding_level("NM_X.1:c.21A>G", "NP_X.1:p.Ter7Ter"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_silent_change_in_the_stop_codon_is_not_a_stop_loss() {
+    assert_eq!(
+        coding_level("NM_X.1:c.21A>G", "NP_X.1:p.Ter7Trp"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn the_stop_unchanged_is_the_stop_written_as_itself() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Ter7=", "NP_X.1:p.Ter7Ter"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn replacing_the_stop_over_a_range_is_not_the_protein_unchanged() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Arg6_Ter7delinsArg", "NP_X.1:p.Arg6_Ter7="),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_insertion_before_the_stop_is_the_residue_added_before_it() {
+    assert_eq!(
+        coding_level(
+            "NP_X.1:p.Arg6_Ter7insGly",
+            "NP_X.1:p.Arg6_Ter7delinsArgGlyTer"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_silent_prediction_is_not_read_again_on_the_protein() {
+    // NP_X.1 served with Ile3 where the transcript encodes Leu3: the silent
+    // prediction, like a missense one, is the transcript's.
+    let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    let hdp = Provider::new()
+        .sequence("NM_X.1", transcript)
+        .sequence("NP_X.1", "MKIAYR")
+        .transcript(single_exon_transcript(
+            "NM_X.1",
+            "NC_X.1",
+            100,
+            Strand::Plus,
+            5,
+            25,
+            transcript.len() as i32,
+        ))
+        .protein_for("NM_X.1", "NP_X.1");
+    let mapper = VariantMapper::new(&hdp);
+    let level = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(
+            &parse_hgvs_variant("NM_X.1:c.9G>A").unwrap(),
+            &parse_hgvs_variant("NP_X.1:p.Ala4Gly").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(level, EquivalenceLevel::Different);
+}
+
+#[test]
+fn an_identity_from_the_5_utr_into_the_cds_is_the_start_codon_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.-2_3=", "NP_X.1:p.Met1="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_identity_from_the_5_utr_into_the_cds_is_not_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.-2_3=", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_unknown_change_from_the_stop_is_not_the_protein_unchanged() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Ter7?", "NP_X.1:p.(=)"),
+        EquivalenceLevel::Different
+    );
 }

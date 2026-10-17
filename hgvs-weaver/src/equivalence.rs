@@ -270,34 +270,40 @@ impl<'a> VariantEquivalence<'a> {
         // another spelling is Analogous. Neither needs the protein sequence.
         let described = self.normalize_format(&vp.to_string());
         let mut analogous = false;
+        let mut predictions = Vec::with_capacity(coding.len());
         for c in &coding {
-            if let Ok(predicted) = self.mapper.c_to_p(c, Some(&vp.ac)) {
+            let predicted = self.mapper.c_to_p(c, Some(&vp.ac)).ok();
+            if let Some(predicted) = &predicted {
                 if predicted.to_string() == vp.to_string() {
                     return Ok(EquivalenceLevel::Identity);
                 }
                 analogous |= self.normalize_format(&predicted.to_string()) == described;
             }
+            predictions.push(predicted);
         }
-        // Then by the protein left behind.
+        // Then by the protein left behind, or, for a prediction that leaves
+        // the protein unchanged, by the residues it states.
         if !analogous {
             let outcome = self.protein_outcome_on(vp, &vp.ac)?;
             let reference = self.reference_protein(&vp.ac)?;
-            for c in &coding {
-                // predicted_protein raises for c.= named against another protein;
-                // on its own, p.(=) names no residues to compare.
-                if matches!(c.posedit.edit, crate::edits::NaEdit::WholeIdentity) {
-                    continue;
-                }
-                let predicted = self
-                    .mapper
-                    .predicted_protein(c, Some(&vp.ac))?
-                    .map(|residues| Outcome {
-                        changed_from: first_difference(&reference, &residues),
-                        residues,
-                        open: false,
-                        anchored: false,
-                    });
-                if same_protein(predicted, outcome.clone()) {
+            for (c, predicted) in coding.iter().zip(&predictions) {
+                let candidate = match predicted {
+                    Some(p) if p.posedit.edit.is_identity() => {
+                        Some(silent_prediction(p, reference.len()))
+                    }
+                    // c_to_p refuses c.= named against another protein, of
+                    // which it says nothing.
+                    _ if matches!(c.posedit.edit, NaEdit::WholeIdentity) => continue,
+                    _ => self
+                        .mapper
+                        .predicted_protein(c, Some(&vp.ac))?
+                        .map(|residues| Outcome::Leaves {
+                            changed_from: first_difference(&reference, &residues),
+                            residues,
+                            open: false,
+                        }),
+                };
+                if same_protein(candidate, outcome.clone()) {
                     analogous = true;
                 }
             }
@@ -313,8 +319,9 @@ impl<'a> VariantEquivalence<'a> {
     /// to the stop, `X` where the description does not say (a frameshift's
     /// unnamed residues), and `open` when more residues follow whose number
     /// the description does not give (a stop loss written `Ter#Xxx`, an
-    /// extension or frameshift of unknown length). `None` when it says
-    /// nothing about the sequence: `p.?`, `p.Met1?`.
+    /// extension or frameshift of unknown length); where the change starts,
+    /// for `p.Met1?`; or, for a description that leaves the protein as it
+    /// is, the residues it says that of. `None` when it says nothing: `p.?`.
     fn protein_outcome_on(&self, vp: &PVariant, ac: &str) -> Result<Option<Outcome>, HgvsError> {
         use crate::edits::{AaEdit, ProteinStatement};
         let reference = self
@@ -324,33 +331,29 @@ impl<'a> VariantEquivalence<'a> {
         let whole = reference.whole()?;
         let protein = whole.trim_end_matches('*');
         let len = protein.len();
-        let closed = |s: String, changed_from: usize| Outcome {
-            residues: s,
-            open: false,
-            changed_from,
-            anchored: false,
-        };
         if vp.posedit.pos.is_none() {
             return Ok(match &vp.posedit.edit {
                 AaEdit::Statement(ProteinStatement::Unchanged) => {
-                    Some(closed(protein.to_string(), len))
+                    Some(Outcome::Unchanged(Stated::whole()))
                 }
-                AaEdit::Statement(ProteinStatement::NoProtein { .. }) => {
-                    Some(closed(String::new(), 0))
-                }
+                AaEdit::Statement(ProteinStatement::NoProtein { .. }) => Some(Outcome::Leaves {
+                    residues: String::new(),
+                    open: false,
+                    changed_from: 0,
+                }),
                 _ => None,
             });
         }
         let (start, end) = crate::mapper::residue_range(vp, &reference)?;
         // `p.Met1?`: something happens from this residue on; what, it does not say.
         if let AaEdit::Statement(statement) = &vp.posedit.edit {
-            return Ok((*statement == ProteinStatement::Unknown).then(|| Outcome {
-                residues: protein[..start.min(len)].to_string(),
-                open: true,
-                changed_from: start.min(len),
-                anchored: true,
-            }));
+            return Ok((*statement == ProteinStatement::Unknown)
+                .then(|| Outcome::ChangesFrom(start.min(len))));
         }
+        // The residues an edit that resolves to a sequence names: those its
+        // position names (an insertion's two flanks) and those it resolves
+        // over (a repeat's whole run).
+        let mut written_over = None;
         let (start, end, alt, open) = match &vp.posedit.edit {
             // `Xxx#Yyyfs*N`: Yyy, then N - 2 residues it does not name, then a stop.
             AaEdit::Fs { alt, stop } => {
@@ -386,10 +389,18 @@ impl<'a> VariantEquivalence<'a> {
             }
             AaEdit::Statement(_) | AaEdit::None => return Ok(None),
             edit => {
-                let r = edit.resolve(&reference, start, end)?;
-                // A change at the stop itself that does not stop again reads on
-                // for an unknown distance: ClinVar's `Ter#Xxx` for a stop loss.
-                let open = r.start >= len && !r.alt.contains('*');
+                // Read with its stop, so that `Ter7=` one past a protein
+                // served without it resolves to the stop it names.
+                let with_stop = format!("{protein}*");
+                let r = edit.resolve_with(reference.accession(), start, end, |s, e| {
+                    let s = s.min(with_stop.len());
+                    Ok(with_stop[s..e.clamp(s, with_stop.len())].to_string())
+                })?;
+                // A change that replaces the stop and does not stop again reads
+                // on for an unknown distance: ClinVar's `Ter#Xxx` for a stop
+                // loss. An insertion before the stop keeps it.
+                let open = r.end > len && !r.alt.contains('*');
+                written_over = Some(start.min(r.start)..end.max(r.end));
                 (r.start, r.end, r.alt, open)
             }
         };
@@ -406,11 +417,15 @@ impl<'a> VariantEquivalence<'a> {
             alt,
             &protein[end.clamp(start, len)..]
         );
-        Ok(Some(Outcome {
+        // An edit that leaves the protein as it is states the residues it
+        // names: `p.Leu3=`, `p.Leu3Leu`, `p.Ter7Ter`, `p.Arg6_Ter7insTer`.
+        if let Some(span) = written_over.filter(|_| !open && residues == protein) {
+            return Ok(Some(Outcome::Unchanged(Stated::residues(span, len))));
+        }
+        Ok(Some(Outcome::Leaves {
             changed_from: first_difference(protein, &residues),
             residues,
             open,
-            anchored: false,
         }))
     }
 
@@ -545,17 +560,67 @@ enum Comparand {
     Projection(String, String),
 }
 
-/// What a protein description leaves behind; see `protein_outcome`.
+/// What a protein description says of the protein; see `protein_outcome_on`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Outcome {
-    residues: String,
-    /// More residues follow, their number unknown.
-    open: bool,
-    /// The first residue that differs from the reference (its length if none).
-    changed_from: usize,
-    /// A statement (`p.Met1?`): only where the change starts is known, and
-    /// the other side must start its change there.
-    anchored: bool,
+enum Outcome {
+    /// The protein left, which differs from the reference.
+    Leaves {
+        residues: String,
+        /// More residues follow, their number unknown.
+        open: bool,
+        /// The first residue that differs from the reference (its length if none).
+        changed_from: usize,
+    },
+    /// `p.Met1?`: a change from this residue on, of which nothing more is
+    /// said; the other side must start its change there.
+    ChangesFrom(usize),
+    /// The protein as it is, stated of these residues.
+    Unchanged(Stated),
+}
+
+use stated::Stated;
+
+mod stated {
+    /// The residues a description that leaves the protein unchanged speaks
+    /// of: the whole protein, `p.(=)`, or some of its residues, `p.(Leu3=)`.
+    /// Every residue through the stop is the whole protein, so the two
+    /// spellings of it are one value.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub(super) struct Stated {
+        /// 0-based and half-open; `None` for the whole protein.
+        residues: Option<std::ops::Range<usize>>,
+    }
+
+    impl Stated {
+        pub(super) fn whole() -> Self {
+            Stated { residues: None }
+        }
+
+        /// `residues` of a protein `len` residues long before its stop.
+        pub(super) fn residues(residues: std::ops::Range<usize>, len: usize) -> Self {
+            if residues.start == 0 && residues.end > len {
+                return Self::whole();
+            }
+            Stated {
+                residues: Some(residues),
+            }
+        }
+    }
+}
+
+/// The statement a silent prediction of `c_to_p` makes, `p.(=)` or
+/// `p.(Leu3=)`, read from its positions on a protein `len` residues long
+/// before its stop: the prediction was translated from the transcript, so
+/// its residues are not read again on the protein.
+fn silent_prediction(p: &PVariant, len: usize) -> Outcome {
+    Outcome::Unchanged(match &p.posedit.pos {
+        None => Stated::whole(),
+        Some(pos) => {
+            let index = |a: &crate::structs::AAPosition| a.base.to_index().0 as usize;
+            let start = index(&pos.start);
+            Stated::residues(start..pos.end.as_ref().map_or(start, index) + 1, len)
+        }
+    })
 }
 
 /// What `var` states about the whole RNA (`r.0`, `r.(?)`), itself or through
@@ -587,26 +652,41 @@ fn first_difference(a: &str, b: &str) -> usize {
 /// Whether two outcomes can be the same protein: residue for residue with
 /// `X` standing for any, over the whole of both when both are closed, over
 /// the shorter when one is open (the other must then be at least as long).
+/// A change from a residue matches a change starting there; a protein left
+/// unchanged matches only the same statement about the same residues.
 /// `None` (nothing said) matches nothing.
 fn same_protein(a: Option<Outcome>, b: Option<Outcome>) -> bool {
-    let (Some(a), Some(b)) = (a, b) else {
-        return false;
-    };
-    // A statement says only where the change starts: the other side must
-    // start its change at the same residue.
-    if a.anchored || b.anchored {
-        return a.changed_from == b.changed_from;
+    match (a, b) {
+        (Some(Outcome::Unchanged(a)), Some(Outcome::Unchanged(b))) => a == b,
+        (Some(Outcome::ChangesFrom(a)), Some(Outcome::ChangesFrom(b))) => a == b,
+        (Some(Outcome::ChangesFrom(at)), Some(Outcome::Leaves { changed_from, .. }))
+        | (Some(Outcome::Leaves { changed_from, .. }), Some(Outcome::ChangesFrom(at))) => {
+            at == changed_from
+        }
+        (
+            Some(Outcome::Leaves {
+                residues: a,
+                open: a_open,
+                ..
+            }),
+            Some(Outcome::Leaves {
+                residues: b,
+                open: b_open,
+                ..
+            }),
+        ) => {
+            let (na, nb) = (a.len(), b.len());
+            let fits = match (a_open, b_open) {
+                (false, false) => na == nb,
+                (true, false) => nb >= na,
+                (false, true) => na >= nb,
+                (true, true) => true,
+            };
+            fits && a
+                .chars()
+                .zip(b.chars())
+                .all(|(x, y)| x == y || x == 'X' || y == 'X')
+        }
+        _ => false,
     }
-    let (na, nb) = (a.residues.len(), b.residues.len());
-    let fits = match (a.open, b.open) {
-        (false, false) => na == nb,
-        (true, false) => nb >= na,
-        (false, true) => na >= nb,
-        (true, true) => true,
-    };
-    fits && a
-        .residues
-        .chars()
-        .zip(b.residues.chars())
-        .all(|(x, y)| x == y || x == 'X' || y == 'X')
 }
