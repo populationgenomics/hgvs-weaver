@@ -7,7 +7,7 @@ mod strategies;
 mod support;
 
 use hgvs_weaver::coords::HgvsGenomicPos;
-use hgvs_weaver::data::IdentifierType;
+use hgvs_weaver::data::{IdentifierType, Strand};
 use hgvs_weaver::normalize::{ambiguous_range, normalize, ExonBounds, PlacedEdit};
 use hgvs_weaver::reference::ReferenceStore;
 use hgvs_weaver::structs::{GVariant, LinearVariant, SimpleInterval, SimplePosition};
@@ -837,6 +837,160 @@ fn made(genome: &str, allele: &hgvs_weaver::allele::CanonicalAllele) -> String {
         allele.alternate,
         &genome[allele.end..]
     )
+}
+
+// ---------------------------------------------------------------------------
+// A repeat projected between strands
+//
+// A repeat's count is of the run read 3' from its first base on the sequence
+// it is written on. The oracle reads that run itself and writes the count of
+// copies over the bases the run occupies on the other sequence; weaver's
+// canonical allele, applied to the genome, must make the same genome.
+// ---------------------------------------------------------------------------
+
+/// The exon holding transcript index `i`.
+fn exon_holding(g: &Gene, i: usize) -> &hgvs_weaver::data::ExonData {
+    g.exons
+        .iter()
+        .find(|e| e.transcript_start.0 as usize <= i && i < e.transcript_end.0 as usize)
+        .unwrap()
+}
+
+/// The end of the run of `unit` in `seq` from `start`, half-open.
+fn run_end(seq: &str, start: usize, unit: &str) -> usize {
+    let mut end = start;
+    while seq.get(end..end + unit.len()) == Some(unit) {
+        end += unit.len();
+    }
+    end
+}
+
+/// `genome` with `[start, end)` replaced by `alt`.
+fn spliced_in(genome: &str, start: usize, end: usize, alt: &str) -> String {
+    format!("{}{alt}{}", &genome[..start], &genome[end..])
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// A transcript repeat, within one exon, makes the genome the transcript's
+    /// run with its count of copies would.
+    #[test]
+    fn a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript(
+        g in gene(),
+        pick in 0usize..10_000,
+        unit_len in 1usize..=3,
+        copies in 0i32..=5,
+    ) {
+        let tx = &g.transcript_seq;
+        let start = pick % tx.len();
+        prop_assume!(start + unit_len <= tx.len());
+        let unit = &tx[start..start + unit_len];
+        let end = run_end(tx, start, unit);
+        let exon = exon_holding(&g, start);
+        prop_assume!(end <= exon.transcript_end.0 as usize);
+        let into = |i: usize| i - exon.transcript_start.0 as usize;
+        let (lo, hi) = (exon.reference_start.0 as usize, exon.reference_end.0 as usize + 1);
+        let expected = match g.strand {
+            Strand::Plus => spliced_in(&g.genome, lo + into(start), lo + into(end), &unit.repeat(copies as usize)),
+            Strand::Minus => spliced_in(&g.genome, hi - into(end), hi - into(start), &revcomp(&unit.repeat(copies as usize))),
+        };
+
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let edit = NaEdit::Repeat { ref_: Some(unit.to_string()), min: copies, max: copies, uncertain: false };
+        let vc = SequenceVariant::Coding(coding_variant(&g, &am, start, start + 1, edit));
+        let allele = mapper
+            .canonical_allele(&vc)
+            .map_err(|err| TestCaseError::fail(format!("{vc}: {err}")))?;
+        let actual = spliced_in(&g.genome, allele.start, allele.end, &allele.alternate);
+        prop_assert_eq!(actual, expected, "{} on the {:?} strand", vc, g.strand);
+    }
+
+    /// A transcript repeat within one intron makes the genome the run read
+    /// in the transcript's sense, with its count of copies, would.
+    #[test]
+    fn an_intronic_repeat_does_to_the_genome_what_it_does_to_the_pre_mrna(
+        g in gene(),
+        pick in 0usize..10_000,
+        unit_len in 1usize..=3,
+        copies in 0i32..=5,
+    ) {
+        let points = g.points();
+        let pre_mrna = g.bases_at(&points);
+        let flank = g.flank();
+        let intronic: Vec<usize> = (flank..points.len() - flank)
+            .filter(|&i| points[i].offset != 0)
+            .collect();
+        prop_assume!(!intronic.is_empty());
+        let start = intronic[pick % intronic.len()];
+        prop_assume!(start + unit_len <= points.len() - flank);
+        let unit = &pre_mrna[start..start + unit_len];
+        let end = run_end(&pre_mrna, start, unit);
+        prop_assume!(end <= points.len() - flank && points[start..end].iter().all(|p| p.offset != 0));
+        let genomic: Vec<usize> = points[start..end].iter().map(|&p| g.genome_index(p)).collect();
+        let (lo, hi) = (*genomic.iter().min().unwrap(), *genomic.iter().max().unwrap() + 1);
+        let alt = unit.repeat(copies as usize);
+        let alt = match g.strand {
+            Strand::Plus => alt,
+            Strand::Minus => revcomp(&alt),
+        };
+        let expected = spliced_in(&g.genome, lo, hi, &alt);
+
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let edit = NaEdit::Repeat { ref_: Some(unit.to_string()), min: copies, max: copies, uncertain: false };
+        let e = TxEdit { start: points[start], end: points[start], edit };
+        let vc = SequenceVariant::Coding(tx_edit_variant(&g, &am, &e));
+        let allele = mapper
+            .canonical_allele(&vc)
+            .map_err(|err| TestCaseError::fail(format!("{vc}: {err}")))?;
+        let actual = spliced_in(&g.genome, allele.start, allele.end, &allele.alternate);
+        prop_assert_eq!(actual, expected, "{} on the {:?} strand", vc, g.strand);
+    }
+
+    /// A genomic repeat, within one exon, projected to the transcript makes
+    /// the genome the genome's run with its count of copies would.
+    #[test]
+    fn a_genomic_repeat_projected_to_the_transcript_is_the_same_change(
+        g in gene(),
+        pick in 0usize..10_000,
+        unit_len in 1usize..=3,
+        copies in 0i32..=5,
+    ) {
+        let exon = &g.exons[pick % g.exons.len()];
+        let (lo, hi) = (exon.reference_start.0 as usize, exon.reference_end.0 as usize + 1);
+        let start = lo + (pick / g.exons.len()) % (hi - lo);
+        prop_assume!(start + unit_len <= hi);
+        let unit = &g.genome[start..start + unit_len];
+        let end = run_end(&g.genome, start, unit);
+        prop_assume!(end <= hi);
+        // The transcript counts its own run from the projected lower end; one
+        // that crosses an exon junction is refused, leaving no c. to compare.
+        let tx_start = exon.transcript_start.0 as usize;
+        let tx_lo = match g.strand {
+            Strand::Plus => tx_start + (start - lo),
+            Strand::Minus => tx_start + (hi - end),
+        };
+        let tx_unit = &g.transcript_seq[tx_lo..tx_lo + unit_len];
+        prop_assume!(run_end(&g.transcript_seq, tx_lo, tx_unit) <= exon.transcript_end.0 as usize);
+        let expected = spliced_in(&g.genome, start, end, &unit.repeat(copies as usize));
+
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vg = format!("{}:g.{}{unit}[{copies}]", g.reference_ac, start + 1);
+        let SequenceVariant::Genomic(vg) = parse_hgvs_variant(&vg).unwrap() else { unreachable!() };
+        let vc = mapper
+            .g_to_c(&vg, &g.ac)
+            .map_err(|err| TestCaseError::fail(format!("{vg}: {err}")))?;
+        let allele = mapper
+            .canonical_allele(&SequenceVariant::Coding(vc.clone()))
+            .map_err(|err| TestCaseError::fail(format!("{vg} projected to {vc}: {err}")))?;
+        let actual = spliced_in(&g.genome, allele.start, allele.end, &allele.alternate);
+        prop_assert_eq!(actual, expected, "{} projected to {} on the {:?} strand", vg, vc, g.strand);
+    }
 }
 
 // ---------------------------------------------------------------------------
