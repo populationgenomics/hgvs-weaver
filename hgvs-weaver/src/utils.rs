@@ -139,22 +139,6 @@ pub fn seq1_to_aa3(seq1: &str) -> String {
     seq1.chars().map(aa1_to_aa3).collect()
 }
 
-pub fn translate_cds(cds: &str) -> String {
-    let mut aa = String::new();
-    for i in (0..cds.len()).step_by(3) {
-        if i + 3 > cds.len() {
-            break;
-        }
-        let codon = &cds[i..i + 3];
-        let res = translate_codon(codon).unwrap_or('X');
-        aa.push(res);
-        if res == '*' {
-            break;
-        }
-    }
-    aa
-}
-
 /// Translates every complete codon of `seq`, without stopping at a stop codon.
 /// Unknown codons become `X`. Trailing bases that do not fill a codon are dropped.
 pub fn translate(seq: &str) -> String {
