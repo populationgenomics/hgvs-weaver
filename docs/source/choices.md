@@ -50,6 +50,7 @@ Applied in:
 [a position outside every exon is an error](#a-position-outside-every-exon-is-an-error),
 [an open CDS end numbers no position](#an-open-cds-end-numbers-no-position),
 [a range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed),
+[a stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error),
 [judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error).
 
 ### A description claims what it says, and no more
@@ -86,7 +87,6 @@ On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG
 
 Applied in: [judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind),
 [the canonical allele is fully justified](#the-canonical-allele-is-fully-justified),
-[stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else),
 [a repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run),
 [a transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion),
 [a cis allele compares as a set](#a-cis-allele-compares-as-a-set).
@@ -197,7 +197,7 @@ Representation Specification 2.0.1.
 | [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |                agrees                |     differs      |          –           |        –         |
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |                agrees                |        –         |          –           |        –         |
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |     agrees; silent on derivation     |        –         |          –           |        –         |
-| [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else)                     |                agrees                |        –         |          –           |        –         |
+| [A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)                                     |                agrees                | differs intronic |   differs intronic   |        –         |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                  –                   |     differs      |          –           |        –         |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |     agrees; silent on `p.Arg12?`     |        –         |          –           |     differs      |
 | [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |                  –                   |        –         |          –           |        –         |
@@ -437,14 +437,15 @@ NM_OPEN5.1:n.3A>T    →  NC_…:g.3A>T               n. numbering needs no codo
 
 ### Intronic positions are carried as given
 
-**An intronic edit has no transcript base to compare against, so it is kept as written on the transcript; on the genome
-its bases are checked like any other. Normalisation leaves it where it is.**
+**An intronic edit has no transcript base, so it is kept as written: projected to the genome it is carried across, and
+normalisation leaves it where it is. The bases it states are read on the genome, on the transcript's strand
+([below](#a-stated-base-the-reference-lacks-is-an-error)).**
 
 **Example** (`NM_SPLICED.1`, whose intron is genome\[50..60) on `NC_D.1`, where g.53 is A):
 
 ```text
 NC_D.1:g.53A>G          →  NM_SPLICED.1:c.40+3A>G      carried as given
-NM_SPLICED.1:c.40+3C>G  →  NC_D.1:g.53A>G              re-read against the genome, which has A
+NM_SPLICED.1:c.40+3A>G  →  NC_D.1:g.53A>G              and back
 
 normalize NM_PLUS10.1:c.30_30+1insA   →  NM_PLUS10.1:c.30_30+1insA    unchanged, not an error
 normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
@@ -1050,7 +1051,7 @@ inside the codons one is still read as silent; that is an open defect, not a cho
 NM_X.1:c.-3G>A             →  NP_X.1:p.?         entirely upstream
 NM_X.1:c.-3_2del           →  NP_X.1:p.(Met1?)   reaches into the start codon
 NM_X.1:c.-5_*14del         →  NP_X.1:p.0?        the whole CDS
-NM_X.1:c.*3A>G             →  NP_X.1:p.(=)       entirely downstream
+NM_X.1:c.*3G>A             →  NP_X.1:p.(=)       entirely downstream
 NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silently
 NM_X.1:c.21_*1dup          →  NP_X.1:p.(Ter7=)   across the stop, named up to it
 NM_X.1:c.10_*14del         →  NP_X.1:p.?         residue 4 to the end of the transcript
@@ -1209,35 +1210,94 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
 
 ## Validation and stated bases
 
-### Stated bases are checked by validate and nowhere else
+### A stated base the reference lacks is an error
 
-**A variant's stated reference, whether a substitution's base or the bases written after `del`, `dup` or the deleted
-part of a `delins`, is compared with the sequence by `validate`, and by `c_to_p`; canonical alleles, SPDI and VRS use
-the sequence's own bases and ignore what was stated.**
+**The bases a description states — a substitution's, those written after `del`, `dup` or `inv`, the deleted part of a
+`delins`, an identity's `c.5A=`, a repeat's unit — and the residues a `p.` description names are compared with the
+reference they cite by every operation that reads the description against a sequence. Where they differ the answer is a
+`TranscriptMismatchError` naming the stated and the reference's bases; `validate` is the same comparison answered as
+true or false.**
 
-The allele describes the sequence, not the description. This holds for nucleotides and for protein residues alike.
+A stated base is a claim about the reference. When it is not there, the description was written against another version,
+on the other strand, at another position, or with a typo, and no reading of it is safe: using the reference's base
+answers a question the author did not ask, and using the stated one describes a sequence that does not exist. A
+projection that quietly takes the reference's base is the worst of these: `c.316+5A>G` over a genomic G becomes `g.…=`,
+which reads as "no change" rather than "wrong reference".
 
-**Example** (`NM_PLUS10.1` has G at c.1; `NP_TEST.1` is `MKLAAAYRQ`; and on `TTCAGCAGTT`):
+The comparison is one function on the edit, and resolving an edit to its bases, which projection, normalisation, the
+canonical allele, SPDI, VRS and the protein consequence all do, runs it first. The paths that carry an edit without
+resolving it call it too: an edit projected as given, an edit normalisation does not move, a `delins` of unknown bases,
+a protein consequence that is a statement (`p.(=)` for a 3'UTR change, `p.?` for an intronic one). Residues have their
+own comparison, through which every operation on a `p.` description locates it, so `p_to_c` needs the protein's sequence
+as well as the transcript's; an SPDI's deletion has its own too. Two operations read no reference and check nothing:
+converting between `c.` and `r.` letters, and judging two descriptions equal because their text is the same.
+
+What a base is compared with is the sequence the position numbers:
+
+- an exonic `c.`, `n.` or `r.` base, the transcript record: a `c.` position numbers the record, and where record and
+  genome differ the record's base is the one to state. Projected, the edit is then written against the genome's own
+  bases ([A projection states the bases of the target](#a-projection-states-the-bases-of-the-target)); that the two
+  sequences differ is a property of the reference pair, not of the variant;
+- an intronic one, the genome, read on the transcript's strand: the record has no base there. A range with one end in an
+  intron is read on the genome throughout, the only sequence holding every base it names;
+- a `g.` or `m.` base, the genome; a `p.` residue, at either end of the interval or stated by the edit, the protein,
+  where `Ter` one past a sequence served without its stop is the stop.
+
+A count (`del3`, `delins` with no bases) states nothing, and an edit that states nothing is not read for this.
+
+**Example** (`NM_S.1` is spliced from `NC_S.1`, whose g.15 is c.9+1, a G; c.4 is A; the record has C at c.12 where the
+genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S.1` is `MKLAYR`):
 
 ```text
-validate NM_PLUS10.1:c.1G>A   →  true
-validate NM_PLUS10.1:c.1A>G   →  false                     the stated A is not there
-validate NM_PLUS10.1:c.1delC  →  false                     so is a base stated after del or dup
-validate NM_PLUS10.1:c.1_3del3insAA →  true                a count states no bases
-validate NM_MINUS10.1:c.1+5T>A →  true                     intronic: accepted unchecked
-validate NP_TEST.1:p.Arg2Leu  →  false                     residue 2 is Lys
-validate NP_TEST.1:p.Trp3fs   →  false                     a frameshift's named residue is still checked
-
-allele of g.4G>A on TTCAGCAGTT →  X:3:A:A                   the sequence has A: nothing changes, and the allele says so
+validate NM_S.1:c.9+1G>A        →  true
+validate NM_S.1:c.9+1C>A        →  false                         intronic, read on the genome
+c_to_g   NM_S.1:c.9+1C>A        →  TranscriptMismatchError       expected C, found G on NC_S.1
+c_to_g   NM_R.1:c.9+1G>A        →  NC_R.1:g.36C>T                the transcript's strand
+c_to_g   NM_S.1:c.12T>A         →  TranscriptMismatchError       the genome's T is not the record's C
+c_to_g   NM_S.1:c.12C>A         →  NC_S.1:g.27T>A                the record's C, written for the genome
+c_to_g   NM_S.1:c.4_6CTG[5]     →  TranscriptMismatchError       the unit is not there
+c_to_p   NM_S.1:c.*3A>T         →  TranscriptMismatchError       though the prediction reads no codon
+g_to_c   NC_S.1:g.15C>A         →  TranscriptMismatchError
+normalize, to_spdi, to_vrs, canonical_allele, equivalent  NC_S.1:g.6C>T  →  TranscriptMismatchError
+to_vrs   NC_S.1:g.6_7delCCinsN[3] →  TranscriptMismatchError
+from_spdi NC_S.1:5:C:T          →  TranscriptMismatchError       an SPDI deletion states bases too
+p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  TranscriptMismatchError   residue 2 is Lys
 ```
 
-- **Agrees:** VRS; VariantValidator, which reports a reference mismatch for `delC` on a record without the C.
-- **Spec (agrees):** VRS 2.0.1: an `Allele` is a `SequenceLocation` and a state; the reference is the sequence's.
-- **Tests:** `src/allele.rs::a_stated_reference_that_disagrees_with_the_sequence_is_ignored`;
+- **Agrees:** biocommons (1.5.7) and VariantValidator refuse an exonic mismatch, `NM_000059.4:c.316A>G`, "Variant
+  reference (A) does not agree with reference sequence (G)", and read MUC2's `NM_002457.5:c.12468G>A` against the
+  record's C; biocommons checks the residues a `p.` interval names.
+- **Differs (intronic):** biocommons does not check an intronic base: its validator refuses `NM_000059.4:c.316+5C>T` and
+  `c.316+5G>T` alike ("Cannot validate sequence of an intronic variant"), and its `c_to_g` rewrites both to
+  `NC_000013.11:g.32319330G>T` and `c.316+5A>G` to `g.32319330=`. VariantValidator reads the base on the genome as
+  weaver does, but warns and corrects rather than refusing:
+  `IntronBaseMismatchWarning … Variant reference (C) does not agree with reference sequence (G)`, then answers for
+  `c.316+5G>T`.
+- *Not checked:* ClinVar, whose descriptions do not test the choice: none of the 100,000 sampled states a base its
+  reference lacks.
+- **Spec (agrees):** [general](https://hgvs-nomenclature.org/stable/recommendations/general/): a description is of the
+  reference sequence it cites; VRS 2.0.1 states an `Allele` over the sequence's own bases, which a mismatched
+  description cannot reach.
+- **Tests:** `stated_bases_test::validate_refuses_an_intronic_base_the_genome_does_not_carry`,
+  `::validate_refuses_the_genomes_base_where_the_record_differs`,
+  `::validate_reads_a_range_across_an_exon_boundary_on_the_genome`,
+  `::c_to_g_refuses_an_intronic_base_the_genome_does_not_carry`,
+  `::c_to_g_carries_an_intronic_base_on_the_transcripts_strand`,
+  `::c_to_g_refuses_an_exonic_base_the_record_does_not_carry`,
+  `::c_to_g_writes_the_genomes_base_where_the_record_differs`,
+  `::c_to_g_refuses_a_repeat_unit_the_record_does_not_carry`,
+  `::validate_refuses_an_intronic_repeat_unit_the_genome_does_not_carry`,
+  `::c_to_p_refuses_a_three_prime_utr_base_it_predicts_no_change_from`,
+  `::g_to_c_refuses_an_intronic_base_the_genome_does_not_carry`,
+  `::normalize_refuses_a_substitution_whose_base_is_not_there`, `::spdi_refuses_a_base_the_genome_does_not_carry`,
+  `::to_vrs_refuses_a_base_the_genome_does_not_carry`, `::canonical_allele_refuses_a_base_the_genome_does_not_carry`,
+  `::to_vrs_refuses_deleted_bases_of_a_length_insertion_the_genome_does_not_carry`,
+  `::from_spdi_refuses_a_deletion_the_sequence_does_not_carry`, `::p_to_c_refuses_a_residue_the_protein_does_not_carry`,
+  `::normalize_refuses_a_residue_the_protein_does_not_carry`, and the file's other tests, one per operation;
   `transcript_coordinates_test::validate_checks_stated_reference_through_transcript_coordinates`;
   `protein_allele_test::validation_checks_the_named_and_stated_residues`;
   `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases` (the
-  `validate` cases).
+  `validate` cases); `tests/test_validate_stated_bases.py::test_a_base_the_genome_lacks_is_an_error_naming_the_genome`.
 
 ## Equivalence
 

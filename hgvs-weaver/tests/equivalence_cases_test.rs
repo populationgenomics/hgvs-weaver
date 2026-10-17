@@ -27,7 +27,7 @@ fn test_clinvar_regression_tyr165ter() -> Result<(), HgvsError> {
     // These should now be Analogous thanks to offset fix.
 
     // 163: Leu, 164: Ala, 165: Tyr, 166: Arg
-    let hdp = Provider::new().sequence("NP_001337263.1", &protein_with(163, "LAYR", 167));
+    let hdp = Provider::new().sequence("NP_001337263.1", &protein_with(162, "LAYR", 167));
     let eq_mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 
@@ -46,8 +46,10 @@ fn test_analogous_protein_truncation() -> Result<(), HgvsError> {
     // delinsTer -> ...Tyr1433*
     // del -> ...Tyr1433 (end of sequence)
 
-    // ATM is 3056 residues long; the deletion runs to its end.
-    let hdp = Provider::new().sequence("NP_000042.3", &"M".repeat(3056));
+    // ATM is 3056 residues long, Tyr1433 Lys1434 … Val3056; the deletion
+    // runs to its end.
+    let atm = format!("{}V", protein_with(1432, "YK", 3055));
+    let hdp = Provider::new().sequence("NP_000042.3", &atm);
     let eq_mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 
@@ -66,7 +68,7 @@ fn test_analogous_protein_truncation() -> Result<(), HgvsError> {
 
 #[test]
 fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), HgvsError> {
-    let hdp = Provider::new().sequence("NP_001337263.1", &protein_with(163, "LAYR", 167));
+    let hdp = Provider::new().sequence("NP_001337263.1", &protein_with(162, "LAYR", 167));
     let eq_mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 

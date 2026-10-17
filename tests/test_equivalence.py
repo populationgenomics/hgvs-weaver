@@ -32,8 +32,10 @@ class MockProvider:
             ],
         }
 
-    def get_seq(self, _ac: str, start: int, end: int | None, _kind: str | weaver.IdentifierType) -> str:
-        """Returns a mock sequence."""
+    def get_seq(self, ac: str, start: int, end: int | None, _kind: str | weaver.IdentifierType) -> str:
+        """Returns a mock sequence: the transcript, or for a protein its translation."""
+        if ac.startswith("NP_"):
+            return ("MGPK" + "K" * 700)[start:end]
         # Index 10 is c.1.
         full_seq = "A" * 10 + "ATGGGGCCCAAA" + "A" * 2000
         return full_seq[start:end]

@@ -306,7 +306,7 @@ impl<'a> VariantEquivalence<'a> {
             changed_from,
             anchored: false,
         };
-        let Some(pos) = &vp.posedit.pos else {
+        if vp.posedit.pos.is_none() {
             return Ok(match &vp.posedit.edit {
                 AaEdit::Statement(ProteinStatement::Unchanged) => {
                     Some(closed(protein.to_string(), len))
@@ -316,8 +316,8 @@ impl<'a> VariantEquivalence<'a> {
                 }
                 _ => None,
             });
-        };
-        let (start, end) = crate::mapper::aa_interval_range(pos)?;
+        }
+        let (start, end) = crate::mapper::residue_range(vp, &reference)?;
         // `p.Met1?`: something happens from this residue on; what, it does not say.
         if let AaEdit::Statement(statement) = &vp.posedit.edit {
             return Ok((*statement == ProteinStatement::Unknown).then(|| Outcome {

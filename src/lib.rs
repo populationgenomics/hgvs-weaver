@@ -13,7 +13,12 @@ pyo3::create_exception!(_weaver, ValidationError, HGVSError);
 pyo3::create_exception!(_weaver, DataProviderError, HGVSError);
 pyo3::create_exception!(_weaver, UnsupportedOperationError, HGVSError);
 pyo3::create_exception!(_weaver, CigarError, HGVSError);
-pyo3::create_exception!(_weaver, TranscriptMismatchError, HGVSError);
+pyo3::create_exception!(
+    _weaver,
+    TranscriptMismatchError,
+    HGVSError,
+    "A base or residue a description states is not what its reference holds: the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases; Variant.validate answers False instead."
+);
 
 fn map_hgvs_error(e: HgvsError) -> PyErr {
     py_error(e, String::new())
@@ -29,13 +34,13 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
         HgvsError::UnsupportedOperation(msg) => UnsupportedOperationError::new_err(context + &msg),
         HgvsError::CigarError(msg) => CigarError::new_err(context + &msg),
         HgvsError::TranscriptMismatch {
+            accession,
             expected,
             found,
             start,
             end,
         } => TranscriptMismatchError::new_err(format!(
-            "{context}expected {}, found {} at transcript indices {}..{}",
-            expected, found, start, end
+            "{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"
         )),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
         HgvsError::CisMember {
@@ -304,7 +309,7 @@ impl PyVariant {
             .unbind())
     }
 
-    #[doc = "Validates the variant's reference sequence against the provided DataProvider.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if the reference sequence matches, False otherwise. c.= names no\n    bases and is True once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS.\n    DataProviderError: If sequence data cannot be retrieved."]
+    #[doc = "Validates the bases and residues the variant states against the provided DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every stated base is there, False where an operation reading the\n    variant would raise TranscriptMismatchError. c.= names no bases and is True\n    once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
         VariantMapper::new(&bridge)
@@ -685,7 +690,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, reference_ac = None))]
-    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    TranscriptMismatchError: If a base the variant states is not the record's\n        (exonic) or the genome's on the transcript's strand (intronic).\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn c_to_g(
         &self,
         _py: Python,
@@ -851,7 +856,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_p, transcript_ac=None))]
-    #[doc = "Back-converts a protein substitution (p.) to a coding variant (c.).\n\nCurrently handles single amino acid substitutions only. When multiple codons\ncould produce the target amino acid, the one requiring the fewest nucleotide\nchanges is chosen.\n\nArgs:\n    var_p: The protein Variant to back-convert.\n    transcript_ac: Optional transcript accession (NM_). Required if the DataProvider cannot resolve NP to NM.\n\nReturns:\n    A tuple of (Variant in 'c.' coordinates, is_unique: bool).\n    is_unique is True if the back-conversion is unambiguous.\n\nRaises:\n    ValueError: If var_p is not a protein variant.\n    HGVSError: If back-conversion fails due to unsupported consequence or missing transcript."]
+    #[doc = "Back-converts a protein substitution (p.) to a coding variant (c.).\n\nCurrently handles single amino acid substitutions only. When multiple codons\ncould produce the target amino acid, the one requiring the fewest nucleotide\nchanges is chosen. The residue var_p names is read on the protein, so the\nprovider must serve the protein's sequence.\n\nArgs:\n    var_p: The protein Variant to back-convert.\n    transcript_ac: Optional transcript accession (NM_). Required if the DataProvider cannot resolve NP to NM.\n\nReturns:\n    A tuple of (Variant in 'c.' coordinates, is_unique: bool).\n    is_unique is True if the back-conversion is unambiguous.\n\nRaises:\n    ValueError: If var_p is not a protein variant.\n    TranscriptMismatchError: If the residue var_p names is not the protein's.\n    HGVSError: If back-conversion fails due to unsupported consequence or missing transcript."]
     fn p_to_c(
         &self,
         _py: Python,

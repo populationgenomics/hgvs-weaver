@@ -122,6 +122,11 @@ impl ExonBounds {
 /// move and dropped where it did, since they would then be stale. Nothing is
 /// filled in: the bases are the reference's to give, and HGVS writes `del`
 /// and `dup` bare.
+///
+/// # Errors
+///
+/// [`HgvsError::TranscriptMismatch`] when the edit states bases the reference
+/// does not hold, whether or not the edit would move.
 pub fn normalize(
     reference: &Reference<'_, '_>,
     placed: PlacedEdit,
@@ -132,6 +137,9 @@ pub fn normalize(
         end,
         mut edit,
     } = placed;
+    edit.check_stated(reference.accession(), start, end, |s, e| {
+        reference.slice(s, e)
+    })?;
     // Only a deletion, duplication or insertion is slid: those are written
     // without stating bases that would go stale, and a repeat is written
     // against its run. A delins is left where it is.

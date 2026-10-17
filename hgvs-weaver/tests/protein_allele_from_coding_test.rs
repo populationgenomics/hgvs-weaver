@@ -306,7 +306,7 @@ fn a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged() {
     let hdp = provider(PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let p = |c: &str| mapper.c_to_p(&coding(c), None).unwrap().to_string();
-    assert_eq!(p("NM_X.1:c.*3A>G"), "NP_X.1:p.(=)");
+    assert_eq!(p("NM_X.1:c.*3G>A"), "NP_X.1:p.(=)");
     assert_eq!(p("NM_X.1:c.*1_*14del"), "NP_X.1:p.(=)");
     assert_eq!(p("NM_X.1:c.*5_*6insTTT"), "NP_X.1:p.(=)");
     // The stop codon itself, changed silently, is named at the stop; changed

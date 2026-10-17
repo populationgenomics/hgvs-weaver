@@ -23,8 +23,12 @@ pub enum HgvsError {
     UnsupportedOperation(String),
     /// Error specifically related to CIGAR string mapping.
     CigarError(String),
-    /// Transcript reference sequence mismatch.
+    /// A base or residue the description states is not what the reference
+    /// holds: `expected` is the stated bases, `found` the reference's over
+    /// the 0-based half-open `[start, end)` of `accession`, read on the strand
+    /// the description is written on.
     TranscriptMismatch {
+        accession: String,
         expected: String,
         found: String,
         start: usize,
@@ -52,13 +56,14 @@ impl fmt::Display for HgvsError {
             HgvsError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {msg}"),
             HgvsError::CigarError(msg) => write!(f, "CIGAR error: {msg}"),
             HgvsError::TranscriptMismatch {
+                accession,
                 expected,
                 found,
                 start,
                 end,
             } => write!(
                 f,
-                "Reference sequence mismatch: expected {expected}, found {found} at transcript indices {start}..{end}"
+                "Reference sequence mismatch: expected {expected}, found {found} on {accession} at indices {start}..{end}"
             ),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),
             HgvsError::CisMember {

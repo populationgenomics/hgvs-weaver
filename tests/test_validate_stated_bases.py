@@ -1,4 +1,4 @@
-"""Issue #38: validate checks the bases stated after del, dup and delins."""
+"""The binding of stated-base checks: validate's answer, and the error a mismatch raises."""
 
 from __future__ import annotations
 
@@ -62,3 +62,43 @@ class Provider:
 )
 def test_bases_stated_after_del_dup_and_delins_are_checked(hgvs: str, expected: bool) -> None:
     assert weaver.parse(hgvs).validate(Provider()) is expected
+
+
+INTRON = "GTAAGTCCAG"
+
+
+class SplicedProvider(Provider):
+    """TRANSCRIPT with INTRON after index 50: c.40 ends exon 1, and c.40+1 is the intron's G."""
+
+    def get_transcript(self, ac: str, _ref: str | None) -> dict[str, typing.Any]:
+        model = super().get_transcript(ac, _ref)
+        model["exons"] = [
+            {
+                "transcript_start": 0,
+                "transcript_end": 50,
+                "reference_start": 1000,
+                "reference_end": 1049,
+                "alt_strand": 1,
+                "cigar": "50=",
+            },
+            {
+                "transcript_start": 50,
+                "transcript_end": 90,
+                "reference_start": 1060,
+                "reference_end": 1099,
+                "alt_strand": 1,
+                "cigar": "40=",
+            },
+        ]
+        return model
+
+    def get_seq(self, ac: str, start: int, end: int | None, _kind: str) -> str:
+        if ac.startswith("NC_"):
+            return ("N" * 1000 + TRANSCRIPT[:50] + INTRON + TRANSCRIPT[50:])[start:end]
+        return TRANSCRIPT[start:end]
+
+
+def test_a_base_the_genome_lacks_is_an_error_naming_the_genome() -> None:
+    mapper = weaver.VariantMapper(SplicedProvider())
+    with pytest.raises(weaver.TranscriptMismatchError, match=r"expected C, found G on NC_TEST\.1"):
+        mapper.c_to_g(weaver.parse("NM_TEST:c.40+1C>A"))
