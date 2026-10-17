@@ -49,8 +49,9 @@ flowchart TD
 ### Nucleotide against nucleotide
 
 Two `g.`, `c.` or `n.` descriptions are the same change when they make the same sequence on the genome. For two single
-variants that change the sequence that is exactly when their **canonical alleles** are equal; every description that
-makes the reference, a positional identity anywhere or an allele whose members cancel, is `Analogous` to every other. A
+variants that change the sequence that is exactly when their **canonical alleles** are equal. A description that makes
+the reference, a positional identity or an allele whose members cancel, states that the bases it names are unchanged,
+and is `Analogous` only to another that names the same bases on the genome; it is never the same as a change. A
 canonical allele is the change projected onto the genomic reference, trimmed to what it alters, then widened over the
 whole region in which it could equally be written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and
 `c.10_12del` in a run of the same trinucleotide, `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against
@@ -63,9 +64,9 @@ them. Where the provider has no genome, the transcript is used only if nothing t
 exons or crosses a junction or gap; otherwise the comparison is an error (`Unknown` in the harness).
 [The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make) has the reasoning and the members that cannot be
 applied. An allele whose members are
-[contradictory or ambiguous](choices.md#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous) is not
-compared: the judgement is that error. A one-member allele is its member, and its brackets are spelling, as a
-prediction's parentheses are: `c.[7C>T]` and `c.7C>T` are `Identity`.
+[contradictory or ambiguous](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not compared: the
+judgement is that error. A one-member allele is its member, and its brackets are spelling, as a prediction's parentheses
+are: `c.[7C>T]` and `c.7C>T` are `Identity`.
 
 ### Nucleotide against protein
 

@@ -75,15 +75,18 @@ Applied in: [a description that says nothing matches nothing](#a-description-tha
 ### Equality is the allele
 
 **Two descriptions are the same change when they make the same sequence. Their spelling, their coordinate system, and
-anything they record that is not part of the allele, such as a stated reference base, do not enter. Nucleotide
-descriptions are compared on the genome, because a change written on a transcript is a change to the genome.**
+anything they record that is not part of the allele, such as a stated reference base, do not enter. A description that
+makes the reference changes nothing; it states that the bases it names are unchanged, and is the same as another only
+when the two name the same bases. Nucleotide descriptions are compared on the genome, because a change written on a
+transcript is a change to the genome.**
 
 One change has many spellings: shifted or not, `dup` or `ins`, `c.` or `g.`, with its bases stated or bare. Text
 comparison sees the spelling. Comparing on the genome rather than the transcript keeps equivalence transitive: two
 transcript changes that leave one transcript can still be different changes to the genome when they sit on either side
 of an exon junction.
 
-On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG:CAG`.
+On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG:CAG`. `c.10=` and `c.20=` both make the
+reference, and are different statements.
 
 Applied in: [judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind),
 [the canonical allele is fully justified](#the-canonical-allele-is-fully-justified),
@@ -185,9 +188,9 @@ Representation Specification 2.0.1.
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |                agrees                |      agrees      |        agrees        |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |                agrees                |     differs      |          –           |      agrees      |
 | [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                agrees                |   agrees on g.   |          –           |        –         |
-| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                agrees                |  differs on two  |        agrees        |        –         |
+| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                agrees                |     differs      |        agrees        |        –         |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                agrees                |        –         |          –           |      agrees      |
-| [Members of a cis allele that meet are written as one change](#members-of-a-cis-allele-that-meet-are-written-as-one-change)                 |             **differs**              |        –         |          –           |        –         |
+| [Members of a cis allele that meet are written as one change](#members-of-a-cis-allele-that-meet-are-written-as-one-change)         |             **differs**              |        –         |          –           |        –         |
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                  –                   |     differs      |          –           |        –         |
 | [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension)                       |                agrees                |      agrees      |          –           |      agrees      |
 | [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change)                           |                agrees                |        –         |          –           |        –         |
@@ -203,9 +206,9 @@ Representation Specification 2.0.1.
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |     agrees; silent on `p.Arg12?`     |        –         |          –           |     differs      |
 | [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |                  –                   |        –         |          –           |        –         |
 | [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours)                             |                  –                   |        –         |          –           |        –         |
-| [A cis allele is the sequence its members make](#a-cis-allele-is-the-sequence-its-members-make)                                             |                  –                   |        –         |          –           |        –         |
-| [Members of a cis allele that overlap are contradictory or ambiguous](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous) |             **differs**              |        –         |          –           |        –         |
-| [An ambiguous description is an error that lists its readings](#an-ambiguous-description-is-an-error-that-lists-its-readings)               |                  –                   |        –         |          –           |        –         |
+| [A cis allele is the sequence its members make](#a-cis-allele-is-the-sequence-its-members-make)                                     |                  –                   |        –         |          –           |        –         |
+| [Overlapping members of a cis allele need one reading](#overlapping-members-of-a-cis-allele-need-one-reading)                       |             **differs**              |        –         |          –           |        –         |
+| [An ambiguous description is an error that lists its readings](#an-ambiguous-description-is-an-error-that-lists-its-readings)       |                  –                   |        –         |          –           |        –         |
 | [The canonical allele is fully justified](#the-canonical-allele-is-fully-justified)                                                 |                agrees                |        –         |          –           |        –         |
 | [Refget accessions are computed over the normalised sequence](#refget-accessions-are-computed-over-the-normalised-sequence)         |                agrees                |        –         |          –           |        –         |
 | [Uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds)                                             |                agrees                |        –         |          –           |        –         |
@@ -574,8 +577,8 @@ what follows from the statement:
   contradicts that change, so `c.[=;10C>G]` is refused when parsed. The same rule refuses `r.[=;10c>g]` and
   `p.[=;Arg2Gly]`. The other statements keep their place: `r.[spl;10c>g]` parses. An identity at a position is not this
   statement but an edit that leaves its bases as they are, so `c.[10=;12C>G]` is accepted and makes what `c.12C>G` makes
-  ([cis alleles that overlap](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous), where the departure
-  from the alleles page is recorded).
+  ([cis alleles that overlap](#overlapping-members-of-a-cis-allele-need-one-reading), where the departure from the
+  alleles page is recorded).
 - **Refused.** A genomic form, a canonical allele, SPDI and VRS are an `UnsupportedOperation` error.
 
 Only `c.` takes the whole-transcript identity. The specification never writes `n.=` and defines no whole-sequence
@@ -599,7 +602,7 @@ NM_W.1:c.=   vs NM_W.1:c.[=]     Identity
 NM_W.1:c.=   vs NP_W.1:p.(=)     Identity
 NM_W.1:c.=   vs NP_W.1:p.=       Analogous
 NM_W.1:c.=   vs NM_W.1:r.=       Different: DNA analysed is not RNA analysed
-NM_W.1:c.=   vs NM_W.1:c.10=     Different: one base unchanged is not the whole transcript
+NM_W.1:c.=   vs NM_W.1:c.10=     Different: a statement about c.10 is not one about the whole transcript
 NM_W.1:c.[=;10C>G]               refused when parsed
 NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
 ```
@@ -1039,10 +1042,9 @@ combinatorial screen recording that a position was wild type in a given combinat
 Normalising the members one at a time can break the allele. A member's 3' shift stops at the first base that differs
 from what it moves over, and a neighbour may change that base, or sit inside the run the member moves along. On
 `TTCAGCAGTT`, `g.[3_5del;7A>T]` is a valid allele, but its deletion shifted alone becomes `g.6_8del`, which contains
-g.7, and `g.[6_8del;7A>T]` is
-[refused as an overlap](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous). On `NM_X.1`, the deletion
-of an A in `c.[4del;7C>A]` stops at c.7, a C, which the other member makes an A: shifted one at a time the allele is
-`c.[6del;7C>A]`, two members that together make what `c.7del` makes.
+g.7, and `g.[6_8del;7A>T]` is [refused as an overlap](#overlapping-members-of-a-cis-allele-need-one-reading). On
+`NM_X.1`, the deletion of an A in `c.[4del;7C>A]` stops at c.7, a C, which the other member makes an A: shifted one at a
+time the allele is `c.[6del;7C>A]`, two members that together make what `c.7del` makes.
 
 Grouping once, on the members as written, is not enough either, because what a group becomes can reach a member it did
 not reach before. On `TCTCT`, the first two deletions of `g.[1del;2del;5del]` touch and together delete `TC`, which
@@ -1052,8 +1054,7 @@ makes the right sequence, but whose two members touch, so normalising it again g
 
 So weaver normalises by what the members do together, and keeps going until nothing changes:
 
-1. The [overlap rule](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous) is checked on the members as
-   written.
+1. The [overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) is checked on the members as written.
 1. Each member has an extent: the bases it is written over, together with its fully justified region, the region its
    [canonical allele](#the-canonical-allele-is-fully-justified) spans, everywhere it could equally be written.
 1. Two members meet when their extents overlap or touch, with no unchanged base between them. On `c.`, two members also
@@ -1131,15 +1132,20 @@ g.19. Inside an allele the crossing shift would move a deletion to the other exo
 overlap. Stopped at the junction, they are `c.[5del;7C>A]` and `c.[5del;6A>T]`. Like an identity, the junction bounds
 the duplication test too. An insertion's shift stops before the junction itself, so normalisation never writes an
 insertion on one: `c.4_5insAC` stays `c.4_5insAC`, where one place further it would be `c.5_6insCA`, which projects to
-either side of the intron. An insertion written on a junction, `c.5_6insC`, is the ambiguity
-[issue #64](https://github.com/populationgenomics/hgvs-weaver/issues/64) records; until that is decided it keeps today's
-behaviour. An intronic member's extent is computed on the genome, where it has bases.
+either side of the intron. A duplication is not such an insertion: its shift stops at the exon's last base, as a
+deletion's does, so `c.4dup` in `AA|A` is written `c.5dup`. Its copy goes on the junction, but directly 3' of the base
+it copies, so on the genome it is `g.20dup`, and no reader can put it in the other exon. An insertion written on a
+junction, `c.5_6insC`, is the ambiguity [issue #64](https://github.com/populationgenomics/hgvs-weaver/issues/64)
+records; until that is decided it keeps today's behaviour. An intronic member's extent is computed on the genome, where
+it has bases.
 
-A positional identity, `c.6=`, is a barrier: it is left as written, merged with nothing, and no shift enters it, since
-it says those bases are as they were. Nothing reaches across it either: a justified region, a group and the test that
-turns an insertion into a duplication all stay on one side, so `c.[4A>T;5=;6A>T]` stays three members although c.4 and
-c.6 share a codon. `c.[4del;6=]` becomes `c.[5del;6=]`, the deletion stopping at c.5, and `c.[4del;5=]` stays as
-written. A member that cannot be applied, a copy number or an uncertain position, is left as written too.
+A positional identity, `c.6=`, is a barrier: it is merged with no change, and no shift enters it, since it says those
+bases are as they were. Identities that overlap or touch are written as one, `c.[7_9=;8=]` as `c.7_9=` and
+`c.[7_9=;10=]` as `c.7_10=`, since they state the same bases either way; `c.[10=;20=]` stays two members. Nothing
+reaches across an identity either: a justified region, a group and the test that turns an insertion into a duplication
+all stay on one side, so `c.[4A>T;5=;6A>T]` stays three members although c.4 and c.6 share a codon. `c.[4del;6=]`
+becomes `c.[5del;6=]`, the deletion stopping at c.5, and `c.[4del;5=]` stays as written. A member that cannot be
+applied, a copy number or an uncertain position, is left as written too.
 
 The result is not a canonical form. `c.[5A>G;9G>T]` stays two members, and `c.5_9delinsGACTT`, which makes the same
 sequence, stays one delins, because a single delins is left as written. Equivalence compares sequences, so neither
@@ -1153,16 +1159,26 @@ When every member falls into one group, the result is the plain variant, `c.7_8d
 [VRS identifier follows the description](#a-cis-allele-is-the-sequence-its-members-make), so the normalised form can
 have a different identifier from the allele written.
 
-A group that makes the reference is dropped. `c.[4_5insA;5del]` inserts an A and deletes the A after it: the members
-pass the overlap rule and together make the reference, so the group leaves nothing to write. Beside another change it
-goes, `c.[4_5insA;5del;13T>G]` becoming `c.13T>G`, as it does when the cancelling members sit inside a larger group,
-`c.[4_5insA;5del;6A>T]` becoming `c.6A>T`. Only when the whole allele makes the reference do `normalize`, and `to_vrs`,
-which normalises, refuse it, with an error saying the members cancel. The answer they decline is `c.=`, which claims the
-whole transcript was analysed, which the allele does not say; and an allele that changes nothing is almost certainly not
-what was meant. The rejected alternative refuses whenever any members cancel. It is as consistent, but it has to find
-cancellation hidden inside a larger group, where it leaves no trace in what the group makes. The other operations answer
-mechanically: equivalence finds that the allele makes the reference, and `validate` passes it when its stated bases are
-right.
+A group that makes the reference is written as what it states. `c.[4_5insA;5del]` inserts an A and deletes the A after
+it; on `NM_X.1`, whose c.4_6 is `AAA`, the members pass the overlap rule and together make the reference. What remains
+is a statement that the bases the members are written over, c.4 and c.5, are unchanged, which is how
+[equivalence reads it](#a-cis-allele-is-the-sequence-its-members-make), so `normalize` writes `c.4_5=`, and `to_vrs`,
+which normalises, renders the reference Allele over those bases. The bases are the ones the members name, an insertion
+naming its two flanks, with no widening over the run they sit in: `c.4_6=` would claim c.6, which neither member names.
+Whether members cancel depends on the reference, not the text: on `TTTTTTTTTT`, `g.[4_5insA;5del]` makes `TTTTATTTTT`,
+which is `g.5T>A`.
+
+A cancelling group beside other changes keeps its statement too, as an identity member: `c.[4_5insA;5del;13T>G]` becomes
+`c.[4_5=;13T>G]`, and that identity is written as one with any identity it meets, `c.[4_5insA;5del;6=]` becoming
+`c.4_6=`. Cancelling members in one group with a change are different. The group makes a change, and is written as that
+change, trimmed to the bases it alters, so `c.[4_5insA;5del;6A>T]` becomes `c.6A>T` and says nothing more about c.4 and
+c.5. Keeping a statement there would mean finding, among the group's members, a subset whose effect cancels; the group's
+sequence does not record which members those are, and in a group of several there can be more than one such subset to
+choose.
+
+The rejected alternatives were to drop a group that makes the reference, which loses the one thing its members still
+say, and to refuse an allele that makes the reference, which would also refuse `c.[10=;20=]` and `c.[7_9=;8=]`,
+statements with one reading. `validate` passes such an allele when its stated bases are right.
 
 `to_vrs` normalises a cis allele first, so members whose justified regions meet become one Allele. On `GAAAAAG`,
 `g.[2del;4A>T]` makes `GATAAG` and `g.[6del;4A>T]` makes `GAATAG`; their deletions both justify over g.2_6, so rendered
@@ -1225,6 +1241,7 @@ NM_S.1:c.[6A>T;7C>G]              AATGTG       →  NM_S.1:c.6_7delinsTG     bot
 NM_S.1:c.[4del;7C>A]              AAATG        →  NM_S.1:c.[5del;7C>A]     the deletion stops at the junction
 NM_S.1:c.[4del;6A>T]              ATCTG        →  NM_S.1:c.[5del;6A>T]     the same
 NM_S.1:c.4_5insAC                 AACAACTG     →  NM_S.1:c.4_5insAC        not onto the junction, c.5_6insCA
+NM_S.1:c.4dup                     AAA|ACTG     →  NM_S.1:c.5dup            the copy against c.5: g.20dup
 NM_X.1:c.[4del;6=]                AACTG        →  NM_X.1:c.[5del;6=]       no shift enters c.6
 on GAAAAAG:
 X:g.[2del;4A>T]                   GATAAG       →  X:g.3_4delinsT           both deletions justify over g.2_6
@@ -1233,9 +1250,15 @@ X:g.[6del;4A>T]                   GAATAG       →  X:g.4_5delinsT
                                   c.*1_*5 becomes
 NM_X.1:c.[*1C>A;*3G>T]            ACTTA        →  NM_X.1:c.[*1C>A;*3G>T]   no codon outside the CDS
 
-NM_X.1:c.[4_5insA;5del]           AAACTGGCC    →  an error: the members cancel, the whole allele is the reference
-NM_X.1:c.[4_5insA;5del;13T>G]     AAACTGGCC    →  NM_X.1:c.13T>G           the cancelling group is dropped
-NM_X.1:c.[4_5insA;5del;6A>T]      AATCTGGCC    →  NM_X.1:c.6A>T            cancelled inside a larger group
+NM_X.1:c.[4_5insA;5del]           AAACTGGCC    →  NM_X.1:c.4_5=            the bases the members name
+NM_X.1:c.[4_5insA;5del;13T>G]     AAACTGGCC    →  NM_X.1:c.[4_5=;13T>G]    the cancelling group keeps its statement
+NM_X.1:c.[4_5insA;5del;6=]        AAACTGGCC    →  NM_X.1:c.4_6=            the two statements touch
+NM_X.1:c.[4_5insA;5del;6A>T]      AATCTGGCC    →  NM_X.1:c.6A>T            cancelled inside a group that changes c.6
+NM_X.1:c.[10=;20=]                AAACTGGCC    →  NM_X.1:c.[10=;20=]       two statements, apart
+NM_X.1:c.[7_9=;8=]                AAACTGGCC    →  NM_X.1:c.7_9=
+NM_X.1:c.[7_9=;10=]               AAACTGGCC    →  NM_X.1:c.7_10=           statements that touch are one
+on TTTTTTTTTT:
+X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 here the members change a base
 ```
 
 - **Differs:** a block assembled from members each translated by ga4gh.vrs 2.3.1, whose translator fully justifies an
@@ -1263,7 +1286,11 @@ NM_X.1:c.[4_5insA;5del;6A>T]      AATCTGGCC    →  NM_X.1:c.6A>T            can
   `::members_one_base_apart_in_two_codons_stay_apart`, `::grouping_runs_across_touch_and_codon`,
   `::a_genomic_allele_has_no_codon`, `::members_outside_the_cds_have_no_codon`,
   `::an_insertion_inside_a_codon_joins_it`, `::a_deletion_across_two_codons_groups_by_its_region`,
-  `::members_in_a_codon_split_by_an_intron_stay_apart`, `::an_allele_merged_whole_is_a_plain_variant`;
+  `::members_in_a_codon_split_by_an_intron_stay_apart`, `::an_allele_merged_whole_is_a_plain_variant`,
+  `::a_cancelling_allele_is_the_identity_of_the_bases_its_members_name`,
+  `::a_cancelling_group_beside_a_change_leaves_an_identity`,
+  `::a_cancelling_group_inside_a_changing_group_is_the_change`, `::identities_that_meet_are_written_as_one`,
+  `::identities_apart_stay_apart`, `::a_duplication_of_an_exons_last_base_stays_on_it`;
   `normalising_a_cis_allele_keeps_its_sequence` and `normalising_a_cis_allele_twice_is_normalising_it_once`
   (properties).
 
@@ -1697,17 +1724,27 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
 ### Judged by allele and by the protein left behind
 
 **Two nucleotide descriptions are the same change when they make the same sequence on the genome, which for two single
-variants that change the sequence is when their canonical alleles are equal, and any two that make the reference are the
-same; a coding variant and a protein description agree when they leave the same protein.**
+variants that change the sequence is when their canonical alleles are equal; two that make the reference are the same
+when they name the same bases. A coding variant and a protein description agree when they leave the same protein.**
 
 `Identity` is the same text after spelling normalisation, or a prediction written exactly as given; the parentheses of a
 prediction and the brackets of a one-member allele are spelling. Cis alleles are compared by
 [the sequence their members make](#a-cis-allele-is-the-sequence-its-members-make).
 [How it decides](equivalence_logic.md) has the full rules.
 
+A protein description that leaves the protein unchanged is a statement in the same way. `p.(Leu3=)` and `p.(Ala4=)`
+leave the same protein, so the comparison by protein left behind finds them the same, and `p.(=)` the same as both; but
+each says only that its own residues are unchanged, so they are to be Different, as `c.10=` and `c.20=` are, and a
+coding change predicted silent, `c.9G>A` giving `p.(Leu3=)`, is compared as that statement. This is decided, and lands
+with its implementation, checked against the ClinVar gate; until then the rows below marked *planned* answer as the
+protein left behind does.
+
 **Example:**
 
 ```text
+NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(Ala4=)                          Different: Leu3 and Ala4 (planned)
+NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(=)                              Different: one residue, the whole protein (planned)
+NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=) (planned)
 NP_001337263.1:p.Tyr165Ter   vs  NP_001337263.1:p.Ala164_Tyr165insTer      Analogous: both end the protein after 164
 NM_X.1:c.4A>C                vs  NP_X.1:p.(Lys2Gln)                        Identity: the prediction as weaver writes it
 NM_X.1:c.4A>C                vs  NP_X.1:p.Lys2Gln                          Analogous
@@ -1721,7 +1758,9 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 - **Tests:** `transcript_coordinates_test::canonical_alleles_make_spdi_vrs_and_equivalence_one_value`;
   `equivalence_cases_test::test_clinvar_regression_tyr165ter`, `::test_analogous_fs_wildcard_unification`;
   `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
-  `a_variant_agrees_with_its_projection` (property).
+  `a_variant_agrees_with_its_projection` (property). Planned:
+  `equivalence_test::silent_statements_at_different_residues_differ`,
+  `::a_silent_residue_is_not_the_whole_protein_unchanged`, `::a_coding_change_predicted_silent_is_its_statement`.
 
 ### A description that says nothing matches nothing
 
@@ -1819,10 +1858,9 @@ And asked whether a BRCA1 change from `..CATGACA..` to `..CATATAACA..` may be wr
 answers that "the correct description of this variant is `NM_007294.3:c.2077delinsATA`": a correction of the spelling,
 for the same sequence. An earlier answer added that the allele form was acceptable; the page has withdrawn that, so
 reading `c.[2077G>A;2077_2078insTA]` as an allele with one reading is weaver's choice
-([below](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous)). Matching members one by one cannot see
-any of this. It finds no member of `c.[7C>T;8T>G]` in `c.7_8delinsTG`, and in the repeat below it pairs the two
-deletions, which happen to be one allele, and fails on the substitutions, which are not, although the two descriptions
-make the same sequence.
+([below](#overlapping-members-of-a-cis-allele-need-one-reading)). Matching members one by one cannot see any of this. It
+finds no member of `c.[7C>T;8T>G]` in `c.7_8delinsTG`, and in the repeat below it pairs the two deletions, which happen
+to be one allele, and fails on the substitutions, which are not, although the two descriptions make the same sequence.
 
 So weaver applies both descriptions and compares what they make. The comparison need not cover the whole reference:
 outside the stretch from the first base either description touches to the last, both are the reference, so the two
@@ -1848,21 +1886,37 @@ Projection keeps the reading the allele has where it is written. A duplication i
 its own strand, so on the minus strand the copy lands 5' of the original on the genome. `NR_XR.1:n.[23_25dup;22_23insA]`
 is accepted on the transcript, the A going before what is copied, as in `c.[7_9dup;6_7insA]`. Written as `g.26_28dup`,
 the duplication would insert at g.28_29, where the A, projected as `g.28_29insT`, also goes, and the pair would be
-[ambiguous](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous). So projection is member by member,
-except that a minus-strand duplication beside an insertion at the junction its genomic form would use is written on the
-genome as the insertion it is, `g.25_26insCCT`, and the allele projects to `g.[25_26insCCT;28_29insT]`, which makes what
-the transcript reading makes and normalises to `g.28_29insCCTT`.
+[ambiguous](#overlapping-members-of-a-cis-allele-need-one-reading). So projection is member by member, except that a
+minus-strand duplication beside an insertion at the junction its genomic form would use is written on the genome as the
+insertion it is, `g.25_26insCCT`, and the allele projects to `g.[25_26insCCT;28_29insT]`, which makes what the
+transcript reading makes and normalises to `g.28_29insCCTT`.
 
 A one-member allele makes what its member makes, so `c.[7C>T]` is `c.7C>T`, and an allele and a single variant are the
 same change when they make the same sequence. The brackets of a one-member allele are spelling, as the parentheses of a
 prediction are, so the two are Identity, as `c.=` and `c.[=]` are.
 
-Every description that makes the reference is Analogous to every other: positional identities at any position, `c.10=`
-and `c.20=`, and an allele whose members cancel, `c.[4_5insA;5del]`. Identity is kept for the same text. That a position
-was checked and found unchanged is information equivalence does not carry, and reading the canonical allele instead,
-which differs between `c.10=` and `c.20=`, would break transitivity through any cancelling allele, which makes the
-reference as both do. Read from the sequence, a protein consequence comes from the codons all the members leave, as the
-delins page asks: `c.[4A>T;6A>T]` turns the codon `AAA` into `TAT`.
+A description that makes the reference changes nothing, so it has no change to compare. What it says is that the bases
+it names are as they were, and two such descriptions are the same when they say it of the same bases, projected to the
+genome: `c.10=` and `c.20=` are Different, and `c.10=` and `NC_X.1:g.25=` are Analogous. An allele whose members cancel
+says it of the bases the members are written over, an insertion naming its two flanks, with no widening over a repeat,
+as for the comparison's stretch: on `NM_X.1`, whose c.4_6 is `AAA`, `c.[4_5insA;5del]` is `c.4_5=` and not `c.4_6=`,
+though c.6 is in the same run. Whether members cancel is a fact about the reference, not the text: on `TTTTTTTTTT` the
+same allele makes `g.5T>A`, a change, and is compared as one. Beside a change an identity is part of a description that
+changes the sequence, and is compared as that: `c.[7C>T;10_12=]` is the same change as `c.7C>T`.
+
+The two kinds never meet. A description that changes the sequence makes something other than the reference, so it is
+never the same as one that makes the reference; two that change it are compared by what they make, and two that make the
+reference by the bases they name. Each comparison is the equality of one value, the sequence or the set of bases, so
+equivalence stays transitive. The alternative, every description that makes the reference the same as every other, would
+make a check at c.10 the same as a check at c.20, which neither claims.
+
+Read from the sequence, a protein consequence comes from the codons all the members leave, as the delins page asks:
+`c.[4A>T;6A>T]` turns the codon `AAA` into `TAT`. An allele that makes the reference predicts what its statement
+predicts. `c.[4_5insA;5del]`, read as `c.4_5=`, is `p.(Lys2=)`, silent at the residue its bases are in, as
+[an identity inside the codons](#edits-outside-the-cds-are-statements) is; in a UTR it is `p.(=)`. `c.[10=;20=]`,
+statements in two codons, is `p.[(Ala4=;Ter7=)]`, the predicted allele written as the protein alleles page writes one,
+the parentheses inside the brackets. An allele that changes the sequence predicts the change, and an identity beside it
+adds nothing to the protein.
 
 Some members cannot be applied to a sequence: a statement (the whole-sequence `=`, `?`, `spl`, `0`, `r.(?)`); a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`; inserted bases that are not stated, `insN[20]`; and a copy number.
@@ -1875,8 +1929,8 @@ so `g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split of the applicab
 projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as written, is compared, so
 `c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`, the same members on one genome, are one allele though `10_12copy3` and
 `25_27copy3` are different text. Such a member is still held to the
-[overlap rule](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous) on its outer bounds, so
-`g.[22C>T;20_30copy3]` is refused rather than compared in two parts.
+[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so `g.[22C>T;20_30copy3]` is
+refused rather than compared in two parts.
 
 A `p.` frameshift or extension can be applied. Equivalence already turns a single one into
 [the protein it leaves](equivalence_logic.md#the-protein-a-description-leaves): residues it does not name match any
@@ -1918,12 +1972,20 @@ NR_XR.1:n.[23A>C;29G>A]                the same bases                 Analogous:
 NM_X.1:c.7C>T                          ATG AAA TTG GCC TAT CGC TAA    Different from c.[7C>T;13T>G]: a member short
 NM_X.1:c.[7C>T]                        ATG AAA TTG GCC TAT CGC TAA    Identity with c.7C>T
 NM_X.1:c.[7C>T;10_12=]                 ATG AAA TTG GCC TAT CGC TAA    Analogous with c.7C>T: the identity changes nothing
-NM_X.1:c.10=  vs  NM_X.1:c.20=         the reference for both         Analogous: both make the reference
-NM_X.1:c.[4_5insA;5del]  vs  c.10=     the reference for both         Analogous
+NM_X.1:c.10=  vs  NM_X.1:c.20=         the reference for both         Different: statements about c.10 and c.20
+NM_X.1:c.10=  vs  NC_X.1:g.25=         the reference for both         Analogous: one base, on the genome
+NM_X.1:c.[4_5insA;5del]  vs  c.4_5=    the reference for both         Analogous: the members name c.4 and c.5
+NM_X.1:c.[4_5insA;5del]  vs  c.4_6=    the reference for both         Different: c.6 is in the run, but not named
+NM_X.1:c.[4_5insA;5del]  vs  c.10=     the reference for both         Different
+on TTTTTTTTTT:
+X:g.[4_5insA;5del]  vs  X:g.5T>A       TTTTATTTTT for both            Analogous: here the members change a base
+
+NM_X.1:c.[4_5insA;5del]                →  NP_X.1:p.(Lys2=)            the statement c.4_5=, silent at Lys2
+NM_X.1:c.[10=;20=]                     →  NP_X.1:p.[(Ala4=;Ter7=)]
 
 NM_X.1:c.[4A>T;6A>T]                   ATG TAT CTG GCC TAT CGC TAA    →  NP_X.1:p.(Lys2Tyr)
 NM_X.1:c.4_6delinsTAT                  ATG TAT CTG GCC TAT CGC TAA    Analogous with c.[4A>T;6A>T]
-                                                                      not p.[(Lys2Ter);(Lys2Asn)], what the members predict alone
+                                                                      not p.[(Lys2Ter;Lys2Asn)], what the members predict alone
 
 on TTCAGCAGTT:
 X:g.[3_5del;7A>T]                      TTCTGTT
@@ -1967,9 +2029,12 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::a_cis_allele_is_not_one_of_its_members`, `::a_one_member_cis_allele_is_its_member`,
   `::protein_members_are_the_delins_they_make`, `::members_in_one_codon_predict_one_residue`,
   `::members_without_a_sequence_match_as_text_in_any_order`, `::members_on_one_transcript_compare_without_the_genome`,
-  `::the_vrs_identifier_follows_the_description`.
+  `::the_vrs_identifier_follows_the_description`, `::statements_about_different_bases_differ`,
+  `::a_cancelling_allele_states_the_bases_its_members_name`, `::cancelling_depends_on_the_reference`,
+  `::a_change_is_never_a_statement`, `::a_cancelling_allele_predicts_its_statements_protein`;
+  `equivalence_is_transitive_over_statements_and_changes` (property).
 
-### Members of a cis allele that overlap are contradictory or ambiguous
+### Overlapping members of a cis allele need one reading
 
 **Members of a cis allele that reach for the same reference are read every way the description allows. With no reading
 the allele is contradictory, a `ValidationError` naming the two members; with readings that make different sequences it
@@ -1981,48 +2046,56 @@ chromosome that either cannot exist or cannot be told from another, and the two 
 
 **Contradictory: no reading.** `c.[7_9del;8T>G]` deletes c.8 and changes it: on that chromosome there is no c.8 to
 become G. `c.[7C>T;7C>G]` puts two bases at one position of one chromosome. `c.[7_9=;8T>G]` says c.8 is both unchanged
-and changed. No sequence answers any of these, so each is a `ValidationError`.
+and changed, and `c.[7_8=;7_8insA]` says c.7 and c.8 are unchanged, which includes that they are still side by side, and
+puts an A between them. `c.[7_9delinsA;8T>G]` replaces three bases with one, which is not any of the three, so there is
+no base left for c.8 to be. No sequence answers any of these, so each is a `ValidationError`.
 
 **Ambiguous: several readings.** `c.[7_8insA;7_8insG]` puts an A and a G between c.7 and c.8 but not in which order, and
 `c.7_8insAG` and `c.7_8insGA` are different sequences. A duplication inserts at the junction 3' of what it copies, which
 is how the specification defines it, so `c.[7_9dup;9_10insA]` is two insertions at one junction too.
 `c.[7_8insA;7_8insA]` is one insertion written twice, `c.7_8insA`, or two, `c.7_8insAA`, and `c.[7_9dup;9_10insCTG]`
-inserts `CTG` at c.9_10 twice over in the same way. `c.[7_9del;7_8insA]` inserts between two bases the deletion removes:
-the insertion point goes with the deleted bases, `c.7_9del`, or the A survives in their place, `c.7_9delinsA`.
-`c.[7_9dup;8T>G]` changes a base the duplication copies: the copy is of the reference, which normalises to
-`c.7_8insGGC`, or of the edited bases, `c.8delinsGGCG`. The same holds for any member that copies a stretch another
-member changes: a conversion, which the specification no longer uses but weaver parses, and an insertion of a copied
-range (`ins5_16`), which weaver does not yet parse. Each of these has answers, and weaver does not pick one: it returns
-them all.
+inserts `CTG` at c.9_10 twice over in the same way. `c.[7_9dup;8T>G]` changes a base the duplication copies: the copy is
+of the reference, which normalises to `c.7_8insGGC`, or of the edited bases, `c.8delinsGGCG`. An inversion reads the
+bases it covers in the same way. `c.[7_9inv;8T>A]` inverts `CTG`, read as written, to `CAG`, where the substitution's A
+also falls, or inverts the changed bases `CAG` back to `CTG`, the reference. The same holds for any member that reads a
+stretch another member changes: a conversion, which the specification no longer uses but weaver parses, and an insertion
+of a copied range (`ins5_16`), which weaver does not yet parse. Each of these has answers, and weaver does not pick one:
+it returns them all.
 
 **One reading: accepted.** Nearness is not the problem: `c.[7_8del;9_10del]` is two deletions meeting at a junction,
 together a deletion of four bases, and `c.[2077G>A;2077_2078insTA]`, the allele the specification's BRCA1 question asks
 about, changes a base and inserts beside it. Members that agree on every base they share have one reading, and the
-redundancy is dropped: one edit written twice, `c.[7C>T;7C>T]` or `c.[7C>T;7delinsT]`, and overlapping edits that put
-the same base at each shared position, `c.[7_8delinsTG;7C>T]`, which is `c.7_8delinsTG`, or `c.[7_9=;8=]`, which is
-`c.7_9=`. A delins that changes length has no base-by-base reading, so beside another edit of its bases it does not
-agree. Insertions at one junction whose orders make one sequence and that are not identical, `c.[7_8insA;7_8insAA]`,
-have one reading too.
+redundancy is dropped: one edit written twice, `c.[7C>T;7C>T]` or `c.[7C>T;7delinsT]`; overlapping edits that put the
+same base at each shared position, `c.[7_8delinsTG;7C>T]`, which is `c.7_8delinsTG`; overlapping deletions, which remove
+each shared base once, `c.[7_9del;8_10del]`, which is `c.7_10del`; and identities, `c.[7_9=;8=]`, which is `c.7_9=`. An
+insertion inside a stretch that is read base by base keeps its place among the new bases: `c.[7_8delinsTG;7_8insA]` puts
+the A between the T and the G, `c.7_8delinsTAG`, and `c.[7_9del;7_8insA]` leaves the A where c.7 and c.8 were,
+`c.7_9delinsA`. Insertions at one junction whose orders make one sequence and that are not identical,
+`c.[7_8insA;7_8insAA]`, have one reading too.
 
 So each member is read as the reference interval it replaces and the bases it puts there; an insertion replaces the
 empty interval at a junction between two bases, and a duplication is an insertion at the junction 3' of the bases it
-copies. The allele is:
+copies. A substitution, a deletion, a delins that keeps the length and a positional identity are read base by base: each
+reference base gets one base, or none. A delins that changes the length gives its bases no such reading and replaces its
+stretch as a whole. A duplication and an inversion read the bases they cover. The allele is:
 
-- contradictory when two members replace overlapping stretches and disagree on a shared base, one leaving a base there
-  that the other removes or replaces with another, or when a member inserts inside a positional identity's stretch,
-  which says it is unchanged; contradictory comes first when both apply;
-- ambiguous when one member inserts between two bases another replaces (the insertion dropped with them, or kept at each
-  place among the new bases: `c.[7_9delinsTT;8_9insA]` reads as `c.7_9delinsTT`, `ATT`, `TAT` or `TTA`), when two
-  members insert at one junction and their orders make different sequences, when identical insertions could be one
-  written twice, or when a member changes the bases another copies;
-- accepted otherwise. Members that agree on every shared base are redundant, and the redundancy is dropped.
+- contradictory when two members read base by base disagree at a base, one keeping or changing a base the other changes
+  or removes; when a delins that changes the length shares a base with another member, or another member inserts inside
+  it; or when a member inserts inside a positional identity's stretch; contradictory comes first when both apply;
+- ambiguous when two members insert at one junction and their orders make different sequences, when identical insertions
+  could be one written twice, or when a member changes, removes or inserts among the bases a duplication or an inversion
+  reads;
+- accepted otherwise. Where members agree on a base, the change gives way and the identity stays: `c.[7=;7_8delinsCG]`
+  agrees at c.7, and is written `c.[7=;8T>G]`, the identity kept and the delins trimmed to the base it changes.
 
 A repeat replaces its [whole run](#a-repeat-resolves-to-its-whole-run). A positional identity, `c.10_12=`, is an edit
-that replaces its bases with themselves: it can be applied, it takes part in this rule, and normalisation leaves it as
-written. Combinatorial variant screens use it to record that a position in a given combination was assayed and is wild
-type. Equivalence is about the allele, which that record does not change, so `c.[7C>T;10_12=]` is Analogous with
-`c.7C>T`. The whole-sequence `c.=` beside a change says no change was found and names one, a contradiction, and stays
-refused ([the `c.=` entry](#the-whole-transcript-unchanged-is-a-statement-not-a-change)).
+that replaces its bases with themselves: it can be applied, it takes part in this rule, and normalisation never drops
+it. Combinatorial variant screens use it to record that a position in a given combination was assayed and is wild type.
+Beside a change, equivalence is about the allele, which that record does not change, so `c.[7C>T;10_12=]` is Analogous
+with `c.7C>T`; alone, it is the statement it makes
+([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)). The whole-sequence `c.=` beside a change says
+no change was found and names one, a contradiction, and stays refused
+([the `c.=` entry](#the-whole-transcript-unchanged-is-a-statement-not-a-change)).
 
 A member that cannot be applied, a copy number or a position that is uncertain or imprecise, still names a stretch, and
 is held to this rule on its outer bounds. `g.[22C>T;20_30copy3]` changes a base inside the stretch whose copies it
@@ -2051,14 +2124,22 @@ NM_X.1:c.[7_8insA;8T>G]         AAACAGGGCC                     accepted, c.8deli
 NM_X.1:c.[7_9dup;6_7insA]       AAAACTGCTGGCC                  accepted, c.6_7insACTG: the A goes before what is copied
 NM_X.1:c.[7C>T;7C>T]            AAATTGGCC                      accepted, c.7C>T
 NM_X.1:c.[7_8delinsTG;7C>T]     AAATGGGCC                      accepted, c.7_8delinsTG: the two agree at c.7
+NM_X.1:c.[7_9del;8_10del]       AAACC                          accepted, c.8_11del: c.8 and c.9 deleted once
+NM_X.1:c.[7_8delinsTG;7_8insA]  AAATAGGGCC                     accepted, c.7_8delinsTAG: the A between the T and the G
+NM_X.1:c.[7_9del;7_8insA]       AAAAGCC                        accepted, c.7_9delinsA: the A where c.7 and c.8 were
 NM_X.1:c.[7_9=;8=]              AAACTGGCC                      accepted, c.7_9=
+NM_X.1:c.[7=;7_8delinsCG]       AAACGGGCC                      accepted, c.[7=;8T>G]: the identity stays
 NM_X.1:c.[7_8insA;7_8insAA]     AAACAAATGGCC                   accepted, c.7_8insAAA
 
 NM_X.1:c.[7C>T;10_12=]          AAATTGGCC                      accepted, left as written; Analogous with c.7C>T
 
 NM_X.1:c.[7C>T;7C>G]                                           contradictory: two bases at c.7
 NM_X.1:c.[7_9del;8T>G]                                         contradictory: no c.8 to change
+NM_X.1:c.[7_8delinsTG;8del]                                    contradictory: G at c.8, and no c.8
 NM_X.1:c.[7_9=;8T>G]                                           contradictory: c.8 unchanged and changed
+NM_X.1:c.[7_8=;7_8insA]                                        contradictory: c.7 and c.8 unchanged, and parted
+NM_X.1:c.[7_9delinsA;8T>G]                                     contradictory: the delins changes the length over c.8
+NM_X.1:c.[7_9delinsTT;8_9insA]                                 contradictory: an insertion inside such a delins
 NC_X.1:g.[22C>T;20_30copy3]                                    contradictory: g.22 is inside the counted stretch
 
 NM_X.1:c.[7_8insA;7_8insG]      AAACAGTGGCC | AAACGATGGCC      ambiguous: c.7_8insAG | c.7_8insGA
@@ -2066,20 +2147,22 @@ NM_X.1:c.[7_8insA;7_8insA]      AAACATGGCC | AAACAATGGCC       ambiguous: c.7_8i
 NM_X.1:c.[7_9dup;8T>G]          AAACGGCTGGCC | AAACGGCGGGCC    ambiguous: c.7_8insGGC (a copy of the reference)
                                                                         | c.8delinsGGCG (a copy of the edited bases)
 NM_X.1:c.[7_9dup;9_10insA]      AAACTGACTGGCC | AAACTGCTGAGCC  ambiguous: c.6_9dup | c.9_10insCTGA
-NM_X.1:c.[7_9del;7_8insA]       AAAGCC | AAAAGCC               ambiguous: c.7_9del | c.7_9delinsA
 NM_X.1:c.[7_9dup;9_10insCTG]    AAACTGCTGGCC                   ambiguous: c.7_9dup, one copy written twice
                                 | AAACTGCTGCTGGCC                         | c.9_10insCTGCTG, two copies
+NM_X.1:c.[7_9inv;8T>A]          AAACAGGCC | AAACTGGCC          ambiguous: c.8T>A (the reference inverted)
+                                                                        | c.7_9= (the changed bases inverted)
 ```
 
 - **Agrees:** mavehgvs 0.8.1 refuses every case found contradictory or ambiguous above that was checked against it
-  (`c.[7C>T;7C>G]`, `c.[7_9del;8T>G]`, `c.[7_9del;7_8insA]`, `c.[7_8insA;7_8insG]`, `c.[7_9dup;8T>G]`,
-  `c.[7_9dup;9_10insA]`, with "multi-variant has overlapping changes" or "multiple changes at same position") and
-  accepts `c.[7_8del;9_10del]`. The other rows: not checked.
-- **Differs:** mavehgvs counts an insertion's flanking positions as part of it, so it also refuses the accepted
-  `c.[7C>T;7_8insTA]`, `c.[7_8insA;8T>G]` and `c.[7_9dup;6_7insA]`, and `c.[2077G>A;2077_2078insTA]`, for which the
-  specification recommends `c.2077delinsATA`; it refuses any `=` among the members. `bcftools consensus`, applying
-  records rather than an allele, does not refuse: it applies the first of two overlapping records and skips the second
-  with "The site … overlaps with another variant, skipping…"
+  (`c.[7C>T;7C>G]`, `c.[7_9del;8T>G]`, `c.[7_8delinsTG;8del]`, `c.[7_9delinsA;8T>G]`, `c.[7_8insA;7_8insG]`,
+  `c.[7_9dup;8T>G]`, `c.[7_9dup;9_10insA]`, with "multi-variant has overlapping changes" or "multiple changes at same
+  position") and accepts `c.[7_8del;9_10del]`. The other rows: not checked; it does not parse `inv`.
+- **Differs:** mavehgvs counts an insertion's flanking positions as part of it and refuses any overlap, so it also
+  refuses the accepted `c.[7C>T;7_8insTA]`, `c.[7_8insA;8T>G]`, `c.[7_9dup;6_7insA]`, `c.[7_9del;8_10del]`,
+  `c.[7_8delinsTG;7_8insA]` and `c.[7_9del;7_8insA]`, and `c.[2077G>A;2077_2078insTA]`, for which the specification
+  recommends `c.2077delinsATA`; it refuses any `=` among the members. `bcftools consensus`, applying records rather than
+  an allele, does not refuse: it applies the first of two overlapping records and skips the second with "The site …
+  overlaps with another variant, skipping…"
   ([consensus.c](https://github.com/samtools/bcftools/blob/develop/consensus.c)).
 - **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
 - **Spec (differs):** on a positional identity in cis. The
@@ -2095,11 +2178,16 @@ NM_X.1:c.[7_9dup;9_10insCTG]    AAACTGCTGGCC                   ambiguous: c.7_9d
   `c.2077delinsATA` and says "The previous format "con" is no longer used".
 - **Tests:** none yet; planned: `cis_phased_test::members_meeting_at_a_junction_are_accepted`,
   `::an_insertion_beside_a_changed_base_is_accepted`, `::an_insertion_before_a_changed_base_is_accepted`,
-  `::two_changes_to_one_base_are_refused`, `::a_change_inside_a_deletion_is_refused`,
-  `::an_insertion_inside_a_deletion_is_refused`, `::two_insertions_at_one_junction_are_refused`,
-  `::a_change_to_what_a_duplication_copies_is_refused`, `::an_insertion_where_a_duplication_inserts_is_refused`,
-  `::an_insertion_before_what_a_duplication_copies_is_accepted`, `::an_identity_under_a_change_is_refused`,
-  `::the_error_names_both_members`.
+  `::an_insertion_before_what_a_duplication_copies_is_accepted`, `::members_that_agree_on_a_base_are_one_change`,
+  `::overlapping_deletions_delete_each_base_once`, `::an_insertion_inside_a_same_length_delins_keeps_its_place`,
+  `::an_insertion_inside_a_deletion_keeps_its_place`, `::an_identity_beside_an_agreeing_change_stays`,
+  `::two_changes_to_one_base_are_contradictory`, `::a_change_inside_a_deletion_is_contradictory`,
+  `::a_change_under_an_identity_is_contradictory`, `::an_insertion_inside_an_identity_is_contradictory`,
+  `::a_delins_that_changes_the_length_under_another_member_is_contradictory`,
+  `::a_member_without_a_sequence_is_held_to_its_outer_bounds`, `::two_insertions_at_one_junction_are_ambiguous`,
+  `::identical_insertions_at_one_junction_are_ambiguous`, `::a_change_to_what_a_duplication_copies_is_ambiguous`,
+  `::a_change_to_what_an_inversion_reads_is_ambiguous`, `::an_insertion_where_a_duplication_inserts_is_ambiguous`,
+  `::the_error_names_both_members`, `::the_ambiguity_lists_every_reading`.
 
 ### An ambiguous description is an error that lists its readings
 
@@ -2113,10 +2201,9 @@ out; refusing it with a plain error would throw away what is known, that the cha
 is the list. A caller that knows which reading was meant, from the assay or the source, takes it; one that does not
 reports the ambiguity rather than a sequence nobody wrote.
 
-Today the readings come from
-[cis alleles whose members overlap](#members-of-a-cis-allele-that-overlap-are-contradictory-or-ambiguous): an insertion
-inside a deletion, two insertions at one junction, identical insertions, a change to what another member copies. A `c.`
-range that crosses an exon junction is a likely future source: today it
+Today the readings come from [cis alleles whose members overlap](#overlapping-members-of-a-cis-allele-need-one-reading):
+two insertions at one junction, identical insertions, a change to what a duplication copies or an inversion reads. A
+`c.` range that crosses an exon junction is a likely future source: today it
 [projects over the intron](#a-change-across-a-splice-junction-has-no-genomic-form), and issue #64 asks whether it is
 instead ambiguous between including the intron and not; this entry does not decide that. A `CisPhasedBlock` whose
 members' placements make different sequences is another source,
