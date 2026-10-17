@@ -77,7 +77,8 @@ and the `searcher` names the transcripts). For each, the predicted `p.` descript
 written exactly as given it is `Identity` (`c.1799T>A` against `p.(Val600Glu)`); the same description in another
 spelling is `Analogous` (`p.Val600Glu`, `p.V600E`). Failing that, the **protein the variant leaves**
 (`predicted_protein`) is compared with the **protein the description leaves** (below); if they can be the same protein
-the pair is `Analogous`.
+the pair is `Analogous`. A variant predicted to leave the protein as it is, `c.9G>A` silent in codon 3 or `c.*3G>A` in
+the 3'UTR, is compared as the statement it predicts, `p.(Leu3=)` or `p.(=)`.
 
 ### Protein against protein
 
@@ -98,9 +99,12 @@ read against the reference protein:
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
   substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
   number. An open outcome matches any outcome it is a prefix of;
-- `p.0` and `p.0?` leave no protein; `p.=` leaves the reference. A silent statement, `p.(Leu3=)`, is to be the same only
-  as one about the same residues, `p.(=)` being about the whole protein (planned:
-  [the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind));
+- `p.0` and `p.0?` leave no protein;
+- a description that leaves the protein as it is, `p.(Leu3=)` or `p.Leu3Leu`, is a statement about the residues it
+  names, and is the same only as a statement about exactly those residues: `p.(Leu3_Ala4=)` is not `p.(Leu3=)`, and
+  `p.=`, about the whole protein, is neither, but is the same as every residue through the stop, `p.Met1_Ter7=`; two
+  statements that overlap without naming the same residues are Different
+  ([the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind));
 - `p.?` (and `p.(?)`) says nothing and matches nothing; `p.Met1?` and its like are **anchored**: they say only where the
   change starts, and match an outcome whose change starts at that residue.
 
@@ -129,6 +133,7 @@ in the harness), not a guess from the residues the descriptions happen to name.
 | `Analogous` | `p.490PRS[1]`                     | `p.Pro493_Ser495del`                 | One copy of a three-residue unit removed, either way.     |
 | `Different` | `c.123A>G`                        | `c.123A>T`                           | Different alleles.                                        |
 | `Different` | `c.1799T>A`                       | `p.Val600Lys`                        | Different protein left.                                   |
+| `Different` | `p.(Leu3=)`                       | `p.(=)`                              | One residue unchanged is not the whole protein.           |
 | `Different` | `p.Arg97ProfsTer4`                | `p.Arg97_Arg97delinsProAlaValLeuTer` | One residue longer before the stop.                       |
 | `Different` | `c.-3_13dup` (weaver `p.(Met1?)`) | `p.Leu5fs`                           | A statement of not knowing does not match a commitment.   |
 | `Unknown`   | `c.123A>G`                        | `p.Val41Gly`                         | The provider has no sequence for the protein.             |
