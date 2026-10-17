@@ -221,9 +221,73 @@ fn a_silent_change_in_the_stop_codon_is_not_a_stop_inserted_before_it() {
 }
 
 #[test]
-fn one_base_unchanged_is_not_its_residue_unchanged() {
+fn one_base_unchanged_is_its_residue_unchanged_read_outward() {
     assert_eq!(
         coding_level("NM_X.1:c.9=", "NP_X.1:p.Leu3="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn one_base_unchanged_is_not_another_residue_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.9=", "NP_X.1:p.Ala4="),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_identity_across_two_codons_is_both_residues_read_outward() {
+    assert_eq!(
+        coding_level("NM_X.1:c.8_10=", "NP_X.1:p.Leu3_Ala4="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_identity_across_two_codons_is_not_the_first_residue_alone() {
+    assert_eq!(
+        coding_level("NM_X.1:c.8_10=", "NP_X.1:p.(Leu3=)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_identity_is_the_whole_codons_it_covers_as_predicted() {
+    assert_eq!(
+        coding_level("NM_X.1:c.7_10=", "NP_X.1:p.(Leu3=)"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn an_identity_is_also_every_residue_it_touches() {
+    assert_eq!(
+        coding_level("NM_X.1:c.7_10=", "NP_X.1:p.Leu3_Ala4="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_identity_reaching_into_the_start_codon_is_it_read_outward() {
+    assert_eq!(
+        coding_level("NM_X.1:c.-2_2=", "NP_X.1:p.Met1="),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_identity_in_the_3_utr_is_no_residue_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.*3=", "NP_X.1:p.Ter7="),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_identity_in_the_3_utr_is_not_the_whole_protein_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.*3=", "NP_X.1:p.(=)"),
         EquivalenceLevel::Different
     );
 }

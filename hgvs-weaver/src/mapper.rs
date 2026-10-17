@@ -2040,6 +2040,37 @@ impl<'a> VariantMapper<'a> {
     ///
     /// [`HgvsError::NoProteinStatement`] when it covers no whole codon: it
     /// states bases, not residues.
+    /// The residues whose codon an identity touches, in part or in whole,
+    /// 0-based and half-open: the reading ClinVar writes, `c.1114=` as
+    /// `p.Asn372=`. `None` when it touches no codon, lying wholly in a UTR or
+    /// an intron. The bases it states are checked as `c_to_p` checks them.
+    pub(crate) fn residues_touched(
+        &self,
+        var_c: &CVariant,
+    ) -> Result<Option<std::ops::Range<usize>>, HgvsError> {
+        let pos = var_c
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        self.check_transcript_stated(var_c)?;
+        let transcript = self.provider().get_transcript(&var_c.ac, None)?;
+        let len = self
+            .refs
+            .reference(&var_c.ac, IdentifierType::TranscriptAccession)
+            .whole()?
+            .len();
+        let (cds_start, cds_end) = cds_bounds(&transcript, len)?;
+        let cds_len = (cds_end + 1 - cds_start) as i64;
+        let first = covered_cds_index(&pos.start, cds_len, true)?;
+        let last = covered_cds_index(pos.end.as_ref().unwrap_or(&pos.start), cds_len, false)?;
+        let from = first.max(0) / 3;
+        let to = ((last + 1).max(0) as u64)
+            .div_ceil(3)
+            .min((cds_len / 3) as u64) as i64;
+        Ok((from < to).then_some(from as usize..to as usize))
+    }
+
     fn identity_prediction(
         &self,
         var_c: &CVariant,
