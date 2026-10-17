@@ -160,40 +160,50 @@ pub fn translate_cds(cds: &str) -> String {
 pub fn translate(seq: &str) -> String {
     let bytes = seq.as_bytes();
     let mut aa = String::with_capacity(bytes.len() / 3);
-    for codon in bytes.as_chunks::<3>().0 {
-        let codon = std::str::from_utf8(codon).unwrap_or("NNN");
-        aa.push(translate_codon(codon).unwrap_or('X'));
+    for &codon in bytes.as_chunks::<3>().0 {
+        aa.push(codon_residue(codon).unwrap_or('X'));
     }
     aa
 }
 
-/// Translates a single 3-base codon (DNA or RNA, any case) to a 1-letter amino acid.
+/// Translates a single 3-base codon (DNA or RNA, any case) to a 1-letter amino acid;
+/// `None` for anything but three bases.
 pub fn translate_codon(codon: &str) -> Option<char> {
-    match codon.to_uppercase().replace('U', "T").as_str() {
-        "TTT" | "TTC" => Some('F'),
-        "TTA" | "TTG" => Some('L'),
-        "CTT" | "CTC" | "CTA" | "CTG" => Some('L'),
-        "ATT" | "ATC" | "ATA" => Some('I'),
-        "ATG" => Some('M'),
-        "GTT" | "GTC" | "GTA" | "GTG" => Some('V'),
-        "TCT" | "TCC" | "TCA" | "TCG" => Some('S'),
-        "CCT" | "CCC" | "CCA" | "CCG" => Some('P'),
-        "ACT" | "ACC" | "ACA" | "ACG" => Some('T'),
-        "GCT" | "GCC" | "GCA" | "GCG" => Some('A'),
-        "TAT" | "TAC" => Some('Y'),
-        "TAA" | "TAG" | "TGA" => Some('*'),
-        "CAT" | "CAC" => Some('H'),
-        "CAA" | "CAG" => Some('Q'),
-        "AAT" | "AAC" => Some('N'),
-        "AAA" | "AAG" => Some('K'),
-        "GAT" | "GAC" => Some('D'),
-        "GAA" | "GAG" => Some('E'),
-        "TGT" | "TGC" => Some('C'),
-        "TGG" => Some('W'),
-        "CGT" | "CGC" | "CGA" | "CGG" => Some('R'),
-        "AGT" | "AGC" => Some('S'),
-        "AGA" | "AGG" => Some('R'),
-        "GGT" | "GGC" | "GGA" | "GGG" => Some('G'),
+    codon_residue(codon.as_bytes().try_into().ok()?)
+}
+
+/// The residue `codon` encodes, read in either case and with `U` as `T`;
+/// `None` when a byte is not a base.
+fn codon_residue(codon: [u8; 3]) -> Option<char> {
+    let codon = codon.map(|b| match b.to_ascii_uppercase() {
+        b'U' => b'T',
+        b => b,
+    });
+    match &codon {
+        b"TTT" | b"TTC" => Some('F'),
+        b"TTA" | b"TTG" => Some('L'),
+        b"CTT" | b"CTC" | b"CTA" | b"CTG" => Some('L'),
+        b"ATT" | b"ATC" | b"ATA" => Some('I'),
+        b"ATG" => Some('M'),
+        b"GTT" | b"GTC" | b"GTA" | b"GTG" => Some('V'),
+        b"TCT" | b"TCC" | b"TCA" | b"TCG" => Some('S'),
+        b"CCT" | b"CCC" | b"CCA" | b"CCG" => Some('P'),
+        b"ACT" | b"ACC" | b"ACA" | b"ACG" => Some('T'),
+        b"GCT" | b"GCC" | b"GCA" | b"GCG" => Some('A'),
+        b"TAT" | b"TAC" => Some('Y'),
+        b"TAA" | b"TAG" | b"TGA" => Some('*'),
+        b"CAT" | b"CAC" => Some('H'),
+        b"CAA" | b"CAG" => Some('Q'),
+        b"AAT" | b"AAC" => Some('N'),
+        b"AAA" | b"AAG" => Some('K'),
+        b"GAT" | b"GAC" => Some('D'),
+        b"GAA" | b"GAG" => Some('E'),
+        b"TGT" | b"TGC" => Some('C'),
+        b"TGG" => Some('W'),
+        b"CGT" | b"CGC" | b"CGA" | b"CGG" => Some('R'),
+        b"AGT" | b"AGC" => Some('S'),
+        b"AGA" | b"AGG" => Some('R'),
+        b"GGT" | b"GGC" | b"GGA" | b"GGG" => Some('G'),
         _ => None,
     }
 }
@@ -377,4 +387,29 @@ pub fn decompose_aa(s: &str) -> Result<Vec<Residue>, HgvsError> {
         "Could not decompose protein sequence '{}' into exclusively 3-letter or 1-letter codes",
         s
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{translate, translate_codon};
+
+    #[test]
+    fn a_codon_reads_alike_in_either_case_and_as_rna() {
+        for codon in ["TGT", "tgt", "UGU", "ugu", "tGu"] {
+            assert_eq!(translate_codon(codon), Some('C'), "{codon}");
+        }
+    }
+
+    #[test]
+    fn anything_but_three_bases_is_no_codon() {
+        for codon in ["", "TG", "TGTA", "TGN", "TG-", "Té"] {
+            assert_eq!(translate_codon(codon), None, "{codon:?}");
+        }
+    }
+
+    #[test]
+    fn a_sequence_reads_an_unknown_codon_as_x_and_drops_a_partial_one() {
+        assert_eq!(translate("atgNNNtaaGG"), "MX*");
+        assert_eq!(translate("ATGéTAA"), "MX");
+    }
 }
