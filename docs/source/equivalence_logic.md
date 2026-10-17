@@ -55,9 +55,9 @@ alone, so `c.[7C>T;10_12=]` is not `c.7C>T`, and `c.10=` is not `c.20=`. A canon
 the genomic reference, trimmed to what it alters, then widened over the whole region in which it could equally be
 written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
 `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. Edits
-without an allele (conversions, copy numbers) are `Different` unless the text matches; as members of a cis allele they
-are compared by their projections to the genome, and a copy number written alone is to be compared the same way
-(planned) ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+without an allele (conversions, copy numbers) are compared by their projections to the genome as members of a cis allele
+([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)); a copy number written alone is compared the
+same way, and a conversion alone is `Different` unless the text matches.
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
