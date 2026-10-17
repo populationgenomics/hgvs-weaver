@@ -397,6 +397,20 @@ fn a_delins_of_the_two_bases_either_side_of_the_junction_stays_where_it_is() {
 }
 
 #[test]
+fn on_the_minus_strand_a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base(
+) {
+    let hdp = minus();
+    assert_eq!(
+        normalized(&hdp, "NM_JM.1:c.4_5delinsAAC"),
+        "NM_JM.1:c.5delinsAC"
+    );
+    assert_eq!(
+        genomic(&hdp, &normalized(&hdp, "NM_JM.1:c.4_5delinsAAC")),
+        "NC_JM.1:g.37_38insG"
+    );
+}
+
+#[test]
 fn on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction() {
     let hdp = minus();
     assert_eq!(normalized(&hdp, "NM_JM.1:c.3delinsGA"), "NM_JM.1:c.5dup");

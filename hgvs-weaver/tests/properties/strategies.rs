@@ -98,8 +98,9 @@ pub fn edit_on_kinds(len: usize, del_ins_only: bool) -> impl Strategy<Value = Pl
     let delins = (span, bases(6)).prop_map(|((s, e), alt)| PlacedHgvs {
         start: s,
         end: e,
+        // `delinsX`, as the parser reads it: the deleted bases unstated
         edit: NaEdit::RefAlt {
-            ref_: None,
+            ref_: Some(String::new()),
             alt: Some(alt),
             uncertain: false,
         },

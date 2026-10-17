@@ -208,3 +208,50 @@ fn an_identity_stating_a_base_the_reference_lacks_is_refused() {
 fn a_substitution_keeps_its_stated_base() {
     assert_eq!(normalized("NC_000099.1:g.3C>T"), "NC_000099.1:g.3C>T");
 }
+
+#[test]
+fn one_base_stated_over_two_is_refused() {
+    assert_eq!(
+        refused("NC_000099.1:g.3_4delCinsT"),
+        ("C".to_string(), "CA".to_string())
+    );
+}
+
+#[test]
+fn a_range_of_one_base_is_written_as_the_base() {
+    assert_eq!(normalized("NC_000099.1:g.6_6dup"), "NC_000099.1:g.6dup");
+}
+
+#[test]
+fn an_insertion_does_not_slide_past_the_last_base_of_the_sequence() {
+    // TA before g.10, a T, could slide to follow it as AT, after a base that
+    // does not exist.
+    assert_eq!(
+        normalized("NC_000099.1:g.9_10insTA"),
+        "NC_000099.1:g.9_10insTA"
+    );
+}
+
+#[test]
+fn a_delins_reduced_to_an_insertion_after_the_last_base_keeps_the_last_base() {
+    assert_eq!(
+        normalized("NC_000099.1:g.10delinsTA"),
+        "NC_000099.1:g.10delinsTA"
+    );
+}
+
+#[test]
+fn a_change_with_an_uncertain_position_is_left_as_written() {
+    assert_eq!(
+        normalized("NC_000099.1:g.(3_4)delinsCGG"),
+        "NC_000099.1:g.(3_4)delinsCGG"
+    );
+}
+
+#[test]
+fn a_change_with_uncertain_ends_is_left_as_written() {
+    assert_eq!(
+        normalized("NC_000099.1:g.(1_3)_(5_6)delinsT"),
+        "NC_000099.1:g.(1_3)_(5_6)delinsT"
+    );
+}

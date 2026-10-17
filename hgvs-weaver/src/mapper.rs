@@ -905,11 +905,20 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
     Ok((start, end))
 }
 
-/// Whether `after` names different bases than `before`, so HGVS positions must
-/// be rewritten.
-fn placement_changed(before: &PlacedEdit, after: &PlacedEdit) -> bool {
-    (before.start, before.end) != (after.start, after.end)
-        || before.is_insertion() != after.is_insertion()
+/// The certain g. position of the 0-based index `i`.
+fn simple_position(i: usize) -> SimplePosition {
+    SimplePosition {
+        base: GenomicPos(i as i32).to_hgvs().into(),
+        end: None,
+        uncertain: false,
+    }
+}
+
+/// Whether a bound of `pos` is known only to lie in a range, `(3_4)`, or is
+/// marked uncertain.
+fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
+    let uncertain = |p: &SimplePosition| p.uncertain || p.end.is_some();
+    pos.uncertain || uncertain(&pos.start) || pos.end.as_ref().is_some_and(uncertain)
 }
 
 /// The HGVS start index and optional end index to write for `after`: an end
@@ -1952,21 +1961,20 @@ impl<'a> VariantMapper<'a> {
         let Some(pos) = &mut v.posedit_mut().pos else {
             return Ok(v);
         };
+        if is_uncertain_linear(pos) {
+            // A bound known only to lie in a range names no one placement to
+            // shift or reduce from. Leave the variant as written.
+            return Ok(v);
+        }
         let (start, end) = simple_interval_range(pos)?;
         let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self.refs.reference(&ac, IdentifierType::GenomicAccession);
         let after = normalize::normalize(&reference, before.clone(), &ExonBounds::unspliced())?;
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
-        if placement_changed(&before, &after) {
-            let (s, e) = hgvs_positions(&after);
-            pos.start.base = GenomicPos(s as i32).to_hgvs().into();
-            pos.end = e.map(|last| SimplePosition {
-                base: GenomicPos(last as i32).to_hgvs().into(),
-                end: None,
-                uncertain: false,
-            });
-        }
+        let (s, e) = hgvs_positions(&after);
+        pos.start = simple_position(s);
+        pos.end = e.map(simple_position);
         posedit.edit = after.edit;
         Ok(v)
     }
@@ -1984,6 +1992,9 @@ impl<'a> VariantMapper<'a> {
             self.check_transcript_stated(&v)?;
             return Ok(v);
         }
+        if pos.uncertain || pos.start.uncertain || pos.end.as_ref().is_some_and(|e| e.uncertain) {
+            return Ok(v);
+        }
         let (start, end) = self.get_c_indices(pos, &am)?;
         let before = PlacedEdit::from_hgvs_range(start, end, v.posedit().edit.clone());
         let reference = self
@@ -1992,15 +2003,13 @@ impl<'a> VariantMapper<'a> {
         let after = normalize::normalize(&reference, before.clone(), &am.exon_bounds()?)?;
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
-        if placement_changed(&before, &after) {
-            // Re-derive positions from indices so that, for c., the c.0 gap and
-            // the CDS anchors come out right when a shift crosses the CDS bounds.
-            let (s, e) = hgvs_positions(&after);
-            pos.start = V::position_from_index(&am, s as i32)?;
-            pos.end = e
-                .map(|last| V::position_from_index(&am, last as i32))
-                .transpose()?;
-        }
+        // Positions from indices, so that for c. the c.0 gap and the CDS
+        // anchors come out right when a shift crosses the CDS bounds.
+        let (s, e) = hgvs_positions(&after);
+        pos.start = V::position_from_index(&am, s as i32)?;
+        pos.end = e
+            .map(|last| V::position_from_index(&am, last as i32))
+            .transpose()?;
         posedit.edit = after.edit;
         Ok(v)
     }

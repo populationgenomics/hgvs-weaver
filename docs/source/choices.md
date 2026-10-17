@@ -701,7 +701,8 @@ of the sequence the variant is written on.** On a transcript the shift stays wit
 ([below](#a-delins-is-reduced-before-it-is-shifted)).
 
 An insertion that repeats the bases immediately before it becomes a duplication, and an insertion that slides has its
-bases rotated by how far it moved.
+bases rotated by how far it moved. An insertion does not slide past the last base of the sequence, after which HGVS has
+no position to name.
 
 **Example** (on `ACGT` repeated, and on the ten bases `TTCAGCAGTT`):
 
@@ -713,13 +714,15 @@ NM_PLUS0.1:n.12_13insT         →  NM_PLUS0.1:n.12dup             n. and g. ali
 
 on TTCAGCAGTT:  g.3_5del       →  g.6_8del                       the first CAG shifts onto the second
 on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base, so rotated by one
+on TTCAGCAGTT:  g.9_10insTA    →  g.9_10insTA                    not g.10_11insAT, after the last base
 ```
 
 - **Agrees:** biocommons, VariantValidator and ClinVar.
 - **Spec (agrees):** [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/): "tandem duplications are described
   as a duplication, not an insertion".
-- **Tests:** `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
+- **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`;
+  `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
   `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
   `::shift_5_mirrors_shift_3` (the last two rows above, read from the 0-based ranges those tests assert);
   `transcript_coordinates_test::normalize_converts_genomic_and_noncoding_insertions_to_duplications`;
@@ -827,17 +830,21 @@ On a transcript, the reduction respects the exons as a shift does ([above](#a-sh
   round instead.
 - A delins inside one exon that reduces to an insertion at the edge of that exon would put the insertion on the
   junction, where it names no single place on the genome. It is written as a delins of the exon's base beside it
-  instead. biocommons writes both `c.4_5delinsAAC` and `c.6delinsCA` below as `c.5_6insC`, one spelling for two changes
-  on either side of the intron.
+  instead, unless the insertion can sit one base further 5' inside the exon, where an insertion slid to the junction
+  stops. biocommons writes both `c.4_5delinsAAC` and `c.6delinsCA` below as `c.5_6insC`, one spelling for two changes on
+  either side of the intron.
+- The last base of a genome is the same kind of edge: HGVS cannot name a position after it.
+
+A position known only to lie in a range, `g.(3_4)`, names no one placement to reduce or shift from, so a variant with
+one is left as written.
 
 The sequence a description makes is unchanged: the property tests hold normalisation to the edited sequence, to the
 genomic allele across junctions, and to one output for a change and a wider delins spelling it.
 
-An earlier normaliser slid a delins with the rule for a deletion, which moves the inserted bases past the base it slides
-over and changes the sequence; that was wrong on 72 ClinVar rows at the time, and is why a delins was then left where it
-was. Reducing first never slides a delins as a delins. Of the 429 delins in the current 100,000-variant sample, the 40
-whose range the old rule would have slid all change a base at each end and normalise to themselves, and every delins
-normalises to the SPDI ClinVar gives.
+A delins is never slid as a delins. Sliding one with the rule for a deletion, while the base after the range repeats the
+first deleted base, moves the inserted bases past that base and changes the sequence. Of the 429 delins in the
+100,000-variant ClinVar sample, the 40 that rule would slide all change a base at each end and normalise to themselves,
+and every delins normalises to the SPDI ClinVar gives.
 
 **Example** (on `TTCAGCAGTT`, and on `NM_J.1`, where exon 1 ends at c.5, c.3 is G, c.4 to c.6 are A and c.7 is G; c.5 is
 g.20 and c.6 is g.31):
@@ -875,12 +882,15 @@ NM_J.1:c.5_6delinsAGA    →  NM_J.1:c.5_6delinsAGA    removes the intron, which
   `::a_delins_that_keeps_its_last_base_is_an_insertion`, `::a_delins_that_is_a_deletion_is_shifted_3_prime`,
   `::a_delins_that_changes_one_base_is_a_substitution`, `::a_delins_that_is_the_reverse_complement_is_an_inversion`,
   `::a_delins_that_changes_a_base_at_each_end_stays_where_it_is`, `::a_delins_is_written_without_its_deleted_bases`,
-  `::a_delins_that_changes_nothing_is_an_identity`;
+  `::a_delins_that_changes_nothing_is_an_identity`, `::one_base_stated_over_two_is_a_delins_of_the_two`,
+  `::a_delins_reduced_to_an_insertion_after_the_last_base_keeps_the_last_base`,
+  `::a_change_with_an_uncertain_position_is_left_as_written`, `::a_change_with_uncertain_ends_is_left_as_written`;
   `exon_junction_test::a_delins_that_is_an_insertion_shifts_to_the_last_base_of_its_exon_and_no_further`,
   `::a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base`,
   `::a_delins_reduced_to_an_insertion_at_the_start_of_its_exon_keeps_the_exons_first_base`,
   `::a_delins_spanning_the_junction_is_trimmed_while_each_end_stays_in_its_exon`,
   `::a_delins_of_the_two_bases_either_side_of_the_junction_stays_where_it_is`,
+  `::on_the_minus_strand_a_delins_reduced_to_an_insertion_at_the_end_of_its_exon_keeps_the_exons_last_base`,
   `::on_the_minus_strand_a_delins_that_is_an_insertion_stops_at_the_junction`;
   `a_change_and_a_wider_delins_spelling_it_normalise_alike`, `normalising_preserves_the_edited_sequence`,
   `normalising_a_transcript_variant_twice_is_normalising_it_once` and
@@ -894,8 +904,9 @@ substitution keeps its base, which is part of how it is written. Parsing, projec
 was written.**
 
 A deletion written with its bases and one written without are one change, and `normalize` gives one change one spelling.
-When stated bases were kept where the edit did not move, `g.6_8delCAG` and `g.6_8del` each normalised to itself. The
-reference holds the bases, so writing them adds nothing, and they are not filled in either.
+Written with their bases or without, `g.6_8delCAG` and `g.6_8del` would otherwise each be normalised output, two
+spellings of one change. The reference holds the bases, so writing them adds nothing, and they are not filled in either.
+For the same reason a range of one base is written as the base: `g.6_6dup` is `g.6dup`.
 
 Where an edit moves is decided by the reference's bases, not the ones it states, as its allele is
 ([below](#stated-bases-are-checked-by-validate-and-nowhere-else)): a deletion of `CAG` that states `AAA` shifts as the
@@ -932,9 +943,9 @@ g.3C>T                         →  g.3C>T                         a substitutio
 - **Tests:** `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`;
   `one_spelling_test::a_deletion_that_does_not_move_is_written_without_its_bases`,
   `::a_deletion_written_with_its_length_is_written_without_it`,
-  `::a_duplication_that_does_not_move_is_written_without_its_bases`, `::an_inversion_is_written_without_its_bases`,
-  `::an_identity_of_one_base_is_written_without_it`, `::an_identity_of_a_range_is_written_without_its_bases`,
-  `::a_delins_is_written_without_its_deleted_bases`,
+  `::a_duplication_that_does_not_move_is_written_without_its_bases`, `::a_range_of_one_base_is_written_as_the_base`,
+  `::an_inversion_is_written_without_its_bases`, `::an_identity_of_one_base_is_written_without_it`,
+  `::an_identity_of_a_range_is_written_without_its_bases`, `::a_delins_is_written_without_its_deleted_bases`,
   `::a_delins_of_a_number_of_bases_is_written_without_its_deleted_bases`,
   `::a_deletion_is_shifted_by_the_references_bases_not_the_ones_it_states`, `::a_substitution_keeps_its_stated_base`;
   `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;

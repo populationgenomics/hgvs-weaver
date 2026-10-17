@@ -3,9 +3,8 @@
 //! HGVS wants an edit at its 3'-most equivalent position, with the bases it
 //! deletes, duplicates or inverts left unstated, and an insertion that copies
 //! the bases just before it written as a duplication. All of that is decided
-//! here, on a
-//! 0-based half-open range over a [`Reference`]. The coordinate systems (g.,
-//! c., n.) only convert their positions in and out; see
+//! here, on a 0-based half-open range over a [`Reference`]. The coordinate
+//! systems (g., c., n.) only convert their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
 
 use crate::data::IdentifierType;
@@ -168,7 +167,7 @@ pub fn normalize(
             alt: Some(alt),
             uncertain,
             ..
-        } if end > start && !edit.is_identity() && !is_substitution(&edit) => {
+        } if end > start && !edit.is_identity() && !is_substitution(&edit, start, end) => {
             reduce_delins(reference, start, end, alt, *uncertain, exons)
         }
         NaEdit::Del { .. } | NaEdit::Dup { .. } if end > start => {
@@ -235,8 +234,9 @@ fn without_stated_bases(edit: NaEdit) -> NaEdit {
 
 /// A single base replaced by a single base, as written: `c.4G>A`. Its stated
 /// base is the description's own, so it is not read again from the reference.
-fn is_substitution(edit: &NaEdit) -> bool {
-    matches!(edit, NaEdit::RefAlt { alt: Some(a), .. } if a.len() == 1)
+fn is_substitution(edit: &NaEdit, start: usize, end: usize) -> bool {
+    end - start == 1
+        && matches!(edit, NaEdit::RefAlt { alt: Some(a), .. } if a.len() == 1)
         && edit.stated_ref().is_some_and(|r| r.len() == 1)
 }
 
@@ -296,8 +296,10 @@ fn reduce_delins(
 
 /// The insertion of `seq` in front of `at`, in the exon numbered `home`, slid
 /// 3' within it. Where it then sits on an edge of its exon, where an insertion
-/// names no single place on the genome, it is written as a delins of the
-/// exon's base beside it.
+/// names no single place on the genome, or after the sequence's last base,
+/// which HGVS cannot name, it moves one base back into the exon if the
+/// sequence allows, as a slid insertion stops there, and is otherwise written
+/// as a delins of the base beside it.
 fn insertion_in_exon(
     reference: &Reference<'_, '_>,
     at: usize,
@@ -341,10 +343,32 @@ fn insertion_in_exon(
     else {
         return Ok(placed);
     };
-    if !exons.is_edge(point) {
+    if !exons.is_edge(point) && reference.base(point)?.is_some() {
         return Ok(placed);
     }
-    let (s, alt) = if point > 0 && exons.exon(point - 1) == home {
+    let after_home = point > 0 && exons.exon(point - 1) == home;
+    if after_home && !exons.is_edge(point - 1) {
+        // One base 5', inside the exon, where an insertion slid from there
+        // would also stop.
+        let back = ResolvedEdit {
+            start: point,
+            end: point,
+            ref_: String::new(),
+            alt: inserted.clone(),
+        };
+        if shift_5(reference, &back)? > 0 {
+            let n = inserted.len();
+            return Ok(PlacedEdit {
+                start: point - 1,
+                end: point - 1,
+                edit: NaEdit::Ins {
+                    alt: Some(format!("{}{}", &inserted[n - 1..], &inserted[..n - 1])),
+                    uncertain,
+                },
+            });
+        }
+    }
+    let (s, alt) = if after_home {
         (
             point - 1,
             format!("{}{inserted}", reference.slice(point - 1, point)?),
@@ -368,9 +392,9 @@ fn insertion_in_exon(
 
 /// An insertion at `at` slid `k` positions 3': a duplication where the bases
 /// before it repeat the insert and lie in one exon, else an insertion. `k` may
-/// take the insertion point onto the end of its exon, where only a
-/// duplication is kept; an insertion there would sit on a junction, or past
-/// the transcript's last base, and stops one base short.
+/// take the insertion point onto the end of its exon or of the sequence, where
+/// only a duplication is kept; an insertion there would sit on a junction, or
+/// past the last base, and stops one base short.
 fn place_insertion(
     reference: &Reference<'_, '_>,
     at: usize,
@@ -399,7 +423,7 @@ fn place_insertion(
             },
         });
     }
-    if k > 0 && !exons.same_exon(at, point) {
+    if k > 0 && (!exons.same_exon(at, point) || reference.base(point)?.is_none()) {
         return place_insertion(reference, at, seq, uncertain, k - 1, exons);
     }
     Ok(PlacedEdit {
