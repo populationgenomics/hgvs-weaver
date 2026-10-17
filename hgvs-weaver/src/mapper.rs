@@ -43,7 +43,8 @@ fn make_simple_position(base: crate::coords::HgvsGenomicPos) -> crate::structs::
 
 /// The edits whose meaning is bases over a range: a substitution, delins or
 /// identity, a deletion, a duplication, an inversion. An insertion is placed
-/// between bases and a repeat is read against its run; neither is rewritten.
+/// between bases and is not rewritten; a repeat is read against its run, by
+/// [`project_repeat`].
 fn resolves_over_range(edit: &crate::edits::NaEdit) -> bool {
     use crate::edits::NaEdit;
     matches!(
@@ -82,6 +83,15 @@ fn project_edit(
         return Ok(carried());
     };
     edit.check_stated(source.accession(), s_lo, s_hi, |s, e| source.slice(s, e))?;
+    if let Some(repeat) = Repeat::of(edit) {
+        return project_repeat(
+            &repeat,
+            (source, (s_lo, s_hi)),
+            target,
+            target_range,
+            strand,
+        );
+    }
     if !resolves_over_range(edit) {
         return Ok(carried());
     }
@@ -103,6 +113,198 @@ fn project_edit(
         return Ok(carried());
     }
     normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
+}
+
+/// The fields of an [`NaEdit::Repeat`](crate::edits::NaEdit::Repeat), for
+/// projecting it.
+struct Repeat {
+    unit: Option<String>,
+    min: i32,
+    max: i32,
+    uncertain: bool,
+}
+
+impl Repeat {
+    fn of(edit: &crate::edits::NaEdit) -> Option<Self> {
+        match edit {
+            crate::edits::NaEdit::Repeat {
+                ref_,
+                min,
+                max,
+                uncertain,
+            } => Some(Repeat {
+                unit: ref_.clone(),
+                min: *min,
+                max: *max,
+                uncertain: *uncertain,
+            }),
+            _ => None,
+        }
+    }
+
+    fn edit(&self) -> crate::edits::NaEdit {
+        crate::edits::NaEdit::Repeat {
+            ref_: self.unit.clone(),
+            min: self.min,
+            max: self.max,
+            uncertain: self.uncertain,
+        }
+    }
+
+    /// The repeat of `unit`, stated, with `more` copies added to its count:
+    /// the copies a run holds beyond the ones the repeat was written over.
+    fn grown(&self, unit: String, more: usize) -> Result<crate::edits::NaEdit, HgvsError> {
+        let overflow = || {
+            HgvsError::ValidationError(format!(
+                "{} more copies of {unit} overflow a repeat count of {} to {}",
+                more, self.min, self.max
+            ))
+        };
+        let more = i32::try_from(more).map_err(|_| overflow())?;
+        let (min, max) = self
+            .min
+            .checked_add(more)
+            .zip(self.max.checked_add(more))
+            .ok_or_else(overflow)?;
+        Ok(crate::edits::NaEdit::Repeat {
+            ref_: Some(unit),
+            min,
+            max,
+            uncertain: self.uncertain,
+        })
+    }
+}
+
+/// Whether transcript indices `[start, end)` lie in one exon.
+fn within_one_exon(am: &TranscriptMapper, start: i32, end: i32) -> bool {
+    am.exons
+        .iter()
+        .any(|x| x.transcript_start.0 <= start && end <= x.transcript_end.0)
+}
+
+/// The end of the run of `unit` on `reference` from `start`, half-open.
+fn run_up(
+    reference: &crate::reference::Reference<'_, '_>,
+    unit: &str,
+    start: usize,
+) -> Result<usize, HgvsError> {
+    let mut end = start;
+    while reference.slice(end, end + unit.len())? == unit {
+        end += unit.len();
+    }
+    Ok(end)
+}
+
+/// The start of the run of `unit` on `reference` that ends at `end`.
+fn run_down(
+    reference: &crate::reference::Reference<'_, '_>,
+    unit: &str,
+    end: usize,
+) -> Result<usize, HgvsError> {
+    let mut start = end;
+    while start >= unit.len() && reference.slice(start - unit.len(), start)? == unit {
+        start -= unit.len();
+    }
+    Ok(start)
+}
+
+/// The half-open end of the run a repeat counts from `start` on `reference`,
+/// and the repeat with its unit stated; `None` for any other edit or an empty
+/// run.
+fn repeat_over_run(
+    edit: &crate::edits::NaEdit,
+    reference: &crate::reference::Reference<'_, '_>,
+    start: usize,
+    end: usize,
+) -> Result<Option<(usize, crate::edits::NaEdit)>, HgvsError> {
+    let Some(repeat) = Repeat::of(edit) else {
+        return Ok(None);
+    };
+    let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| reference.slice(s, e))?;
+    let stated = repeat.grown(unit, 0)?;
+    let run = stated.resolve(reference, start, end)?;
+    Ok((run.end > run.start).then_some((run.end, stated)))
+}
+
+/// A repeat over the whole run it counts on the source, `[s_lo, s_hi)`,
+/// written for the target over `[t_lo, t_hi)`, the same bases.
+///
+/// The count is the total of the unit in the run read 3' from the repeat's
+/// first base, and the target reads its own run from `t_lo`. That run can be
+/// longer than the source's: on the minus strand it continues 5' of the
+/// transcript's run, and on either strand an intron can continue a run that
+/// ends at an exon's edge. The count grows by the copies the target reads past
+/// `t_hi`, which the repeat leaves as they are. Where the target's bases over
+/// the range are not the source's, the minimal edit is written, as for any
+/// other edit; a count known only as a range then has no single alternate,
+/// and is refused.
+fn project_repeat(
+    repeat: &Repeat,
+    source: (&crate::reference::Reference<'_, '_>, (usize, usize)),
+    target: &crate::reference::Reference<'_, '_>,
+    target_range: (usize, usize),
+    strand: crate::data::Strand,
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    let (source, (s_lo, s_hi)) = source;
+    let (t_lo, t_hi) = target_range;
+    let resolved = repeat.edit().resolve(source, s_lo, s_hi)?;
+    let orient = |b: &str| match strand {
+        crate::data::Strand::Minus => crate::utils::reverse_complement(b),
+        crate::data::Strand::Plus => b.to_string(),
+    };
+    let (source_ref, alt) = (orient(&resolved.ref_), orient(&resolved.alt));
+    let target_ref = target.slice(t_lo, t_hi)?;
+    if target_ref != source_ref {
+        if repeat.min != repeat.max {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{} holds {target_ref} over [{t_lo}, {t_hi}), not the {source_ref} the repeat \
+                 counts, so a count of {} to {} copies has no single edit there",
+                target.accession(),
+                repeat.min,
+                repeat.max
+            )));
+        }
+        return normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt);
+    }
+    let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
+    let unit = orient(&unit);
+    // Short of `t_hi` where the unit is absent from the range altogether.
+    let run_end = run_up(target, &unit, t_lo)?;
+    if run_end <= t_hi {
+        return Ok((apply_strand_complement(repeat.edit(), strand), t_lo, t_hi));
+    }
+    let more = (run_end - t_hi) / unit.len();
+    Ok((repeat.grown(unit, more)?, t_lo, run_end))
+}
+
+/// A transcript repeat at an intronic position of a minus-strand transcript,
+/// written for the genome, which holds the bases the transcript has none of,
+/// over `[g_lo, g_hi)`.
+///
+/// The transcript reads its run 3' from the repeat's first base, which on the
+/// genome is downwards from `g_hi`; the genome reads its own run upwards from
+/// the run's lower end, and adds the copies it holds above `g_hi`, as
+/// [`project_repeat`] does for an exonic run.
+fn intronic_repeat_on_the_minus_strand(
+    repeat: &Repeat,
+    genome: &crate::reference::Reference<'_, '_>,
+    (g_lo, g_hi): (usize, usize),
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    let in_transcript_sense = |s, e| {
+        genome
+            .slice(s, e)
+            .map(|b| crate::utils::reverse_complement(&b))
+    };
+    let unit = crate::edits::repeat_unit(&repeat.unit, g_lo, g_hi, in_transcript_sense)?;
+    let unit = crate::utils::reverse_complement(&unit);
+    let lo = run_down(genome, &unit, g_hi)?;
+    if lo == g_hi {
+        let carried = apply_strand_complement(repeat.edit(), crate::data::Strand::Minus);
+        return Ok((carried, g_lo, g_hi));
+    }
+    let run_end = run_up(genome, &unit, lo)?;
+    let more = (run_end - g_hi) / unit.len();
+    Ok((repeat.grown(unit, more)?, lo, run_end))
 }
 
 /// The edit to write on the target where the source range touches a run of
@@ -992,13 +1194,14 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing genomic position".into()))?;
-        let run;
-        let pos = match self.repeat_run_g(var_g, pos)? {
-            Some(iv) => {
-                run = iv;
-                &run
-            }
-            None => pos,
+        let run = self.repeat_run_g(var_g, pos)?;
+        let run = match run {
+            Some(run) => Some(self.transcript_run_g(&am, var_g, run)?),
+            None => None,
+        };
+        let (pos, edit) = match &run {
+            Some((interval, edit)) => (interval, edit),
+            None => (pos, &var_g.posedit.edit),
         };
         if let Some(end) = &pos.end {
             if let (Some(s), Some(e)) = (pos.start.base.known(), end.base.known()) {
@@ -1070,7 +1273,7 @@ impl<'a> VariantMapper<'a> {
             });
             let (edit, s, e) = if touches_run {
                 project_edit_over_run(
-                    &var_g.posedit.edit,
+                    edit,
                     (&source, named, wide),
                     &target,
                     (t_lo, t_hi),
@@ -1078,13 +1281,20 @@ impl<'a> VariantMapper<'a> {
                 )?
             } else {
                 project_edit(
-                    &var_g.posedit.edit,
+                    edit,
                     Some((&source, named)),
                     &target,
                     (t_lo, t_hi),
                     am.transcript.strand,
                 )?
             };
+            let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
+            if repeat && !within_one_exon(&am, s as i32, e as i32) {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run that the transcript continues across an exon \
+                     junction: the transcript's count has no single place on the genome"
+                )));
+            }
             // An edit over a run is always rewritten for the transcript.
             let unchanged_range = !touches_run && (s, e) == (t_lo, t_hi);
             let end = if unchanged_range {
@@ -1099,7 +1309,7 @@ impl<'a> VariantMapper<'a> {
             };
             (edit, position(TranscriptPos(s as i32), off_lo)?, end)
         } else {
-            let edit = apply_strand_complement(var_g.posedit.edit.clone(), am.transcript.strand);
+            let edit = apply_strand_complement(edit.clone(), am.transcript.strand);
             let end = pos
                 .end
                 .as_ref()
@@ -1129,13 +1339,14 @@ impl<'a> VariantMapper<'a> {
     /// base is the unit's last and the run lies below it, so a run detected from
     /// the projected start would be wrong. Before projecting, widen the interval
     /// to the whole run here; the projected range then covers every copy and
-    /// reads as a run from its lower end on either strand.
+    /// reads as a run from its lower end on either strand. The edit returned
+    /// states its unit, which an unstated one takes from the range as written.
     fn repeat_run_tx<V: TranscriptVariant>(
         &self,
         am: &TranscriptMapper,
         var: &V,
         pos: &BaseOffsetInterval,
-    ) -> Result<Option<BaseOffsetInterval>, HgvsError> {
+    ) -> Result<Option<(BaseOffsetInterval, crate::edits::NaEdit)>, HgvsError> {
         let edit = &var.posedit().edit;
         if !matches!(edit, crate::edits::NaEdit::Repeat { .. }) || has_intronic_offset(pos) {
             return Ok(None);
@@ -1147,15 +1358,29 @@ impl<'a> VariantMapper<'a> {
         let reference = self
             .refs
             .reference(var.ac(), IdentifierType::TranscriptAccession);
-        let resolved = edit.resolve(&reference, n_start.0 as usize, n_end.0 as usize)?;
-        if resolved.end <= resolved.start {
-            return Ok(None);
+        let run = repeat_over_run(edit, &reference, n_start.0 as usize, n_end.0 as usize)?;
+        if let Some((end, _)) = run {
+            if !within_one_exon(am, n_start.0, end as i32) {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{}:{}.{} counts a run that crosses an exon junction: the genome has \
+                     no single place for the change",
+                    var.ac(),
+                    var.coordinate_type(),
+                    var.posedit()
+                )));
+            }
         }
-        Ok(Some(BaseOffsetInterval {
-            start: pos.start,
-            end: Some(V::position_from_index(am, (resolved.end - 1) as i32)?),
-            uncertain: pos.uncertain,
-        }))
+        run.map(|(end, edit)| {
+            let interval = BaseOffsetInterval {
+                start: pos.start,
+                end: (end - 1 > n_start.0 as usize)
+                    .then(|| V::position_from_index(am, (end - 1) as i32))
+                    .transpose()?,
+                uncertain: pos.uncertain,
+            };
+            Ok((interval, edit))
+        })
+        .transpose()
     }
 
     /// The genomic counterpart of [`repeat_run_tx`](Self::repeat_run_tx).
@@ -1163,28 +1388,69 @@ impl<'a> VariantMapper<'a> {
         &self,
         var_g: &GVariant,
         pos: &SimpleInterval,
-    ) -> Result<Option<SimpleInterval>, HgvsError> {
-        let edit = &var_g.posedit.edit;
-        if !matches!(edit, crate::edits::NaEdit::Repeat { .. }) {
+    ) -> Result<Option<(SimpleInterval, crate::edits::NaEdit)>, HgvsError> {
+        if !matches!(var_g.posedit.edit, crate::edits::NaEdit::Repeat { .. }) {
             return Ok(None);
         }
         let (start, end) = simple_interval_range(pos)?;
         let reference = self
             .refs
             .reference(&var_g.ac, IdentifierType::GenomicAccession);
-        let resolved = edit.resolve(&reference, start, end)?;
-        if resolved.end <= resolved.start {
-            return Ok(None);
-        }
-        Ok(Some(SimpleInterval {
-            start: pos.start,
-            end: Some(SimplePosition {
-                base: GenomicPos((resolved.end - 1) as i32).to_hgvs().into(),
-                end: None,
-                uncertain: false,
-            }),
-            uncertain: pos.uncertain,
+        let run = repeat_over_run(&var_g.posedit.edit, &reference, start, end)?;
+        Ok(run.map(|(end, edit)| {
+            let interval = SimpleInterval {
+                start: pos.start,
+                end: (end - 1 > start).then(|| SimplePosition {
+                    base: GenomicPos((end - 1) as i32).to_hgvs().into(),
+                    end: None,
+                    uncertain: false,
+                }),
+                uncertain: pos.uncertain,
+            };
+            (interval, edit)
         }))
+    }
+
+    /// A genomic repeat over its run, `run`, extended to the run the transcript
+    /// counts where the run is intronic on a minus-strand transcript: the
+    /// transcript reads it from its upper end downwards, past the genome's run
+    /// where the bases below continue it, and those copies join the count. An
+    /// exonic run is read on the record instead, by [`project_repeat`].
+    fn transcript_run_g(
+        &self,
+        am: &TranscriptMapper,
+        var_g: &GVariant,
+        run: (SimpleInterval, crate::edits::NaEdit),
+    ) -> Result<(SimpleInterval, crate::edits::NaEdit), HgvsError> {
+        let (interval, edit) = run;
+        let Some(repeat) = Repeat::of(&edit) else {
+            return Ok((interval, edit));
+        };
+        let (start, end) = simple_interval_range(&interval)?;
+        let exonic = |i: usize| -> Result<bool, HgvsError> {
+            let fp = am.g_to_n_footprint(GenomicPos(i as i32))?;
+            Ok(fp.offset.0 == 0 && fp.range.0 .0 >= 0)
+        };
+        let minus = am.transcript.strand == crate::data::Strand::Minus;
+        if !minus || (exonic(start)? && exonic(end - 1)?) {
+            return Ok((interval, edit));
+        }
+        let genome = self
+            .refs
+            .reference(&var_g.ac, IdentifierType::GenomicAccession);
+        let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| genome.slice(s, e))?;
+        // Above `start` where the unit is absent from the range altogether.
+        let lo = run_down(&genome, &unit, end)?;
+        if lo >= start {
+            return Ok((interval, edit));
+        }
+        let more = (start - lo) / unit.len();
+        let extended = SimpleInterval {
+            start: make_simple_position(GenomicPos(lo as i32).to_hgvs()),
+            end: Some(make_simple_position(GenomicPos(end as i32 - 1).to_hgvs())),
+            uncertain: interval.uncertain,
+        };
+        Ok((extended, repeat.grown(unit, more)?))
     }
 
     /// Transforms a coding cDNA variant (`c.`) to a genomic variant (`g.`).
@@ -1231,13 +1497,10 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
-        let run;
-        let pos = match self.repeat_run_tx(&am, var_c, pos)? {
-            Some(iv) => {
-                run = iv;
-                &run
-            }
-            None => pos,
+        let run = self.repeat_run_tx(&am, var_c, pos)?;
+        let (pos, edit) = match &run {
+            Some((interval, edit)) => (interval, edit),
+            None => (pos, &var_c.posedit().edit),
         };
         if let Some(end) = &pos.end {
             if end.order_key() < pos.start.order_key() {
@@ -1312,29 +1575,21 @@ impl<'a> VariantMapper<'a> {
                     })
                 })?;
         }
-        // An intronic repeat at one position names its first unit by its
-        // first base; on the minus strand the unit lies below that base.
-        let (g_lo, g_hi) = match var_c.posedit().edit.stated_unit() {
-            Some(u)
-                if !exonic
-                    && pos.end.is_none()
-                    && am.transcript.strand == crate::data::Strand::Minus =>
-            {
-                ((g_hi - u.len() as i32).max(0), g_hi)
-            }
-            _ => (g_lo, g_hi),
-        };
+        let minus = am.transcript.strand == crate::data::Strand::Minus;
+        let intronic_repeat_on_minus = Repeat::of(edit).filter(|_| minus && !exonic);
         let (edit, s, e) = if touches_run {
             project_edit_over_run(
-                &var_c.posedit().edit,
+                edit,
                 (&source, named, wide),
                 &target,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
             )?
+        } else if let Some(repeat) = intronic_repeat_on_minus {
+            intronic_repeat_on_the_minus_strand(&repeat, &target, (g_lo as usize, g_hi as usize))?
         } else {
             project_edit(
-                &var_c.posedit().edit,
+                edit,
                 exonic.then_some((&source, named)),
                 &target,
                 (g_lo as usize, g_hi as usize),
@@ -2893,11 +3148,7 @@ impl<'a> VariantMapper<'a> {
             // Intronic positions do not resolve to a transcript range; they
             // name the genome directly and need no guard.
             if let Ok((start, end)) = am.interval_to_n(pos) {
-                let within_one_exon = am
-                    .exons
-                    .iter()
-                    .any(|x| x.transcript_start.0 <= start.0 && end.0 <= x.transcript_end.0);
-                if !within_one_exon {
+                if !within_one_exon(&am, start.0, end.0) {
                     return Err(HgvsError::UnsupportedOperation(format!(
                         "{r} spans a splice junction: the spliced RNA has no single genomic equivalent"
                     )));

@@ -323,6 +323,26 @@ pub(crate) fn is_length(s: &str) -> bool {
     s.is_empty() || s.chars().all(|c| c.is_ascii_digit())
 }
 
+/// The unit a repeat over `[start, end)` counts: the bases it states, or else
+/// the bases of its range, read through `fetch`.
+pub(crate) fn repeat_unit(
+    stated: &Option<String>,
+    start: usize,
+    end: usize,
+    fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+) -> Result<String, HgvsError> {
+    let unit = match stated {
+        Some(unit) if !is_length(unit) => unit.clone(),
+        _ => fetch(start, end)?,
+    };
+    if unit.is_empty() {
+        return Err(HgvsError::ValidationError(format!(
+            "A repeat over [{start}, {end}) has no unit"
+        )));
+    }
+    Ok(unit)
+}
+
 /// A nucleotide edit resolved against a reference: concrete bases over a
 /// concrete 0-based half-open range.
 ///

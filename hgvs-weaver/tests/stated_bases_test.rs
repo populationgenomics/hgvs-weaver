@@ -310,11 +310,12 @@ fn c_to_g_refuses_an_intronic_base_read_on_the_minus_strand() {
 
 #[test]
 fn c_to_g_places_an_intronic_repeat_unit_on_the_minus_strand_where_the_genome_has_it() {
-    // c.9+1_9+2 is GT on the transcript's strand: AC at g.35_36 on NC_R.1.
+    // c.9+1_9+2 is GT on the transcript's strand: AC at g.35_36 on NC_R.1,
+    // the whole run, written over both its bases.
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let g = mapper.c_to_g(&coding("NM_R.1:c.9+1GT[3]"), None).unwrap();
-    assert_eq!(g.to_string(), "NC_R.1:g.35AC[3]");
+    assert_eq!(g.to_string(), "NC_R.1:g.35_36AC[3]");
 }
 
 #[test]
