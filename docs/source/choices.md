@@ -74,11 +74,11 @@ Applied in: [a description that says nothing matches nothing](#a-description-tha
 
 ### Equality is the allele
 
-**Two descriptions that change the sequence are the same change when they make the same sequence. Their spelling, their
-coordinate system, and anything they record that is not part of the allele, such as a stated reference base, do not
-enter. A description that makes the reference changes nothing; it states that the bases it names are unchanged, and is
-the same as another only when the two name the same bases. Nucleotide descriptions are compared on the genome, because a
-change written on a transcript is a change to the genome.**
+**Two descriptions are the same change when they make the same sequence and state the same bases unchanged. Their
+spelling, their coordinate system, and anything they record that is not part of the allele, such as a stated reference
+base, do not enter. A description states bases unchanged through its identity members, `c.10=`, and through members that
+cancel each other; one that only changes the sequence states none. Nucleotide descriptions are compared on the genome,
+because a change written on a transcript is a change to the genome.**
 
 One change has many spellings: shifted or not, `dup` or `ins`, `c.` or `g.`, with its bases stated or bare. Text
 comparison sees the spelling. Comparing on the genome rather than the transcript keeps equivalence transitive: two
@@ -86,7 +86,7 @@ transcript changes that leave one transcript can still be different changes to t
 of an exon junction.
 
 On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG:CAG`. `c.10=` and `c.20=` both make the
-reference, and are different statements.
+reference, and are different statements; `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and says more.
 
 Applied in: [judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind),
 [the canonical allele is fully justified](#the-canonical-allele-is-fully-justified),
@@ -1027,9 +1027,11 @@ NC_REP.1:g.23_24insGCCATT
 
 **Normalising a cis allele merges the members that meet, and on `c.` the members in one codon, and writes each group as
 the one change it makes, or, where the group makes the reference, as the identity of the bases its members name; it
-repeats until no two of the results meet. A member that meets no other is normalised alone, as a single variant is.
-Identities that overlap or touch in one exon are written as one. Nothing is merged across an exon junction, and no shift
-crosses one or enters a positional identity.**
+repeats until no two of the results meet. Statements are set aside first: identity members, and the smallest sets of
+members that cancel each other and share no base with any other member, are written as identities and grouped with
+nothing. A member that meets no other is normalised alone, as a single variant is. Identities that overlap or touch in
+one exon are written as one. Nothing is merged across an exon junction, and no shift crosses one or enters a positional
+identity.**
 
 `normalize` produces the preferred spelling for interchange: what weaver hands to other tools, and what string matching
 uses. Parsing, validating, projecting and comparing keep the form as written, `to_vrs` normalises because it too hands
@@ -1056,6 +1058,10 @@ makes the right sequence, but whose two members touch, so normalising it again g
 So weaver normalises by what the members do together, and keeps going until nothing changes:
 
 1. The [overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) is checked on the members as written.
+1. Statements are set aside: every identity member, and every smallest set of members that together make the reference
+   and whose span, from the first base its members name to the last, holds no base another member names. Such a set is
+   written as the identity of the bases its members name. Two such sets that share a member are not statements, and
+   their members stay with the change. What is set aside is a barrier, as any identity is (below).
 1. Each member has an extent: the bases it is written over, together with its fully justified region, the region its
    [canonical allele](#the-canonical-allele-is-fully-justified) spans, everywhere it could equally be written.
 1. Two members meet when their extents overlap or touch, with no unchanged base between them. On `c.`, two members also
@@ -1185,13 +1191,22 @@ A single variant can make the reference as well, and is written as the same stat
 its own reverse complement, so `c.9_12inv` is `c.9_12=`; `c.7_9delinsCTG` is `c.7_9=`; and `c.4A[3]`, three copies of
 the A that c.4_6 already holds, names the run and is `c.4_6=`.
 
-A cancelling group beside other changes keeps its statement too, as an identity member: `c.[4_5insA;5del;13T>G]` becomes
-`c.[4_5=;13T>G]`, and that identity is written as one with any identity it meets, `c.[4_5insA;5del;6=]` becoming
-`c.4_6=`. Cancelling members in one group with a change are different. The group makes a change, and is written as that
-change, trimmed to the bases it alters, so `c.[4_5insA;5del;6A>T]` becomes `c.6A>T` and says nothing more about c.4 and
-c.5. Keeping a statement there would mean finding, among the group's members, a subset whose effect cancels; the group's
-sequence does not record which members those are, and in a group of several there can be more than one such subset to
-choose.
+Cancelling members beside a change keep their statement as an identity member, since the statement is part of the allele
+([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)): `c.[4_5insA;5del;13T>G]` becomes
+`c.[4_5=;13T>G]`, and `c.[4_5insA;5del;6A>T]` becomes `c.[4_5=;6A>T]`, although its three members would otherwise meet
+in one group whose change, trimmed, is `c.6A>T` alone. That is why statements are found before anything is grouped: a
+group's sequence does not record which of its members cancelled. A statement written beside a change is written as one
+with any identity it meets, `c.[4_5insA;5del;6=]` becoming `c.4_6=`.
+
+A set of cancelling members is a statement only when its span holds no base another member names. That is what lets the
+rest of the allele be written on its own: the members set aside change nothing where any other member acts, so what
+remains makes the allele's sequence. Two cases fall outside, and in both the members stay with the change and nothing is
+stated. A set around another change: in `c.[4del;5A>T;6_7insA]` the deletion and the insertion cancel, but c.5, which
+the substitution changes, lies between them, and the allele is `c.4A>T`. Two sets that share a member: in
+`c.[3_4insA;5del;6_7insA]` the deletion cancels either insertion, and which one is not written, so the allele is the
+change it makes, `c.6dup`. Whether a set qualifies depends only on the members, not on the order they are written or
+looked at, and the search is confined to members that meet, since members whose extents do not meet change different
+places and cannot cancel each other.
 
 The rejected alternatives were to drop a group that makes the reference, which loses the one thing its members still
 say, and to refuse an allele that makes the reference, which would also refuse `c.[10=;20=]` and `c.[7_9=;8=]`,
@@ -1272,7 +1287,9 @@ NM_X.1:c.[*1C>A;*3G>T]            ACTTA        →  NM_X.1:c.[*1C>A;*3G>T]   no 
 NM_X.1:c.[4_5insA;5del]           AAACTGGCC    →  NM_X.1:c.4_5=            the bases the members name
 NM_X.1:c.[4_5insA;5del;13T>G]     AAACTGGCC    →  NM_X.1:c.[4_5=;13T>G]    the cancelling group keeps its statement
 NM_X.1:c.[4_5insA;5del;6=]        AAACTGGCC    →  NM_X.1:c.4_6=            the two statements touch
-NM_X.1:c.[4_5insA;5del;6A>T]      AATCTGGCC    →  NM_X.1:c.6A>T            cancelled inside a group that changes c.6
+NM_X.1:c.[4_5insA;5del;6A>T]      AATCTGGCC    →  NM_X.1:c.[4_5=;6A>T]     the statement is found before grouping
+NM_X.1:c.[4del;5A>T;6_7insA]      TAACTGGCC    →  NM_X.1:c.4A>T            the cancelling pair surrounds c.5: no statement
+NM_X.1:c.[3_4insA;5del;6_7insA]   AAAACTGGCC   →  NM_X.1:c.6dup            the deletion cancels either insertion
 NM_X.1:c.[10=;20=]                AAACTGGCC    →  NM_X.1:c.[10=;20=]       two statements, apart
 NM_X.1:c.[7_9=;8=]                AAACTGGCC    →  NM_X.1:c.7_9=
 NM_X.1:c.[7_9=;10=]               AAACTGGCC    →  NM_X.1:c.7_10=           statements that touch are one
@@ -1312,11 +1329,13 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::members_in_a_codon_split_by_an_intron_stay_apart`, `::an_allele_merged_whole_is_a_plain_variant`,
   `::a_cancelling_allele_is_the_identity_of_the_bases_its_members_name`,
   `::a_cancelling_group_beside_a_change_leaves_an_identity`,
-  `::a_cancelling_group_inside_a_changing_group_is_the_change`, `::identities_that_meet_are_written_as_one`,
-  `::identities_apart_stay_apart`, `::a_single_variant_that_makes_the_reference_is_its_statement`,
-  `::identities_in_two_exons_stay_apart`, `::a_duplication_in_an_allele_stops_at_its_exons_last_base`;
-  `normalising_a_cis_allele_keeps_its_sequence` and `normalising_a_cis_allele_twice_is_normalising_it_once`
-  (properties).
+  `::cancelling_members_that_would_meet_a_change_are_still_a_statement`,
+  `::cancelling_members_around_a_change_are_part_of_it`, `::cancelling_sets_that_share_a_member_are_not_statements`,
+  `::identities_that_meet_are_written_as_one`, `::identities_apart_stay_apart`,
+  `::a_single_variant_that_makes_the_reference_is_its_statement`, `::identities_in_two_exons_stay_apart`,
+  `::a_duplication_in_an_allele_stops_at_its_exons_last_base`; `normalising_a_cis_allele_keeps_its_sequence`,
+  `normalising_a_cis_allele_twice_is_normalising_it_once`, `normalising_a_cis_allele_keeps_its_stated_bases` and
+  `a_cis_alleles_statements_do_not_depend_on_member_order` (properties).
 
 ## Protein consequences
 
@@ -1747,9 +1766,9 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
 
 ### Judged by allele and by the protein left behind
 
-**Two nucleotide descriptions are the same change when they make the same sequence on the genome, which for two single
-variants that change the sequence is when their canonical alleles are equal; two that make the reference are the same
-when they name the same bases. A coding variant and a protein description agree when they leave the same protein.**
+**Two nucleotide descriptions are the same change when they make the same sequence on the genome and state the same
+bases unchanged; for two single variants that change the sequence, that is when their canonical alleles are equal. A
+coding variant and a protein description agree when they leave the same protein.**
 
 `Identity` is the same text after spelling normalisation, or a prediction written exactly as given; the parentheses of a
 prediction and the brackets of a one-member allele are spelling. Cis alleles are compared by
@@ -1761,8 +1780,9 @@ statement about the same residues. `p.(Leu3=)` and `p.(Ala4=)` leave the same pr
 so they are Different, as `c.10=` and `c.20=` are; `p.(=)`, about the whole protein, is Different from each. A coding
 change is compared as the statement it predicts: `c.9G>A`, silent in codon 3, predicts `p.(Leu3=)`, while `c.*3G>A`, in
 the 3'UTR, predicts `p.(=)` ([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the first is the same
-as `p.(Leu3=)` and the second as `p.(=)`. The rows marked *planned* are those where the comparison by protein left
-behind answers otherwise today.
+as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that changes the sequence and states bases predicts both,
+`c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are those where the
+comparison by protein left behind answers otherwise today.
 
 **Example:**
 
@@ -1772,6 +1792,7 @@ NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(=)                              Diffe
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=) (planned)
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Leu3=)                          Identity: the prediction as weaver writes it
 NM_X.1:c.*3G>A               vs  NP_X.1:p.(=)                              Identity
+NM_X.1:c.[13T>G;10_12=]      vs  NP_X.1:p.(Tyr5Asp)                        Different: it predicts p.[(Ala4=;Tyr5Asp)] (planned)
 NP_001337263.1:p.Tyr165Ter   vs  NP_001337263.1:p.Ala164_Tyr165insTer      Analogous: both end the protein after 164
 NM_X.1:c.4A>C                vs  NP_X.1:p.(Lys2Gln)                        Identity: the prediction as weaver writes it
 NM_X.1:c.4A>C                vs  NP_X.1:p.Lys2Gln                          Analogous
@@ -1922,44 +1943,52 @@ A one-member allele makes what its member makes, so `c.[7C>T]` is `c.7C>T`, and 
 same change when they make the same sequence. The brackets of a one-member allele are spelling, as the parentheses of a
 prediction are, so the two are Identity, as `c.=` and `c.[=]` are.
 
-A description that makes the reference changes nothing, so it has no change to compare. What it says is that the bases
-it names are as they were, and two such descriptions are the same when they say it of the same bases, projected to the
-genome: `c.10=` and `c.20=` are Different, and `c.10=` and `NC_X.1:g.25=`, its projection, are Identity. An allele whose
-members cancel says it of the bases the members are written over, an insertion naming its two flanks, with no widening
-over a repeat, as for the comparison's stretch: on `NM_X.1`, whose c.4_6 is `AAA`, `c.[4_5insA;5del]` is `c.4_5=` and
-not `c.4_6=`, though c.6 is in the same run. Whether members cancel is a fact about the reference, not the text: on
-`TTTTTTTTTT` the same allele makes `g.5T>A`, a change, and is compared as one. Beside a change an identity is part of a
-description that changes the sequence, and is compared as that: `c.[7C>T;10_12=]` is the same change as `c.7C>T`.
+An allele says more than the sequence it makes when some of its members change nothing. An identity member, `c.10_12=`,
+states that its bases are unchanged, and members that cancel each other state the same of the bases they are written
+over. So a nucleotide description has two parts to compare, the sequence it makes and the bases it states, and two
+descriptions are the same when both match, projected to the genome. `c.[7C>T;10_12=]` makes what `c.7C>T` makes and also
+states c.10 to c.12, so the two are Different. A description that makes the reference is all statement: `c.10=` and
+`c.20=` are Different, and `c.10=` and `NC_X.1:g.25=`, its projection, are Identity. Members that cancel name the bases
+they are written over, an insertion naming its two flanks, with no widening over a repeat, as for the comparison's
+stretch: on `NM_X.1`, whose c.4_6 is `AAA`, `c.[4_5insA;5del]` is `c.4_5=` and not `c.4_6=`, though c.6 is in the same
+run, and beside a change they still state it, so `c.[4_5insA;5del;13T>G]` is `c.[4_5=;13T>G]` and not `c.13T>G`. Which
+members count as cancelling, and the cases where none do, is set out with
+[normalisation](#members-of-a-cis-allele-that-meet-are-written-as-one-change), which writes them as identities. Whether
+members cancel is a fact about the reference, not the text: on `TTTTTTTTTT` the same pair makes `g.5T>A`, a change, and
+states nothing.
 
-The two kinds never meet. A description that changes the sequence makes something other than the reference, so it is
-never the same as one that makes the reference; two that change it are compared by what they make, and two that make the
-reference by the bases they name. Each comparison is the equality of one value, the sequence or the set of bases, so
-equivalence between nucleotide descriptions stays transitive; across nucleotide and protein, and through a protein
-residue left unnamed, it is not, as the paragraph on frameshifts below and
-[the bracketing entry](#a-prediction-is-bracketed-as-hgvs-writes-it) record. The alternative, every description that
-makes the reference the same as every other, would make a check at c.10 the same as a check at c.20, which neither
-claims.
+The comparison is the equality of one value, the pair of sequence and stated bases, so equivalence between nucleotide
+descriptions is transitive; across nucleotide and protein, and through a protein residue left unnamed, it is not, as the
+paragraph on frameshifts below and [the bracketing entry](#a-prediction-is-bracketed-as-hgvs-writes-it) record. The
+alternatives were to ignore what is stated, which would make a check at c.10 the same as a check at c.20, and to ignore
+it only beside a change, which would make `c.[7C>T;10_12=]`, a screen's record that c.10 to c.12 were assayed in that
+combination, the same as `c.7C>T`, which records nothing about them.
 
 Read from the sequence, a protein consequence comes from the codons all the members leave, as the delins page asks:
 `c.[4A>T;6A>T]` turns the codon `AAA` into `TAT`. An allele that makes the reference predicts what its statement
 predicts. `c.[4_5insA;5del]`, read as `c.4_5=`, is `p.(Lys2=)`, silent at the residue its bases are in, as
 [an identity inside the codons](#edits-outside-the-cds-are-statements) is; in a UTR it is `p.(=)`. `c.[10=;20=]`,
 statements in two codons, is `p.[(Ala4=;Ter7=)]`, the predicted allele written as the protein alleles page writes one,
-the parentheses inside the brackets. An allele that changes the sequence predicts the change, and an identity beside it
-adds nothing to the protein.
+the parentheses inside the brackets. An allele that changes the sequence and states bases predicts both: each stated
+base in a codon the change leaves as it was adds its residue, silent, to the predicted allele, so `c.[13T>G;10_12=]` is
+`p.[(Ala4=;Tyr5Asp)]` and `c.[4_5insA;5del;13T>G]` is `p.[(Lys2=;Tyr5Asp)]`. A stated base in a codon the change alters
+adds nothing, since the change names that residue: `c.[4_5insA;5del;6A>T]` is `p.(Lys2Asn)`. Nor does one outside the
+codons, or in a codon read in a new frame or past a new stop; `p.(=)` is about the whole protein and does not stand
+beside a change.
 
 Some members cannot be applied to a sequence: a statement (the whole-sequence `=`, `?`, `spl`, `0`, `r.(?)`); a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`; inserted bases that are not stated, `insN[20]`; and a copy number.
 A positional identity, `c.10_12=`, is not among them: it replaces its bases with themselves, so `c.[7C>T;10_12=]` makes
-what `c.7C>T` makes. An allele with members that cannot be applied is compared in two parts: the members that can be
-applied by the sequence they make, as above, and the members that cannot as an unordered collection of their projections
-to the genome, counted with repeats. Two alleles are the same change when both parts match. An applicable part that
-makes the reference is compared as the statement it makes, so `c.[4_5insA;5del;10_12copy3]` is `c.[4_5=;10_12copy3]` and
-not `c.[13=;10_12copy3]`. Order still does not matter, so `g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split
-of the applicable part still does not, so `c.[7C>T;8T>G;10_12copy3]` is `c.[7_8delinsTG;10_12copy3]`; a member that
-cannot be applied matches only its own projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as
-written, is compared, so `c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`, the same members on one genome, are one
-allele though `10_12copy3` and `25_27copy3` are different text. Such a member is still held to the
+what `c.7C>T` makes, and states c.10 to c.12 besides. An allele with members that cannot be applied is compared in two
+parts: the members that can be applied by the sequence they make, as above, and the members that cannot as an unordered
+collection of their projections to the genome, counted with repeats. Two alleles are the same change when both parts
+match. An applicable part that makes the reference is compared as the statement it makes, so
+`c.[4_5insA;5del;10_12copy3]` is `c.[4_5=;10_12copy3]` and not `c.[13=;10_12copy3]`. Order still does not matter, so
+`g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split of the applicable part still does not, so
+`c.[7C>T;8T>G;10_12copy3]` is `c.[7_8delinsTG;10_12copy3]`; a member that cannot be applied matches only its own
+projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as written, is compared, so
+`c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`, the same members on one genome, are one allele though `10_12copy3` and
+`25_27copy3` are different text. Such a member is still held to the
 [overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so `g.[22C>T;20_30copy3]` is
 refused rather than compared in two parts.
 
@@ -2002,17 +2031,21 @@ NC_X.1:g.[22C>T;28T>G]                 the same bases                 Identity: 
 NR_XR.1:n.[23A>C;29G>A]                the same bases                 Analogous: the minus strand reverses the order
 NM_X.1:c.7C>T                          ATG AAA TTG GCC TAT CGC TAA    Different from c.[7C>T;13T>G]: a member short
 NM_X.1:c.[7C>T]                        ATG AAA TTG GCC TAT CGC TAA    Identity with c.7C>T
-NM_X.1:c.[7C>T;10_12=]                 ATG AAA TTG GCC TAT CGC TAA    Analogous with c.7C>T: the identity changes nothing
+NM_X.1:c.[7C>T;10_12=]                 ATG AAA TTG GCC TAT CGC TAA    Different from c.7C>T: it also states c.10_12
 NM_X.1:c.10=  vs  NM_X.1:c.20=         the reference for both         Different: statements about c.10 and c.20
 NM_X.1:c.10=  vs  NC_X.1:g.25=         the reference for both         Identity: it projects exactly to it
 NM_X.1:c.[4_5insA;5del]  vs  c.4_5=    the reference for both         Analogous: the members name c.4 and c.5
 NM_X.1:c.[4_5insA;5del]  vs  c.4_6=    the reference for both         Different: c.6 is in the run, but not named
 NM_X.1:c.[4_5insA;5del]  vs  c.10=     the reference for both         Different
+NM_X.1:c.[4_5insA;5del;13T>G]          ATG AAA CTG GCC GAT CGC TAA    Analogous with c.[4_5=;13T>G]
+                                                                      Different from c.13T>G: c.4 and c.5 stated
 on TTTTTTTTTT:
 X:g.[4_5insA;5del]  vs  X:g.5T>A       TTTTATTTTT for both            Analogous: here the members change a base
 
 NM_X.1:c.[4_5insA;5del]                →  NP_X.1:p.(Lys2=)            the statement c.4_5=, silent at Lys2
 NM_X.1:c.[10=;20=]                     →  NP_X.1:p.[(Ala4=;Ter7=)]
+NM_X.1:c.[13T>G;10_12=]                →  NP_X.1:p.[(Ala4=;Tyr5Asp)]  the change and the statement
+NM_X.1:c.[4_5insA;5del;6A>T]           →  NP_X.1:p.(Lys2Asn)          the stated bases are in the changed codon
 
 NM_X.1:c.[4A>T;6A>T]                   ATG TAT CTG GCC TAT CGC TAA    →  NP_X.1:p.(Lys2Tyr)
 NM_X.1:c.4_6delinsTAT                  ATG TAT CTG GCC TAT CGC TAA    Analogous with c.[4A>T;6A>T]
@@ -2062,8 +2095,10 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::members_without_a_sequence_match_as_text_in_any_order`, `::members_on_one_transcript_compare_without_the_genome`,
   `::the_vrs_identifier_follows_the_description`, `::statements_about_different_bases_differ`,
   `::a_cancelling_allele_states_the_bases_its_members_name`, `::cancelling_depends_on_the_reference`,
-  `::a_change_is_never_a_statement`, `::a_cancelling_allele_predicts_its_statements_protein`;
-  `equivalence_is_transitive_over_statements_and_changes` (property).
+  `::a_change_is_never_a_statement`, `::an_identity_beside_a_change_is_part_of_the_allele`,
+  `::cancelling_members_beside_a_change_are_a_statement`, `::a_change_with_a_statement_predicts_both`,
+  `::a_cancelling_allele_predicts_its_statements_protein`; `equivalence_is_transitive_over_statements_and_changes`
+  (property).
 
 ### Overlapping members of a cis allele need one reading
 
@@ -2079,7 +2114,8 @@ chromosome that either cannot exist or cannot be told from another, and the two 
 become G. `c.[7C>T;7C>G]` puts two bases at one position of one chromosome. `c.[7_9=;8T>G]` says c.8 is both unchanged
 and changed, and `c.[7_8=;7_8insA]` says c.7 and c.8 are unchanged, which includes that they are still side by side, and
 puts an A between them. `c.[7_9delinsA;8T>G]` replaces three bases with one, which is not any of the three, so there is
-no base left for c.8 to be. No sequence answers any of these, so each is a `ValidationError`.
+no base left for c.8 to be, and `c.[7_9delinsTT;8_9insA]` puts an A between c.8 and c.9, a junction no base of `TT`
+stands on either side of. No sequence answers any of these, so each is a `ValidationError`.
 
 **Ambiguous: several readings.** `c.[7_8insA;7_8insG]` puts an A and a G between c.7 and c.8 but not in which order, and
 `c.7_8insAG` and `c.7_8insGA` are different sequences. A duplication inserts at the junction 3' of what it copies, which
@@ -2091,10 +2127,10 @@ bases it covers in the same way. `c.[7_9inv;8T>A]` inverts `CTG`, read as writte
 landing where an A already is, or inverts the changed bases `CAG` back to `CTG`, the reference; `c.[7_9inv;8T>G]` is
 `CGG` or `CCG` by the same two readings. The same holds for any member that reads a stretch another member changes: a
 conversion, which the specification no longer uses but weaver parses, and an insertion of a copied range (`ins5_16`),
-which weaver does not yet parse. An insertion between two bases another member deletes or replaces is ambiguous too:
-`c.[7_9del;7_8insA]` either loses the A with the bases around its junction, `c.7_9del`, or keeps it in their place,
-`c.7_9delinsA`, and `c.[7_8delinsTG;7_8insA]` is `c.7_8delinsTG` or `c.7_8delinsTAG` by the same two readings. Each of
-these has answers, and weaver does not pick one: it returns them all.
+which weaver does not yet parse. An insertion between two bases another member deletes, or replaces keeping the length,
+is ambiguous too: `c.[7_9del;7_8insA]` either loses the A with the bases around its junction, `c.7_9del`, or keeps it in
+their place, `c.7_9delinsA`, and `c.[7_8delinsTG;7_8insA]` is `c.7_8delinsTG` or `c.7_8delinsTAG` by the same two
+readings. Each of these has answers, and weaver does not pick one: it returns them all.
 
 **One reading: accepted.** Nearness is not the problem: `c.[7_8del;9_10del]` is two deletions meeting at a junction,
 together a deletion of four bases, and `c.[2077G>A;2077_2078insTA]`, the allele the specification's BRCA1 question asks
@@ -2115,11 +2151,11 @@ stretch as a whole. A duplication and an inversion read the bases they cover. Th
 
 - contradictory when two members read base by base disagree at a base, one keeping or changing a base the other changes
   or removes; when a delins that changes the length shares a base with another member, or another member inserts inside
-  it; when a member inserts inside a positional identity's stretch; or when an identity names a base an inversion
-  changes; contradictory comes first when both apply;
-- ambiguous when a member inserts between two bases another deletes or replaces base by base; when two members insert at
-  one junction and their orders make different sequences, when identical insertions could be one written twice, or when
-  a member changes, removes or inserts among the bases a duplication or an inversion reads;
+  it, since no base of the delins corresponds to the junction; when a member inserts inside a positional identity's
+  stretch; or when an identity names a base an inversion changes; contradictory comes first when both apply;
+- ambiguous when a member inserts between two bases another deletes, or replaces base by base keeping the length; when
+  two members insert at one junction and their orders make different sequences, when identical insertions could be one
+  written twice, or when a member changes, removes or inserts among the bases a duplication or an inversion reads;
 - accepted otherwise. Identical members are one edit written twice, `c.[7_9delinsA;7_9delinsA]` as much as
   `c.[7C>T;7C>T]`, except insertions, where two copies are a reading too. Where a change agrees with an identity, the
   identity stays and the change is cut where it stands: `c.[7=;7_8delinsCG]` is written `c.[7=;8T>G]`, and
@@ -2128,8 +2164,7 @@ stretch as a whole. A duplication and an inversion read the bases they cover. Th
 A repeat replaces its [whole run](#a-repeat-resolves-to-its-whole-run). A positional identity, `c.10_12=`, is an edit
 that replaces its bases with themselves: it can be applied, it takes part in this rule, and normalisation never drops a
 base it names. Combinatorial variant screens use it to record that a position in a given combination was assayed and is
-wild type. Beside a change, equivalence is about the allele, which that record does not change, so `c.[7C>T;10_12=]` is
-Analogous with `c.7C>T`; alone, it is the statement it makes
+wild type. That record is part of the allele, beside a change as alone, so `c.[7C>T;10_12=]` is Different from `c.7C>T`
 ([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)). The whole-sequence `c.=` beside a change says
 no change was found and names one, a contradiction, and stays refused
 ([the `c.=` entry](#the-whole-transcript-unchanged-is-a-statement-not-a-change)).
@@ -2170,7 +2205,7 @@ NM_X.1:c.[8=;7_9delinsTTA]      AAATTAGCC                      accepted, c.[7C>T
 NM_X.1:c.[7_9delinsA;7_9delinsA] AAAAGCC                       accepted, c.7_9delinsA: one edit written twice
 NM_X.1:c.[7_8insA;7_8insAA]     AAACAAATGGCC                   accepted, c.7_8insAAA
 
-NM_X.1:c.[7C>T;10_12=]          AAATTGGCC                      accepted, left as written; Analogous with c.7C>T
+NM_X.1:c.[7C>T;10_12=]          AAATTGGCC                      accepted, left as written; Different from c.7C>T
 
 NM_X.1:c.[7C>T;7C>G]                                           contradictory: two bases at c.7
 NM_X.1:c.[7_9del;8T>G]                                         contradictory: no c.8 to change

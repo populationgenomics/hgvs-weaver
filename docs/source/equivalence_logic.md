@@ -6,7 +6,7 @@ one of four levels:
 | Level       | Meaning                                                                                                                                                           |
 | :---------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Identity`  | The same text after spelling normalisation, or a prediction written exactly as given. A prediction's parentheses and a one-member allele's brackets are spelling. |
-| `Analogous` | Different text, the same change: the same allele, the same bases stated unchanged, or the same protein left behind.                                               |
+| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                            |
 | `Different` | Both descriptions are understood and they name different changes.                                                                                                 |
 | `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                          |
 
@@ -29,11 +29,7 @@ flowchart TD
     Text -- no --> Kind{kinds}
     Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
     Proj -- yes --> Identity
-    Proj -- no --> Ref{"either makes<br/>the reference?"}
-    Ref -- no --> Allele{"same sequence made?<br/>(on the genome)"}
-    Ref -- yes --> Named{"both make it, naming<br/>the same bases on the genome?"}
-    Named -- yes --> Analogous
-    Named -- no --> Different
+        Proj -- no --> Allele{"same sequence made and<br/>same bases stated?<br/>(on the genome)"}
     Kind -- "nucleotide, protein" --> Pred{"prediction written<br/>exactly as given?"}
     Pred -- yes --> Identity
     Pred -- no --> Spell{"same description,<br/>other spelling?"}
@@ -52,14 +48,14 @@ flowchart TD
 
 ### Nucleotide against nucleotide
 
-Two `g.`, `c.` or `n.` descriptions are the same change when they make the same sequence on the genome. For two single
-variants that change the sequence that is exactly when their **canonical alleles** are equal. A description that makes
-the reference, a positional identity or an allele whose members cancel, states that the bases it names are unchanged,
-and is the same only as another that names the same bases on the genome; it is never the same as a change. A canonical
-allele is the change projected onto the genomic reference, trimmed to what it alters, then widened over the whole region
-in which it could equally be written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run
-of the same trinucleotide, `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection
-all have one allele. Edits without an allele (conversions, copy numbers) are `Different` unless the text matches.
+Two `g.`, `c.` or `n.` descriptions are the same change when they make the same sequence on the genome and state the
+same bases unchanged there. For two single variants that change the sequence that is exactly when their **canonical
+alleles** are equal. Bases are stated by identity members and by members that cancel each other, beside a change or
+alone, so `c.[7C>T;10_12=]` is not `c.7C>T`, and `c.10=` is not `c.20=`. A canonical allele is the change projected onto
+the genomic reference, trimmed to what it alters, then widened over the whole region in which it could equally be
+written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
+`g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. Edits
+without an allele (conversions, copy numbers) are `Different` unless the text matches.
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
