@@ -16,22 +16,37 @@ pyo3::create_exception!(_weaver, CigarError, HGVSError);
 pyo3::create_exception!(_weaver, TranscriptMismatchError, HGVSError);
 
 fn map_hgvs_error(e: HgvsError) -> PyErr {
+    py_error(e, String::new())
+}
+
+/// The Python exception for `e`, its message after `context`. A member of an
+/// allele in cis fails with its own kind of error, named in the message.
+fn py_error(e: HgvsError, context: String) -> PyErr {
     match e {
-        HgvsError::PestError(msg) => ParseError::new_err(msg),
-        HgvsError::ValidationError(msg) => ValidationError::new_err(msg),
-        HgvsError::DataProviderError(msg) => DataProviderError::new_err(msg),
-        HgvsError::UnsupportedOperation(msg) => UnsupportedOperationError::new_err(msg),
-        HgvsError::CigarError(msg) => CigarError::new_err(msg),
+        HgvsError::PestError(msg) => ParseError::new_err(context + &msg),
+        HgvsError::ValidationError(msg) => ValidationError::new_err(context + &msg),
+        HgvsError::DataProviderError(msg) => DataProviderError::new_err(context + &msg),
+        HgvsError::UnsupportedOperation(msg) => UnsupportedOperationError::new_err(context + &msg),
+        HgvsError::CigarError(msg) => CigarError::new_err(context + &msg),
         HgvsError::TranscriptMismatch {
             expected,
             found,
             start,
             end,
         } => TranscriptMismatchError::new_err(format!(
-            "expected {}, found {} at transcript indices {}..{}",
+            "{context}expected {}, found {} at transcript indices {}..{}",
             expected, found, start, end
         )),
-        HgvsError::Other(msg) => HGVSError::new_err(msg),
+        HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
+        HgvsError::CisMember {
+            allele,
+            index,
+            member,
+            source,
+        } => py_error(
+            *source,
+            format!("{context}Member {} of {allele}, {member}: ", index + 1),
+        ),
     }
 }
 
@@ -229,7 +244,7 @@ impl PyVariant {
     }
 
     #[getter]
-    #[doc = "The members of an allele in cis, c.[145C>T;147C>G], as plain Variants in the\norder written; None for a plain variant.\n\nMapping methods take plain variants, so map the members and rebuild the\nallele from the results with from_dict, or render the whole allele with\nVariantMapper.to_vrs."]
+    #[doc = "The members of an allele in cis, c.[145C>T;147C>G], as plain Variants in the\norder written; None for a plain variant.\n\nThe projections between g., c., n. and r. take the whole allele and\nproject it member by member."]
     fn members(&self) -> Option<Vec<PyVariant>> {
         match &self.inner {
             SequenceVariant::CisPhased(cis) => Some(
@@ -320,13 +335,9 @@ macro_rules! expect_variant {
         fn $name(var: &SequenceVariant) -> PyResult<&$ty> {
             match var {
                 SequenceVariant::$variant(v) => Ok(v),
-                SequenceVariant::CisPhased(_) => {
-                    Err(pyo3::exceptions::PyValueError::new_err(concat!(
-                        "Expected a ",
-                        $what,
-                        ", not an allele in cis; map its members (Variant.members) one by one"
-                    )))
-                }
+                SequenceVariant::CisPhased(_) => Err(pyo3::exceptions::PyValueError::new_err(
+                    concat!("Expected a ", $what, ", not an allele in cis"),
+                )),
                 _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
                     "Expected a ",
                     $what
@@ -335,10 +346,38 @@ macro_rules! expect_variant {
         }
     };
 }
-expect_variant!(
+
+/// What a projection takes: a plain variant, or an allele in cis of members
+/// in the same system, which projects member by member.
+enum OneOrCis<'v, T> {
+    One(&'v T),
+    Cis(&'v ::hgvs_weaver::CisPhasedVariant),
+}
+
+/// The plain variant or allele in cis a projection accepts, or the ValueError
+/// Python callers expect.
+macro_rules! expect_one_or_cis {
+    ($name:ident, $variant:ident, $ty:ty, $system:literal, $what:literal) => {
+        fn $name(var: &SequenceVariant) -> PyResult<OneOrCis<'_, $ty>> {
+            match var {
+                SequenceVariant::$variant(v) => Ok(OneOrCis::One(v)),
+                SequenceVariant::CisPhased(c) if c.coordinate_type() == $system => {
+                    Ok(OneOrCis::Cis(c))
+                }
+                _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
+                    "Expected a ",
+                    $what,
+                    " or an allele in cis of them"
+                ))),
+            }
+        }
+    };
+}
+expect_one_or_cis!(
     expect_genomic,
     Genomic,
     ::hgvs_weaver::GVariant,
+    "g",
     "genomic variant (g.)"
 );
 expect_variant!(
@@ -347,10 +386,11 @@ expect_variant!(
     ::hgvs_weaver::CVariant,
     "coding variant (c.)"
 );
-expect_variant!(
+expect_one_or_cis!(
     expect_noncoding,
     NonCoding,
     ::hgvs_weaver::structs::NVariant,
+    "n",
     "non-coding variant (n.)"
 );
 expect_variant!(
@@ -359,7 +399,20 @@ expect_variant!(
     ::hgvs_weaver::PVariant,
     "protein variant (p.)"
 );
-expect_variant!(expect_rna, Rna, ::hgvs_weaver::RVariant, "RNA variant (r.)");
+expect_one_or_cis!(
+    expect_rna,
+    Rna,
+    ::hgvs_weaver::RVariant,
+    "r",
+    "RNA variant (r.)"
+);
+expect_one_or_cis!(
+    expect_coding_or_cis,
+    Coding,
+    ::hgvs_weaver::CVariant,
+    "c",
+    "coding variant (c.)"
+);
 
 // --- Mapper and DataProvider Bridge ---
 
@@ -594,72 +647,81 @@ impl PyVariantMapper {
         }
     }
     #[pyo3(signature = (var_g, transcript_ac))]
-    #[doc = "Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.\n\nThe edit is re-read against the transcript: a stated reference the genome has\nbut the record does not becomes the record's base, and a change the record\nalready carries is written =; no change on the genome (g.123=) is the record's\nbase becoming the genome's where the two differ, and a duplication or\ninversion carries the genome's bases. An intronic position has no transcript base and\nis carried as given.\n\nArgs:\n    var_g: The genomic Variant to map.\n    transcript_ac: The accession of the target transcript.\n\nReturns:\n    A new Variant object in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.\n\nThe edit is re-read against the transcript: a stated reference the genome has\nbut the record does not becomes the record's base, and a change the record\nalready carries is written =; no change on the genome (g.123=) is the record's\nbase becoming the genome's where the two differ, and a duplication or\ninversion carries the genome's bases. An intronic position has no transcript base and\nis carried as given.\n\nAn allele in cis of g. members, g.[a;b], projects member by member to an\nallele in cis on the transcript, its members written in reverse on a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_g: The genomic Variant to map.\n    transcript_ac: The accession of the target transcript.\n\nReturns:\n    A new Variant object in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant or an allele in cis of them.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn g_to_c(&self, _py: Python, var_g: &PyVariant, transcript_ac: String) -> PyResult<PyVariant> {
-        let v = expect_genomic(&var_g.inner)?;
         let mapper = self.mapper();
-        let res = mapper.g_to_c(v, &transcript_ac).map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Coding(res),
-        })
+        let inner = match expect_genomic(&var_g.inner)? {
+            OneOrCis::One(v) => mapper
+                .g_to_c(v, &transcript_ac)
+                .map(SequenceVariant::Coding),
+            OneOrCis::Cis(c) => mapper
+                .g_to_c_cis(c, &transcript_ac)
+                .map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_g, searcher))]
-    #[doc = "Maps a genomic variant (g.) to all overlapping transcripts discovered via the searcher.\n\nArgs:\n    var_g: The genomic Variant to map.\n    searcher: An object implementing the TranscriptSearch protocol.\n\nReturns:\n    A list of Variant objects in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a genomic variant (g.) to all overlapping transcripts discovered via the searcher.\n\nAn allele in cis of g. members gives an allele in cis on each transcript\nevery member projects to, as g_to_c does.\n\nArgs:\n    var_g: The genomic Variant to map.\n    searcher: An object implementing the TranscriptSearch protocol.\n\nReturns:\n    A list of Variant objects in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant or an allele in cis of them.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn g_to_c_all(
         &self,
         _py: Python,
         var_g: &PyVariant,
         searcher: Py<PyAny>,
     ) -> PyResult<Vec<PyVariant>> {
-        let v = expect_genomic(&var_g.inner)?;
         let mapper = self.mapper();
         let bridge_searcher = PyTranscriptSearchBridge { searcher };
-        let res = mapper
-            .g_to_c_all(v, &bridge_searcher)
-            .map_err(map_hgvs_error)?;
-        Ok(res
-            .into_iter()
-            .map(|v| PyVariant {
-                inner: SequenceVariant::Coding(v),
-            })
-            .collect())
+        let res: Vec<SequenceVariant> = match expect_genomic(&var_g.inner)? {
+            OneOrCis::One(v) => mapper
+                .g_to_c_all(v, &bridge_searcher)
+                .map(|all| all.into_iter().map(SequenceVariant::Coding).collect()),
+            OneOrCis::Cis(c) => mapper
+                .g_to_c_all_cis(c, &bridge_searcher)
+                .map(|all| all.into_iter().map(SequenceVariant::CisPhased).collect()),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(res.into_iter().map(|inner| PyVariant { inner }).collect())
     }
 
     #[pyo3(signature = (var_c, reference_ac = None))]
-    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn c_to_g(
         &self,
         _py: Python,
         var_c: &PyVariant,
         reference_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        let v = expect_coding(&var_c.inner)?;
         let mapper = self.mapper();
-        let res = mapper
-            .c_to_g(v, reference_ac.as_deref())
-            .map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Genomic(res),
-        })
+        let reference_ac = reference_ac.as_deref();
+        let inner = match expect_coding_or_cis(&var_c.inner)? {
+            OneOrCis::One(v) => mapper.c_to_g(v, reference_ac).map(SequenceVariant::Genomic),
+            OneOrCis::Cis(c) => mapper
+                .c_to_g_cis(c, reference_ac)
+                .map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_n, reference_ac = None))]
-    #[doc = "Maps a non-coding cDNA variant (n.) to a genomic variant (g.).\n\nArgs:\n    var_n: The non-coding Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_n is not a non-coding variant.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a non-coding cDNA variant (n.) to a genomic variant (g.).\n\nAn allele in cis of n. members projects member by member, as c_to_g\nprojects one of c. members.\n\nArgs:\n    var_n: The non-coding Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_n is not a non-coding variant or an allele in cis of them.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn n_to_g(
         &self,
         _py: Python,
         var_n: &PyVariant,
         reference_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        let v = expect_noncoding(&var_n.inner)?;
         let mapper = self.mapper();
-        let res = mapper
-            .n_to_g(v, reference_ac.as_deref())
-            .map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Genomic(res),
-        })
+        let reference_ac = reference_ac.as_deref();
+        let inner = match expect_noncoding(&var_n.inner)? {
+            OneOrCis::One(v) => mapper.n_to_g(v, reference_ac).map(SequenceVariant::Genomic),
+            OneOrCis::Cis(c) => mapper
+                .n_to_g_cis(c, reference_ac)
+                .map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
@@ -721,65 +783,71 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_r, reference_ac = None))]
-    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If mapping fails."]
+    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nAn allele in cis of r. members projects member by member, as c_to_g\nprojects one of c. members: a member spanning a splice junction fails the\nallele.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    HGVSError: If mapping fails."]
     fn r_to_g(
         &self,
         _py: Python,
         var_r: &PyVariant,
         reference_ac: Option<String>,
     ) -> PyResult<PyVariant> {
-        let v = expect_rna(&var_r.inner)?;
         let mapper = self.mapper();
-        let res = mapper
-            .r_to_g(v, reference_ac.as_deref())
-            .map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Genomic(res),
-        })
+        let reference_ac = reference_ac.as_deref();
+        let inner = match expect_rna(&var_r.inner)? {
+            OneOrCis::One(v) => mapper.r_to_g(v, reference_ac).map(SequenceVariant::Genomic),
+            OneOrCis::Cis(c) => mapper
+                .r_to_g_cis(c, reference_ac)
+                .map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_r))]
-    #[doc = "Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.\n\nr. positions on a coding transcript are c. positions; the bases become\nuppercase DNA letters (u to T).\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has no CDS, or the variant is a statement about the transcript (r.0, r.spl)."]
+    #[doc = "Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.\n\nr. positions on a coding transcript are c. positions; the bases become\nuppercase DNA letters (u to T).\n\nAn allele in cis of r. members is respelled member by member.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    HGVSError: If the transcript has no CDS, or the variant is a statement about the transcript (r.0, r.spl)."]
     fn r_to_c(&self, _py: Python, var_r: &PyVariant) -> PyResult<PyVariant> {
-        let v = expect_rna(&var_r.inner)?;
         let mapper = self.mapper();
-        let res = mapper.r_to_c(v).map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Coding(res),
-        })
+        let inner = match expect_rna(&var_r.inner)? {
+            OneOrCis::One(v) => mapper.r_to_c(v).map(SequenceVariant::Coding),
+            OneOrCis::Cis(c) => mapper.r_to_c_cis(c).map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_r))]
-    #[doc = "Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.\n\nRaises:\n    ValueError: If var_r is not an RNA variant.\n    HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a statement about the transcript."]
+    #[doc = "Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.\n\nAn allele in cis of r. members is respelled member by member.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a statement about the transcript."]
     fn r_to_n(&self, _py: Python, var_r: &PyVariant) -> PyResult<PyVariant> {
-        let v = expect_rna(&var_r.inner)?;
         let mapper = self.mapper();
-        let res = mapper.r_to_n(v).map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::NonCoding(res),
-        })
+        let inner = match expect_rna(&var_r.inner)? {
+            OneOrCis::One(v) => mapper.r_to_n(v).map(SequenceVariant::NonCoding),
+            OneOrCis::Cis(c) => mapper.r_to_n_cis(c).map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_c))]
-    #[doc = "Respells a coding variant (c.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to u).\n\nRaises:\n    ValueError: If var_c is not a coding variant."]
+    #[doc = "Respells a coding variant (c.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to u).\n\nAn allele in cis of c. members is respelled member by member.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them."]
     fn c_to_r(&self, _py: Python, var_c: &PyVariant) -> PyResult<PyVariant> {
-        let v = expect_coding(&var_c.inner)?;
         let mapper = self.mapper();
-        let res = mapper.c_to_r(v).map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Rna(res),
-        })
+        let inner = match expect_coding_or_cis(&var_c.inner)? {
+            OneOrCis::One(v) => mapper.c_to_r(v).map(SequenceVariant::Rna),
+            OneOrCis::Cis(c) => mapper.c_to_r_cis(c).map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_n))]
-    #[doc = "Respells a non-coding variant (n.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to u).\n\nRaises:\n    ValueError: If var_n is not a non-coding variant."]
+    #[doc = "Respells a non-coding variant (n.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to u).\n\nAn allele in cis of n. members is respelled member by member.\n\nRaises:\n    ValueError: If var_n is not a non-coding variant or an allele in cis of them."]
     fn n_to_r(&self, _py: Python, var_n: &PyVariant) -> PyResult<PyVariant> {
-        let v = expect_noncoding(&var_n.inner)?;
         let mapper = self.mapper();
-        let res = mapper.n_to_r(v).map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Rna(res),
-        })
+        let inner = match expect_noncoding(&var_n.inner)? {
+            OneOrCis::One(v) => mapper.n_to_r(v).map(SequenceVariant::Rna),
+            OneOrCis::Cis(c) => mapper.n_to_r_cis(c).map(SequenceVariant::CisPhased),
+        }
+        .map_err(map_hgvs_error)?;
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_p, transcript_ac=None))]

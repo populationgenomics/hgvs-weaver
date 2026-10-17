@@ -508,3 +508,96 @@ pub fn gene_and_edit() -> impl Strategy<Value = (Gene, TxEdit)> {
             (g, edit)
         })
 }
+
+/// A gene and an allele of one to four edits on it, in transcript order, over
+/// exonic and intronic bases (not the flanks) on either strand: substitution,
+/// deletion, duplication, insertion, deletion-insertion or inversion, none
+/// over two exons. At least one unchanged base lies between two members, so
+/// no member's change meets another's.
+pub fn gene_and_cis_edits() -> impl Strategy<Value = (Gene, Vec<TxEdit>)> {
+    gene()
+        .prop_flat_map(|g| {
+            let member = (0usize..10_000, 0usize..=3, 0u8..6, dna(1, 4), 1usize..=3);
+            (Just(g), prop::collection::vec(member, 1..=4))
+        })
+        .prop_map(|(g, picks)| {
+            let points = g.points();
+            let flank = g.flank();
+            // the points between the flanks, in transcript order
+            let inner = &points[flank..points.len() - flank];
+            let mut starts: Vec<usize> = picks.iter().map(|p| p.0 % inner.len()).collect();
+            starts.sort_unstable();
+            let mut edits = Vec::new();
+            let mut free = 0;
+            for (start, (_, span, kind, alt, shift)) in starts.into_iter().zip(&picks) {
+                // the first member always fits; a later one may not
+                let s = if edits.is_empty() {
+                    start.min(inner.len() - 2)
+                } else {
+                    start.max(free)
+                };
+                if s + 1 >= inner.len() {
+                    break;
+                }
+                let mut e = match kind {
+                    0 => s,
+                    3 => s + 1,
+                    _ => (s + span).min(inner.len() - 1),
+                };
+                // A range over two exons is read on the spliced transcript,
+                // which has no genomic counterpart to come back from.
+                let exon_of = |p: TxPoint| {
+                    g.tx_exons
+                        .iter()
+                        .position(|&(a, b)| a as i32 <= p.index && p.index < b as i32)
+                };
+                let exons: Vec<_> = inner[s..=e]
+                    .iter()
+                    .filter(|p| p.offset == 0)
+                    .map(|&p| exon_of(p))
+                    .collect();
+                if *kind != 3 && exons.windows(2).any(|w| w[0] != w[1]) {
+                    e = s;
+                }
+                let edit = match kind {
+                    0 => {
+                        let r = g.bases_at(&inner[s..=s]);
+                        let k = BASES.iter().position(|&b| r == b.to_string()).unwrap();
+                        NaEdit::RefAlt {
+                            ref_: Some(r),
+                            alt: Some(BASES[(k + shift) % 4].to_string()),
+                            uncertain: false,
+                        }
+                    }
+                    1 => NaEdit::Del {
+                        ref_: None,
+                        uncertain: false,
+                    },
+                    2 => NaEdit::Dup {
+                        ref_: None,
+                        uncertain: false,
+                    },
+                    3 => NaEdit::Ins {
+                        alt: Some(alt.clone()),
+                        uncertain: false,
+                    },
+                    4 => NaEdit::RefAlt {
+                        ref_: Some(String::new()),
+                        alt: Some(alt.clone()),
+                        uncertain: false,
+                    },
+                    _ => NaEdit::Inv {
+                        ref_: None,
+                        uncertain: false,
+                    },
+                };
+                edits.push(TxEdit {
+                    start: inner[s],
+                    end: inner[e],
+                    edit,
+                });
+                free = e + 2;
+            }
+            (g, edits)
+        })
+}
