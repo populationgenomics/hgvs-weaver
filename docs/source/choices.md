@@ -109,6 +109,7 @@ value, `ins(20)` and `insN[20]`, `M` and `Met`, are one value when parsed.
 cannot tell from it but which deletes a base of the next exon on the genome.
 
 Applied in: [no normalisation before projecting](#no-normalisation-before-projecting),
+[an allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member),
 [intronic positions are carried as given](#intronic-positions-are-carried-as-given),
 [shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats),
 [a shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction),
@@ -180,7 +181,7 @@ Representation Specification 2.0.1.
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                agrees                |        –         |          –           |        –         |
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |      agrees; silent on `r.(?)`       |        –         |       differs        |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          | agrees; silent on what `c.=` implies |     differs      |          –           |        –         |
-| [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member) | agrees; silent on the duplication | – | – | – |
+| [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |  agrees; silent on the duplication   |        –         |          –           |        –         |
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |                agrees                |      agrees      |        agrees        |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |                agrees                |     differs      |          –           |      agrees      |
 | [A delins is not shifted](#a-delins-is-not-shifted)                                                                                 |                  –                   |      agrees      |          –           |        –         |
@@ -660,7 +661,7 @@ NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20d
 ```
 
 - **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
-- **Spec (agrees, silent on the duplication):**
+- **Spec (agrees; silent on a duplication whose side of the original the strands disagree on):**
   [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/): an allele is "a series of variants on
   one chromosome", each member written as alone, listed "in genomic order";
   [duplication](https://hgvs-nomenclature.org/stable/recommendations/DNA/duplication/): "a copy of one or more
