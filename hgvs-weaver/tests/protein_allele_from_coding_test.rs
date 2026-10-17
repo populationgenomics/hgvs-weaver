@@ -314,3 +314,13 @@ fn a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged() {
     assert_eq!(p("NM_X.1:c.21A>G"), "NP_X.1:p.(Ter7=)");
     assert!(p("NM_X.1:c.19T>C").contains("ext"));
 }
+
+#[test]
+fn a_silent_change_across_the_stop_names_no_residue_past_it() {
+    // c.21_*1dup leaves TAA in place; the codon after it, CCG, is 3'UTR and
+    // no residue of the protein.
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let p = mapper.c_to_p(&coding("NM_X.1:c.21_*1dup"), None).unwrap();
+    assert_eq!(p.to_string(), "NP_X.1:p.(Ter7=)");
+}

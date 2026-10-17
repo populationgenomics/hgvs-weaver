@@ -217,7 +217,7 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
         if t.first_codon > t.stop {
             return out.no_change();
         }
-        return out.identity(t.first_codon, t.last_codon);
+        return out.identity(t.first_codon, t.last_codon.min(t.stop));
     }
     if t.in_frame {
         describe_in_frame(&t, &out)

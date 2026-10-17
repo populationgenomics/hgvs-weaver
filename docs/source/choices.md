@@ -1052,6 +1052,7 @@ NM_X.1:c.-3_2del           →  NP_X.1:p.(Met1?)   reaches into the start codon
 NM_X.1:c.-5_*14del         →  NP_X.1:p.0?        the whole CDS
 NM_X.1:c.*3A>G             →  NP_X.1:p.(=)       entirely downstream
 NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silently
+NM_X.1:c.21_*1dup          →  NP_X.1:p.(Ter7=)   across the stop, named up to it
 NM_X.1:c.10_*14del         →  NP_X.1:p.?         residue 4 to the end of the transcript
 NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity of the whole transcript
 NM_W.1:c.45+1=             →  NP_W.1:p.(=)       an intronic identity
@@ -1072,6 +1073,7 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
 - *Not checked:* biocommons, VariantValidator and ClinVar on an edit that leaves no codon where the protein changes.
 - **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements`,
   `::a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged`,
+  `::a_silent_change_across_the_stop_names_no_residue_past_it`,
   `::an_edit_that_leaves_no_codon_where_the_protein_changes_says_nothing`,
   `::statements_have_no_allele_and_a_wrong_protein_is_an_error`,
   `::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
