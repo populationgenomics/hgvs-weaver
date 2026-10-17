@@ -10,6 +10,8 @@
 
 use std::fmt;
 
+use crate::coords::SequenceVariant;
+
 /// Error types for HGVS operations.
 #[derive(Debug)]
 pub enum HgvsError {
@@ -45,6 +47,15 @@ pub enum HgvsError {
         member: String,
         source: Box<HgvsError>,
     },
+    /// The description has several readings that make different sequences
+    /// or state different bases: `readings` is each, written as a description
+    /// with one reading, for a caller to choose from. A transcript allele
+    /// with an intronic member is read on the genome, and its readings are
+    /// written in `g.`.
+    Ambiguous {
+        description: String,
+        readings: Vec<SequenceVariant>,
+    },
 }
 
 impl fmt::Display for HgvsError {
@@ -72,6 +83,19 @@ impl fmt::Display for HgvsError {
                 member,
                 source,
             } => write!(f, "Member {} of {allele}, {member}: {source}", index + 1),
+            HgvsError::Ambiguous {
+                description,
+                readings,
+            } => {
+                write!(f, "Ambiguous: {description} reads as ")?;
+                for (i, r) in readings.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{r}")?;
+                }
+                Ok(())
+            }
         }
     }
 }

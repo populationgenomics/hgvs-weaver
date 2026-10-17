@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import typing
 
 import pytest
@@ -259,3 +260,15 @@ def test_equivalence_compares_the_sets_of_members(mapper: weaver.VariantMapper) 
     assert level("NM_X.1:c.[7C>T;13T>A]") == weaver.EquivalenceLevel.Different
     assert level("NM_X.1:c.7C>T") == weaver.EquivalenceLevel.Different
     assert mapper.equivalent(weaver.parse("NM_X.1:c.[7C>T]"), weaver.parse("NC_X.1:g.22C>T"), searcher)
+
+
+def test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings() -> None:
+    with pytest.raises(weaver.AmbiguousDescriptionError) as raised:
+        weaver.parse("NM_X.1:c.[7_8insA;7_8insG]").validate(Provider())
+    assert not isinstance(raised.value, weaver.ValidationError)
+    assert sorted(str(r) for r in raised.value.readings) == ["NM_X.1:c.7_8insAG", "NM_X.1:c.7_8insGA"]
+
+
+def test_validate_raises_on_a_contradictory_allele() -> None:
+    with pytest.raises(weaver.ValidationError, match=re.escape("NM_X.1:c.7C>G")):
+        weaver.parse("NM_X.1:c.[7C>T;7C>G]").validate(Provider())

@@ -1346,6 +1346,9 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   that meet is what keeps normalisation sequence-preserving and idempotent, so weaver merges.
 - **Tests:** `cis_phased_test::members_normalise_and_validate_one_by_one`, whose two alleles have members that meet no
   other, so its outputs hold under this rule, and `::a_single_variant_that_makes_the_reference_is_its_statement`;
+  `::an_ambiguity_carries_its_readings` and
+  `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
+  share a member, which reading the allele already refuses;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
   `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
   `::a_repeat_that_makes_the_reference_inside_a_plus_strand_exon_normalises_without_the_genome`;
@@ -1361,7 +1364,7 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::a_cancelling_allele_is_the_identity_of_the_bases_its_members_name`,
   `::a_cancelling_group_beside_a_change_leaves_an_identity`,
   `::cancelling_members_that_would_meet_a_change_are_still_a_statement`,
-  `::cancelling_members_around_a_change_are_part_of_it`, `::cancelling_sets_that_share_a_member_are_ambiguous`,
+  `::cancelling_members_around_a_change_are_part_of_it`,
   `::a_single_member_that_makes_the_reference_beside_a_change_is_a_statement`,
   `::a_change_is_cut_at_an_agreeing_identity`, `::identities_that_meet_are_written_as_one`,
   `::identities_apart_stay_apart`, `::identities_in_two_exons_stay_apart`,
@@ -2143,17 +2146,24 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   not how to compare two; that reading is weaver's.
 - **Tests:** `cis_phased_test::cis_alleles_compare_as_sets_of_their_members_alleles`, whose rows on order, the genome
   spelling and a missing or extra member hold under this rule, and whose rows comparing a copy-number member as text are
-  to change, and `::statements_about_different_bases_differ`; planned: `::adjacent_members_are_the_delins_they_make`,
-  `::members_in_either_order_are_one_allele`, `::members_on_the_minus_strand_are_the_genomic_allele`,
-  `::members_in_one_repeat_match_as_the_sequence_they_make`, `::a_cis_allele_is_not_one_of_its_members`,
-  `::a_one_member_cis_allele_is_its_member`, `::protein_members_are_the_delins_they_make`,
-  `::members_in_one_codon_predict_one_residue`, `::members_without_a_sequence_match_as_text_in_any_order`,
-  `::members_on_one_transcript_compare_without_the_genome`, `::the_vrs_identifier_follows_the_description`,
-  `::a_cancelling_allele_states_the_bases_its_members_name`, `::cancelling_depends_on_the_reference`,
-  `::a_change_is_never_a_statement`, `::an_identity_beside_a_change_is_part_of_the_allele`,
-  `::cancelling_members_beside_a_change_are_a_statement`, `::a_change_with_a_statement_predicts_both`,
-  `::a_cancelling_allele_predicts_its_statements_protein`; `equivalence_is_transitive_over_statements_and_changes`
-  (property).
+  to change, and `::statements_about_different_bases_differ`; the bases an allele states, asserted on its reading:
+  `::a_cancelling_pair_states_the_bases_it_names`, `::a_cancelling_pair_beside_a_change_still_states_its_bases`,
+  `::where_a_cancelling_pair_is_written_is_what_it_states`, `::whether_members_cancel_is_read_from_the_reference`,
+  `::a_cancelling_pair_around_a_change_states_nothing`,
+  `::a_member_that_makes_the_reference_beside_a_change_states_its_bases`; the sequence an allele makes, compared without
+  building it: `::a_transcript_allele_read_on_the_genome_makes_its_projection`,
+  `::readings_on_different_sequences_are_not_compared`, `walking_two_readings_agrees_with_building_them`,
+  `members_apart_make_what_each_makes_alone`, `the_generated_alleles_are_mostly_read` (properties); planned:
+  `cis_phased_test::adjacent_members_are_the_delins_they_make`, `::members_in_either_order_are_one_allele`,
+  `::members_on_the_minus_strand_are_the_genomic_allele`, `::members_in_one_repeat_match_as_the_sequence_they_make`,
+  `::a_cis_allele_is_not_one_of_its_members`, `::a_one_member_cis_allele_is_its_member`,
+  `::protein_members_are_the_delins_they_make`, `::members_in_one_codon_predict_one_residue`,
+  `::members_without_a_sequence_match_as_text_in_any_order`, `::members_on_one_transcript_compare_without_the_genome`,
+  `::the_vrs_identifier_follows_the_description`, `::a_cancelling_allele_states_the_bases_its_members_name`,
+  `::cancelling_depends_on_the_reference`, `::a_change_is_never_a_statement`,
+  `::an_identity_beside_a_change_is_part_of_the_allele`, `::cancelling_members_beside_a_change_are_a_statement`,
+  `::a_change_with_a_statement_predicts_both`, `::a_cancelling_allele_predicts_its_statements_protein`;
+  `equivalence_is_transitive_over_statements_and_changes` (property).
 
 ### Overlapping members of a cis allele need one reading
 
@@ -2310,20 +2320,48 @@ NM_X.1:c.[7_8delinsTG;7_8insA]  AAATGGGCC | AAATAGGGCC         ambiguous: c.7_8d
   nucleotides is inserted directly 3' of the original copy";
   [deletion-insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/delins/) answers the 2077 question with
   `c.2077delinsATA` and says "The previous format "con" is no longer used".
-- **Tests:** none yet; planned: `cis_phased_test::members_meeting_at_a_junction_are_accepted`,
+- **Tests:** `cis_phased_test::members_meeting_at_a_junction_are_accepted`,
   `::an_insertion_beside_a_changed_base_is_accepted`, `::an_insertion_before_a_changed_base_is_accepted`,
   `::an_insertion_before_what_a_duplication_copies_is_accepted`, `::members_that_agree_on_a_base_are_one_change`,
   `::overlapping_deletions_delete_each_base_once`, `::an_insertion_inside_a_same_length_delins_is_ambiguous`,
   `::an_insertion_inside_a_deletion_is_ambiguous`, `::an_insertion_at_the_flank_of_a_deletion_is_accepted`,
   `::an_insertion_at_the_flank_of_a_delins_is_accepted`, `::an_identity_beside_an_agreeing_change_stays`,
-  `::a_change_agreeing_with_an_identity_inside_it_is_cut_there`, `::an_edit_written_twice_is_one_edit`,
-  `::two_changes_to_one_base_are_contradictory`, `::a_change_inside_a_deletion_is_contradictory`,
+  `::a_change_agreeing_with_an_identity_inside_it_is_accepted`,
+  `::a_change_agreeing_with_an_identity_makes_what_the_change_makes`, `::an_edit_written_twice_is_one_edit`,
+  `::a_substitution_and_its_delins_spelling_are_one_edit`, `::a_length_changing_delins_written_twice_is_one_edit`,
+  `::insertions_whose_orders_make_one_sequence_are_accepted`, `::two_changes_to_one_base_are_contradictory`,
+  `::a_change_inside_a_deletion_is_contradictory`, `::a_deletion_inside_a_same_length_delins_is_contradictory`,
   `::a_change_under_an_identity_is_contradictory`, `::an_insertion_inside_an_identity_is_contradictory`,
   `::a_delins_that_changes_the_length_under_another_member_is_contradictory`,
-  `::a_member_without_a_sequence_is_held_to_its_outer_bounds`, `::two_insertions_at_one_junction_are_ambiguous`,
-  `::identical_insertions_at_one_junction_are_ambiguous`, `::a_change_to_what_a_duplication_copies_is_ambiguous`,
-  `::a_change_to_what_an_inversion_reads_is_ambiguous`, `::an_identity_inside_an_inversion_is_contradictory`,
-  `::an_insertion_where_a_duplication_inserts_is_ambiguous`, `::the_error_names_both_members`.
+  `::an_insertion_inside_a_delins_that_changes_the_length_is_contradictory`,
+  `::a_member_without_a_sequence_is_held_to_its_outer_bounds`,
+  `::an_unknown_outer_bound_reaches_the_end_of_the_sequence`,
+  `::a_member_without_a_sequence_apart_from_the_rest_is_carried_unapplied`,
+  `::an_insertion_of_unstated_bases_is_held_to_its_junction`, `::an_unknown_base_is_not_applied`,
+  `::two_insertions_at_one_junction_are_ambiguous`, `::identical_insertions_at_one_junction_are_ambiguous`,
+  `::an_insertion_of_what_a_duplication_copies_where_it_inserts_is_ambiguous`,
+  `::a_change_to_what_a_duplication_copies_is_ambiguous`, `::a_change_to_what_an_inversion_reads_is_ambiguous`,
+  `::a_change_to_what_an_inversion_reads_lists_both_inversions`, `::an_identity_inside_an_inversion_is_contradictory`,
+  `::inversions_that_change_nothing_may_overlap`, `::an_insertion_where_a_duplication_inserts_is_ambiguous`,
+  `::the_error_names_both_members`, `::validate_refuses_a_contradictory_allele_rather_than_answering_false`,
+  `::validate_answers_false_for_a_wrong_base_stated_over_an_uncertain_interval`,
+  `::many_changes_beside_one_deletion_are_searched_for_statements`,
+  `::too_many_orders_to_list_is_refused_rather_than_overflowing`, `::a_duplication_of_an_exons_last_base_is_read`,
+  `::a_minus_strand_allele_is_read_on_its_transcript`, `::an_allele_with_an_intronic_member_is_read_on_the_genome`,
+  `::an_intronic_member_changes_no_other_members_reading_on_the_minus_strand`,
+  `::an_rna_allele_is_read_as_its_coding_spelling`, `::the_readings_of_an_rna_allele_are_written_in_rna`,
+  `::a_protein_allele_is_not_read_into_a_sequence`, `::identical_insertions_of_unstated_bases_are_refused_as_unlisted`,
+  `::an_uncertain_duplication_reaches_the_junction_its_copy_may_go_to`,
+  `::a_copy_number_reaches_the_junctions_its_copies_go_to`,
+  `::a_contradiction_is_reported_before_unlisted_readings_in_any_order`,
+  `::unstated_bases_inserted_inside_an_identity_are_contradictory`, `::an_identity_inside_a_copy_number_is_accepted`,
+  `::repeated_members_without_a_sequence_are_carried_with_their_repeats`,
+  `::members_combined_in_too_many_ways_to_search_are_refused`,
+  `::an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced`,
+  `::a_reading_that_changes_an_identity_is_no_reading`, `::an_identity_over_the_edge_of_a_copy_number_is_accepted`;
+  `tests/test_cis_phased.py::test_validate_raises_on_a_contradictory_allele`; `member_order_does_not_change_the_reading`
+  (property). Planned: `cis_phased_test::a_change_agreeing_with_an_identity_inside_it_is_cut_there`, which `normalize`
+  writes.
 
 ### An ambiguous description is an error that lists its readings
 
@@ -2366,10 +2404,15 @@ NM_X.1:c.[7C>T;7C>G]         →  ValidationError: contradictory, no reading
 - **Others:** mavehgvs 0.8.1 refuses `c.[7_8insA;7_8insG]` and `c.[7_9dup;8T>G]` as overlapping changes and gives no
   readings; other tools not checked.
 - **Spec (silent):** HGVS does not say what a tool does with a description it cannot read one way.
-- **Tests:** none yet; planned: `cis_phased_test::the_ambiguity_lists_every_reading`,
-  `::an_ambiguity_is_not_a_validation_error`, `::an_ambiguity_carries_its_readings`,
-  `tests/test_cis_phased.py::test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings`,
+- **Tests:** `cis_phased_test::the_ambiguity_lists_every_reading`, `::an_ambiguity_is_not_a_validation_error`,
+  `::an_ambiguity_carries_its_readings`, `::each_reading_of_an_ambiguity_has_one_reading`,
+  `::three_identical_insertions_are_one_two_or_three`,
+  `::identical_insertions_at_two_junctions_list_their_readings_rather_than_too_many`,
+  `::a_reading_is_written_on_each_side_of_a_statement`,
+  `::every_written_reading_has_one_reading_where_changes_shift_into_each_other`,
+  `::a_member_without_a_sequence_is_in_every_reading`, `::statements_either_side_of_an_insertion_are_written_apart`,
   `::to_vrs_refuses_an_ambiguous_allele`;
+  `tests/test_cis_phased.py::test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings`; planned:
   `vrs_round_trip_test::a_block_inserting_twice_at_one_point_reads_back_as_ambiguous`,
   `::a_block_of_two_identical_insertions_reads_back_as_ambiguous`.
 

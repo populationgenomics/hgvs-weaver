@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol, TypedDict
 
 from weaver._weaver import (  # type: ignore[attr-defined]
+    AmbiguousDescriptionError,
     CigarError,
     DataProviderError,
     EquivalenceLevel,
@@ -20,6 +21,7 @@ from weaver._weaver import (  # type: ignore[attr-defined]
 )
 
 __all__ = [
+    "AmbiguousDescriptionError",
     "CigarError",
     "DataProvider",
     "DataProviderError",

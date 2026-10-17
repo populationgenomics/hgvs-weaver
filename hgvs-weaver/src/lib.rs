@@ -178,6 +178,7 @@ pub mod mapper;
 pub mod normalize;
 pub mod parser;
 pub mod protein;
+pub mod reading;
 pub mod reference;
 pub mod refget;
 pub mod structs;
