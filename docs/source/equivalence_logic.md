@@ -29,7 +29,7 @@ flowchart TD
     Text -- no --> Kind{kinds}
     Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
     Proj -- yes --> Identity
-        Proj -- no --> Allele{"same sequence made and<br/>same bases stated?<br/>(on the genome)"}
+    Proj -- no --> Allele{"same sequence made and<br/>same bases stated?<br/>(on the genome)"}
     Kind -- "nucleotide, protein" --> Pred{"prediction written<br/>exactly as given?"}
     Pred -- yes --> Identity
     Pred -- no --> Spell{"same description,<br/>other spelling?"}
@@ -55,7 +55,9 @@ alone, so `c.[7C>T;10_12=]` is not `c.7C>T`, and `c.10=` is not `c.20=`. A canon
 the genomic reference, trimmed to what it alters, then widened over the whole region in which it could equally be
 written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
 `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. Edits
-without an allele (conversions, copy numbers) are `Different` unless the text matches.
+without an allele (conversions, copy numbers) are `Different` unless the text matches; as members of a cis allele they
+are compared by their projections to the genome
+([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
@@ -95,7 +97,9 @@ read against the reference protein:
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
   substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
   number. An open outcome matches any outcome it is a prefix of;
-- `p.0` and `p.0?` leave no protein; `p.=` leaves the reference;
+- `p.0` and `p.0?` leave no protein; `p.=` leaves the reference. A silent statement, `p.(Leu3=)`, is to be the same only
+  as one about the same residues, `p.(=)` being about the whole protein (planned:
+  [the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind));
 - `p.?` (and `p.(?)`) says nothing and matches nothing; `p.Met1?` and its like are **anchored**: they say only where the
   change starts, and match an outcome whose change starts at that residue.
 
