@@ -71,11 +71,6 @@ impl fmt::Display for HgvsError {
     }
 }
 
-impl std::error::Error for HgvsError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            HgvsError::CisMember { source, .. } => Some(source.as_ref()),
-            _ => None,
-        }
-    }
-}
+/// A member's error is part of the message, so it is not also a `source`,
+/// which a reporter walking the chain would print twice.
+impl std::error::Error for HgvsError {}

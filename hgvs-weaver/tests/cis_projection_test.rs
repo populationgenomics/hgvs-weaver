@@ -220,17 +220,23 @@ fn a_genomic_duplication_beside_an_insertion_is_written_as_the_insertion_on_a_mi
 }
 
 #[test]
-fn rna_spellings_go_member_by_member() {
+fn a_coding_allele_is_respelled_in_rna_and_back() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     let allele = cis("NM_X.1:c.[7C>T;13T>G]");
     let r = mapper.c_to_r_cis(&allele).unwrap();
     assert_eq!(r.to_string(), "NM_X.1:r.[7c>u;13u>g]");
     assert_eq!(mapper.r_to_c_cis(&r).unwrap(), allele);
-    let n = cis("NR_XR.1:n.[23A>C;29G>A]");
-    let r = mapper.n_to_r_cis(&n).unwrap();
+}
+
+#[test]
+fn a_non_coding_allele_is_respelled_in_rna_and_back() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let allele = cis("NR_XR.1:n.[23A>C;29G>A]");
+    let r = mapper.n_to_r_cis(&allele).unwrap();
     assert_eq!(r.to_string(), "NR_XR.1:r.[23a>c;29g>a]");
-    assert_eq!(mapper.r_to_n_cis(&r).unwrap(), n);
+    assert_eq!(mapper.r_to_n_cis(&r).unwrap(), allele);
 }
 
 #[test]
@@ -267,5 +273,64 @@ fn an_allele_in_another_system_is_refused() {
     assert!(
         matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("c. members")),
         "{err}"
+    );
+}
+
+#[test]
+fn a_coding_minus_strand_duplication_beside_an_insertion_is_written_as_the_insertion() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // c.19 is n.22 and c.20_22 is n.23_25 on NM_XR.1
+    let g = mapper
+        .c_to_g_cis(&cis("NM_XR.1:c.[19_20insA;20_22dup]"), None)
+        .unwrap();
+    assert_eq!(g.to_string(), "NC_X.1:g.[25_26insCCT;28_29insT]");
+}
+
+#[test]
+fn an_rna_minus_strand_duplication_beside_an_insertion_is_written_as_the_insertion() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let g = mapper
+        .r_to_g_cis(&cis("NR_XR.1:r.[22_23insa;23_25dup]"), None)
+        .unwrap();
+    assert_eq!(g.to_string(), "NC_X.1:g.[25_26insCCT;28_29insT]");
+}
+
+#[test]
+fn an_insertion_of_a_length_beside_a_duplication_is_met_like_one_of_bases() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let g = mapper
+        .n_to_g_cis(&cis("NR_XR.1:n.[22_23insN[5];23_25dup]"), None)
+        .unwrap();
+    assert_eq!(g.to_string(), "NC_X.1:g.[25_26insCCT;28_29insN[5]]");
+}
+
+#[test]
+fn a_rewritten_duplication_can_meet_the_next_whatever_the_order_written() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // n.26_28 is g.23_25, TGG: its copy would go where n.23_25's now goes
+    let g = mapper
+        .n_to_g_cis(&cis("NR_XR.1:n.[26_28dup;22_23insA;23_25dup]"), None)
+        .unwrap();
+    assert_eq!(
+        g.to_string(),
+        "NC_X.1:g.[25_26insCCT;28_29insT;22_23insTGG]"
+    );
+}
+
+#[test]
+fn a_rewritten_genomic_duplication_can_meet_the_next() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // g.29_31 is c.17_19 of NM_XR.1, GAT
+    let c = mapper
+        .g_to_c_cis(&cis("NC_X.1:g.[25_26insA;26_28dup;29_31dup]"), "NM_XR.1")
+        .unwrap();
+    assert_eq!(
+        c.to_string(),
+        "NM_XR.1:c.[16_17insGAT;19_20insAGG;22_23insT]"
     );
 }

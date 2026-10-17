@@ -13,7 +13,9 @@
 //! is 5'. Where another member inserts at the junction the duplication's
 //! projected form would insert at, the two would be insertions at one
 //! junction, whose order the target cannot say; so that duplication is written
-//! as the insertion it is, at the junction it uses where written.
+//! as the insertion it is, at the junction it uses where written. That
+//! insertion can meet another duplication the same way, so the rewriting
+//! repeats until no duplication meets an insertion.
 
 use crate::data::{IdentifierType, Strand, TranscriptSearch};
 use crate::edits::NaEdit;
@@ -45,12 +47,15 @@ fn is_dup(edit: &NaEdit) -> bool {
     matches!(edit, NaEdit::Dup { .. })
 }
 
-/// Whether some member other than the `skip`th is an insertion between the
-/// 0-based indices `left` and `left + 1`.
-fn inserts_at<'g>(members: impl IntoIterator<Item = &'g GVariant>, skip: usize, left: i32) -> bool {
-    members.into_iter().enumerate().any(|(j, m)| {
+/// Whether some member other than the `skip`th is an insertion, of stated
+/// bases or of a length, between the 0-based indices `left` and `left + 1`.
+fn inserts_at(members: &[GVariant], skip: usize, left: i32) -> bool {
+    members.iter().enumerate().any(|(j, m)| {
         j != skip
-            && matches!(m.posedit.edit, NaEdit::Ins { .. })
+            && matches!(
+                m.posedit.edit,
+                NaEdit::Ins { .. } | NaEdit::InsLength { .. }
+            )
             && exact_range(m.posedit.pos.as_ref()) == Some((left, left + 1))
     })
 }
@@ -148,8 +153,8 @@ impl VariantMapper<'_> {
             .provider()
             .get_transcript(transcript_ac, Some(&cis.ac))?
             .strand;
-        let genomic: Vec<&GVariant> = project_members(cis, |m| match m {
-            SV::Genomic(g) => Ok(g),
+        let mut genomic: Vec<GVariant> = project_members(cis, |m| match m {
+            SV::Genomic(g) => Ok(g.clone()),
             other => Err(wrong_member(other, "g")),
         })?;
         let mut projected = project_members(cis, |m| match m {
@@ -157,22 +162,14 @@ impl VariantMapper<'_> {
             other => Err(wrong_member(other, "g")),
         })?;
         if strand == Strand::Minus {
-            for (i, g) in genomic.iter().enumerate() {
-                if !is_dup(&g.posedit.edit) || !is_dup(&projected[i].posedit.edit) {
-                    continue;
-                }
-                let Some((first, last)) = exact_range(g.posedit.pos.as_ref()) else {
-                    continue;
-                };
-                // On the transcript the copy goes 5' of the original on the
-                // genome, between `first - 1` and `first`.
-                if !inserts_at(genomic.iter().copied(), i, first - 1) {
-                    continue;
-                }
-                let bases = self.genome_bases(&g.ac, first, last)?;
-                let rewritten = insertion(g, last, bases, edit_uncertain(&g.posedit.edit));
+            let candidates: Vec<bool> = genomic
+                .iter()
+                .zip(&projected)
+                .map(|(g, c)| is_dup(&g.posedit.edit) && is_dup(&c.posedit.edit))
+                .collect();
+            for i in self.copies_as_insertions(cis, &mut genomic, &candidates, Written::OnGenome)? {
                 projected[i] = self
-                    .g_to_c(&rewritten, transcript_ac)
+                    .g_to_c(&genomic[i], transcript_ac)
                     .map_err(|e| member_error(cis, i, e))?;
             }
             projected.reverse();
@@ -206,8 +203,14 @@ impl VariantMapper<'_> {
             };
             Ok((start, end))
         })?;
-        let start = spans.iter().map(|s| s.0).min().unwrap_or_default();
-        let end = spans.iter().map(|s| s.1).max().unwrap_or_default();
+        let (Some(start), Some(end)) = (
+            spans.iter().map(|s| s.0).min(),
+            spans.iter().map(|s| s.1).max(),
+        ) else {
+            return Err(HgvsError::ValidationError(format!(
+                "{cis} has no members to find transcripts for"
+            )));
+        };
         let transcripts = searcher.get_transcripts_for_region(&cis.ac, start, end)?;
         if transcripts.is_empty() {
             return Err(HgvsError::ValidationError(format!(
@@ -288,26 +291,58 @@ impl VariantMapper<'_> {
             .strand;
         let mut projected = project_members(cis, project)?;
         if strand == Strand::Minus {
-            let source_dup = |i: usize| match &cis.members[i] {
-                SV::Coding(c) => is_dup(&c.posedit.edit),
-                SV::NonCoding(n) => is_dup(&n.posedit.edit),
-                SV::Rna(r) => is_dup(&r.posedit.edit),
-                _ => false,
-            };
-            for i in 0..projected.len() {
-                let g = &projected[i];
-                if !source_dup(i) || !is_dup(&g.posedit.edit) {
+            let candidates: Vec<bool> = cis
+                .members
+                .iter()
+                .zip(&projected)
+                .map(|(m, g)| {
+                    let source_dup = match m {
+                        SV::Coding(c) => is_dup(&c.posedit.edit),
+                        SV::NonCoding(n) => is_dup(&n.posedit.edit),
+                        SV::Rna(r) => is_dup(&r.posedit.edit),
+                        _ => false,
+                    };
+                    source_dup && is_dup(&g.posedit.edit)
+                })
+                .collect();
+            self.copies_as_insertions(cis, &mut projected, &candidates, Written::OnTranscript)?;
+            projected.reverse();
+        }
+        allele(cis, projected.into_iter().map(SV::Genomic).collect())
+    }
+
+    /// Rewrites, in `genome`, the members' genomic forms, each candidate
+    /// duplication whose copy the other strand would place where another
+    /// member inserts as the insertion of its bases where it was `written`,
+    /// round after round until none is left. Returns the members rewritten.
+    fn copies_as_insertions(
+        &self,
+        cis: &CisPhasedVariant,
+        genome: &mut [GVariant],
+        candidates: &[bool],
+        written: Written,
+    ) -> Result<Vec<usize>, HgvsError> {
+        let mut rewritten = Vec::new();
+        loop {
+            let mut changed = false;
+            for i in 0..genome.len() {
+                if !candidates[i] || rewritten.contains(&i) {
                     continue;
                 }
+                let g = &genome[i];
                 let Some((first, last)) = exact_range(g.posedit.pos.as_ref()) else {
                     continue;
                 };
-                // Written as a g. duplication the copy would go between
-                // `last` and `last + 1`; on the transcript it goes 5' of it.
-                if !inserts_at(&projected, i, last) {
+                // The junction left of the copy: on the genome's strand it is
+                // after `last`, on the minus-strand transcript's before `first`.
+                let (keep, other) = match written {
+                    Written::OnGenome => (last, first - 1),
+                    Written::OnTranscript => (first - 1, last),
+                };
+                if !inserts_at(genome, i, other) {
                     continue;
                 }
-                if first == 0 {
+                if keep < 0 {
                     return Err(member_error(
                         cis,
                         i,
@@ -318,13 +353,17 @@ impl VariantMapper<'_> {
                         )),
                     ));
                 }
-                let bases = self.genome_bases(&g.ac, first, last)?;
-                let uncertain = edit_uncertain(&g.posedit.edit);
-                projected[i] = insertion(g, first - 1, bases, uncertain);
+                let bases = self
+                    .genome_bases(&g.ac, first, last)
+                    .map_err(|e| member_error(cis, i, e))?;
+                genome[i] = insertion(g, keep, bases, edit_uncertain(&g.posedit.edit));
+                rewritten.push(i);
+                changed = true;
             }
-            projected.reverse();
+            if !changed {
+                return Ok(rewritten);
+            }
         }
-        allele(cis, projected.into_iter().map(SV::Genomic).collect())
     }
 
     /// The bases of `ac` at the 0-based indices `first..=last`.
@@ -340,6 +379,14 @@ impl VariantMapper<'_> {
         }
         Ok(bases)
     }
+}
+
+/// Which strand a duplication was written on, which decides the side of the
+/// original its copy goes.
+#[derive(Clone, Copy)]
+enum Written {
+    OnGenome,
+    OnTranscript,
 }
 
 /// Refuses an allele whose members are not in the `system` that `method` projects from.

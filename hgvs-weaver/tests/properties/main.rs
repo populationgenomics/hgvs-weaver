@@ -978,6 +978,30 @@ proptest! {
         prop_assert_eq!(back.to_string(), cis.to_string(), "through {}", vg);
         prop_assert_eq!(back, cis);
     }
+
+    /// An allele written in transcript order is in genomic order on the
+    /// genome, on either strand.
+    #[test]
+    fn a_cis_allele_in_transcript_order_projects_in_genomic_order((g, edits) in gene_and_cis_edits()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let members = edits
+            .iter()
+            .map(|e| SequenceVariant::Coding(tx_edit_variant(&g, &am, e)))
+            .collect();
+        let cis = hgvs_weaver::CisPhasedVariant::new(g.ac.clone(), None, members).unwrap();
+        let Ok(vg) = mapper.c_to_g_cis(&cis, None) else { return Ok(()) };
+        let starts: Vec<i32> = vg
+            .members
+            .iter()
+            .map(|m| match m {
+                SequenceVariant::Genomic(v) => v.posedit.pos.as_ref().unwrap().start.index().unwrap().0,
+                other => panic!("{other} is not on the genome"),
+            })
+            .collect();
+        prop_assert!(starts.windows(2).all(|w| w[0] < w[1]), "{} projected to {}", cis, vg);
+    }
 }
 
 /// The properties above pass vacuously on a case a projection refuses, so on

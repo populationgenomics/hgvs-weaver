@@ -133,11 +133,16 @@ def test_dict_round_trip() -> None:
     assert str(weaver.Variant.from_dict(json.loads(var.to_json()))) == str(var)
 
 
-def test_an_allele_projects_to_the_genome_and_back(mapper: weaver.VariantMapper) -> None:
+def test_an_allele_projects_to_the_genome_as_an_allele(mapper: weaver.VariantMapper) -> None:
     g = mapper.c_to_g(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
-    assert str(g) == "NC_X.1:g.[22C>T;28T>G]"
-    assert [str(m) for m in g.members or []] == ["NC_X.1:g.22C>T", "NC_X.1:g.28T>G"]
-    assert str(mapper.g_to_c(g, "NM_X.1")) == "NM_X.1:c.[7C>T;13T>G]"
+    members = g.members
+    assert members is not None
+    assert [str(m) for m in members] == ["NC_X.1:g.22C>T", "NC_X.1:g.28T>G"]
+
+
+def test_an_allele_projects_from_the_genome(mapper: weaver.VariantMapper) -> None:
+    c = mapper.g_to_c(weaver.parse("NC_X.1:g.[22C>T;28T>G]"), "NM_X.1")
+    assert str(c) == "NM_X.1:c.[7C>T;13T>G]"
 
 
 def test_every_transcript_gets_the_allele(mapper: weaver.VariantMapper) -> None:
@@ -145,11 +150,19 @@ def test_every_transcript_gets_the_allele(mapper: weaver.VariantMapper) -> None:
     assert [str(v) for v in found] == ["NM_X.1:c.[7C>T;13T>G]"]
 
 
-def test_an_allele_is_respelled_in_rna_and_back(mapper: weaver.VariantMapper) -> None:
+def test_an_allele_is_respelled_in_rna(mapper: weaver.VariantMapper) -> None:
     r = mapper.c_to_r(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
     assert str(r) == "NM_X.1:r.[7c>u;13u>g]"
-    assert str(mapper.r_to_c(r)) == "NM_X.1:c.[7C>T;13T>G]"
-    assert str(mapper.r_to_g(r)) == "NC_X.1:g.[22C>T;28T>G]"
+
+
+def test_an_rna_allele_is_respelled_in_dna(mapper: weaver.VariantMapper) -> None:
+    c = mapper.r_to_c(weaver.parse("NM_X.1:r.[7c>u;13u>g]"))
+    assert str(c) == "NM_X.1:c.[7C>T;13T>G]"
+
+
+def test_an_rna_allele_projects_to_the_genome(mapper: weaver.VariantMapper) -> None:
+    g = mapper.r_to_g(weaver.parse("NM_X.1:r.[7c>u;13u>g]"))
+    assert str(g) == "NC_X.1:g.[22C>T;28T>G]"
 
 
 def test_a_member_that_fails_raises_its_own_error_naming_it(mapper: weaver.VariantMapper) -> None:
@@ -160,6 +173,9 @@ def test_a_member_that_fails_raises_its_own_error_naming_it(mapper: weaver.Varia
 def test_an_allele_of_another_system_is_refused(mapper: weaver.VariantMapper) -> None:
     with pytest.raises(ValueError, match="allele in cis"):
         mapper.c_to_g(weaver.parse("NC_X.1:g.[22C>T;28T>G]"))
+
+
+def test_an_allele_has_no_protein_allele_yet(mapper: weaver.VariantMapper) -> None:
     with pytest.raises(ValueError, match="allele in cis"):
         mapper.protein_vrs(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
 

@@ -605,9 +605,10 @@ hand on is normalisation's question, not projection's.
 
 The members' order is kept as the writer read it along their strand. HGVS lists members "in genomic order", and on a
 minus-strand transcript that order runs the other way along the genome, so the projection reverses the list: an allele
-written in order on the transcript is in order on the genome, and projecting it back returns the members as they were.
-The alternative, sorting by position, would write a recommended order whatever the input, but it would reorder members
-the writer placed, and the round trip would return them in another order.
+written in order on the transcript is in order on the genome, and projecting it back returns the members as they were,
+unless a duplication was rewritten as an insertion (below). The alternative, sorting by position, would write a
+recommended order whatever the input, but it would reorder members the writer placed, and the round trip would return
+them in another order.
 
 All or nothing follows from what an allele is. A chromosome carrying two changes, one of which has no genomic form, is
 not described by the genomic form of the other, so returning the members that did project would describe a different
@@ -624,8 +625,12 @@ the A before the copied `AGG` and the copy after it. Projected one at a time, th
 copy goes between g.28 and g.29, and the insertion is `g.28_29insT`, between the same two bases: two insertions at one
 junction, whose order the genome's description cannot say, though the transcript's could. So a duplication whose
 projected form would insert where another member inserts is written as the insertion it is, at the junction it uses
-where it was written: `g.25_26insCCT`. The same holds from the genome to a minus-strand transcript. A duplication with
-nothing inserted at its junction stays a duplication.
+where it was written: `g.25_26insCCT`. An insertion of a stated length, `insN[5]`, meets a copy as one of stated bases
+does. The insertion written can itself land where another duplication's projected form would insert, so the rewriting
+repeats until no duplication meets an insertion; which members are rewritten does not depend on the order they are
+written in. The same holds from the genome to a minus-strand transcript. A duplication with nothing inserted at its
+junction stays a duplication. Projected back, a rewritten duplication comes back as the insertion, not as a duplication:
+the same sequence, another spelling.
 
 **Example** (`NM_X.1` is `GGGGG` `ATG AAA CTG GCC TAT CGC TAA` `CCGTATAAGTAAGG` at genomic index 10 of `NC_X.1`, so c.7
 is g.22; `NR_XR.1` reads the same forty bases of `NC_X.1` on the minus strand, so n.23 is g.28 and n.29 is g.22, and
@@ -645,14 +650,18 @@ NM_X.1:c.[7C>T;13T>G]              →  NM_X.1:r.[7c>u;13u>g]
 NR_XR.1:n.[23_25dup;29G>A]         →  NC_X.1:g.[22C>T;26_28dup]        nothing inserted beside the copy
 NR_XR.1:n.[22_23insA;23_25dup]     →  NC_X.1:g.[25_26insCCT;28_29insT] the copy written where the transcript puts it
 NC_X.1:g.[25_26insA;26_28dup]      →  NM_XR.1:c.[19_20insAGG;22_23insT]
+NR_XR.1:n.[26_28dup;22_23insA;23_25dup]
+                                   →  NC_X.1:g.[25_26insCCT;28_29insT;22_23insTGG]
+                                                                       the second copy meets the first, rewritten
 
 NM_S.1:r.[4a>u;5_6del]             →  UnsupportedOperation, member 2, NM_S.1:r.5_6del: spans a splice junction
 NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20del: outside every exon
 ```
 
 - **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
-- **Spec (agrees):** [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/): an allele is "a
-  series of variants on one chromosome", each member written as alone, listed "in genomic order";
+- **Spec (agrees, silent on the duplication):**
+  [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/): an allele is "a series of variants on
+  one chromosome", each member written as alone, listed "in genomic order";
   [duplication](https://hgvs-nomenclature.org/stable/recommendations/DNA/duplication/): "a copy of one or more
   nucleotides is inserted directly 3' of the original copy". Writing a duplication as an insertion where the strands
   disagree on its side is weaver's reading; the specification does not address it.
@@ -660,12 +669,19 @@ NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20d
   `::members_project_from_the_genome_one_by_one`, `::the_minus_strand_reverses_the_members_on_the_genome`,
   `::the_minus_strand_reverses_the_members_on_the_transcript`, `::members_in_different_exons_project_to_each`,
   `::a_member_in_an_intron_projects_as_given`, `::a_one_member_allele_stays_an_allele`,
-  `::rna_spellings_go_member_by_member`, `::an_rna_allele_projects_to_the_genome`,
-  `::every_transcript_over_the_members_gets_the_allele`, `::a_minus_strand_duplication_alone_stays_a_duplication`,
+  `::a_coding_allele_is_respelled_in_rna_and_back`, `::a_non_coding_allele_is_respelled_in_rna_and_back`,
+  `::an_rna_allele_projects_to_the_genome`, `::every_transcript_over_the_members_gets_the_allele`,
+  `::a_minus_strand_duplication_alone_stays_a_duplication`,
   `::a_minus_strand_duplication_beside_an_insertion_is_written_as_the_insertion`,
   `::a_genomic_duplication_beside_an_insertion_is_written_as_the_insertion_on_a_minus_strand_transcript`,
+  `::a_coding_minus_strand_duplication_beside_an_insertion_is_written_as_the_insertion`,
+  `::an_rna_minus_strand_duplication_beside_an_insertion_is_written_as_the_insertion`,
+  `::an_insertion_of_a_length_beside_a_duplication_is_met_like_one_of_bases`,
+  `::a_rewritten_duplication_can_meet_the_next_whatever_the_order_written`,
+  `::a_rewritten_genomic_duplication_can_meet_the_next`,
   `::a_member_that_fails_to_project_fails_the_allele_and_is_named`, `::a_member_outside_every_exon_fails_the_allele`;
-  `a_cis_allele_projected_to_the_genome_and_back_is_itself` (property); `tests/test_cis_phased.py`.
+  `a_cis_allele_projected_to_the_genome_and_back_is_itself`,
+  `a_cis_allele_in_transcript_order_projects_in_genomic_order` (properties); `tests/test_cis_phased.py`.
 
 ## Normalisation
 
