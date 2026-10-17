@@ -553,7 +553,7 @@ fn cis_alleles_compare_as_sets_of_their_members_alleles() {
 /// reads `NM_X.1`'s forty bases of `NC_X.1` on the minus strand, so n.23 is
 /// g.28; `NC_T.1` is ten Ts; `NC_P.1` is seventeen `GAAGCCC` and a `GAAACCC`;
 /// `NC_Q.1` is eight `ACGTTGCAAGCTTCGA`; `NC_U.1` and `NC_V.1` are short AT
-/// sequences with runs.
+/// sequences with runs, as are `NC_W.1`, `NC_Y.1` and `NC_Z.1`.
 fn reading_provider() -> Provider {
     let transcript = transcript();
     let len = transcript.len() as i32;
@@ -576,6 +576,9 @@ fn reading_provider() -> Provider {
         .sequence("NC_Q.1", &"ACGTTGCAAGCTTCGA".repeat(8))
         .sequence("NC_U.1", "ATTTATTTTAATT")
         .sequence("NC_V.1", "ATAAATATTA")
+        .sequence("NC_W.1", "TTTAAATTTAAATTTAAA")
+        .sequence("NC_Y.1", "TTTTAAAT")
+        .sequence("NC_Z.1", "TATTATTA")
         .transcript(support::transcript(
             "NM_S.1",
             "NC_S.1",
@@ -1329,4 +1332,40 @@ fn identical_insertions_at_two_junctions_list_their_readings_rather_than_too_man
     let hdp = reading_provider().sequence("NC_A.1", &format!("C{}G", "A".repeat(60)));
     let err = read(&hdp, &allele).unwrap_err();
     assert!(matches!(err, HgvsError::Ambiguous { .. }), "{err}");
+}
+
+#[test]
+fn a_member_without_a_sequence_is_in_every_reading() {
+    let hdp = reading_provider();
+    assert_eq!(
+        readings(&hdp, "NC_W.1:g.[15_16copy3;7_8insA;7_8insT]"),
+        set(&[
+            "NC_W.1:g.[6_7dup;15_16copy3]",
+            "NC_W.1:g.[8_9insAT;15_16copy3]"
+        ])
+    );
+}
+
+#[test]
+fn a_reading_that_changes_an_identity_is_no_reading() {
+    // inverted from the reference, g.7_8 AT stays AT and then g.7 becomes T,
+    // which keeps g.8; inverting the changed TT would make g.8 an A
+    let reading = read(&reading_provider(), "NC_Y.1:g.[7A>T;8=;7_8inv]").unwrap();
+    assert_eq!(reading.stated(), &[(7, 8)]);
+}
+
+#[test]
+fn statements_either_side_of_an_insertion_are_written_apart() {
+    let hdp = reading_provider();
+    for reading in readings(&hdp, "NC_Z.1:g.[2_3insT;2_3insA;2=;3=]") {
+        assert!(
+            reading.contains("2=") && reading.contains(";3="),
+            "{reading}"
+        );
+    }
+}
+
+#[test]
+fn an_identity_over_the_edge_of_a_copy_number_is_accepted() {
+    assert!(read(&reading_provider(), "NC_Z.1:g.[2_3=;3_4copy3]").is_ok());
 }

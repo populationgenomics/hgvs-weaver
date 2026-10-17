@@ -2357,7 +2357,8 @@ NM_X.1:c.[7_8delinsTG;7_8insA]  AAATGGGCC | AAATAGGGCC         ambiguous: c.7_8d
   `::unstated_bases_inserted_inside_an_identity_are_contradictory`, `::an_identity_inside_a_copy_number_is_accepted`,
   `::repeated_members_without_a_sequence_are_carried_with_their_repeats`,
   `::members_combined_in_too_many_ways_to_search_are_refused`,
-  `::an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced`;
+  `::an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced`,
+  `::a_reading_that_changes_an_identity_is_no_reading`, `::an_identity_over_the_edge_of_a_copy_number_is_accepted`;
   `tests/test_cis_phased.py::test_validate_raises_on_a_contradictory_allele`; `member_order_does_not_change_the_reading`
   (property). Planned: `cis_phased_test::a_change_agreeing_with_an_identity_inside_it_is_cut_there`, which `normalize`
   writes.
@@ -2408,7 +2409,9 @@ NM_X.1:c.[7C>T;7C>G]         →  ValidationError: contradictory, no reading
   `::three_identical_insertions_are_one_two_or_three`,
   `::identical_insertions_at_two_junctions_list_their_readings_rather_than_too_many`,
   `::a_reading_is_written_on_each_side_of_a_statement`,
-  `::every_written_reading_has_one_reading_where_changes_shift_into_each_other`, `::to_vrs_refuses_an_ambiguous_allele`;
+  `::every_written_reading_has_one_reading_where_changes_shift_into_each_other`,
+  `::a_member_without_a_sequence_is_in_every_reading`, `::statements_either_side_of_an_insertion_are_written_apart`,
+  `::to_vrs_refuses_an_ambiguous_allele`;
   `tests/test_cis_phased.py::test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings`; planned:
   `vrs_round_trip_test::a_block_inserting_twice_at_one_point_reads_back_as_ambiguous`,
   `::a_block_of_two_identical_insertions_reads_back_as_ambiguous`.
