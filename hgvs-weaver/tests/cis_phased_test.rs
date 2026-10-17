@@ -179,6 +179,48 @@ fn members_normalise_and_validate_one_by_one() {
 }
 
 #[test]
+fn a_single_variant_that_makes_the_reference_is_its_statement() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let normalised = |s: &str| {
+        mapper
+            .normalize_variant(parse_hgvs_variant(s).unwrap())
+            .unwrap_or_else(|e| panic!("{s}: {e}"))
+            .to_string()
+    };
+    // c.9_12 is GGCC, its own reverse complement.
+    assert_eq!(normalised("NM_X.1:c.9_12inv"), "NM_X.1:c.9_12=");
+    assert_eq!(normalised("NM_X.1:c.7_9delinsCTG"), "NM_X.1:c.7_9=");
+    // Three copies of the A that c.4_6 already holds: the run it resolves to.
+    assert_eq!(normalised("NM_X.1:c.4A[3]"), "NM_X.1:c.4_6=");
+}
+
+#[test]
+fn statements_about_different_bases_differ() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let equivalence = VariantEquivalence::new(&mapper, &hdp);
+    let level = |a: &str, b: &str| {
+        equivalence
+            .equivalent_level(
+                &parse_hgvs_variant(a).unwrap(),
+                &parse_hgvs_variant(b).unwrap(),
+            )
+            .unwrap_or_else(|e| panic!("{a} vs {b}: {e}"))
+    };
+    // Both make the reference; they state different bases.
+    assert_eq!(
+        level("NM_X.1:c.10=", "NM_X.1:c.20="),
+        EquivalenceLevel::Different
+    );
+    // c.10 is g.25: the projection states the same base.
+    assert_eq!(
+        level("NM_X.1:c.10=", "NC_X.1:g.25="),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
 fn a_cis_allele_has_no_single_canonical_allele_or_spdi() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);

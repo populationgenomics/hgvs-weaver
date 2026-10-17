@@ -1,4 +1,4 @@
-use crate::allele::CanonicalAllele;
+use crate::allele::{CanonicalAllele, StatedBases};
 use crate::data::{IdentifierKind, TranscriptSearch};
 use crate::edits::{NaEdit, RnaStatement, StopDistance};
 use crate::error::HgvsError;
@@ -94,7 +94,7 @@ impl<'a> VariantEquivalence<'a> {
 
     /// Two variants are `Identity` when they are the same text after spelling
     /// normalisation, `Analogous` when they name the same change (the same
-    /// canonical allele on the genome, or the same protein left behind) and
+    /// [`Comparand`] on the genome, or the same protein left behind) and
     /// `Different` otherwise.
     fn equivalent_level_single(
         &self,
@@ -133,7 +133,7 @@ impl<'a> VariantEquivalence<'a> {
                 if self.exact_projection(var1, var2)? || self.exact_projection(var2, var1)? {
                     return Ok(EquivalenceLevel::Identity);
                 }
-                match (self.nucleotide_allele(var1)?, self.nucleotide_allele(var2)?) {
+                match (self.comparand(var1)?, self.comparand(var2)?) {
                     (Some(a), Some(b)) => a == b,
                     _ => false,
                 }
@@ -206,6 +206,30 @@ impl<'a> VariantEquivalence<'a> {
             _ => return Ok(false),
         };
         Ok(projected.is_ok_and(|p| p.to_string() == g.to_string()))
+    }
+
+    /// What a single nucleotide variant is compared by, read on the genome:
+    /// the change it makes, the bases it states when it makes the reference,
+    /// or, for a copy number, its projection. `None` for a variant with none
+    /// of these (a conversion, an insertion of bases known only by number).
+    fn comparand(&self, var: &SequenceVariant) -> Result<Option<Comparand>, HgvsError> {
+        let g = match self.mapper.as_genomic(var) {
+            None | Some(Err(HgvsError::UnsupportedOperation(_))) => return Ok(None),
+            Some(g) => g?,
+        };
+        if matches!(g.posedit.edit, NaEdit::NACopy { .. }) {
+            let edit = self.normalize_format(&g.posedit.to_string());
+            return Ok(Some(Comparand::Projection(g.ac, edit)));
+        }
+        Ok(self
+            .nucleotide_allele(&SequenceVariant::Genomic(g))?
+            .map(|a| {
+                if a.is_reference() {
+                    Comparand::Statement(StatedBases::of_range(&a.accession, a.start, a.end))
+                } else {
+                    Comparand::Change(a)
+                }
+            }))
     }
 
     /// The canonical allele of a variant, or `None` for one that has none (a
@@ -503,6 +527,22 @@ impl<'a> VariantEquivalence<'a> {
         }
         s
     }
+}
+
+/// The value two single nucleotide variants are the same change by, on the
+/// genome. A variant that changes the sequence states no base unchanged, and
+/// one that makes the reference changes nothing, so neither is ever the other.
+#[derive(Debug, PartialEq, Eq)]
+enum Comparand {
+    /// The change, fully justified: one value for every place it could be
+    /// written.
+    Change(CanonicalAllele),
+    /// The bases a variant that makes the reference names, as written: no
+    /// widening over a run, so `c.10=` and `c.20=` differ.
+    Statement(StatedBases),
+    /// A copy number, which has no bases to apply: its accession and edit as
+    /// projected.
+    Projection(String, String),
 }
 
 /// What a protein description leaves behind; see `protein_outcome`.

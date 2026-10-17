@@ -1204,7 +1204,13 @@ what they name. Whether members cancel depends on the reference, not the text: o
 
 A single variant can make the reference as well, and is written as the same statement. On `NM_X.1`, c.9_12 is `GGCC`,
 its own reverse complement, so `c.9_12inv` is `c.9_12=`; `c.7_9delinsCTG` is `c.7_9=`; and `c.4A[3]`, three copies of
-the A that c.4_6 already holds, names the run and is `c.4_6=`.
+the A that c.4_6 already holds, names the run and is `c.4_6=`. The statement is written only where it states on the
+genome what the variant does. A run or range across an exon junction would name the intron, so `c.4A[3]` over `AA|A`
+stays as written. A transcript repeat can state more on the genome than its run on the transcript: on the minus strand
+the genome [counts the copies before the written start](#a-repeat-is-projected-as-its-whole-run), and on either strand
+an intron can continue a run that reaches its exon's edge. Such a repeat stays as written too, `c.5A[2]` where c.4_6 is
+`AAA` on the minus strand, since `c.5_6=` would not state c.4, which the repeat states on the genome. Telling this case
+apart reads the genome, which normalising a transcript variant otherwise does not need.
 
 Cancelling members beside a change keep their statement as an identity member, since the statement is part of the allele
 ([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)): `c.[4_5insA;5del;13T>G]` becomes
@@ -1339,8 +1345,14 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `g.7_9delinsGG`, though `g.[7del;9C>G]` makes the same sequence with an unchanged base between. Merging the members
   that meet is what keeps normalisation sequence-preserving and idempotent, so weaver merges.
 - **Tests:** `cis_phased_test::members_normalise_and_validate_one_by_one`, whose two alleles have members that meet no
-  other, so its outputs hold under this rule. Planned: `::members_in_one_run_are_written_as_one_change`,
-  `::touching_members_are_one_delins`, `::a_group_can_reduce_to_a_deletion`, `::a_group_can_reduce_to_a_duplication`,
+  other, so its outputs hold under this rule, and `::a_single_variant_that_makes_the_reference_is_its_statement`;
+  `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
+  `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
+  `::a_repeat_that_makes_the_reference_inside_a_plus_strand_exon_normalises_without_the_genome`;
+  `exon_junction_test::a_repeat_at_its_own_count_across_the_junction_is_not_written_as_an_identity`;
+  `a_single_variant_that_makes_the_reference_normalises_to_its_statement` (property). Planned:
+  `cis_phased_test::members_in_one_run_are_written_as_one_change`, `::touching_members_are_one_delins`,
+  `::a_group_can_reduce_to_a_deletion`, `::a_group_can_reduce_to_a_duplication`,
   `::members_with_an_unchanged_base_between_stay_apart`, `::members_in_one_codon_are_one_delins`,
   `::members_one_base_apart_in_two_codons_stay_apart`, `::grouping_runs_across_touch_and_codon`,
   `::a_genomic_allele_has_no_codon`, `::members_outside_the_cds_have_no_codon`,
@@ -1352,11 +1364,10 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::cancelling_members_around_a_change_are_part_of_it`, `::cancelling_sets_that_share_a_member_are_ambiguous`,
   `::a_single_member_that_makes_the_reference_beside_a_change_is_a_statement`,
   `::a_change_is_cut_at_an_agreeing_identity`, `::identities_that_meet_are_written_as_one`,
-  `::identities_apart_stay_apart`, `::a_single_variant_that_makes_the_reference_is_its_statement`,
-  `::identities_in_two_exons_stay_apart`, `::a_duplication_in_an_allele_stops_at_its_exons_last_base`;
-  `normalising_a_cis_allele_keeps_its_sequence`, `normalising_a_cis_allele_twice_is_normalising_it_once`,
-  `normalising_a_cis_allele_keeps_its_stated_bases` and `a_cis_alleles_statements_do_not_depend_on_member_order`
-  (properties).
+  `::identities_apart_stay_apart`, `::identities_in_two_exons_stay_apart`,
+  `::a_duplication_in_an_allele_stops_at_its_exons_last_base`; `normalising_a_cis_allele_keeps_its_sequence`,
+  `normalising_a_cis_allele_twice_is_normalising_it_once`, `normalising_a_cis_allele_keeps_its_stated_bases` and
+  `a_cis_alleles_statements_do_not_depend_on_member_order` (properties).
 
 ## Protein consequences
 
@@ -1797,9 +1808,10 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
 bases unchanged; for two single variants that change the sequence, that is when their canonical alleles are equal. A
 coding variant and a protein description agree when they leave the same protein.**
 
-A copy number written alone has no allele, and is compared by its projection to the genome, as it is inside a cis
-allele: `NM_X.1:c.10_12copy3` and `NC_X.1:g.25_27copy3` are the same, and `copy3` and `copy4` are Different. Today a
-lone copy number matches only identical text; projection is planned.
+A copy number written alone has no allele, and is compared by its projection to the genome, as it is to be inside a cis
+allele. `NM_X.1:c.10_12copy3` projects to exactly `NC_X.1:g.25_27copy3`, so the two are Identity. Projection adds a
+match between two descriptions that both project to that text and are not the same text: `NR_XR.1:n.24_26copy3`, on the
+minus strand, is Analogous to `NM_X.1:c.10_12copy3`. `copy3` and `copy4` are Different.
 
 `Identity` is the same text after spelling normalisation, or a prediction written exactly as given; the parentheses of a
 prediction and the brackets of a one-member allele are spelling. Cis alleles are compared by
@@ -1815,10 +1827,12 @@ as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that changes the seque
 `c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are those where the
 comparison by protein left behind answers otherwise today.
 
-**Example:**
+**Example** (`NM_X.1`, `NC_X.1`, `NR_XR.1` and `NP_X.1` as in
+[the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)):
 
 ```text
-NM_X.1:c.10_12copy3          vs  NC_X.1:g.25_27copy3                       Analogous: the same stretch on the genome (planned)
+NM_X.1:c.10_12copy3          vs  NC_X.1:g.25_27copy3                       Identity: it projects exactly to it
+NM_X.1:c.10_12copy3          vs  NR_XR.1:n.24_26copy3                      Analogous: both project to g.25_27copy3
 NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(Ala4=)                          Different: Leu3 and Ala4 (planned)
 NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(=)                              Different: one residue, the whole protein (planned)
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=) (planned)
@@ -1838,11 +1852,13 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 - **Tests:** `transcript_coordinates_test::canonical_alleles_make_spdi_vrs_and_equivalence_one_value`;
   `equivalence_cases_test::test_clinvar_regression_tyr165ter`, `::test_analogous_fs_wildcard_unification`;
   `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
-  `a_variant_agrees_with_its_projection` (property). Planned:
+  `equivalence_test::a_lone_copy_number_compares_by_projection`; `a_variant_agrees_with_its_projection`,
+  `equivalence_of_single_variants_is_transitive`, `a_single_statement_never_equals_a_change` and
+  `single_statements_are_the_same_when_they_name_the_same_bases` (properties). Planned:
   `equivalence_test::silent_statements_at_different_residues_differ`,
-  `::a_silent_residue_is_not_the_whole_protein_unchanged`, `::a_coding_change_predicted_silent_is_its_statement`,
-  `::a_lone_copy_number_compares_by_projection`. These rules move rows of the ClinVar gate, ClinVar's `p.Ter=` spellings
-  among them; the PR that implements them reports each moved row and checks it against the truth columns.
+  `::a_silent_residue_is_not_the_whole_protein_unchanged`, `::a_coding_change_predicted_silent_is_its_statement`. These
+  rules move rows of the ClinVar gate, ClinVar's `p.Ter=` spellings among them; the PR that implements them reports each
+  moved row and checks it against the truth columns.
 
 ### A description that says nothing matches nothing
 
@@ -2127,12 +2143,12 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   not how to compare two; that reading is weaver's.
 - **Tests:** `cis_phased_test::cis_alleles_compare_as_sets_of_their_members_alleles`, whose rows on order, the genome
   spelling and a missing or extra member hold under this rule, and whose rows comparing a copy-number member as text are
-  to change; planned: `::adjacent_members_are_the_delins_they_make`, `::members_in_either_order_are_one_allele`,
-  `::members_on_the_minus_strand_are_the_genomic_allele`, `::members_in_one_repeat_match_as_the_sequence_they_make`,
-  `::a_cis_allele_is_not_one_of_its_members`, `::a_one_member_cis_allele_is_its_member`,
-  `::protein_members_are_the_delins_they_make`, `::members_in_one_codon_predict_one_residue`,
-  `::members_without_a_sequence_match_as_text_in_any_order`, `::members_on_one_transcript_compare_without_the_genome`,
-  `::the_vrs_identifier_follows_the_description`, `::statements_about_different_bases_differ`,
+  to change, and `::statements_about_different_bases_differ`; planned: `::adjacent_members_are_the_delins_they_make`,
+  `::members_in_either_order_are_one_allele`, `::members_on_the_minus_strand_are_the_genomic_allele`,
+  `::members_in_one_repeat_match_as_the_sequence_they_make`, `::a_cis_allele_is_not_one_of_its_members`,
+  `::a_one_member_cis_allele_is_its_member`, `::protein_members_are_the_delins_they_make`,
+  `::members_in_one_codon_predict_one_residue`, `::members_without_a_sequence_match_as_text_in_any_order`,
+  `::members_on_one_transcript_compare_without_the_genome`, `::the_vrs_identifier_follows_the_description`,
   `::a_cancelling_allele_states_the_bases_its_members_name`, `::cancelling_depends_on_the_reference`,
   `::a_change_is_never_a_statement`, `::an_identity_beside_a_change_is_part_of_the_allele`,
   `::cancelling_members_beside_a_change_are_a_statement`, `::a_change_with_a_statement_predicts_both`,

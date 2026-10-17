@@ -115,6 +115,36 @@ fn project_edit(
     normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
+/// Whether the genome can count a longer run than a transcript repeat's run
+/// over indices `start..=last` (`last` `None` for one base): on the minus
+/// strand, where the genome reads the run on from its 5' end, and on the plus
+/// strand where the run reaches its exon's last base and the intron can
+/// continue it, or its exon is aligned with gaps. Otherwise the two runs are
+/// one, and need no genome to tell.
+fn genome_may_count_more(
+    am: &TranscriptMapper,
+    start: usize,
+    last: Option<usize>,
+) -> Result<bool, HgvsError> {
+    if am.transcript.strand == crate::data::Strand::Minus {
+        return Ok(true);
+    }
+    let last = last.unwrap_or(start) as i32;
+    let exon = am
+        .transcript
+        .exons
+        .iter()
+        .find(|x| x.transcript_start.0 <= last && last < x.transcript_end.0)
+        .ok_or_else(|| {
+            HgvsError::ValidationError(format!(
+                "{} has no exon holding transcript index {last}",
+                am.transcript.ac
+            ))
+        })?;
+    let gapped = exon.cigar.contains(['I', 'D', 'N', 'S']);
+    Ok(gapped || last + 1 == exon.transcript_end.0)
+}
+
 /// The fields of an [`NaEdit::Repeat`](crate::edits::NaEdit::Repeat), for
 /// projecting it.
 struct Repeat {
@@ -2258,6 +2288,8 @@ impl<'a> VariantMapper<'a> {
             .refs
             .reference(&ac, IdentifierType::TranscriptAccession);
         let after = normalize::normalize(&reference, before.clone(), &am.exon_bounds()?)?;
+        let written =
+            matches!(v.posedit().edit, crate::edits::NaEdit::Repeat { .. }).then(|| v.clone());
         let posedit = v.posedit_mut();
         let pos = posedit.pos.as_mut().expect("checked above");
         // Positions from indices, so that for c. the c.0 gap and the CDS
@@ -2268,7 +2300,41 @@ impl<'a> VariantMapper<'a> {
             .map(|last| V::position_from_index(&am, last as i32))
             .transpose()?;
         posedit.edit = after.edit;
-        Ok(v)
+        match written {
+            Some(written)
+                if v.posedit().edit.is_identity() && genome_may_count_more(&am, s, e)? =>
+            {
+                self.repeat_statement_or_as_written(written, v)
+            }
+            _ => Ok(v),
+        }
+    }
+
+    /// `statement`, the identity a transcript repeat that makes the reference
+    /// normalised to, or the repeat as `written` where the genome counts a
+    /// different run from it: on the minus strand, copies before the written
+    /// start; on either strand, copies the intron continues an exon's run
+    /// with. The repeat then states bases on the genome that no identity over
+    /// the transcript's run states. Telling the two apart reads the genome.
+    fn repeat_statement_or_as_written<V: TranscriptVariant>(
+        &self,
+        written: V,
+        statement: V,
+    ) -> Result<V, HgvsError> {
+        let stated = |v: &V| -> Result<(usize, usize), HgvsError> {
+            let g = self.tx_to_g(v, None)?;
+            let pos = g
+                .posedit
+                .pos
+                .as_ref()
+                .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+            simple_interval_range(pos)
+        };
+        Ok(if stated(&written)? == stated(&statement)? {
+            statement
+        } else {
+            written
+        })
     }
 
     /// The 0-based half-open transcript index range a c./n. interval names.

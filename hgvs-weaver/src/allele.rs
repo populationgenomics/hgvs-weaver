@@ -127,6 +127,25 @@ impl CanonicalAllele {
     }
 }
 
+/// The bases a description states unchanged on one sequence: 0-based
+/// half-open ranges, in order along the sequence, none overlapping or
+/// touching another, so that one set of bases has one value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StatedBases {
+    accession: String,
+    ranges: Vec<(usize, usize)>,
+}
+
+impl StatedBases {
+    /// The bases over `[start, end)` of `accession`.
+    pub(crate) fn of_range(accession: &str, start: usize, end: usize) -> Self {
+        StatedBases {
+            accession: accession.to_string(),
+            ranges: vec![(start, end)],
+        }
+    }
+}
+
 /// The smallest divisor `d` of `seed_len` such that some `d`-base window of
 /// `reference` repeated cyclically reproduces `alternate`, if any.
 fn reference_derived_unit(reference: &str, alternate: &str, seed_len: usize) -> Option<usize> {

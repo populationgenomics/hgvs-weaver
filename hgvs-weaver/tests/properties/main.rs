@@ -182,6 +182,270 @@ proptest! {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Equivalence of single variants
+// ---------------------------------------------------------------------------
+
+const SYNTHETIC: &str = "NC_000099.1";
+
+/// An edit of any kind the comparison distinguishes, with identities and
+/// inversions besides: an identity, an inversion of a range that is its own
+/// reverse complement and a delins of the bases already there all make the
+/// reference.
+fn single_edit(len: usize) -> BoxedStrategy<PlacedHgvs> {
+    let span = (1usize..=len.saturating_sub(2).max(1))
+        .prop_flat_map(move |l| (0..=len.saturating_sub(l + 1)).prop_map(move |s| (s, s + l)));
+    let identity = span.clone().prop_map(|(start, end)| PlacedHgvs {
+        start,
+        end,
+        edit: NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain: false,
+        },
+    });
+    let inversion = span
+        .prop_filter("an inversion of one base is a substitution", |(s, e)| {
+            e - s > 1
+        })
+        .prop_map(|(start, end)| PlacedHgvs {
+            start,
+            end,
+            edit: NaEdit::Inv {
+                ref_: None,
+                uncertain: false,
+            },
+        });
+    prop_oneof![2 => edit_on_kinds(len, false), 1 => identity, 1 => inversion].boxed()
+}
+
+/// `p` written as the delins of the bases it touches, widened by `widen`
+/// bases 5' and 3' within the sequence: the same change, or, for a variant
+/// that makes the reference, a statement about the widened range.
+fn respelled(seq: &str, p: &PlacedHgvs, widen: (usize, usize)) -> PlacedHgvs {
+    let (s, e) = touched(p);
+    let lo = s.saturating_sub(widen.0);
+    let mut hi = (e + widen.1).min(seq.len());
+    if lo == hi {
+        hi = lo + 1;
+    }
+    let edited = apply(seq, p);
+    let alt = &edited[lo..hi + edited.len() - seq.len()];
+    let edit = if alt.is_empty() {
+        NaEdit::Del {
+            ref_: None,
+            uncertain: false,
+        }
+    } else {
+        NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(alt.to_string()),
+            uncertain: false,
+        }
+    };
+    PlacedHgvs {
+        start: lo,
+        end: hi,
+        edit,
+    }
+}
+
+/// A short reference and three single variants on it. Each after the first
+/// is either a fresh edit or the one before respelled, so that chains of one
+/// change in several spellings, and statements about neighbouring bases, are
+/// common enough to test.
+fn seq_and_three_variants() -> impl Strategy<Value = (String, Vec<PlacedHgvs>)> {
+    dna(6, 16).prop_flat_map(|seq| {
+        let len = seq.len();
+        let next = (prop::bool::ANY, single_edit(len), 0usize..=1, 0usize..=1);
+        (single_edit(len), next.clone(), next).prop_map(move |(a, b, c)| {
+            let mut variants = vec![a];
+            for (fresh, edit, l, r) in [b, c] {
+                let previous = variants.last().expect("starts with one");
+                let variant = if fresh {
+                    edit
+                } else {
+                    respelled(&seq, previous, (l, r))
+                };
+                variants.push(variant);
+            }
+            (seq.clone(), variants)
+        })
+    })
+}
+
+/// Every ordered pair's equivalence, by index.
+fn pairwise_equivalence(seq: &str, variants: &[PlacedHgvs]) -> Vec<Vec<bool>> {
+    let hdp = Provider::new().sequence(SYNTHETIC, seq);
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let parsed: Vec<SequenceVariant> = variants
+        .iter()
+        .map(|p| SequenceVariant::Genomic(genomic_variant(SYNTHETIC, p)))
+        .collect();
+    parsed
+        .iter()
+        .map(|x| {
+            parsed
+                .iter()
+                .map(|y| {
+                    eq.equivalent(x, y)
+                        .unwrap_or_else(|e| panic!("{x} vs {y}: {e}"))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// Two single variants that are each the same change as a third are the
+    /// same change as each other, whether they change the sequence or state
+    /// its bases.
+    #[test]
+    fn equivalence_of_single_variants_is_transitive((seq, variants) in seq_and_three_variants()) {
+        let same = pairwise_equivalence(&seq, &variants);
+        for (x, y, z) in [(0, 1, 2), (0, 2, 1), (1, 0, 2)] {
+            if same[x][y] && same[y][z] {
+                prop_assert!(same[x][z], "on {}: {:?} ~ {:?} ~ {:?}", seq, variants[x], variants[y], variants[z]);
+            }
+        }
+        for (x, y) in [(0, 1), (0, 2), (1, 2)] {
+            prop_assert_eq!(same[x][y], same[y][x], "on {}: not symmetric", seq);
+        }
+    }
+
+    /// A variant that makes the reference is never the same as one that
+    /// changes it.
+    #[test]
+    fn a_single_statement_never_equals_a_change((seq, variants) in seq_and_three_variants()) {
+        let same = pairwise_equivalence(&seq, &variants);
+        let states = |p: &PlacedHgvs| apply(&seq, p) == seq;
+        for x in 0..3 {
+            for y in 0..3 {
+                if states(&variants[x]) != states(&variants[y]) {
+                    prop_assert!(!same[x][y], "on {}: {:?} equals {:?}", seq, variants[x], variants[y]);
+                }
+            }
+        }
+    }
+
+    /// Two variants that make the reference are the same exactly when they
+    /// name the same bases, however each is written.
+    #[test]
+    fn single_statements_are_the_same_when_they_name_the_same_bases(
+        (seq, variants) in seq_and_three_variants(),
+    ) {
+        let same = pairwise_equivalence(&seq, &variants);
+        let states = |p: &PlacedHgvs| apply(&seq, p) == seq;
+        for x in 0..3 {
+            for y in 0..3 {
+                let (a, b) = (&variants[x], &variants[y]);
+                if states(a) && states(b) {
+                    prop_assert_eq!(same[x][y], (a.start, a.end) == (b.start, b.end), "on {}: {:?} vs {:?}", seq, a, b);
+                }
+            }
+        }
+    }
+}
+
+/// A sequence holding a single variant that makes the reference without
+/// being written as `=`, and the half-open range of the bases it names: an
+/// inversion of a palindrome, a repeat at the count its run already has, or
+/// a delins of the bases already there.
+fn seq_and_statement() -> impl Strategy<Value = (String, PlacedHgvs, (usize, usize))> {
+    (dna(0, 12), dna(1, 3), 1usize..=4, dna(0, 12), 0u8..3).prop_map(
+        |(prefix, unit, copies, suffix, kind)| {
+            let at = prefix.len();
+            let middle = match kind {
+                0 => format!("{unit}{}", revcomp(&unit)),
+                _ => unit.repeat(copies),
+            };
+            let seq = format!("{prefix}{middle}{suffix}");
+            let (placed, named) = match kind {
+                0 => {
+                    let edit = NaEdit::Inv {
+                        ref_: None,
+                        uncertain: false,
+                    };
+                    let end = at + middle.len();
+                    (
+                        PlacedHgvs {
+                            start: at,
+                            end,
+                            edit,
+                        },
+                        (at, end),
+                    )
+                }
+                1 => {
+                    // The run read 3' from `at`, which the suffix can continue.
+                    let mut run = at;
+                    while seq[run..].starts_with(unit.as_str()) {
+                        run += unit.len();
+                    }
+                    let count = ((run - at) / unit.len()) as i32;
+                    let edit = NaEdit::Repeat {
+                        ref_: Some(unit.clone()),
+                        min: count,
+                        max: count,
+                        uncertain: false,
+                    };
+                    (
+                        PlacedHgvs {
+                            start: at,
+                            end: at + unit.len(),
+                            edit,
+                        },
+                        (at, run),
+                    )
+                }
+                _ => {
+                    let edit = NaEdit::RefAlt {
+                        ref_: Some(String::new()),
+                        alt: Some(middle.clone()),
+                        uncertain: false,
+                    };
+                    let end = at + middle.len();
+                    (
+                        PlacedHgvs {
+                            start: at,
+                            end,
+                            edit,
+                        },
+                        (at, end),
+                    )
+                }
+            };
+            (seq, placed, named)
+        },
+    )
+}
+
+proptest! {
+    /// A single variant that makes the reference normalises to the identity
+    /// of the bases it names, and that identity normalises to itself.
+    #[test]
+    fn a_single_variant_that_makes_the_reference_normalises_to_its_statement(
+        (seq, p, named) in seq_and_statement(),
+    ) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let store = ReferenceStore::with_block_size(&hdp, 4);
+        let r = store.reference("X", G);
+        let identity = PlacedEdit {
+            start: named.0,
+            end: named.1,
+            edit: NaEdit::RefAlt { ref_: None, alt: None, uncertain: false },
+        };
+        let before = PlacedEdit { start: p.start, end: p.end, edit: p.edit.clone() };
+        let after = normalize(&r, before, &ExonBounds::unspliced()).unwrap();
+        prop_assert_eq!(&after, &identity, "on {}: {:?}", seq, p);
+        let again = normalize(&r, after.clone(), &ExonBounds::unspliced()).unwrap();
+        prop_assert_eq!(again, after);
+    }
+}
+
 /// The g. variant on `ac` for an edit over an HGVS range.
 fn genomic_variant(ac: &str, p: &PlacedHgvs) -> GVariant {
     let position = |i: usize| SimplePosition {

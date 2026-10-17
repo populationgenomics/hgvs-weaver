@@ -54,10 +54,11 @@ alleles** are equal. Bases are stated by identity members and by members that ca
 alone, so `c.[7C>T;10_12=]` is not `c.7C>T`, and `c.10=` is not `c.20=`. A canonical allele is the change projected onto
 the genomic reference, trimmed to what it alters, then widened over the whole region in which it could equally be
 written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
-`g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. Edits
-without an allele (conversions, copy numbers) are `Different` unless the text matches; as members of a cis allele they
-are compared by their projections to the genome, and a copy number written alone is to be compared the same way
-(planned) ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+`g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. A copy
+number has no allele, and written alone is compared by its projection to the genome; as members of a cis allele, copy
+numbers and conversions are to be compared by their projections too (planned,
+[the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)). A conversion alone is `Different` unless the
+text matches.
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
@@ -120,6 +121,7 @@ in the harness), not a guess from the residues the descriptions happen to name.
 | `Analogous` | `c.1799T>A`                       | `p.Val600Glu`                        | The same description, observed rather than predicted.     |
 | `Analogous` | `c.4_6del`                        | `c.10_12del`                         | One allele: the same trinucleotide run, one unit shorter. |
 | `Analogous` | `g.10_11insA`                     | `g.10dup`                            | One allele.                                               |
+| `Analogous` | `NM_X.1:c.10_12copy3`             | `NR_XR.1:n.24_26copy3`               | Both project to `g.25_27copy3`.                           |
 | `Analogous` | `p.Tyr165Ter`                     | `p.Ala164_Tyr165insTer`              | Both leave the protein ended after 164.                   |
 | `Analogous` | `c.495_498del`                    | `p.Ala164_Tyr165insTer`              | The frameshift's first stop is at 165; same protein left. |
 | `Analogous` | `c.567delG`                       | `p.Ala190Profs`                      | The frameshift starts Ala190Pro; the rest is unknown.     |
