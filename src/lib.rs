@@ -27,6 +27,13 @@ pyo3::create_exception!(
     "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."
 );
 
+pyo3::create_exception!(
+    _weaver,
+    NoProteinStatementError,
+    HGVSError,
+    "A description makes no statement about the protein: an identity that covers no whole codon, which states bases rather than residues. HGVS has no p. form for it: p.(=) would claim the whole protein, and p.? an effect."
+);
+
 fn map_hgvs_error(e: HgvsError) -> PyErr {
     py_error(e, String::new())
 }
@@ -49,6 +56,7 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
         } => ReferenceMismatchError::new_err(format!(
             "{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"
         )),
+        HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
         HgvsError::Ambiguous {
             description,
@@ -762,7 +770,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts\np.(=) on the protein the transcript encodes; a protein_ac naming another\nprotein is an error. Every form needs a transcript with a CDS. r.(?)\nsays the RNA follows a DNA change it does not carry, so it has no\nprotein consequence of its own and raises UnsupportedOperationError.\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
+    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts\np.(=) on the protein the transcript encodes; a protein_ac naming another\nprotein is an error. Every form needs a transcript with a CDS. r.(?)\nsays the RNA follows a DNA change it does not carry, so it has no\nprotein consequence of its own and raises UnsupportedOperationError.\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.\n    NoProteinStatementError: If var_c is an identity that covers no whole codon,\n        which states bases and no residue.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
     fn c_to_p(
         &self,
         _py: Python,
@@ -1051,6 +1059,10 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "AmbiguousDescriptionError",
         m.py().get_type::<AmbiguousDescriptionError>(),
+    )?;
+    m.add(
+        "NoProteinStatementError",
+        m.py().get_type::<NoProteinStatementError>(),
     )?;
     Ok(())
 }

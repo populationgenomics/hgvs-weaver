@@ -35,6 +35,13 @@ class IdentifierType:
     def __eq__(self, value: object) -> bool: ...
     def __hash__(self) -> int: ...
 
+class NoProteinStatementError(HGVSError):
+    """A description makes no statement about the protein.
+
+    An identity that covers no whole codon states bases rather than residues. HGVS has no p. form
+    for it: p.(=) would claim the whole protein, and p.? an effect.
+    """
+
 class ParseError(HGVSError): ...
 
 class ReferenceMismatchError(HGVSError):
@@ -230,6 +237,8 @@ class VariantMapper:
         Raises:
             ValueError: If var_c is not a coding or RNA variant.
             UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.
+            NoProteinStatementError: If var_c is an identity that covers no whole codon,
+                which states bases and no residue.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:

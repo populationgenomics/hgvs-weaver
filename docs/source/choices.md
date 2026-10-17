@@ -1536,20 +1536,23 @@ and no residue past the end of the protein is named. An edit that runs to the en
 three bases after the last intact codon: translation runs off the edited transcript with no stop and no residue to name
 at the first change, so weaver says nothing rather than read the missing codon as a stop.
 
-These statements are about a change. An identity, `=`, changes nothing wherever it lies, so it is never disrupted from
-`Met1` or unknown. It names exactly the residues whose whole codon it covers, wherever its ends lie, in a UTR or an
-intron: `c.-2_3=` covers codon 1 and is `p.(Met1=)`, a statement about one residue where `p.(=)` would claim the whole
-protein, and it is compared as that
-([the comparison of silent statements](#judged-by-allele-and-by-the-protein-left-behind)); so are `c.-2-1_3=`, from an
-intron in the 5'UTR, and `c.43_45+1=`. A residue whose codon it covers only in part is not named. An identity that
-covers no whole codon, in the 5'UTR, in an intron, in the 3'UTR or inside one codon, predicts `p.(=)`, as every edit
-outside the codons that cannot change the protein does; one that covers every codon through the stop names every
-residue, which is the whole protein, `p.(=)`, wherever it starts. A codon whose uncovered bases are all wobble positions
-of a fourfold-degenerate codon could also be called unchanged, since no base there could change its residue; weaver does
-not, because reading the codon table to name a residue the description never reached costs more than it says. A
-conversion is not counted as an identity here: intronic or upstream it stays `p.?`. weaver does not model a conversion's
-bases (it parses to an edit with none, printed `=`), so inside the codons one is still read as silent; that is an open
-defect, not a choice.
+These statements are about a change, and a change predicts the whole protein, every base it does not name taken as the
+reference's: `c.*3G>A` leaves the protein as it is, `p.(=)`. An identity, `=`, is not a change but a statement, and
+claims only what it covers: the residues whose whole codon it covers, wherever its ends lie, in a UTR or an intron.
+`c.-2_3=` covers codon 1 and is `p.(Met1=)`, a statement about one residue where `p.(=)` would claim the whole protein,
+and it is compared as that ([the comparison of silent statements](#judged-by-allele-and-by-the-protein-left-behind)); so
+are `c.-2-1_3=`, from an intron in the 5'UTR, and `c.43_45+1=`. A residue whose codon it covers only in part is not
+named, which keeps the statement to what was checked. One that covers every codon through the stop names every residue,
+which is the whole protein, `p.(=)`, wherever it starts, as `c.=` does. An identity that covers no whole codon, in the
+5'UTR, in an intron, in the 3'UTR or inside one codon, `c.1114=`, states bases and no residue, so it makes no statement
+about the protein, and `c_to_p` refuses it with a `NoProteinStatement` error rather than write one. HGVS has no `p.`
+form for "no statement": `p.(=)` would claim the whole protein unchanged, and `p.?` that the protein is affected in an
+unknown way; neither is what the description says. A codon whose uncovered bases are all wobble positions of a
+fourfold-degenerate codon could also be called unchanged, since no base there could change its residue; weaver does not,
+because reading the codon table to name a residue the description never reached costs more than it says. A conversion is
+not counted as an identity here: intronic or upstream it stays `p.?`. weaver does not model a conversion's bases (it
+parses to an edit with none, printed `=`), so inside the codons one is still read as silent; that is an open defect, not
+a choice.
 
 **Example** (`NM_X.1` has a five-base 5'UTR and a fourteen-base 3'UTR):
 
@@ -1562,11 +1565,12 @@ NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silent
 NM_X.1:c.21_*1dup          →  NP_X.1:p.(Ter7=)   across the stop, named up to it
 NM_X.1:c.10_*14del         →  NP_X.1:p.?         residue 4 to the end of the transcript
 NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity of the whole transcript
-NM_W.1:c.45+1=             →  NP_W.1:p.(=)       an intronic identity
+NM_W.1:c.45+1=             →  NoProteinStatement   an intronic identity
 NM_W.1:c.-2_3=             →  NP_W.1:p.(Met1=)   an identity from the 5'UTR, at the codon it covers
 NM_W.1:c.43_45+1=          →  NP_W.1:p.(Arg15=)  an identity into an intron, at the codon it covers
-NM_W.1:c.-2_2=             →  NP_W.1:p.(=)       no whole codon covered
-NM_W.1:c.5_6=              →  NP_W.1:p.(=)       part of one codon
+NM_W.1:c.-2_2=             →  NoProteinStatement   no whole codon covered
+NM_W.1:c.5_6=              →  NoProteinStatement   part of one codon
+NM_W.1:c.*3=               →  NoProteinStatement   in the 3'UTR
 NM_W.1:c.1_90=             →  NP_W.1:p.(=)       every codon through the stop
 NM_W.1:c.1_87=             →  NP_W.1:p.(Met1_Val29=)   every codon but the stop
 
@@ -1599,11 +1603,14 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   `::an_identity_ending_in_an_intron_is_silent_at_the_whole_codons_it_covers`,
   `::an_identity_starting_in_an_intron_is_silent_at_the_whole_codons_it_covers`,
   `::an_identity_from_an_intron_in_the_5_utr_is_silent_at_the_whole_codons_it_covers`,
-  `::an_identity_covering_no_whole_codon_predicts_the_protein_unchanged`,
-  `::an_identity_inside_one_codon_predicts_the_protein_unchanged`,
+  `::an_identity_covering_no_whole_codon_makes_no_protein_statement`,
+  `::an_identity_inside_one_codon_makes_no_protein_statement`, `::one_base_unchanged_makes_no_protein_statement`,
+  `::an_identity_in_the_3_utr_makes_no_protein_statement`,
   `::an_identity_of_every_codon_predicts_the_protein_unchanged`,
   `::an_identity_of_every_codon_but_the_stop_names_its_residues`,
-  `::an_identity_in_the_5_utr_predicts_the_protein_unchanged`, `::an_intronic_identity_predicts_the_protein_unchanged`,
+  `::an_identity_in_the_5_utr_makes_no_protein_statement`, `::an_intronic_identity_makes_no_protein_statement`;
+  `test_regressions::test_regression_c_360_eq`; `tests/test_no_protein_statement.py`;
+  `equivalence_test::one_base_unchanged_is_not_its_residue_unchanged`,
   `::an_identity_across_the_whole_transcript_is_not_no_protein`,
   `::an_identity_inside_the_codons_is_written_silently_at_its_residues`,
   `::an_intronic_conversion_is_an_unknown_effect`, `::an_upstream_conversion_is_an_unknown_effect`;
@@ -1631,6 +1638,10 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
   `p.0` is an observation, as in the alleles page's `p.[Ser86Arg];[0]`, linked there to "the absence of RNA (`r.0`)".
 - `p.(?)`, which weaver parses but never writes: the alleles page writes it for "a variant expected but not yet
   identified", in prose beside the allele `p.[(Ser68Arg)];[?]`, so it is read as `p.?` predicted.
+
+An identity that covers no whole codon makes no statement about the protein, and the nomenclature has no form for that:
+`c_to_p` raises a `NoProteinStatement` error rather than write `p.(=)` or `p.?`, each of which would claim something the
+description does not ([edits outside the CDS](#edits-outside-the-cds-are-statements)).
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
 parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was

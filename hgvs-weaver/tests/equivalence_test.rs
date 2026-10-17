@@ -221,6 +221,14 @@ fn a_silent_change_in_the_stop_codon_is_not_a_stop_inserted_before_it() {
 }
 
 #[test]
+fn one_base_unchanged_is_not_its_residue_unchanged() {
+    assert_eq!(
+        coding_level("NM_X.1:c.9=", "NP_X.1:p.Leu3="),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
 fn a_coding_change_predicted_silent_is_its_statement() {
     assert_eq!(
         coding_level("NM_X.1:c.9G>A", "NP_X.1:p.(Leu3=)"),

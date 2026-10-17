@@ -272,8 +272,8 @@ impl<'a> VariantEquivalence<'a> {
         let mut analogous = false;
         let mut predictions = Vec::with_capacity(coding.len());
         for c in &coding {
-            let predicted = self.mapper.c_to_p(c, Some(&vp.ac)).ok();
-            if let Some(predicted) = &predicted {
+            let predicted = self.mapper.c_to_p(c, Some(&vp.ac));
+            if let Ok(predicted) = &predicted {
                 if predicted.to_string() == vp.to_string() {
                     return Ok(EquivalenceLevel::Identity);
                 }
@@ -288,9 +288,12 @@ impl<'a> VariantEquivalence<'a> {
             let reference = self.reference_protein(&vp.ac)?;
             for (c, predicted) in coding.iter().zip(&predictions) {
                 let candidate = match predicted {
-                    Some(p) if p.posedit.edit.is_identity() => {
+                    Ok(p) if p.posedit.edit.is_identity() => {
                         Some(silent_prediction(p, reference.len()))
                     }
+                    // An identity of no whole codon says nothing of the
+                    // protein, so it matches no protein description.
+                    Err(HgvsError::NoProteinStatement(_)) => continue,
                     // c_to_p refuses c.= named against another protein, of
                     // which it says nothing.
                     _ if matches!(c.posedit.edit, NaEdit::WholeIdentity) => continue,

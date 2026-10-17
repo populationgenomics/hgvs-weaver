@@ -36,6 +36,10 @@ pub enum HgvsError {
         start: usize,
         end: usize,
     },
+    /// A description that makes no statement about the protein: an identity
+    /// that covers no whole codon. HGVS has no `p.` form for it; `p.(=)`
+    /// would claim the whole protein, and `p.?` an effect.
+    NoProteinStatement(String),
     /// Catch-all for other error types.
     Other(String),
     /// A member of an allele in cis failed, so the allele did: `source` is
@@ -76,6 +80,7 @@ impl fmt::Display for HgvsError {
                 f,
                 "Reference sequence mismatch: expected {expected}, found {found} on {accession} at indices {start}..{end}"
             ),
+            HgvsError::NoProteinStatement(msg) => write!(f, "No protein statement: {msg}"),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),
             HgvsError::CisMember {
                 allele,

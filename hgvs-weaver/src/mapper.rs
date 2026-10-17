@@ -2032,9 +2032,14 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// What an identity predicts: the residues whose whole codon it covers,
-    /// unchanged, `p.(Met1=)`; or `p.(=)` when it covers no whole codon, or
-    /// every codon of a CDS that ends in a stop. Where its ends lie outside
-    /// the codons, in a UTR or an intron, does not enter.
+    /// unchanged, `p.(Met1=)`, or `p.(=)` when it covers every codon of a CDS
+    /// that ends in a stop. Where its ends lie, in a UTR or an intron, does
+    /// not enter.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::NoProteinStatement`] when it covers no whole codon: it
+    /// states bases, not residues.
     fn identity_prediction(
         &self,
         var_c: &CVariant,
@@ -2060,7 +2065,12 @@ impl<'a> VariantMapper<'a> {
         let from = (first.max(0) as u64).div_ceil(3) as i64;
         let to = ((last + 1).max(0) / 3).min(codons);
         let every_codon = from == 0 && to == codons && !transcript.cds_end_open;
-        if from >= to || every_codon {
+        if from >= to {
+            return Err(HgvsError::NoProteinStatement(format!(
+                "{var_c} covers no whole codon, so it states no residue of {protein_ac}"
+            )));
+        }
+        if every_codon {
             return Ok(predicted_statement(
                 var_c,
                 &protein_ac,
