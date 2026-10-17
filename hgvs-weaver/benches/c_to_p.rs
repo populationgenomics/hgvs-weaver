@@ -23,7 +23,8 @@ const EXONS: [(usize, usize); 3] = [
 ];
 /// Bases of intron between consecutive exons.
 const INTRON: usize = 500;
-const GENOMIC_START: usize = 1_000;
+/// Bases of genome either side of the transcript.
+const FLANK: usize = 1_000;
 
 /// A deterministic sequence of `n` bases.
 fn bases(n: usize, seed: u64) -> String {
@@ -53,9 +54,9 @@ fn cds() -> String {
     out
 }
 
-fn provider() -> (Provider, String) {
+fn provider() -> Provider {
     let tx = format!("{}{}{}", bases(UTR5, 1), cds(), bases(UTR3, 2));
-    let mut genome = bases(GENOMIC_START, 3);
+    let mut genome = bases(FLANK, 3);
     let mut exons = Vec::new();
     for (i, &(start, end)) in EXONS.iter().enumerate() {
         if i > 0 {
@@ -69,9 +70,9 @@ fn provider() -> (Provider, String) {
             Strand::Plus,
         ));
     }
-    genome.push_str(&bases(GENOMIC_START, 9));
+    genome.push_str(&bases(FLANK, 9));
     let cds_end = (UTR5 + (CODONS + 1) * 3 - 1) as i32;
-    let provider = Provider::new()
+    Provider::new()
         .sequence("NC_000099.1", &genome)
         .sequence("NM_000099.1", &tx)
         .transcript(transcript(
@@ -81,8 +82,7 @@ fn provider() -> (Provider, String) {
             Some((UTR5 as i32, cds_end)),
             exons,
         ))
-        .protein_for("NM_000099.1", "NP_000099.1");
-    (provider, tx)
+        .protein_for("NM_000099.1", "NP_000099.1")
 }
 
 fn coding(s: &str) -> CVariant {
@@ -93,30 +93,34 @@ fn coding(s: &str) -> CVariant {
 }
 
 fn bench_c_to_p(c: &mut Criterion) {
-    let (provider, tx) = provider();
+    let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    let base = |c_pos: usize| &tx[UTR5 + c_pos - 1..UTR5 + c_pos];
-    let other = |b: &str| if b == "A" { "G" } else { "A" };
-    let missense_pos = 700;
+    // The expected consequence holds each case to the path it is named for.
     let cases = [
         (
             "substitution",
-            format!(
-                "NM_000099.1:c.{missense_pos}{}>{}",
-                base(missense_pos),
-                other(base(missense_pos))
-            ),
+            "NM_000099.1:c.700A>G",
+            "NP_000099.1:p.(Ile234Val)",
         ),
-        ("frameshift", "NM_000099.1:c.701del".to_string()),
-        ("in_frame_deletion", "NM_000099.1:c.701_703del".to_string()),
+        (
+            "frameshift",
+            "NM_000099.1:c.701del",
+            "NP_000099.1:p.(Ile234LysfsTer7)",
+        ),
+        (
+            "in_frame_deletion",
+            "NM_000099.1:c.701_703del",
+            "NP_000099.1:p.(Ile234_Ala235delinsThr)",
+        ),
     ];
     let mut group = c.benchmark_group("c_to_p");
-    for (name, hgvs) in &cases {
+    for (name, hgvs, expected) in cases {
         let variant = coding(hgvs);
-        mapper
+        let var_p = mapper
             .c_to_p(&variant, None)
             .unwrap_or_else(|e| panic!("{hgvs}: {e}"));
-        group.bench_function(*name, |b| {
+        assert_eq!(var_p.to_string(), expected, "{hgvs}");
+        group.bench_function(name, |b| {
             b.iter(|| mapper.c_to_p(black_box(&variant), None).unwrap())
         });
     }
