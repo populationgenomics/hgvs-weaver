@@ -1,8 +1,9 @@
 //! Normalisation of a nucleotide edit against one reference sequence.
 //!
-//! HGVS wants an edit at its 3'-most equivalent position, with deleted or
-//! duplicated bases spelled out, and an insertion that copies the bases just
-//! before it written as a duplication. All of that is decided here, on a
+//! HGVS wants an edit at its 3'-most equivalent position, with the bases it
+//! deletes, duplicates or inverts left unstated, and an insertion that copies
+//! the bases just before it written as a duplication. All of that is decided
+//! here, on a
 //! 0-based half-open range over a [`Reference`]. The coordinate systems (g.,
 //! c., n.) only convert their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
@@ -142,10 +143,11 @@ impl ExonBounds {
 /// nor rewritten as a duplication of bases in two exons. One written on a
 /// junction is left as written.
 ///
-/// Bases a deletion or duplication states are kept where the edit did not
-/// move and dropped where it did, since they would then be stale. Nothing is
-/// filled in: the bases are the reference's to give, and HGVS writes `del`
-/// and `dup` bare.
+/// The bases an edit states as its reference are checked against the
+/// reference and then not written: a deletion, duplication or inversion, the
+/// deleted part of a delins and an identity come out bare, whether or not
+/// they moved. HGVS writes them bare; a substitution keeps its base, which is
+/// part of how it is written.
 ///
 /// # Errors
 ///
@@ -156,14 +158,11 @@ pub fn normalize(
     placed: PlacedEdit,
     exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
-    let PlacedEdit {
-        start,
-        end,
-        mut edit,
-    } = placed;
+    let PlacedEdit { start, end, edit } = placed;
     edit.check_stated(reference.accession(), start, end, |s, e| {
         reference.slice(s, e)
     })?;
+    let edit = without_stated_bases(edit);
     match &edit {
         NaEdit::RefAlt {
             alt: Some(alt),
@@ -175,11 +174,6 @@ pub fn normalize(
         NaEdit::Del { .. } | NaEdit::Dup { .. } if end > start => {
             let room = (exons.exon_end(start) - 1 - start).min(exons.exon_end(end - 1) - end);
             let k = shift_3(reference, &edit.resolve(reference, start, end)?)?.min(room);
-            if k > 0 {
-                if let NaEdit::Del { ref_, .. } | NaEdit::Dup { ref_, .. } = &mut edit {
-                    *ref_ = None;
-                }
-            }
             Ok(PlacedEdit {
                 start: start + k,
                 end: end + k,
@@ -200,6 +194,42 @@ pub fn normalize(
             place_insertion(reference, start, seq, *uncertain, k, exons)
         }
         _ => Ok(PlacedEdit { start, end, edit }),
+    }
+}
+
+/// `edit` with the reference bases it states, or their number, dropped,
+/// where they are not part of how the edit is written.
+fn without_stated_bases(edit: NaEdit) -> NaEdit {
+    match edit {
+        NaEdit::Del { uncertain, .. } => NaEdit::Del {
+            ref_: None,
+            uncertain,
+        },
+        NaEdit::Dup { uncertain, .. } => NaEdit::Dup {
+            ref_: None,
+            uncertain,
+        },
+        NaEdit::Inv { uncertain, .. } => NaEdit::Inv {
+            ref_: None,
+            uncertain,
+        },
+        NaEdit::DelInsLength {
+            min,
+            max,
+            uncertain,
+            ..
+        } => NaEdit::DelInsLength {
+            ref_: None,
+            min,
+            max,
+            uncertain,
+        },
+        NaEdit::RefAlt { uncertain, .. } if edit.is_identity() => NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain,
+        },
+        other => other,
     }
 }
 
@@ -648,18 +678,6 @@ mod tests {
                 edit: del(None)
             }
         );
-        // Stated bases survive when the edit does not move, and go when it
-        // does: they would be stale, and the reference has them anyway.
-        let out = run(
-            "TTCAGCAGTT",
-            PlacedEdit::from_hgvs_range(5, 8, del(Some("CAG"))),
-        );
-        assert_eq!(out.edit, del(Some("CAG")));
-        let out = run(
-            "TTCAGCAGTT",
-            PlacedEdit::from_hgvs_range(2, 5, del(Some("CAG"))),
-        );
-        assert_eq!((out.start, out.end, out.edit), (5, 8, del(None)));
     }
 
     #[test]

@@ -37,6 +37,28 @@ proptest! {
         prop_assert_eq!(again, after, "normalisation is not idempotent");
     }
 
+    /// A deletion, duplication or delins normalises to the same spelling
+    /// whether or not it states the bases it replaces.
+    #[test]
+    fn stating_the_bases_an_edit_replaces_does_not_change_its_normalised_spelling(
+        (seq, p) in seq_and_edit(false),
+    ) {
+        let bases = Some(seq[p.start..p.end].to_string());
+        let stated = match &p.edit {
+            NaEdit::Del { uncertain, .. } => NaEdit::Del { ref_: bases, uncertain: *uncertain },
+            NaEdit::Dup { uncertain, .. } => NaEdit::Dup { ref_: bases, uncertain: *uncertain },
+            NaEdit::RefAlt { alt, uncertain, .. } => NaEdit::RefAlt { ref_: bases, alt: alt.clone(), uncertain: *uncertain },
+            _ => return Ok(()),
+        };
+        let hdp = Provider::new().sequence("X", &seq);
+        let store = ReferenceStore::with_block_size(&hdp, 4);
+        let r = store.reference("X", G);
+        let normalised = |edit: NaEdit| {
+            normalize(&r, PlacedEdit::from_hgvs_range(p.start, p.end, edit), &ExonBounds::unspliced()).unwrap()
+        };
+        prop_assert_eq!(normalised(stated.clone()), normalised(p.edit.clone()), "{:?} on {}", stated, seq);
+    }
+
     /// A change and a delins over a wider range that writes out the
     /// reference's bases either side of it are one change, and normalise to
     /// one spelling.

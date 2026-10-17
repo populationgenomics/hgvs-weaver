@@ -280,10 +280,9 @@ fn mitochondrial_variants_share_the_genomic_implementation() {
     };
     assert_eq!(norm("NC_TEST.1:m.1012_1013insT"), "NC_TEST.1:m.1012dup");
     assert_eq!(norm("NC_TEST.1:m.1008_1010del"), "NC_TEST.1:m.1008_1010del");
-    // Stated bases stay when the edit does not move.
     assert_eq!(
         norm("NC_TEST.1:m.1008_1010delTAC"),
-        "NC_TEST.1:m.1008_1010delTAC"
+        "NC_TEST.1:m.1008_1010del"
     );
 
     let spdi = |hgvs: &str| {
