@@ -136,6 +136,10 @@ impl ExonBounds {
 /// inversion or delins it is, and normalised as that. One that changes a base
 /// at each end cannot slide and stays where it is; a substitution is one.
 ///
+/// An edit that makes the reference, a delins of the bases already there, an
+/// inversion of a range that is its own reverse complement or a repeat of the
+/// copies already there, is written as the identity of the bases it names.
+///
 /// No end of the edit leaves the exon it was written in: the shift stops at
 /// the last base of the exon, and an insertion is neither slid onto a junction
 /// nor rewritten as a duplication of bases in two exons. One written on a
@@ -161,6 +165,17 @@ pub fn normalize(
         reference.slice(s, e)
     })?;
     let edit = without_stated_bases(edit);
+    if let Some((start, end, uncertain)) = statement_made(reference, start, end, &edit, exons)? {
+        return Ok(PlacedEdit {
+            start,
+            end,
+            edit: NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                uncertain,
+            },
+        });
+    }
     match &edit {
         NaEdit::RefAlt {
             alt: Some(alt),
@@ -204,6 +219,40 @@ pub fn normalize(
         }
         _ => Ok(PlacedEdit { start, end, edit }),
     }
+}
+
+/// The bases an inversion or a repeat names, with its uncertainty, when what
+/// it makes of them is the reference and they lie in one exon: the inverted
+/// range, or the whole run a repeat resolves to. Such an edit states those
+/// bases unchanged, and is written as their identity. A delins that makes the
+/// reference is reduced to one by [`reduce_delins`]; no other edit can make
+/// it, and a repeat whose count is a range names no one sequence.
+fn statement_made(
+    reference: &Reference<'_, '_>,
+    start: usize,
+    end: usize,
+    edit: &NaEdit,
+    exons: &ExonBounds,
+) -> Result<Option<(usize, usize, bool)>, HgvsError> {
+    let uncertain = match edit {
+        NaEdit::Inv { uncertain, .. } => *uncertain,
+        NaEdit::Repeat {
+            min,
+            max,
+            uncertain,
+            ..
+        } if min == max => *uncertain,
+        _ => return Ok(None),
+    };
+    if end <= start {
+        return Ok(None);
+    }
+    let resolved = edit.resolve(reference, start, end)?;
+    let named = (resolved.start, resolved.end);
+    Ok((named.1 > named.0
+        && resolved.alt.eq_ignore_ascii_case(&resolved.ref_)
+        && exons.same_exon(named.0, named.1 - 1))
+    .then_some((named.0, named.1, uncertain)))
 }
 
 /// `edit` with the reference bases it states, or their number, dropped,
