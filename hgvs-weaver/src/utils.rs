@@ -393,23 +393,39 @@ pub fn decompose_aa(s: &str) -> Result<Vec<Residue>, HgvsError> {
 mod tests {
     use super::{translate, translate_codon};
 
-    #[test]
-    fn a_codon_reads_alike_in_either_case_and_as_rna() {
-        for codon in ["TGT", "tgt", "UGU", "ugu", "tGu"] {
-            assert_eq!(translate_codon(codon), Some('C'), "{codon}");
-        }
+    /// One test per `name: input => expected` row, so each row fails alone.
+    macro_rules! cases {
+        ($function:ident { $($name:ident: $input:expr => $expected:expr,)* }) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_eq!($function($input), $expected);
+                }
+            )*
+        };
     }
 
-    #[test]
-    fn anything_but_three_bases_is_no_codon() {
-        for codon in ["", "TG", "TGTA", "TGN", "TG-", "Té"] {
-            assert_eq!(translate_codon(codon), None, "{codon:?}");
-        }
-    }
+    // A codon reads alike in either case and as RNA.
+    cases!(translate_codon {
+        an_upper_case_dna_codon_is_read: "TGT" => Some('C'),
+        a_lower_case_dna_codon_is_read: "tgt" => Some('C'),
+        an_upper_case_rna_codon_is_read: "UGU" => Some('C'),
+        a_lower_case_rna_codon_is_read: "ugu" => Some('C'),
+        a_mixed_case_rna_codon_is_read: "tGu" => Some('C'),
+    });
 
-    #[test]
-    fn a_sequence_reads_an_unknown_codon_as_x_and_drops_a_partial_one() {
-        assert_eq!(translate("atgNNNtaaGG"), "MX*");
-        assert_eq!(translate("ATGéTAA"), "MX");
-    }
+    // Anything but three bases is no codon.
+    cases!(translate_codon {
+        an_empty_string_is_no_codon: "" => None,
+        two_bases_are_no_codon: "TG" => None,
+        four_bases_are_no_codon: "TGTA" => None,
+        an_n_is_no_base: "TGN" => None,
+        a_gap_is_no_base: "TG-" => None,
+        a_non_ascii_character_is_no_base: "Té" => None,
+    });
+
+    cases!(translate {
+        an_unknown_codon_is_x_and_a_partial_codon_is_dropped: "atgNNNtaaGG" => "MX*",
+        a_codon_holding_a_non_ascii_byte_is_x: "ATGéTAA" => "MX",
+    });
 }
