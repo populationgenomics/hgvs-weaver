@@ -630,7 +630,8 @@ does. The insertion written can itself land where another duplication's projecte
 repeats until no duplication meets an insertion; which members are rewritten does not depend on the order they are
 written in. The same holds from the genome to a minus-strand transcript. A duplication with nothing inserted at its
 junction stays a duplication. Projected back, a rewritten duplication comes back as the insertion, not as a duplication:
-the same sequence, another spelling.
+the same sequence, another spelling. Where a duplication or an insertion in such an allele has an uncertain position,
+whether the copy meets the insertion cannot be told, so the projection across strands is refused rather than guessed.
 
 **Example** (`NM_X.1` is `GGGGG` `ATG AAA CTG GCC TAT CGC TAA` `CCGTATAAGTAAGG` at genomic index 10 of `NC_X.1`, so c.7
 is g.22; `NR_XR.1` reads the same forty bases of `NC_X.1` on the minus strand, so n.23 is g.28 and n.29 is g.22, and
@@ -679,8 +680,13 @@ NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20d
   `::an_insertion_of_a_length_beside_a_duplication_is_met_like_one_of_bases`,
   `::a_rewritten_duplication_can_meet_the_next_whatever_the_order_written`,
   `::a_rewritten_genomic_duplication_can_meet_the_next`,
+  `::a_rewritten_duplication_written_in_another_order_meets_the_next`,
+  `::an_uncertain_duplication_beside_an_insertion_across_strands_is_refused`,
+  `::an_uncertain_transcript_duplication_beside_an_insertion_is_refused`,
+  `::a_copy_of_the_genomes_first_base_has_no_junction_before_it`,
   `::a_member_that_fails_to_project_fails_the_allele_and_is_named`, `::a_member_outside_every_exon_fails_the_allele`;
   `a_cis_allele_projected_to_the_genome_and_back_is_itself`,
+  `a_duplication_beside_an_insertion_makes_the_same_exon_on_the_genome`,
   `a_cis_allele_in_transcript_order_projects_in_genomic_order` (properties); `tests/test_cis_phased.py`.
 
 ## Normalisation

@@ -43,6 +43,56 @@ fn exact_range(pos: Option<&SimpleInterval>) -> Option<(i32, i32)> {
     Some((first.0, last.0))
 }
 
+fn is_insertion(edit: &NaEdit) -> bool {
+    matches!(edit, NaEdit::Ins { .. } | NaEdit::InsLength { .. })
+}
+
+/// Whether a member is a duplication, whether an insertion, and whether its
+/// position is exact, as written.
+fn shape(member: &SV) -> (bool, bool, bool) {
+    let tx_exact = |pos: Option<&crate::structs::BaseOffsetInterval>| {
+        pos.is_some_and(|p| {
+            !p.uncertain && !p.start.uncertain && p.end.as_ref().is_none_or(|e| !e.uncertain)
+        })
+    };
+    let (edit, exact) = match member {
+        SV::Genomic(g) => (
+            &g.posedit.edit,
+            exact_range(g.posedit.pos.as_ref()).is_some(),
+        ),
+        SV::Coding(c) => (&c.posedit.edit, tx_exact(c.posedit.pos.as_ref())),
+        SV::NonCoding(n) => (&n.posedit.edit, tx_exact(n.posedit.pos.as_ref())),
+        SV::Rna(r) => (&r.posedit.edit, tx_exact(r.posedit.pos.as_ref())),
+        _ => return (false, false, true),
+    };
+    (is_dup(edit), is_insertion(edit), exact)
+}
+
+/// Refuses, across strands, an allele with a duplication and an insertion
+/// where either is at an uncertain position: whether the copy meets the
+/// insertion, and so how the allele reads on the other strand, is unknown.
+fn refuse_uncertain_copies(cis: &CisPhasedVariant) -> Result<(), HgvsError> {
+    let shapes: Vec<_> = cis.members.iter().map(shape).collect();
+    if !shapes.iter().any(|s| s.0) || !shapes.iter().any(|s| s.1) {
+        return Ok(());
+    }
+    match shapes
+        .iter()
+        .position(|&(dup, ins, exact)| (dup || ins) && !exact)
+    {
+        Some(i) => Err(member_error(
+            cis,
+            i,
+            HgvsError::UnsupportedOperation(
+                "its position is uncertain, so whether a duplication's copy meets an \
+                 insertion on the other strand cannot be told"
+                    .into(),
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
 fn is_dup(edit: &NaEdit) -> bool {
     matches!(edit, NaEdit::Dup { .. })
 }
@@ -52,10 +102,7 @@ fn is_dup(edit: &NaEdit) -> bool {
 fn inserts_at(members: &[GVariant], skip: usize, left: i32) -> bool {
     members.iter().enumerate().any(|(j, m)| {
         j != skip
-            && matches!(
-                m.posedit.edit,
-                NaEdit::Ins { .. } | NaEdit::InsLength { .. }
-            )
+            && is_insertion(&m.posedit.edit)
             && exact_range(m.posedit.pos.as_ref()) == Some((left, left + 1))
     })
 }
@@ -162,6 +209,7 @@ impl VariantMapper<'_> {
             other => Err(wrong_member(other, "g")),
         })?;
         if strand == Strand::Minus {
+            refuse_uncertain_copies(cis)?;
             let candidates: Vec<bool> = genomic
                 .iter()
                 .zip(&projected)
@@ -291,6 +339,7 @@ impl VariantMapper<'_> {
             .strand;
         let mut projected = project_members(cis, project)?;
         if strand == Strand::Minus {
+            refuse_uncertain_copies(cis)?;
             let candidates: Vec<bool> = cis
                 .members
                 .iter()

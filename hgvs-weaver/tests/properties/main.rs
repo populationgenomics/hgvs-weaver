@@ -1004,6 +1004,104 @@ proptest! {
     }
 }
 
+proptest! {
+    // Half the genes are on the plus strand, so the filter rejects as many
+    // as it keeps.
+    #![proptest_config(ProptestConfig { max_local_rejects: u32::MAX, ..ProptestConfig::default() })]
+
+    /// On a minus-strand transcript, an insertion before what one or two
+    /// duplications copy makes on the genome what it makes on the transcript,
+    /// in any order written: the exon, as the projected allele edits the
+    /// genome, read on the minus strand, is the exon as the allele edits the
+    /// transcript.
+    #[test]
+    fn a_duplication_beside_an_insertion_makes_the_same_exon_on_the_genome(
+        g in gene().prop_filter("a minus-strand gene with an exon of eight", |g| {
+            g.strand == hgvs_weaver::data::Strand::Minus && g.tx_exons.iter().any(|(a, b)| b - a >= 8)
+        }),
+        at in 0usize..10_000,
+        lens in (1usize..=3, 1usize..=3),
+        chained in prop::bool::ANY,
+        alt in dna(1, 3),
+        order in 0usize..6,
+    ) {
+        let (ts, te) = *g.tx_exons.iter().max_by_key(|(a, b)| b - a).unwrap();
+        let reach = lens.0 + if chained { lens.1 } else { 0 };
+        // the insertion goes between s - 1 and s, inside the exon
+        let s = ts + 1 + at % (te - ts - reach - 1);
+        let e = s + lens.0 - 1;
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let mut edits = vec![
+            (s, s, Some(alt.clone())),
+            (s, e, None),
+        ];
+        if chained {
+            edits.push((e + 1, e + lens.1, None));
+        }
+        let rotate = order % edits.len();
+        edits.rotate_left(rotate);
+        if order >= 3 {
+            edits.reverse();
+        }
+        let members = edits
+            .iter()
+            .map(|(a, b, ins)| {
+                let v = match ins {
+                    Some(bases) => coding_variant(&g, &am, a - 1, a + 1, NaEdit::Ins { alt: Some(bases.clone()), uncertain: false }),
+                    None => coding_variant(&g, &am, *a, b + 1, NaEdit::Dup { ref_: None, uncertain: false }),
+                };
+                SequenceVariant::Coding(v)
+            })
+            .collect();
+        let cis = hgvs_weaver::CisPhasedVariant::new(g.ac.clone(), None, members).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vg = mapper.c_to_g_cis(&cis, None).unwrap();
+
+        // On the transcript: each insertion at its 0-based offset, last first.
+        let mut tx_inserts: Vec<(usize, String)> = edits
+            .iter()
+            .map(|(a, b, ins)| match ins {
+                Some(bases) => (*a, bases.clone()),
+                None => (b + 1, g.transcript_seq[*a..=*b].to_string()),
+            })
+            .collect();
+        let mut on_genome: Vec<(usize, String)> = vg
+            .members
+            .iter()
+            .map(|m| {
+                let SequenceVariant::Genomic(v) = m else { panic!("{m} is not on the genome") };
+                let pos = v.posedit.pos.as_ref().unwrap();
+                let first = pos.start.index().unwrap().0 as usize;
+                let last = pos.end.as_ref().map_or(first, |p| p.index().unwrap().0 as usize);
+                match &v.posedit.edit {
+                    NaEdit::Ins { alt: Some(bases), .. } => (first + 1, bases.clone()),
+                    NaEdit::Dup { .. } => (last + 1, g.genome[first..=last].to_string()),
+                    other => panic!("{other:?} in {vg}"),
+                }
+            })
+            .collect();
+        let apply = |seq: &str, inserts: &mut Vec<(usize, String)>| {
+            inserts.sort_by_key(|x| std::cmp::Reverse(x.0));
+            let mut out = seq.to_string();
+            for (offset, bases) in inserts.iter() {
+                out.insert_str(*offset, bases);
+            }
+            out
+        };
+        let delta: usize = tx_inserts.iter().map(|i| i.1.len()).sum();
+        let edited_tx = apply(&g.transcript_seq, &mut tx_inserts);
+        let edited_genome = apply(&g.genome, &mut on_genome);
+        let exon = &g.exons.iter().find(|x| x.transcript_start.0 as usize == ts).unwrap();
+        let (rs, re) = (exon.reference_start.0 as usize, exon.reference_end.0 as usize);
+        prop_assert_eq!(
+            revcomp(&edited_genome[rs..=re + delta]),
+            edited_tx[ts..te + delta].to_string(),
+            "{} projected to {}", cis, vg
+        );
+    }
+}
+
 /// The properties above pass vacuously on a case a projection refuses, so on
 /// a fixed sample each chain a property follows must answer most generated
 /// edits, and some genes must differ from their genome.

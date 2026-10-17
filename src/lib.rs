@@ -45,7 +45,7 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             source,
         } => py_error(
             *source,
-            format!("{context}member {} of {allele}, {member}: ", index + 1),
+            format!("{context}Member {} of {allele}, {member}: ", index + 1),
         ),
     }
 }

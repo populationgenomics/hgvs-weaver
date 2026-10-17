@@ -166,7 +166,7 @@ def test_an_rna_allele_projects_to_the_genome(mapper: weaver.VariantMapper) -> N
 
 
 def test_a_member_that_fails_raises_its_own_error_naming_it(mapper: weaver.VariantMapper) -> None:
-    with pytest.raises(weaver.ValidationError, match=r"member 2 of NM_X\.1:c\.\[7C>T;\*20del\], NM_X\.1:c\.\*20del"):
+    with pytest.raises(weaver.ValidationError, match=r"Member 2 of NM_X\.1:c\.\[7C>T;\*20del\], NM_X\.1:c\.\*20del"):
         mapper.c_to_g(weaver.parse("NM_X.1:c.[7C>T;*20del]"))
 
 
@@ -175,7 +175,7 @@ def test_an_allele_of_another_system_is_refused(mapper: weaver.VariantMapper) ->
         mapper.c_to_g(weaver.parse("NC_X.1:g.[22C>T;28T>G]"))
 
 
-def test_an_allele_has_no_protein_allele_yet(mapper: weaver.VariantMapper) -> None:
+def test_protein_vrs_refuses_an_allele(mapper: weaver.VariantMapper) -> None:
     with pytest.raises(ValueError, match="allele in cis"):
         mapper.protein_vrs(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
 

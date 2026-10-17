@@ -68,6 +68,15 @@ fn provider() -> Provider {
             ],
         ))
         .transcript(minus("NR_XR.1", None))
+        // the first ten bases of NC_X.1 on the minus strand, so n.10 is g.1
+        .sequence("NR_EDGE.1", "AAAAAAAAAA")
+        .transcript(transcript(
+            "NR_EDGE.1",
+            "NC_X.1",
+            Strand::Minus,
+            None,
+            vec![exon((0, 10), (0, 9), Strand::Minus)],
+        ))
         .transcript(minus("NM_XR.1", Some((3, 29))))
 }
 
@@ -173,7 +182,8 @@ fn a_member_outside_every_exon_fails_the_allele() {
         .c_to_g_cis(&cis("NM_X.1:c.[7C>T;*20del]"), None)
         .unwrap_err();
     assert!(
-        matches!(&err, HgvsError::CisMember { index: 1, .. }),
+        matches!(&err, HgvsError::CisMember { index: 1, source, .. }
+            if matches!(source.as_ref(), HgvsError::ValidationError(_))),
         "{err}"
     );
 }
@@ -332,5 +342,61 @@ fn a_rewritten_genomic_duplication_can_meet_the_next() {
     assert_eq!(
         c.to_string(),
         "NM_XR.1:c.[16_17insGAT;19_20insAGG;22_23insT]"
+    );
+}
+
+#[test]
+fn a_rewritten_duplication_written_in_another_order_meets_the_next() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let g = mapper
+        .n_to_g_cis(&cis("NR_XR.1:n.[23_25dup;26_28dup;22_23insA]"), None)
+        .unwrap();
+    assert_eq!(
+        g.to_string(),
+        "NC_X.1:g.[28_29insT;22_23insTGG;25_26insCCT]"
+    );
+}
+
+#[test]
+fn an_uncertain_duplication_beside_an_insertion_across_strands_is_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let err = mapper
+        .g_to_c_cis(&cis("NC_X.1:g.[25_26insA;(26_28)dup]"), "NM_XR.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::CisMember { index: 1, source, .. }
+            if matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("uncertain"))),
+        "{err}"
+    );
+}
+
+#[test]
+fn an_uncertain_transcript_duplication_beside_an_insertion_is_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let err = mapper
+        .n_to_g_cis(&cis("NR_XR.1:n.[22_23insA;(23_25)dup]"), None)
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::CisMember { index: 1, source, .. }
+            if matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("uncertain"))),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_copy_of_the_genomes_first_base_has_no_junction_before_it() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // n.9_10 is g.1_2; the insertion is between g.2 and g.3
+    let err = mapper
+        .n_to_g_cis(&cis("NR_EDGE.1:n.[8_9insG;9_10dup]"), None)
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::CisMember { index: 1, source, .. }
+            if matches!(source.as_ref(), HgvsError::ValidationError(m) if m.contains("first base"))),
+        "{err}"
     );
 }
