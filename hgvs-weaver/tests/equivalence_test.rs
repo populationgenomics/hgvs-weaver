@@ -90,7 +90,10 @@ fn a_lone_copy_number_compares_by_projection() -> Result<(), HgvsError> {
         )
     };
 
-    assert!(level("NM_X.1:c.10_12copy3", "NC_X.1:g.25_27copy3")?.is_equivalent());
+    assert_eq!(
+        level("NM_X.1:c.10_12copy3", "NC_X.1:g.25_27copy3")?,
+        EquivalenceLevel::Identity
+    );
     // Neither is the other's text; both project to g.25_27copy3.
     assert_eq!(
         level("NM_X.1:c.10_12copy3", "NR_XR.1:n.24_26copy3")?,

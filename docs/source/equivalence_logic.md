@@ -121,6 +121,7 @@ in the harness), not a guess from the residues the descriptions happen to name.
 | `Analogous` | `c.1799T>A`                       | `p.Val600Glu`                        | The same description, observed rather than predicted.     |
 | `Analogous` | `c.4_6del`                        | `c.10_12del`                         | One allele: the same trinucleotide run, one unit shorter. |
 | `Analogous` | `g.10_11insA`                     | `g.10dup`                            | One allele.                                               |
+| `Analogous` | `NM_X.1:c.10_12copy3`             | `NR_XR.1:n.24_26copy3`               | Both project to `g.25_27copy3`.                           |
 | `Analogous` | `p.Tyr165Ter`                     | `p.Ala164_Tyr165insTer`              | Both leave the protein ended after 164.                   |
 | `Analogous` | `c.495_498del`                    | `p.Ala164_Tyr165insTer`              | The frameshift's first stop is at 165; same protein left. |
 | `Analogous` | `c.567delG`                       | `p.Ala190Profs`                      | The frameshift starts Ala190Pro; the rest is unknown.     |

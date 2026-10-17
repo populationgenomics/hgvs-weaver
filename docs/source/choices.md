@@ -1808,8 +1808,10 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
 bases unchanged; for two single variants that change the sequence, that is when their canonical alleles are equal. A
 coding variant and a protein description agree when they leave the same protein.**
 
-A copy number written alone has no allele, and is compared by its projection to the genome, as it is inside a cis
-allele: `NM_X.1:c.10_12copy3` and `NC_X.1:g.25_27copy3` are the same, and `copy3` and `copy4` are Different.
+A copy number written alone has no allele, and is compared by its projection to the genome, as it is to be inside a cis
+allele. `NM_X.1:c.10_12copy3` projects to exactly `NC_X.1:g.25_27copy3`, so the two are Identity. Projection adds a
+match between two descriptions that both project to that text and are not the same text: `NR_XR.1:n.24_26copy3`, on the
+minus strand, is Analogous to `NM_X.1:c.10_12copy3`. `copy3` and `copy4` are Different.
 
 `Identity` is the same text after spelling normalisation, or a prediction written exactly as given; the parentheses of a
 prediction and the brackets of a one-member allele are spelling. Cis alleles are compared by
@@ -1825,10 +1827,12 @@ as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that changes the seque
 `c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are those where the
 comparison by protein left behind answers otherwise today.
 
-**Example:**
+**Example** (`NM_X.1`, `NC_X.1`, `NR_XR.1` and `NP_X.1` as in
+[the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)):
 
 ```text
-NM_X.1:c.10_12copy3          vs  NC_X.1:g.25_27copy3                       Analogous: the same stretch on the genome (planned)
+NM_X.1:c.10_12copy3          vs  NC_X.1:g.25_27copy3                       Identity: it projects exactly to it
+NM_X.1:c.10_12copy3          vs  NR_XR.1:n.24_26copy3                      Analogous: both project to g.25_27copy3
 NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(Ala4=)                          Different: Leu3 and Ala4 (planned)
 NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(=)                              Different: one residue, the whole protein (planned)
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=) (planned)
