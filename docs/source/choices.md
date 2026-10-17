@@ -104,11 +104,14 @@ description's parts one at a time. A normalisation that changed the sequence, or
 them a different variant. What is kept is the change's placement and shape; spellings the specification treats as one
 value, `ins(20)` and `insN[20]`, `M` and `Met`, are one value when parsed.
 
-`NM_001372044.2:c.1568dup` projects at c.1568, where VariantValidator shifts it to c.1569 first.
+`NM_001372044.2:c.1568dup` projects at c.1568, where VariantValidator shifts it to c.1569 first. When it does rewrite,
+`normalize` writes `NM_J.1:c.4del` as `c.5del`, on the last base of its exon, not as `c.6del`, which the transcript
+cannot tell from it but which deletes a base of the next exon on the genome.
 
 Applied in: [no normalisation before projecting](#no-normalisation-before-projecting),
 [intronic positions are carried as given](#intronic-positions-are-carried-as-given),
 [shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats),
+[a shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction),
 [deletions and duplications are written bare](#deletions-and-duplications-are-written-bare),
 [a prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it),
 [reading back gives the normalised variant](#reading-back-gives-the-normalised-variant).
@@ -164,61 +167,61 @@ Representation Specification 2.0.1.
 
 ## At a glance
 
-| Choice                                                                                                                              |    Spec     |    biocommons    |   VariantValidator   |     ClinVar      |
-| :---------------------------------------------------------------------------------------------------------------------------------- | :---------: | :--------------: | :------------------: | :--------------: |
-| [A projection states the bases of the target](#a-projection-states-the-bases-of-the-target)                                         |   agrees    |      agrees      |        agrees        |        –         |
-| [A change across a splice junction has no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form)                     |   agrees    |        –         |       differs        |        –         |
-| [No normalisation before projecting](#no-normalisation-before-projecting)                                                           |      –      |        –         |       differs        |        –         |
-| [Gapped exons are projected locally](#gapped-exons-are-projected-locally)                                                           |      –      |        –         |       differs        |        –         |
-| [A transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion)         |      –      |     differs      | differs inside a run |        –         |
-| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)                                                   |   agrees    |        –         |          –           |        –         |
-| [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)                                             |   agrees    |     differs      |          –           |        –         |
-| [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position)                                                         |   agrees    |        –         |          –           |        –         |
-| [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |   agrees    |        –         |          –           |        –         |
-| [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |   agrees    |        –         |       differs        |        –         |
-| [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          |   agrees    |     differs      |          –           |        –         |
-| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |   agrees    |      agrees      |        agrees        |      agrees      |
-| [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |   agrees    |     differs      |          –           |      agrees      |
-| [A delins is not shifted](#a-delins-is-not-shifted)                                                                                 |      –      |      agrees      |          –           |        –         |
-| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |   agrees    |     differs      |        agrees        |        –         |
-| [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |   agrees    |        –         |          –           |      agrees      |
-| [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |      –      |     differs      |          –           |        –         |
-| [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension)                       |   agrees    |      agrees      |          –           |      agrees      |
-| [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change)                           |   agrees    |        –         |          –           |        –         |
-| [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter)     |   agrees    |        –         |          –           |        –         |
-| [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |   agrees    |        –         |          –           | spelling differs |
-| [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically)                                       | **differs** |     differs      |       differs        |        –         |
-| [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements)                                                       |   agrees    |      agrees      |       differs        |     differs      |
-| [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |   agrees    |     differs      |          –           |        –         |
-| [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |   agrees    |        –         |          –           |        –         |
-| [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |   agrees    |        –         |          –           |        –         |
-| [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else)                     |   agrees    |        –         |          –           |        –         |
-| [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |      –      |     differs      |          –           |        –         |
-| [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |   agrees    |        –         |          –           |     differs      |
-| [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |      –      |        –         |          –           |        –         |
-| [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours)                             |      –      |        –         |          –           |        –         |
-| [A cis allele compares as a set](#a-cis-allele-compares-as-a-set)                                                                   |   agrees    |        –         |          –           |        –         |
-| [The canonical allele is fully justified](#the-canonical-allele-is-fully-justified)                                                 |   agrees    |        –         |          –           |        –         |
-| [Refget accessions are computed over the normalised sequence](#refget-accessions-are-computed-over-the-normalised-sequence)         |   agrees    |        –         |          –           |        –         |
-| [Uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds)                                             |   agrees    |        –         |          –           |        –         |
-| [copyChange is a label](#copychange-is-a-label)                                                                                     |   agrees    |        –         |          –           |        –         |
-| [CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting)                           | **differs** |        –         |          –           |        –         |
-| [Reading back gives the normalised variant](#reading-back-gives-the-normalised-variant)                                             |   agrees    |        –         |          –           |        –         |
-| [Breakends and fusions are not rendered](#breakends-and-fusions-are-not-rendered)                                                   |      –      |        –         |          –           |        –         |
-| [The grammar is checked against the biocommons table](#the-grammar-is-checked-against-the-biocommons-table)                         |      –      | differs on three |          –           |      agrees      |
-| [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |   agrees    |     differs      |          –           |        –         |
-| [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |   agrees    |        –         |       differs        |        –         |
-| [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |   agrees    |     differs      |        agrees        |        –         |
-| [Positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0)                        |   agrees    |        –         |          –           |        –         |
-| [A number too large to hold is refused when parsed](#a-number-too-large-to-hold-is-refused-when-parsed)                             |      –      |        –         |          –           |        –         |
-| [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) |      –      |        –         |          –           |        –         |
-| [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based)                                           |   agrees    |        –         |          –           |        –         |
-| [A mapper keeps its cache](#a-mapper-keeps-its-cache)                                                                               |      –      |        –         |          –           |        –         |
-| [Refget is its own seam](#refget-is-its-own-seam)                                                                                   |   agrees    |        –         |          –           |        –         |
+| Choice                                                                                                                              |                 Spec                 |    biocommons    |   VariantValidator   |     ClinVar      |
+| :---------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------: | :--------------: | :------------------: | :--------------: |
+| [A projection states the bases of the target](#a-projection-states-the-bases-of-the-target)                                         |                agrees                |      agrees      |        agrees        |        –         |
+| [A change across a splice junction has no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form)                     |                agrees                |        –         |       differs        |        –         |
+| [No normalisation before projecting](#no-normalisation-before-projecting)                                                           |                  –                   |        –         |       differs        |        –         |
+| [Gapped exons are projected locally](#gapped-exons-are-projected-locally)                                                           |                  –                   |        –         |       differs        |        –         |
+| [A transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion)         |                  –                   |     differs      | differs inside a run |        –         |
+| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)                                                   |                agrees                |        –         |          –           |        –         |
+| [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)                                             |                agrees                |     differs      |          –           |        –         |
+| [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position)                                                         |                agrees                |        –         |          –           |        –         |
+| [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                agrees                |        –         |          –           |        –         |
+| [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |      agrees; silent on `r.(?)`       |        –         |       differs        |        –         |
+| [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          | agrees; silent on what `c.=` implies |     differs      |          –           |        –         |
+| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |                agrees                |      agrees      |        agrees        |      agrees      |
+| [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |                agrees                |     differs      |          –           |      agrees      |
+| [A delins is not shifted](#a-delins-is-not-shifted)                                                                                 |                  –                   |      agrees      |          –           |        –         |
+| [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                agrees                |     differs      |        agrees        |        –         |
+| [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                agrees                |        –         |          –           |      agrees      |
+| [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                  –                   |     differs      |          –           |        –         |
+| [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension)                       |                agrees                |      agrees      |          –           |      agrees      |
+| [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change)                           |                agrees                |        –         |          –           |        –         |
+| [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter)     |                agrees                |        –         |          –           |        –         |
+| [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |                agrees                |        –         |          –           | spelling differs |
+| [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically)                                       |             **differs**              |     differs      |       differs        |        –         |
+| [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements)                                                       |   agrees; silent on no codon left    |      agrees      |       differs        |     differs      |
+| [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |                agrees                |     differs      |          –           |        –         |
+| [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |                agrees                |        –         |          –           |        –         |
+| [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |     agrees; silent on derivation     |        –         |          –           |        –         |
+| [Stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else)                     |                agrees                |        –         |          –           |        –         |
+| [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                  –                   |     differs      |          –           |        –         |
+| [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |     agrees; silent on `p.Arg12?`     |        –         |          –           |     differs      |
+| [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |                  –                   |        –         |          –           |        –         |
+| [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours)                             |                  –                   |        –         |          –           |        –         |
+| [A cis allele compares as a set](#a-cis-allele-compares-as-a-set)                                                                   |                agrees                |        –         |          –           |        –         |
+| [The canonical allele is fully justified](#the-canonical-allele-is-fully-justified)                                                 |                agrees                |        –         |          –           |        –         |
+| [Refget accessions are computed over the normalised sequence](#refget-accessions-are-computed-over-the-normalised-sequence)         |                agrees                |        –         |          –           |        –         |
+| [Uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds)                                             |                agrees                |        –         |          –           |        –         |
+| [copyChange is a label](#copychange-is-a-label)                                                                                     |                agrees                |        –         |          –           |        –         |
+| [CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting)                           |             **differs**              |        –         |          –           |        –         |
+| [Reading back gives the normalised variant](#reading-back-gives-the-normalised-variant)                                             |                agrees                |        –         |          –           |        –         |
+| [Breakends and fusions are not rendered](#breakends-and-fusions-are-not-rendered)                                                   |                  –                   |        –         |          –           |        –         |
+| [The grammar is checked against the biocommons table](#the-grammar-is-checked-against-the-biocommons-table)                         |                  –                   | differs on three |          –           |      agrees      |
+| [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |                agrees                |     differs      |          –           |        –         |
+| [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |                agrees                |        –         |       differs        |        –         |
+| [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |                agrees                |     differs      |        agrees        |        –         |
+| [Positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0)                        |                agrees                |        –         |          –           |        –         |
+| [A number too large to hold is refused when parsed](#a-number-too-large-to-hold-is-refused-when-parsed)                             |                  –                   |        –         |          –           |        –         |
+| [A range past the end of a sequence returns the bases that exist](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist) |                  –                   |        –         |          –           |        –         |
+| [Interval methods are half-open and 0-based](#interval-methods-are-half-open-and-0-based)                                           |     agrees; silent on intervals      |        –         |          –           |        –         |
+| [A mapper keeps its cache](#a-mapper-keeps-its-cache)                                                                               |                  –                   |        –         |          –           |        –         |
+| [Refget is its own seam](#refget-is-its-own-seam)                                                                                   |      agrees; silent on the seam      |        –         |          –           |        –         |
 
-**Spec** is the HGVS nomenclature, or VRS or refget where the choice is about them; a dash means it is silent. For a
-tool, a dash means it was not checked or the choice does not apply to it. The two departures from a specification are in
-bold.
+**Spec** is the HGVS nomenclature, or VRS or refget where the choice is about them; a dash means it is silent, and a
+verdict silent on part of the choice names that part, given in full in the entry. For a tool, a dash means it was not
+checked or the choice does not apply to it. The two departures from a specification are in bold.
 
 ## Projection between sequences
 
@@ -483,15 +486,14 @@ NM_W.1:r.(?)            →  p.: an error; the protein follows the DNA change, n
 NM_W.1:r.(?)  vs  NM_W.1:r.?                                    Different
 ```
 
-- **Agrees:** HGVS, on the numbering.
 - **Differs:** VariantValidator accepts `r.` in exons but rejects `r.*10`, intronic `r.`, `r.spl` and `r.0`, all of
   which HGVS allows.
-- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotide `r.123`
-  relates to `c.123` or `n.123`";
-  [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/) for `r.0`, `r.spl`, `r.?`,
-  `r.=`; [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) and
-  [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for `r.(?)`. The
-  specification does not say what `r.(?)` implies for the protein or how it compares; those are weaver's reading.
+- **Spec (agrees; silent on what `r.(?)` implies for the protein and how it compares):**
+  [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotide `r.123` relates to `c.123` or
+  `n.123`"; [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/) for `r.0`,
+  `r.spl`, `r.?`, `r.=`; [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) and
+  [protein deletion](https://hgvs-nomenclature.org/stable/recommendations/protein/deletion/) for `r.(?)`. The readings
+  it is silent on are weaver's.
 - **Tests:** `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;
   `rna_test::r_is_c_in_rna_letters`, `::r_on_a_non_coding_transcript_is_n`,
   `::statements_about_the_transcript_round_trip`, `::r_predicts_the_protein_like_c`,
@@ -566,12 +568,12 @@ NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
 
 - **Differs:** biocommons rejects `c.=`, `c.[=]` and `r.=`, and parses `p.=`. VariantValidator: not checked. The ClinVar
   sample has no whole-sequence statement.
-- **Spec (agrees):** [DNA substitution](https://hgvs-nomenclature.org/stable/recommendations/DNA/substitution/): "`c.=`
+- **Spec (agrees; silent on the protein consequence of `c.=`, its genomic form and allele, `n.=`, and how `c.=` relates
+  to `r.=`):** [DNA substitution](https://hgvs-nomenclature.org/stable/recommendations/DNA/substitution/): "`c.=`
   indicates the entire `NM_004006.2` coding DNA reference sequence was analysed and no change was identified";
   [DNA alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for `c.[2376G>C];[=]`; the
-  specification writes `[=]` only as a whole allele and never beside a change in one. It says nothing about the protein
-  consequence of `c.=`, its genomic form or allele, `n.=`, or how `c.=` relates to `r.=`; those are weaver's reading. It
-  writes `r.(=)` for "no changes on the RNA level are expected (RNA not analysed)"
+  specification writes `[=]` only as a whole allele and never beside a change in one. The readings it is silent on are
+  weaver's. It writes `r.(=)` for "no changes on the RNA level are expected (RNA not analysed)"
   ([uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/)), which is a different claim from `c.=`.
 - **Tests:** `whole_sequence_identity_test::c_identity_prints_back_as_parsed`,
   `::c_identity_is_its_one_member_cis_allele`, `::c_identity_is_the_predicted_protein_unchanged_on_its_own_protein`,
@@ -963,9 +965,10 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   silent at the stop, `p.Ter1648=`, which leaves the same protein.
 - **Differs:** ClinVar writes `Met1fs`, `Met1_Glu2insGly…`, committing to a consequence. For a substitution entirely in
   the 5'UTR VariantValidator writes `p.(=)` where weaver writes `p.?`; both are defensible.
-- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
-  `p.0?` "when you predict that no protein is produced"; `p.Met1?` as above; `p.Met1ext-5` shows a 5'UTR change can
-  activate an upstream initiation site. It is *silent* on an edit that leaves no codon where the protein changes.
+- **Spec (agrees; silent on an edit that leaves no codon where the protein changes):**
+  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/): `p.0?` "when you
+  predict that no protein is produced"; `p.Met1?` as above; `p.Met1ext-5` shows a 5'UTR change can activate an upstream
+  initiation site.
 - *Not checked:* biocommons, VariantValidator and ClinVar on an edit that leaves no codon where the protein changes.
 - **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements`,
   `::a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged`,
@@ -1094,7 +1097,8 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
            with NP_X.1 served as MKLAYQ  →  ValidationError: the CDS does not translate to NP_X.1, differing from residue 6
 ```
 
-- **Spec (agrees):** VRS 2.0.1 `Allele` on a protein `SequenceReference`; none in HGVS.
+- **Spec (agrees; silent on deriving a protein allele from a coding change):** VRS 2.0.1 defines an `Allele` on a
+  protein `SequenceReference`; HGVS has no allele.
 - **Tests:** `protein_allele_test::consequences_have_no_allele`;
   `protein_allele_from_coding_test::consequences_without_a_p_sequence_still_have_an_allele`,
   `::definite_changes_give_the_same_allele_by_either_route`,
@@ -1189,9 +1193,9 @@ NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
 ```
 
 - **Differs:** ClinVar commits.
-- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/)
-  defines `p.?` and `p.(Met1?)` as statements of what is not known. It is silent on a `?` after any other residue; that
-  reading is weaver's.
+- **Spec (agrees; silent on a `?` after any residue but `Met1`):**
+  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) defines `p.?` and
+  `p.(Met1?)` as statements of what is not known. The reading of `p.Arg12?` is weaver's.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
   `statements_test::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
   `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`,
@@ -1666,8 +1670,8 @@ NM_MINUS10.1:c.1A>G     →  (1089, 1090)
 NM_MINUS10.1:c.1_3del   →  (1087, 1090)     low to high on the genome
 ```
 
-- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "there is no nucleotide
-  `c.0`".
+- **Spec (agrees; silent on 0-based half-open intervals and an inclusive exon end, which are weaver's interface):**
+  [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "there is no nucleotide `c.0`".
 - **Tests:** `transcript_coordinates_round_trip` and `intron_offsets_agree_from_either_exon` (properties);
   `transcript_coordinates_test::spdi_interval_honours_cds_end_anchor`, `::spdi_interval_honours_non_zero_cds_start`,
   `::spdi_interval_on_minus_strand`.
@@ -1706,7 +1710,8 @@ weaver.VariantMapper(provider).from_vrs(allele)                        # DataPro
 weaver.VariantMapper(provider).from_vrs(allele, "NC_TEST.1")           # works: the caller names the sequence
 ```
 
-- **Spec (agrees):** [refget](https://samtools.github.io/hts-specs/refget.html).
+- **Spec (agrees; silent on keeping the digest lookup apart from the sequence source):**
+  [refget](https://samtools.github.io/hts-specs/refget.html) defines the digest and the lookup of a sequence by it.
 - **Tests:** `vrs_round_trip_test::the_sequence_is_named_by_the_caller_or_looked_up_and_always_checked`;
   `tests/test_refget.py::test_refget_lookups_both_ways`;
   `tests/test_digest_table.py::test_the_table_agrees_with_what_the_mapper_computes_and_names_the_sequence_back`.
