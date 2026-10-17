@@ -144,6 +144,32 @@ impl StatedBases {
             ranges: vec![(start, end)],
         }
     }
+
+    /// The bases over each of `ranges` of `accession`, in whatever order and
+    /// however they overlap: ranges that overlap or touch are one.
+    pub(crate) fn of_ranges(
+        accession: &str,
+        ranges: impl IntoIterator<Item = (usize, usize)>,
+    ) -> Self {
+        let mut sorted: Vec<(usize, usize)> = ranges.into_iter().collect();
+        sorted.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        for r in sorted {
+            match merged.last_mut() {
+                Some(last) if r.0 <= last.1 => last.1 = last.1.max(r.1),
+                _ => merged.push(r),
+            }
+        }
+        StatedBases {
+            accession: accession.to_string(),
+            ranges: merged,
+        }
+    }
+
+    /// The ranges, in order along the sequence.
+    pub(crate) fn ranges(&self) -> &[(usize, usize)] {
+        &self.ranges
+    }
 }
 
 /// The smallest divisor `d` of `seed_len` such that some `d`-base window of

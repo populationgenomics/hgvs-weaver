@@ -1752,3 +1752,290 @@ fn the_generated_cis_alleles_project() {
         "{minus} of {cases} projected on the minus strand"
     );
 }
+
+// Reading an allele in cis into one sequence.
+
+/// A member of an allele on a sequence of `len` bases: any of the edits the
+/// single-variant properties use, or a substitution, an inversion or a
+/// positional identity, so that members overlap in every way the rule reads.
+fn cis_member(len: usize) -> impl Strategy<Value = PlacedHgvs> {
+    let base = prop::sample::select(BASES.to_vec());
+    let sub = (0..len, base).prop_map(|(s, b)| PlacedHgvs {
+        start: s,
+        end: s + 1,
+        edit: NaEdit::RefAlt {
+            ref_: None,
+            alt: Some(b.to_string()),
+            uncertain: false,
+        },
+    });
+    let span = (0..len - 1).prop_flat_map(move |s| (Just(s), s + 2..=len.min(s + 5)));
+    let inv = span.clone().prop_map(|(s, e)| PlacedHgvs {
+        start: s,
+        end: e,
+        edit: NaEdit::Inv {
+            ref_: None,
+            uncertain: false,
+        },
+    });
+    let identity = span.prop_map(|(s, e)| PlacedHgvs {
+        start: s,
+        end: e,
+        edit: NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain: false,
+        },
+    });
+    prop_oneof![4 => edit_on_kinds(len, false), 2 => sub, 1 => inv, 1 => identity]
+}
+
+/// A member as [`cis_member`] builds one, or one no sequence can be built
+/// from: a copy number, or an insertion of bases it does not state.
+fn cis_member_or_unapplied(len: usize) -> impl Strategy<Value = PlacedHgvs> {
+    let copy = (0..len - 1)
+        .prop_flat_map(move |s| (Just(s), s + 1..=len))
+        .prop_map(|(s, e)| PlacedHgvs {
+            start: s,
+            end: e,
+            edit: NaEdit::NACopy {
+                copy: 3,
+                uncertain: false,
+            },
+        });
+    let unstated = (1..len - 1).prop_map(|b| PlacedHgvs {
+        start: b - 1,
+        end: b + 1,
+        edit: NaEdit::InsLength {
+            min: 2,
+            max: 2,
+            uncertain: false,
+        },
+    });
+    prop_oneof![6 => cis_member(len), 1 => copy, 1 => unstated]
+}
+
+/// A short sequence, an allele on it, and either the same members in another
+/// order or another allele, so that both equal and different sequences occur.
+fn seq_and_two_alleles() -> impl Strategy<Value = (String, Vec<PlacedHgvs>, Vec<PlacedHgvs>)> {
+    dna(8, 24).prop_flat_map(|seq| {
+        let len = seq.len();
+        let allele = || prop::collection::vec(cis_member(len), 1..=3);
+        (Just(seq), allele(), allele(), any::<bool>()).prop_flat_map(|(seq, a, b, reorder)| {
+            let b = if reorder {
+                Just(a.clone()).prop_shuffle().boxed()
+            } else {
+                Just(b).boxed()
+            };
+            (Just(seq), Just(a), b)
+        })
+    })
+}
+
+fn genomic_cis(members: &[PlacedHgvs]) -> hgvs_weaver::CisPhasedVariant {
+    hgvs_weaver::CisPhasedVariant::new(
+        "X".into(),
+        None,
+        members
+            .iter()
+            .map(|p| SequenceVariant::Genomic(genomic_variant("X", p)))
+            .collect(),
+    )
+    .unwrap()
+}
+
+/// What reading an allele answers, in a form two answers can be compared by:
+/// the error's kind, and an ambiguity's readings.
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Read,
+    Contradictory,
+    Ambiguous(Vec<String>),
+    Unsupported,
+    Mismatch,
+}
+
+fn outcome(result: &Result<hgvs_weaver::reading::CisReading, hgvs_weaver::HgvsError>) -> Outcome {
+    use hgvs_weaver::HgvsError as E;
+    match result {
+        Ok(_) => Outcome::Read,
+        Err(E::ValidationError(m)) if m.contains("has no reading") => Outcome::Contradictory,
+        Err(E::Ambiguous { readings, .. }) => {
+            Outcome::Ambiguous(readings.iter().map(ToString::to_string).collect())
+        }
+        Err(E::UnsupportedOperation(_)) => Outcome::Unsupported,
+        Err(E::ReferenceMismatch { .. }) => Outcome::Mismatch,
+        Err(other) => panic!("reading failed: {other}"),
+    }
+}
+
+/// The delins over the one stretch where `edited` differs from `seq`, or
+/// the deletion where it only loses bases: the same sequence as an allele
+/// makes, in one member. `None` when `edited` is `seq`.
+fn as_one_member(seq: &str, edited: &str) -> Option<PlacedHgvs> {
+    if seq == edited {
+        return None;
+    }
+    let prefix = seq
+        .bytes()
+        .zip(edited.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let room = seq.len().min(edited.len()) - prefix;
+    let suffix = seq
+        .bytes()
+        .rev()
+        .zip(edited.bytes().rev())
+        .take(room)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let (mut start, mut end) = (prefix, seq.len() - suffix);
+    // A delins replaces at least one base.
+    if start == end {
+        if end < seq.len() {
+            end += 1;
+        } else {
+            start -= 1;
+        }
+    }
+    let alt = &edited[start..edited.len() - (seq.len() - end)];
+    Some(PlacedHgvs {
+        start,
+        end,
+        edit: if alt.is_empty() {
+            NaEdit::Del {
+                ref_: None,
+                uncertain: false,
+            }
+        } else {
+            NaEdit::RefAlt {
+                ref_: Some(String::new()),
+                alt: Some(alt.to_string()),
+                uncertain: false,
+            }
+        },
+    })
+}
+
+/// The bases a reading of an allele on `X` makes of all of `seq`.
+fn made_by(mapper: &VariantMapper, seq: &str, cis: &hgvs_weaver::CisPhasedVariant) -> String {
+    let reading = mapper
+        .read_cis(cis)
+        .unwrap_or_else(|e| panic!("{cis}: {e}"));
+    let reference = mapper.refs.reference("X", G);
+    reading.sequence(&reference, 0, seq.len()).unwrap()
+}
+
+/// The property tests over generated alleles are not vacuous: on a fixed
+/// sample, a good share of the alleles have one reading.
+#[test]
+fn the_generated_alleles_are_mostly_read() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = seq_and_two_alleles();
+    let cases = 1000;
+    let mut read = 0;
+    for _ in 0..cases {
+        let (seq, a, _) = strategy.new_tree(&mut runner).unwrap().current();
+        let hdp = Provider::new().sequence("X", &seq);
+        read += usize::from(VariantMapper::new(&hdp).read_cis(&genomic_cis(&a)).is_ok());
+    }
+    assert!(read * 10 >= cases * 4, "{read} of {cases} alleles read");
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// Comparing two readings by walking their segments, without building
+    /// either sequence, agrees with building both and comparing the strings,
+    /// whether the two are split alike or one is the allele's whole change
+    /// in one member.
+    #[test]
+    fn walking_two_readings_agrees_with_building_them((seq, a, b) in seq_and_two_alleles()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let Ok(ra) = mapper.read_cis(&genomic_cis(&a)) else {
+            return Ok(());
+        };
+        let reference = mapper.refs.reference("X", G);
+        let built_a = ra.sequence(&reference, 0, seq.len()).unwrap();
+        prop_assert_eq!(ra.makes_reference(&reference).unwrap(), built_a == seq);
+        if let Some(whole) = as_one_member(&seq, &built_a) {
+            let one = genomic_cis(std::slice::from_ref(&whole));
+            let r_one = mapper.read_cis(&one).unwrap_or_else(|e| panic!("{one}: {e}"));
+            prop_assert!(ra.same_sequence(&r_one, &reference).unwrap(), "{} and {}", genomic_cis(&a), one);
+        }
+        if let Ok(rb) = mapper.read_cis(&genomic_cis(&b)) {
+            let built_b = rb.sequence(&reference, 0, seq.len()).unwrap();
+            prop_assert_eq!(
+                ra.same_sequence(&rb, &reference).unwrap(),
+                built_a == built_b,
+                "{} makes {} and {} makes {}", genomic_cis(&a), built_a, genomic_cis(&b), built_b
+            );
+        }
+    }
+
+    /// Members that share no base and do not touch make what applying each
+    /// on its own makes: the allele's one reading, or, where members that
+    /// cancel can be paired more than one way, every reading listed.
+    #[test]
+    fn members_apart_make_what_each_makes_alone(
+        (seq, members) in (dna(12, 40), 1usize..=3).prop_flat_map(|(seq, k)| {
+            // each member in a stretch of its own, one base short of the next
+            let chunk = seq.len() / k;
+            let members: Vec<_> = (0..k)
+                .map(|i| {
+                    cis_member(chunk - 1).prop_map(move |mut p| {
+                        p.start += i * chunk;
+                        p.end += i * chunk;
+                        p
+                    })
+                })
+                .collect();
+            (Just(seq), members).prop_flat_map(|(seq, m)| (Just(seq), Just(m.clone()).prop_shuffle()))
+        })
+    ) {
+        let mut sorted = members.clone();
+        sorted.sort_by_key(|p| (p.start, p.end));
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let expected = sorted.iter().rev().fold(seq.clone(), |s, p| apply(&s, p));
+        let cis = genomic_cis(&members);
+        match mapper.read_cis(&cis) {
+            Ok(_) => prop_assert_eq!(made_by(&mapper, &seq, &cis), expected),
+            Err(hgvs_weaver::HgvsError::Ambiguous { readings, .. }) => {
+                for reading in readings {
+                    let as_allele = match reading {
+                        SequenceVariant::CisPhased(c) => c,
+                        one => hgvs_weaver::CisPhasedVariant::new("X".into(), None, vec![one]).unwrap(),
+                    };
+                    prop_assert_eq!(made_by(&mapper, &seq, &as_allele), expected.clone(), "{}", cis);
+                }
+            }
+            Err(e) => prop_assert!(false, "{cis}: {e}"),
+        }
+    }
+
+    /// The order members are written in changes nothing: the same sequence and
+    /// statements, or the same error with the same readings.
+    #[test]
+    fn member_order_does_not_change_the_reading(
+        (seq, members, shuffled) in dna(8, 24).prop_flat_map(|seq| {
+            let len = seq.len();
+            prop::collection::vec(cis_member_or_unapplied(len), 1..=4).prop_flat_map(move |m| {
+                (Just(seq.clone()), Just(m.clone()), Just(m).prop_shuffle())
+            })
+        })
+    ) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let (a, b) = (genomic_cis(&members), genomic_cis(&shuffled));
+        let (ra, rb) = (mapper.read_cis(&a), mapper.read_cis(&b));
+        prop_assert_eq!(outcome(&ra), outcome(&rb), "{} and {}", a, b);
+        if let (Ok(ra), Ok(rb)) = (ra, rb) {
+            let reference = mapper.refs.reference("X", G);
+            prop_assert!(ra.same_sequence(&rb, &reference).unwrap(), "{} and {}", a, b);
+            prop_assert_eq!(ra.stated(), rb.stated(), "{} and {}", a, b);
+        }
+    }
+}
