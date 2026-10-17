@@ -72,12 +72,12 @@ def test_a_coding_variant_round_trips_through_the_genome(provider: weaver.DataPr
 # Good — the enforcement can regress; the property it guards cannot
 def test_a_reference_base_the_record_does_not_carry_is_refused(provider: weaver.DataProvider) -> None:
     ...
-    with pytest.raises(weaver.TranscriptMismatchError, match='expected A, found G'):
+    with pytest.raises(weaver.ReferenceMismatchError, match='expected A, found G'):
         mapper.c_to_g(weaver.parse('NM_000001.1:c.5A>T'))
 
 # Bad — change detector: every change to the error's wording edits this string
 def test_mismatch_message(provider: weaver.DataProvider) -> None:
-    assert str(error) == 'TranscriptMismatchError: expected A, found G at transcript indices 4..5'
+    assert str(error) == 'ReferenceMismatchError: expected A, found G at transcript indices 4..5'
 ```
 
 - **Narrow assertions.** Assert the fields the behaviour is about, not equality of the whole object, which silently

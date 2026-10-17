@@ -391,7 +391,7 @@ impl NaEdit {
     ///
     /// # Errors
     ///
-    /// [`HgvsError::TranscriptMismatch`] naming the stated and the held bases.
+    /// [`HgvsError::ReferenceMismatch`] naming the stated and the held bases.
     pub fn check_stated(
         &self,
         accession: &str,
@@ -408,7 +408,7 @@ impl NaEdit {
         if stated.eq_ignore_ascii_case(&found) {
             return Ok(());
         }
-        Err(HgvsError::TranscriptMismatch {
+        Err(HgvsError::ReferenceMismatch {
             accession: accession.to_string(),
             expected: stated.to_string(),
             found,
@@ -426,7 +426,7 @@ impl NaEdit {
     ///
     /// # Errors
     ///
-    /// [`HgvsError::TranscriptMismatch`] when the edit states bases the
+    /// [`HgvsError::ReferenceMismatch`] when the edit states bases the
     /// reference does not hold over the range.
     pub fn resolve(
         &self,
@@ -607,7 +607,7 @@ impl AaEdit {
     /// extension, `p.?`, `p.0`, `p.Xxx1?`) cannot be resolved and are
     /// unsupported. The reference is what the sequence holds; a repeat unit
     /// stated where the sequence does not carry it is a
-    /// [`HgvsError::TranscriptMismatch`].
+    /// [`HgvsError::ReferenceMismatch`].
     pub fn resolve_with(
         &self,
         accession: &str,
@@ -706,7 +706,7 @@ fn unit_absent(
     start: usize,
     fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
 ) -> Result<HgvsError, HgvsError> {
-    Ok(HgvsError::TranscriptMismatch {
+    Ok(HgvsError::ReferenceMismatch {
         accession: accession.to_string(),
         expected: unit.to_string(),
         found: fetch(start, start + unit.len())?,

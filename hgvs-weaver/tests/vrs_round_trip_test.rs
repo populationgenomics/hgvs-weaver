@@ -189,7 +189,7 @@ fn alleles_from_other_producers_parse() {
     ));
     assert!(matches!(
         mapper.from_spdi("NC_TEST.1:6:A:C"),
-        Err(HgvsError::TranscriptMismatch { .. })
+        Err(HgvsError::ReferenceMismatch { .. })
     ));
     assert_eq!(
         mapper.from_spdi("NC_TEST.1:6:1:C").unwrap().to_string(),

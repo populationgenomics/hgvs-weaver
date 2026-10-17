@@ -137,7 +137,7 @@ fn assert_mismatch<T: std::fmt::Debug>(
     held: &str,
 ) {
     match result {
-        Err(HgvsError::TranscriptMismatch {
+        Err(HgvsError::ReferenceMismatch {
             accession: ac,
             expected,
             found,

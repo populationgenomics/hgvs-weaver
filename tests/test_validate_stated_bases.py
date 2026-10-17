@@ -100,5 +100,5 @@ class SplicedProvider(Provider):
 
 def test_a_base_the_genome_lacks_is_an_error_naming_the_genome() -> None:
     mapper = weaver.VariantMapper(SplicedProvider())
-    with pytest.raises(weaver.TranscriptMismatchError, match=r"expected C, found G on NC_TEST\.1"):
+    with pytest.raises(weaver.ReferenceMismatchError, match=r"expected C, found G on NC_TEST\.1"):
         mapper.c_to_g(weaver.parse("NM_TEST:c.40+1C>A"))

@@ -287,7 +287,7 @@ def classify(row: dict[str, str]) -> str:  # noqa: C901, PLR0912
         # Categorize known errors
         if "Transcript" in rs_p and "not found" in rs_p:
             category = "Provider Error (Missing Transcript)"
-        elif "TranscriptMismatch" in rs_p:
+        elif "ReferenceMismatch" in rs_p or "TranscriptMismatch" in rs_p:  # the latter in older results
             category = "Weaver Error: Reference sequence mismatch"
         else:
             err_str = rs_p.split(":")[-1] if ":" in rs_p else "Generic"

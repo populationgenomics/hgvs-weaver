@@ -28,6 +28,14 @@ class IdentifierType:
 
 class ParseError(HGVSError): ...
 
+class ReferenceMismatchError(HGVSError):
+    """A base or residue a description states is not what its reference holds.
+
+    The reference is the transcript record for an exonic c., n. or r. base, the genome (on the
+    transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by
+    every operation that reads the stated bases; Variant.validate answers False instead.
+    """
+
 @final
 class StartCodonConvention:
     """
@@ -43,14 +51,6 @@ class StartCodonConvention:
     """Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default."""
     def __eq__(self, value: object) -> bool: ...
     def __hash__(self) -> int: ...
-
-class TranscriptMismatchError(HGVSError):
-    """A base or residue a description states is not what its reference holds.
-
-    The reference is the transcript record for an exonic c., n. or r. base, the genome (on the
-    transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by
-    every operation that reads the stated bases; Variant.validate answers False instead.
-    """
 
 class UnsupportedOperationError(HGVSError): ...
 class ValidationError(HGVSError): ...
@@ -129,7 +129,7 @@ class Variant:
 
         Returns:
             True if every stated base is there, False where an operation reading the
-            variant would raise TranscriptMismatchError. c.= names no bases and is True
+            variant would raise ReferenceMismatchError. c.= names no bases and is True
             once its transcript is found to have a CDS.
 
         Raises:
@@ -189,7 +189,7 @@ class VariantMapper:
         Raises:
             ValueError: If var_c is not a coding variant or an allele
                 in cis of them.
-            TranscriptMismatchError: If a base the variant states is not the record's
+            ReferenceMismatchError: If a base the variant states is not the record's
                 (exonic) or the genome's on the transcript's strand (intronic).
             HGVSError: If mapping fails due to data or alignment issues.
         """
@@ -443,7 +443,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_p is not a protein variant.
-            TranscriptMismatchError: If the residue var_p names is not the protein's.
+            ReferenceMismatchError: If the residue var_p names is not the protein's.
             HGVSError: If back-conversion fails due to unsupported consequence or missing transcript.
         """
     def to_spdi(self, var: Variant, unambiguous: bool = ...) -> str:

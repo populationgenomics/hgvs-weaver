@@ -125,7 +125,7 @@ impl ExonBounds {
 ///
 /// # Errors
 ///
-/// [`HgvsError::TranscriptMismatch`] when the edit states bases the reference
+/// [`HgvsError::ReferenceMismatch`] when the edit states bases the reference
 /// does not hold, whether or not the edit would move.
 pub fn normalize(
     reference: &Reference<'_, '_>,

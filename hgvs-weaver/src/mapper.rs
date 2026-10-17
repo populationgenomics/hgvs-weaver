@@ -180,7 +180,7 @@ fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize),
 ///
 /// # Errors
 ///
-/// [`HgvsError::TranscriptMismatch`] for a stated residue the protein does
+/// [`HgvsError::ReferenceMismatch`] for a stated residue the protein does
 /// not hold, a position past its end included; a `ValidationError` for an
 /// interval that runs backwards or names no position.
 pub(crate) fn residue_range(
@@ -209,7 +209,7 @@ pub(crate) fn residue_range(
         if stated.eq_ignore_ascii_case(&found) || stop_past_the_end {
             return Ok(());
         }
-        Err(HgvsError::TranscriptMismatch {
+        Err(HgvsError::ReferenceMismatch {
             accession: reference.accession().to_string(),
             expected: stated,
             found,
@@ -1512,7 +1512,7 @@ impl<'a> VariantMapper<'a> {
             match self.g_to_c(var_g, &tx_ac) {
                 Ok(vc) => results.push(vc),
                 // A base the genome lacks fails on every transcript alike.
-                Err(e @ HgvsError::TranscriptMismatch { .. }) => return Err(e),
+                Err(e @ HgvsError::ReferenceMismatch { .. }) => return Err(e),
                 Err(e) => errors.push(format!("{}: {}", tx_ac, e)),
             }
         }
@@ -1932,11 +1932,11 @@ impl<'a> VariantMapper<'a> {
     ///
     /// Returns `Ok(true)` when they hold, or when the edit states none (or
     /// only a length); `Ok(false)` where an operation reading the variant
-    /// refuses it with [`HgvsError::TranscriptMismatch`].
+    /// refuses it with [`HgvsError::ReferenceMismatch`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
         match self.check_stated(var) {
             Ok(()) => Ok(true),
-            Err(HgvsError::TranscriptMismatch { .. }) => Ok(false),
+            Err(HgvsError::ReferenceMismatch { .. }) => Ok(false),
             Err(e) => Err(e),
         }
     }
@@ -2517,7 +2517,7 @@ impl<'a> VariantMapper<'a> {
             let end = start.checked_add(del.len()).ok_or_else(past_any_sequence)?;
             let actual = self.refs.reference(ac, kind).slice(start, end)?;
             if !actual.eq_ignore_ascii_case(del) {
-                return Err(HgvsError::TranscriptMismatch {
+                return Err(HgvsError::ReferenceMismatch {
                     accession: ac.to_string(),
                     expected: del.to_string(),
                     found: actual,
@@ -2886,7 +2886,7 @@ impl<'a> VariantMapper<'a> {
     /// The variant as a `g.` variant on its reference: genomic and mitochondrial
     /// as written, transcript-space variants mapped through their transcript.
     /// Either way the bases it states are checked, so a mismatch is a
-    /// [`HgvsError::TranscriptMismatch`]. `None` for protein variants and
+    /// [`HgvsError::ReferenceMismatch`]. `None` for protein variants and
     /// cis alleles.
     pub fn as_genomic(&self, var: &crate::SequenceVariant) -> Option<Result<GVariant, HgvsError>> {
         use crate::SequenceVariant as SV;

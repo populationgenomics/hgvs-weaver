@@ -27,7 +27,7 @@ pub enum HgvsError {
     /// holds: `expected` is the stated bases, `found` the reference's over
     /// the 0-based half-open `[start, end)` of `accession`, read on the strand
     /// the description is written on.
-    TranscriptMismatch {
+    ReferenceMismatch {
         accession: String,
         expected: String,
         found: String,
@@ -55,7 +55,7 @@ impl fmt::Display for HgvsError {
             HgvsError::DataProviderError(msg) => write!(f, "Data provider error: {msg}"),
             HgvsError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {msg}"),
             HgvsError::CigarError(msg) => write!(f, "CIGAR error: {msg}"),
-            HgvsError::TranscriptMismatch {
+            HgvsError::ReferenceMismatch {
                 accession,
                 expected,
                 found,

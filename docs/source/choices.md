@@ -1215,8 +1215,8 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
 **The bases a description states — a substitution's, those written after `del`, `dup` or `inv`, the deleted part of a
 `delins`, an identity's `c.5A=`, a repeat's unit — and the residues a `p.` description names are compared with the
 reference they cite by every operation that reads the description against a sequence. Where they differ the answer is a
-`TranscriptMismatchError` naming the stated and the reference's bases; `validate` is the same comparison answered as
-true or false.**
+`ReferenceMismatchError` naming the stated and the reference's bases; `validate` is the same comparison answered as true
+or false.**
 
 A stated base is a claim about the reference. When it is not there, the description was written against another version,
 on the other strand, at another position, or with a typo, and no reading of it is safe: using the reference's base
@@ -1251,17 +1251,17 @@ genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S
 ```text
 validate NM_S.1:c.9+1G>A        →  true
 validate NM_S.1:c.9+1C>A        →  false                         intronic, read on the genome
-c_to_g   NM_S.1:c.9+1C>A        →  TranscriptMismatchError       expected C, found G on NC_S.1
+c_to_g   NM_S.1:c.9+1C>A        →  ReferenceMismatchError       expected C, found G on NC_S.1
 c_to_g   NM_R.1:c.9+1G>A        →  NC_R.1:g.36C>T                the transcript's strand
-c_to_g   NM_S.1:c.12T>A         →  TranscriptMismatchError       the genome's T is not the record's C
+c_to_g   NM_S.1:c.12T>A         →  ReferenceMismatchError       the genome's T is not the record's C
 c_to_g   NM_S.1:c.12C>A         →  NC_S.1:g.27T>A                the record's C, written for the genome
-c_to_g   NM_S.1:c.4_6CTG[5]     →  TranscriptMismatchError       the unit is not there
-c_to_p   NM_S.1:c.*3A>T         →  TranscriptMismatchError       though the prediction reads no codon
-g_to_c   NC_S.1:g.15C>A         →  TranscriptMismatchError
-normalize, to_spdi, to_vrs, canonical_allele, equivalent  NC_S.1:g.6C>T  →  TranscriptMismatchError
-to_vrs   NC_S.1:g.6_7delCCinsN[3] →  TranscriptMismatchError
-from_spdi NC_S.1:5:C:T          →  TranscriptMismatchError       an SPDI deletion states bases too
-p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  TranscriptMismatchError   residue 2 is Lys
+c_to_g   NM_S.1:c.4_6CTG[5]     →  ReferenceMismatchError       the unit is not there
+c_to_p   NM_S.1:c.*3A>T         →  ReferenceMismatchError       though the prediction reads no codon
+g_to_c   NC_S.1:g.15C>A         →  ReferenceMismatchError
+normalize, to_spdi, to_vrs, canonical_allele, equivalent  NC_S.1:g.6C>T  →  ReferenceMismatchError
+to_vrs   NC_S.1:g.6_7delCCinsN[3] →  ReferenceMismatchError
+from_spdi NC_S.1:5:C:T          →  ReferenceMismatchError       an SPDI deletion states bases too
+p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   residue 2 is Lys
 ```
 
 - **Agrees:** biocommons (1.5.7) and VariantValidator refuse an exonic mismatch, `NM_000059.4:c.316A>G`, "Variant
