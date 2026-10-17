@@ -612,7 +612,7 @@ on TTCAGCAGTT:  g.3_5del       →  g.6_8del                       the first CAG
 on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base, so rotated by one
 ```
 
-- **Agrees:** HGVS, biocommons, VariantValidator and ClinVar.
+- **Agrees:** biocommons, VariantValidator and ClinVar.
 - **Spec (agrees):** [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/): "tandem duplications are described
   as a duplication, not an insertion".
@@ -741,7 +741,7 @@ NC_TEST.1:m.1008_1010delTAC    →  NC_TEST.1:m.1008_1010delTAC    unmoved, so t
 on TTCAGCAGTT:  g.3_5delCAG    →  g.6_8del                       moved, so they go
 ```
 
-- **Agrees:** HGVS and VariantValidator.
+- **Agrees:** VariantValidator.
 - **Differs:** biocommons fills the deleted bases in.
 - **Spec (agrees):** [deletion](https://hgvs-nomenclature.org/stable/recommendations/DNA/deletion/): "the recommendation
   is not to describe the variant as `g.33344591delA`".
@@ -815,7 +815,7 @@ toy c.20_21del                 →  p.Ter7SerextTer2       the AA of the stop TA
 toy c.17_18del                 →  p.Arg6LeufsTer4        two bases earlier, Arg6 changes first: frameshift
 ```
 
-- **Agrees:** HGVS, biocommons, ClinVar.
+- **Agrees:** biocommons and ClinVar.
 - **Spec (agrees):** [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): "the variant
   extends the amino acid sequence at the C-terminal end and is therefore by definition an extension".
 - **Tests:** `src/protein.rs::a_frameshift_in_the_stop_codon_is_an_extension`,
@@ -871,7 +871,6 @@ c.4_6del   →  p.Lys3del    the first Lys codon is deleted; the second is named
 c.4_6dup   →  p.Lys3dup
 ```
 
-- **Agrees:** HGVS.
 - **Differs:** ClinVar, in spelling: it writes `Xxx_Yyyins…` at the 3' end of a run where weaver writes `dup`, and
   one-letter repeat forms such as `p.490PRS[1]`; 170 rows in 100,000 are the same protein in another spelling, and
   equivalence judges them Analogous.
@@ -1066,7 +1065,7 @@ toy c.4A>C       →  p.Lys2Gln
 toy c.6A>G       →  p.Lys2=            AAA → AAG
 ```
 
-- **Agrees:** HGVS.
+- **Others:** not checked.
 - **Spec (agrees):** [frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/): the stop
   position is counted "starting from the first changed amino acid as codon 1"; "the shortest frameshift variant possible
   contains `fsTer2`".
