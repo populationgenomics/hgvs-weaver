@@ -264,6 +264,27 @@ fn a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continu
 }
 
 #[test]
+fn a_repeat_that_makes_the_reference_inside_a_plus_strand_exon_normalises_without_the_genome() {
+    // NM_FWD.1 without NC_000098.1: the run c.4_6 ends inside its exon, so the
+    // genome cannot count it differently.
+    let hdp = Provider::new()
+        .sequence("NM_FWD.1", TX)
+        .transcript(single_exon_transcript(
+            "NM_FWD.1",
+            "NC_000098.1",
+            10,
+            Strand::Plus,
+            0,
+            20,
+            TX.len() as i32,
+        ));
+    let normalised = VariantMapper::new(&hdp)
+        .normalize_variant(parse("NM_FWD.1:c.4A[3]"))
+        .unwrap();
+    assert_eq!(normalised.to_string(), "NM_FWD.1:c.4_6=");
+}
+
+#[test]
 fn on_the_minus_strand_a_multi_base_repeat_written_mid_run_inserts_one_unit() {
     // From c.10 the run is c.10_15 (two CAG); three copies add one, a CTG in
     // the genome's CTGCTGCTG at g.19_27.

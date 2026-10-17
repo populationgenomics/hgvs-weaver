@@ -115,6 +115,36 @@ fn project_edit(
     normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
+/// Whether the genome can count a longer run than a transcript repeat's run
+/// over indices `start..=last` (`last` `None` for one base): on the minus
+/// strand, where the genome reads the run on from its 5' end, and on the plus
+/// strand where the run reaches its exon's last base and the intron can
+/// continue it, or its exon is aligned with gaps. Otherwise the two runs are
+/// one, and need no genome to tell.
+fn genome_may_count_more(
+    am: &TranscriptMapper,
+    start: usize,
+    last: Option<usize>,
+) -> Result<bool, HgvsError> {
+    if am.transcript.strand == crate::data::Strand::Minus {
+        return Ok(true);
+    }
+    let last = last.unwrap_or(start) as i32;
+    let exon = am
+        .transcript
+        .exons
+        .iter()
+        .find(|x| x.transcript_start.0 <= last && last < x.transcript_end.0)
+        .ok_or_else(|| {
+            HgvsError::ValidationError(format!(
+                "{} has no exon holding transcript index {last}",
+                am.transcript.ac
+            ))
+        })?;
+    let gapped = exon.cigar.contains(['I', 'D', 'N', 'S']);
+    Ok(gapped || last + 1 == exon.transcript_end.0)
+}
+
 /// The fields of an [`NaEdit::Repeat`](crate::edits::NaEdit::Repeat), for
 /// projecting it.
 struct Repeat {
@@ -2271,7 +2301,9 @@ impl<'a> VariantMapper<'a> {
             .transpose()?;
         posedit.edit = after.edit;
         match written {
-            Some(written) if v.posedit().edit.is_identity() => {
+            Some(written)
+                if v.posedit().edit.is_identity() && genome_may_count_more(&am, s, e)? =>
+            {
                 self.repeat_statement_or_as_written(written, v)
             }
             _ => Ok(v),
@@ -2283,7 +2315,7 @@ impl<'a> VariantMapper<'a> {
     /// different run from it: on the minus strand, copies before the written
     /// start; on either strand, copies the intron continues an exon's run
     /// with. The repeat then states bases on the genome that no identity over
-    /// the transcript's run states.
+    /// the transcript's run states. Telling the two apart reads the genome.
     fn repeat_statement_or_as_written<V: TranscriptVariant>(
         &self,
         written: V,

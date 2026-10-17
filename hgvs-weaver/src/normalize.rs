@@ -138,7 +138,8 @@ impl ExonBounds {
 ///
 /// An edit that makes the reference, a delins of the bases already there, an
 /// inversion of a range that is its own reverse complement or a repeat of the
-/// copies already there, is written as the identity of the bases it names.
+/// copies already there, is written as the identity of the bases it names,
+/// where those lie in one exon.
 ///
 /// No end of the edit leaves the exon it was written in: the shift stops at
 /// the last base of the exon, and an insertion is neither slid onto a junction
@@ -247,12 +248,37 @@ fn statement_made(
     if end <= start {
         return Ok(None);
     }
+    if matches!(edit, NaEdit::Inv { .. })
+        && !may_be_its_own_reverse_complement(reference, start, end)?
+    {
+        return Ok(None);
+    }
     let resolved = edit.resolve(reference, start, end)?;
     let named = (resolved.start, resolved.end);
     Ok((named.1 > named.0
         && resolved.alt.eq_ignore_ascii_case(&resolved.ref_)
         && exons.same_exon(named.0, named.1 - 1))
     .then_some((named.0, named.1, uncertain)))
+}
+
+/// Whether `[start, end)` can be its own reverse complement, read from its
+/// length and its two end bases, so that a long inversion that is not is
+/// refused without reading the bases between.
+fn may_be_its_own_reverse_complement(
+    reference: &Reference<'_, '_>,
+    start: usize,
+    end: usize,
+) -> Result<bool, HgvsError> {
+    if (end - start) % 2 == 1 {
+        return Ok(false);
+    }
+    Ok(match (reference.base(start)?, reference.base(end - 1)?) {
+        (Some(first), Some(last)) => {
+            crate::utils::complement_dna_char(first.to_ascii_uppercase() as char)
+                == last.to_ascii_uppercase() as char
+        }
+        _ => true,
+    })
 }
 
 /// `edit` with the reference bases it states, or their number, dropped,
