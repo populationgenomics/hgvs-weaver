@@ -167,6 +167,7 @@ fn parse_gene_expr(pair: pest::iterators::Pair<Rule>) -> Option<String> {
 
 pub mod allele;
 pub mod cigar;
+pub mod cis;
 pub mod coords;
 pub mod data;
 pub mod edits;

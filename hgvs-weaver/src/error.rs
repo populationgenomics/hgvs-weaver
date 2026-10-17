@@ -32,6 +32,15 @@ pub enum HgvsError {
     },
     /// Catch-all for other error types.
     Other(String),
+    /// A member of an allele in cis failed, so the allele did: `source` is
+    /// why, for the member written `member`, the `index`th (from 0) of
+    /// `allele`.
+    CisMember {
+        allele: String,
+        index: usize,
+        member: String,
+        source: Box<HgvsError>,
+    },
 }
 
 impl fmt::Display for HgvsError {
@@ -52,8 +61,21 @@ impl fmt::Display for HgvsError {
                 "Reference sequence mismatch: expected {expected}, found {found} at transcript indices {start}..{end}"
             ),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),
+            HgvsError::CisMember {
+                allele,
+                index,
+                member,
+                source,
+            } => write!(f, "Member {} of {allele}, {member}: {source}", index + 1),
         }
     }
 }
 
-impl std::error::Error for HgvsError {}
+impl std::error::Error for HgvsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            HgvsError::CisMember { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}

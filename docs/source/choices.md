@@ -180,6 +180,7 @@ Representation Specification 2.0.1.
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                agrees                |        –         |          –           |        –         |
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |      agrees; silent on `r.(?)`       |        –         |       differs        |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          | agrees; silent on what `c.=` implies |     differs      |          –           |        –         |
+| [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member) | agrees; silent on the duplication | – | – | – |
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |                agrees                |      agrees      |        agrees        |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |                agrees                |     differs      |          –           |      agrees      |
 | [A delins is not shifted](#a-delins-is-not-shifted)                                                                                 |                  –                   |      agrees      |          –           |        –         |
@@ -588,6 +589,83 @@ NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
   `::c_identity_is_not_another_protein_unchanged`, `::c_identity_is_not_one_base_unchanged`,
   `::r_identity_on_a_transcript_without_a_cds_has_no_protein_consequence`, `::a_deserialised_g_identity_is_refused`;
   `tests/test_mavehgvs_compliance.py`, `tests/test_whole_identity.py`.
+
+### An allele in cis projects member by member
+
+**`c.[a;b]` projects to the genome, and `g.[a;b]` to a transcript, one member at a time, by the rules a single variant
+follows, and the result is an allele in cis of the projections, still an allele when it has one member. Across strands
+the members are written in reverse. If any member fails to project, the allele does, and the error names the member.**
+
+HGVS writes each member of an allele as it would be written alone, numbered against the reference: `c.[2376G>C;3103del]`
+contains "two different changes, `c.2376G>C` and `c.3103del`". Nothing one member does moves another's position, so each
+can be projected on its own, and the projections together describe the same chromosome. Projection keeps the description
+as written, as it does for a single variant ([no normalisation](#no-normalisation-before-projecting)): members that meet
+are not merged, and a one-member allele stays one, `c.[7C>T]` becoming `g.[22C>T]`, not `g.22C>T`. Which spelling to
+hand on is normalisation's question, not projection's.
+
+The members' order is kept as the writer read it along their strand. HGVS lists members "in genomic order", and on a
+minus-strand transcript that order runs the other way along the genome, so the projection reverses the list: an allele
+written in order on the transcript is in order on the genome, and projecting it back returns the members as they were.
+The alternative, sorting by position, would write a recommended order whatever the input, but it would reorder members
+the writer placed, and the round trip would return them in another order.
+
+All or nothing follows from what an allele is. A chromosome carrying two changes, one of which has no genomic form, is
+not described by the genomic form of the other, so returning the members that did project would describe a different
+allele. The error is the failing member's own, an `UnsupportedOperation` for an `r.` member across a splice junction, a
+`ValidationError` for a position outside every exon, wrapped with the member and its place in the allele, so a caller
+can still match on why. A member that projects to a form the target cannot hold fails the same way: an `r.` change
+across a splice junction has [no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form), and neither has
+an allele containing one.
+
+One member reads differently alone. A duplication inserts its copy "directly 3' of the original copy", on the strand it
+is written on, and on the other strand 3' is the other side. Alone that does not matter: a copy beside the original
+makes the same sequence on either side of it. Beside an insertion it does. On `NR_XR.1`, `n.[22_23insA;23_25dup]` puts
+the A before the copied `AGG` and the copy after it. Projected one at a time, the duplication is `g.26_28dup`, whose
+copy goes between g.28 and g.29, and the insertion is `g.28_29insT`, between the same two bases: two insertions at one
+junction, whose order the genome's description cannot say, though the transcript's could. So a duplication whose
+projected form would insert where another member inserts is written as the insertion it is, at the junction it uses
+where it was written: `g.25_26insCCT`. The same holds from the genome to a minus-strand transcript. A duplication with
+nothing inserted at its junction stays a duplication.
+
+**Example** (`NM_X.1` is `GGGGG` `ATG AAA CTG GCC TAT CGC TAA` `CCGTATAAGTAAGG` at genomic index 10 of `NC_X.1`, so c.7
+is g.22; `NR_XR.1` reads the same forty bases of `NC_X.1` on the minus strand, so n.23 is g.28 and n.29 is g.22, and
+`NM_XR.1` is `NR_XR.1` with its CDS from n.4; `NM_S.1` is `NM_X.1` with exon 1 ending at c.5 and a ten-base intron after
+it in `NC_S.1`, so c.4 is g.19 and c.6 is g.31):
+
+```text
+NM_X.1:c.[7C>T;13T>G]              →  NC_X.1:g.[22C>T;28T>G]
+NC_X.1:g.[22C>T;28T>G]             →  NM_X.1:c.[7C>T;13T>G]
+NR_XR.1:n.[23A>C;29G>A]            →  NC_X.1:g.[22C>T;28T>G]           the minus strand reverses the members
+NC_X.1:g.[22C>T;28T>G]             →  NM_XR.1:c.[20A>C;26G>A]          and back
+NM_S.1:c.[4A>T;6A>T]               →  NC_S.1:g.[19A>T;31A>T]           members in two exons
+NM_S.1:c.[5+2T>A;7C>T]             →  NC_S.1:g.[22T>A;32C>T]           an intronic member, carried as given
+NM_X.1:c.[7C>T]                    →  NC_X.1:g.[22C>T]                 one member, still an allele
+NM_X.1:c.[7C>T;13T>G]              →  NM_X.1:r.[7c>u;13u>g]
+
+NR_XR.1:n.[23_25dup;29G>A]         →  NC_X.1:g.[22C>T;26_28dup]        nothing inserted beside the copy
+NR_XR.1:n.[22_23insA;23_25dup]     →  NC_X.1:g.[25_26insCCT;28_29insT] the copy written where the transcript puts it
+NC_X.1:g.[25_26insA;26_28dup]      →  NM_XR.1:c.[19_20insAGG;22_23insT]
+
+NM_S.1:r.[4a>u;5_6del]             →  UnsupportedOperation, member 2, NM_S.1:r.5_6del: spans a splice junction
+NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20del: outside every exon
+```
+
+- **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
+- **Spec (agrees):** [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/): an allele is "a
+  series of variants on one chromosome", each member written as alone, listed "in genomic order";
+  [duplication](https://hgvs-nomenclature.org/stable/recommendations/DNA/duplication/): "a copy of one or more
+  nucleotides is inserted directly 3' of the original copy". Writing a duplication as an insertion where the strands
+  disagree on its side is weaver's reading; the specification does not address it.
+- **Tests:** `cis_projection_test::members_project_to_the_genome_one_by_one`,
+  `::members_project_from_the_genome_one_by_one`, `::the_minus_strand_reverses_the_members_on_the_genome`,
+  `::the_minus_strand_reverses_the_members_on_the_transcript`, `::members_in_different_exons_project_to_each`,
+  `::a_member_in_an_intron_projects_as_given`, `::a_one_member_allele_stays_an_allele`,
+  `::rna_spellings_go_member_by_member`, `::an_rna_allele_projects_to_the_genome`,
+  `::every_transcript_over_the_members_gets_the_allele`, `::a_minus_strand_duplication_alone_stays_a_duplication`,
+  `::a_minus_strand_duplication_beside_an_insertion_is_written_as_the_insertion`,
+  `::a_genomic_duplication_beside_an_insertion_is_written_as_the_insertion_on_a_minus_strand_transcript`,
+  `::a_member_that_fails_to_project_fails_the_allele_and_is_named`, `::a_member_outside_every_exon_fails_the_allele`;
+  `a_cis_allele_projected_to_the_genome_and_back_is_itself` (property); `tests/test_cis_phased.py`.
 
 ## Normalisation
 

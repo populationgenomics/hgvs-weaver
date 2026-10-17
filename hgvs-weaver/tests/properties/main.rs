@@ -957,6 +957,29 @@ proptest! {
     }
 }
 
+proptest! {
+    /// An allele in cis projected to the genome and back is the allele it
+    /// was, member for member and in the order written, where no member meets
+    /// another and every one projects.
+    #[test]
+    fn a_cis_allele_projected_to_the_genome_and_back_is_itself((g, edits) in gene_and_cis_edits()) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let members = edits
+            .iter()
+            .map(|e| SequenceVariant::Coding(tx_edit_variant(&g, &am, e)))
+            .collect();
+        let cis = hgvs_weaver::CisPhasedVariant::new(g.ac.clone(), None, members).unwrap();
+        let Ok(vg) = mapper.c_to_g_cis(&cis, None) else { return Ok(()) };
+        let back = mapper
+            .g_to_c_cis(&vg, &g.ac)
+            .map_err(|err| TestCaseError::fail(format!("{cis} projected to {vg}: {err}")))?;
+        prop_assert_eq!(back.to_string(), cis.to_string(), "through {}", vg);
+        prop_assert_eq!(back, cis);
+    }
+}
+
 /// The properties above pass vacuously on a case a projection refuses, so on
 /// a fixed sample each chain a property follows must answer most generated
 /// edits, and some genes must differ from their genome.
@@ -1033,5 +1056,45 @@ fn the_generated_edits_reach_every_projection() {
     assert!(
         discordant * 10 >= cases,
         "{discordant} of {cases} generated genes differ from their genome"
+    );
+}
+
+/// The cis round trip passes vacuously on an allele that does not project, so
+/// on a fixed sample most generated alleles must project, many with several
+/// members and on the minus strand.
+#[test]
+fn the_generated_cis_alleles_project() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = gene_and_cis_edits();
+    let cases = 1000;
+    let (mut projected, mut several, mut minus) = (0, 0, 0);
+    for _ in 0..cases {
+        let (g, edits) = strategy.new_tree(&mut runner).unwrap().current();
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let members = edits
+            .iter()
+            .map(|e| SequenceVariant::Coding(tx_edit_variant(&g, &am, e)))
+            .collect();
+        let cis = hgvs_weaver::CisPhasedVariant::new(g.ac.clone(), None, members).unwrap();
+        if mapper.c_to_g_cis(&cis, None).is_ok() {
+            projected += 1;
+            several += usize::from(edits.len() > 1);
+            minus += usize::from(g.strand == hgvs_weaver::data::Strand::Minus);
+        }
+    }
+    assert!(
+        projected * 10 >= cases * 8,
+        "{projected} of {cases} alleles projected"
+    );
+    assert!(
+        several * 10 >= cases * 5,
+        "{several} of {cases} projected with several members"
+    );
+    assert!(
+        minus * 10 >= cases * 3,
+        "{minus} of {cases} projected on the minus strand"
     );
 }

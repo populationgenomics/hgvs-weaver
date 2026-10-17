@@ -70,9 +70,8 @@ class Variant:
         """The members of an allele in cis, c.[145C>T;147C>G], as plain Variants in the
         order written; None for a plain variant.
 
-        Mapping methods take plain variants, so map the members and rebuild the
-        allele from the results with from_dict, or render the whole allele with
-        VariantMapper.to_vrs.
+        The projections between g., c., n. and r. take the whole allele and
+        project it member by member.
         """
     def format(self) -> str:
         """Formats the variant back into a standard HGVS string."""
@@ -161,6 +160,11 @@ class VariantMapper:
         or inversion carries the record's bases (c.123dup over a differing genomic
         base is g.…delinsCC, as VariantValidator writes it).
 
+        An allele in cis of c. members, c.[a;b], projects member by member to an
+        allele in cis on the genome, its members written in reverse from a
+        minus-strand transcript. A member that fails raises its own error,
+        naming the member.
+
         Args:
             var_c: The coding Variant to map.
             reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript
@@ -170,7 +174,8 @@ class VariantMapper:
             A new Variant object in 'g.' coordinates.
 
         Raises:
-            ValueError: If var_c is not a coding variant.
+            ValueError: If var_c is not a coding variant or an allele
+                in cis of them.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = ...) -> Variant:
@@ -240,6 +245,11 @@ class VariantMapper:
         or inversion carries the genome's bases. An intronic position has no transcript base and
         is carried as given.
 
+        An allele in cis of g. members, g.[a;b], projects member by member to an
+        allele in cis on the transcript, its members written in reverse on a
+        minus-strand transcript. A member that fails raises its own error,
+        naming the member.
+
         Args:
             var_g: The genomic Variant to map.
             transcript_ac: The accession of the target transcript.
@@ -248,12 +258,16 @@ class VariantMapper:
             A new Variant object in 'c.' coordinates.
 
         Raises:
-            ValueError: If var_g is not a genomic variant.
+            ValueError: If var_g is not a genomic variant or an allele
+                in cis of them.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def g_to_c_all(self, var_g: Variant, searcher: Any) -> list[Variant]:
         """
         Maps a genomic variant (g.) to all overlapping transcripts discovered via the searcher.
+
+        An allele in cis of g. members gives an allele in cis on each transcript
+        every member projects to, as g_to_c does.
 
         Args:
             var_g: The genomic Variant to map.
@@ -263,12 +277,16 @@ class VariantMapper:
             A list of Variant objects in 'c.' coordinates.
 
         Raises:
-            ValueError: If var_g is not a genomic variant.
+            ValueError: If var_g is not a genomic variant or an allele
+                in cis of them.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def n_to_g(self, var_n: Variant, reference_ac: str | None = ...) -> Variant:
         """
         Maps a non-coding cDNA variant (n.) to a genomic variant (g.).
+
+        An allele in cis of n. members projects member by member, as c_to_g
+        projects one of c. members.
 
         Args:
             var_n: The non-coding Variant to map.
@@ -278,7 +296,8 @@ class VariantMapper:
             A new Variant object in 'g.' coordinates.
 
         Raises:
-            ValueError: If var_n is not a non-coding variant.
+            ValueError: If var_n is not a non-coding variant or an allele
+                in cis of them.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def protein_vrs(self, var_c: Variant, protein_ac: str | None = ...) -> dict[str, Any]:
@@ -313,12 +332,17 @@ class VariantMapper:
         Only a change within one exon has a genomic form; one spanning a splice
         junction describes the spliced RNA and raises UnsupportedOperationError.
 
+        An allele in cis of r. members projects member by member, as c_to_g
+        projects one of c. members: a member spanning a splice junction fails the
+        allele.
+
         Args:
             var_r: The RNA Variant to map.
             reference_ac: Optional chromosomal accession.
 
         Raises:
-            ValueError: If var_r is not an RNA variant.
+            ValueError: If var_r is not an RNA variant or an allele
+                in cis of them.
             HGVSError: If mapping fails.
         """
     def r_to_c(self, var_r: Variant) -> Variant:
@@ -328,8 +352,11 @@ class VariantMapper:
         r. positions on a coding transcript are c. positions; the bases become
         uppercase DNA letters (u to T).
 
+        An allele in cis of r. members is respelled member by member.
+
         Raises:
-            ValueError: If var_r is not an RNA variant.
+            ValueError: If var_r is not an RNA variant or an allele
+                in cis of them.
             HGVSError: If the transcript has no CDS, or the variant is a statement
                 about the transcript (r.0, r.spl).
         """
@@ -337,8 +364,11 @@ class VariantMapper:
         """
         Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.
 
+        An allele in cis of r. members is respelled member by member.
+
         Raises:
-            ValueError: If var_r is not an RNA variant.
+            ValueError: If var_r is not an RNA variant or an allele
+                in cis of them.
             HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a
                 statement about the transcript.
         """
@@ -347,16 +377,22 @@ class VariantMapper:
         Respells a coding variant (c.) as an RNA variant (r.): the same positions,
         bases in lowercase RNA letters (T to u).
 
+        An allele in cis of c. members is respelled member by member.
+
         Raises:
-            ValueError: If var_c is not a coding variant.
+            ValueError: If var_c is not a coding variant or an allele
+                in cis of them.
         """
     def n_to_r(self, var_n: Variant) -> Variant:
         """
         Respells a non-coding variant (n.) as an RNA variant (r.): the same positions,
         bases in lowercase RNA letters (T to u).
 
+        An allele in cis of n. members is respelled member by member.
+
         Raises:
-            ValueError: If var_n is not a non-coding variant.
+            ValueError: If var_n is not a non-coding variant or an allele
+                in cis of them.
         """
     def normalize_variant(self, var: Variant) -> Variant:
         """
