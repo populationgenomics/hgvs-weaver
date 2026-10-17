@@ -4,6 +4,149 @@ HGVS leaves room for judgement, and the tools that read it have settled on diffe
 deliberate choice weaver makes where another tool could reasonably answer otherwise: what weaver does, why, a worked
 example, the recommendation it rests on, and what other tools do.
 
+## The principles that decide a choice
+
+[`PRODUCT.md`](../PRODUCT.md) sets weaver's direction: positions are types, consequences are read from the sequence,
+every choice is written down, and the answer is an answer or an error, never a guess. The principles below sit one level
+beneath those. They are how an entry on this page is decided, stated once so that a reader can see why the entries say
+what they do, and so that the next choice can be checked against them. Each closes with the entries that apply it.
+
+### The specification first, then the plain reading of the notation
+
+**Where the HGVS nomenclature, VRS or refget says what a description means, weaver does that; where it is silent, weaver
+takes the mechanical reading of what the notation says; and every departure, and every silence weaver fills, is recorded
+here with its reason.**
+
+A tool that fills a silence by taste gives answers nobody can predict. Reading the notation mechanically gives the
+answer a careful reader would derive from the text, and recording each such reading lets someone disagree with one line
+rather than with a behaviour. The **Spec** verdict on every entry is the ledger: *agrees*, *silent*, or *differs* and
+why.
+
+The specification writes a `?` after a residue only at the start codon; weaver reads `p.Arg12?` as it reads `p.Met1?`, a
+change from that residue on of which nothing more is said, and records that reading as its own.
+
+Applied in: [a description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing),
+[a start-codon change is written specifically](#a-start-codon-change-is-written-specifically) (a departure),
+[CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting) (a departure),
+[a transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion),
+[mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery),
+[the whole transcript unchanged is a statement](#the-whole-transcript-unchanged-is-a-statement-not-a-change).
+
+### One reading is an answer; none, or several, is an error
+
+**A description with one mechanical reading gets an answer, however unusual it looks. One with no reading is
+contradictory, and is an error saying why. One with several readings that make different sequences is ambiguous, and is
+an error that lists them: weaver never picks.**
+
+`PRODUCT.md` says weaver answers or refuses; this says where the line falls. Refusing a description that has one reading
+throws away a right answer, and answering one that has several is a guess. Keeping the two errors apart lets a caller
+who knows which reading was meant take it.
+
+`c.[=;10C>G]` says the whole transcript was analysed and no change found, and names a change: it has no reading and is
+refused when parsed. `c.[10=;12C>G]`, a position unchanged beside a change, has one, and parses.
+
+Applied in:
+[the whole transcript unchanged is a statement](#the-whole-transcript-unchanged-is-a-statement-not-a-change),
+[a position outside every exon is an error](#a-position-outside-every-exon-is-an-error),
+[an open CDS end numbers no position](#an-open-cds-end-numbers-no-position),
+[a range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed),
+[judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error).
+
+### A description claims what it says, and no more
+
+**Where the text of a description leaves something open, weaver's answer leaves it open too, rather than commit to the
+likeliest value.**
+
+`p.?` and `p.Met1?` record what is not known. Read as a specific change, they would match descriptions they never
+claimed; and a weak reading can be strengthened by someone who knows more, where a strong one cannot be withdrawn. The
+same holds for what weaver derives: it does not invent a genomic form, an allele or a protein for a statement that names
+none.
+
+`NM_X.1:c.-3_2del` loses the start codon and predicts `p.(Met1?)`; it is not equivalent to `p.Leu3fs`, because it says
+nothing about Leu3.
+
+Applied in: [a description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing),
+[edits outside the CDS are statements](#edits-outside-the-cds-are-statements),
+[the whole transcript unchanged is a statement](#the-whole-transcript-unchanged-is-a-statement-not-a-change),
+[protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change),
+[uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds).
+
+### Equality is the allele
+
+**Two descriptions are the same change when they make the same sequence. Their spelling, their coordinate system, and
+anything they record that is not part of the allele, such as a stated reference base, do not enter. Nucleotide
+descriptions are compared on the genome, because a change written on a transcript is a change to the genome.**
+
+One change has many spellings: shifted or not, `dup` or `ins`, `c.` or `g.`, with its bases stated or bare. Text
+comparison sees the spelling. Comparing on the genome rather than the transcript keeps equivalence transitive: two
+transcript changes that leave one transcript can still be different changes to the genome when they sit on either side
+of an exon junction.
+
+On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG:CAG`.
+
+Applied in: [judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind),
+[the canonical allele is fully justified](#the-canonical-allele-is-fully-justified),
+[stated bases are checked by validate and nowhere else](#stated-bases-are-checked-by-validate-and-nowhere-else),
+[a repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run),
+[a transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion),
+[a cis allele compares as a set](#a-cis-allele-compares-as-a-set).
+
+### Only normalize rewrites a description
+
+**Parsing, validating, projecting and comparing keep a change where and as it was written. `normalize` alone rewrites
+it, into the preferred spelling for interchange; it keeps the sequence the description makes, normalising twice is
+normalising once, and it never changes what the description means on the genome, so nothing it moves crosses an exon
+junction.**
+
+Where a change is written can carry what its author meant, and a result moved somewhere else is hard to relate to the
+question asked. The preferred spelling serves the readers that need one: tools that match strings, and tools that read a
+description's parts one at a time. A normalisation that changed the sequence, or the change on the genome, would hand
+them a different variant. What is kept is the change's placement and shape; spellings the specification treats as one
+value, `ins(20)` and `insN[20]`, `M` and `Met`, are one value when parsed.
+
+`NM_001372044.2:c.1568dup` projects at c.1568, where VariantValidator shifts it to c.1569 first.
+
+Applied in: [no normalisation before projecting](#no-normalisation-before-projecting),
+[intronic positions are carried as given](#intronic-positions-are-carried-as-given),
+[shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats),
+[deletions and duplications are written bare](#deletions-and-duplications-are-written-bare),
+[a prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it),
+[reading back gives the normalised variant](#reading-back-gives-the-normalised-variant).
+
+### What weaver writes reads back as itself, and as the specification reads it
+
+**A description weaver writes parses back to the value it was written from, and a reader following the specification
+takes it to mean what weaver means.**
+
+What weaver writes is stored and read later, by weaver and by other tools. A description that parses to another value
+changes meaning in storage, and one the specification reads differently means different things to different readers. So
+each form is written as the specification spells it, the parentheses of each statement as the specification gives that
+statement, and no form is written that the specification gives another meaning, such as `X`, which has been used for a
+stop. The property tests hold every projection, normalisation and reading back from SPDI and VRS to the first half.
+
+`p.M1?` is stored and printed as `p.Met1?`, and the `p.(Met1?)` that `c_to_p` writes for a lost start codon parses to
+the value it built.
+
+Applied in: [recommended spellings on output](#recommended-spellings-on-output),
+[a prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it),
+[a start-codon change is written specifically](#a-start-codon-change-is-written-specifically),
+[positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0).
+
+### Bounds before bases
+
+**Where positions alone decide a question, weaver decides it from the positions, without building or reading sequence.**
+
+A decision taken from bounds costs the same whatever the distance, and needs no sequence that may be unavailable or, for
+an unknown bound, unlimited. One that builds sequence to answer a positional question costs in proportion to the
+distance, and has nothing to read where a bound is unknown.
+
+A range written backwards is refused when it is parsed, from its positions, rather than projected and found wrong when
+its bases are sliced.
+
+Applied in: [a range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed),
+[positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0),
+[uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds).
+
 ## How to read this page
 
 Every choice has the same shape.
