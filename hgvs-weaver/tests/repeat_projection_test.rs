@@ -238,6 +238,32 @@ fn on_the_minus_strand_a_repeat_written_mid_run_at_its_own_count_is_no_change() 
 }
 
 #[test]
+fn a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more() {
+    let hdp = minus();
+    let mapper = VariantMapper::new(&hdp);
+    let normalised = |s: &str| mapper.normalize_variant(parse(s)).unwrap().to_string();
+    // From c.5 the transcript's run is c.5_6; the genome's, g.28_30, holds c.4
+    // too, which c.5_6= would not state.
+    assert_eq!(normalised("NM_REV.1:c.5A[2]"), "NM_REV.1:c.5A[2]");
+    // From c.4 the two runs are one.
+    assert_eq!(normalised("NM_REV.1:c.4A[3]"), "NM_REV.1:c.4_6=");
+}
+
+#[test]
+fn a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run() {
+    let hdp = exon_edge();
+    let mapper = VariantMapper::new(&hdp);
+    // c.6_9 is GTGT; the genome's run, g.16_21, has the intron's GT as well.
+    assert_eq!(
+        mapper
+            .normalize_variant(parse("NM_EDGE.1:c.6GT[2]"))
+            .unwrap()
+            .to_string(),
+        "NM_EDGE.1:c.6GT[2]"
+    );
+}
+
+#[test]
 fn on_the_minus_strand_a_multi_base_repeat_written_mid_run_inserts_one_unit() {
     // From c.10 the run is c.10_15 (two CAG); three copies add one, a CTG in
     // the genome's CTGCTGCTG at g.19_27.

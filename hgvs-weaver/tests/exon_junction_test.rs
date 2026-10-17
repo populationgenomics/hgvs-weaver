@@ -144,6 +144,13 @@ fn genomic(hdp: &Provider, s: &str) -> String {
 }
 
 #[test]
+fn a_repeat_at_its_own_count_across_the_junction_is_not_written_as_an_identity() {
+    // From c.4 the run is c.4_6, AA|A: an identity over it would name the
+    // intron between c.5 and c.6.
+    assert_eq!(normalized(&plus(), "NM_J.1:c.4A[3]"), "NM_J.1:c.4A[3]");
+}
+
+#[test]
 fn a_deletion_shifts_to_the_last_base_of_its_exon_and_no_further() {
     assert_eq!(normalized(&plus(), "NM_J.1:c.4del"), "NM_J.1:c.5del");
 }

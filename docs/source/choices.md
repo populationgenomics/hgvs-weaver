@@ -1339,8 +1339,9 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `g.7_9delinsGG`, though `g.[7del;9C>G]` makes the same sequence with an unchanged base between. Merging the members
   that meet is what keeps normalisation sequence-preserving and idempotent, so weaver merges.
 - **Tests:** `cis_phased_test::members_normalise_and_validate_one_by_one`, whose two alleles have members that meet no
-  other, so its outputs hold under this rule, and `::a_single_variant_that_makes_the_reference_is_its_statement`.
-  Planned: `::members_in_one_run_are_written_as_one_change`, `::touching_members_are_one_delins`,
+  other, so its outputs hold under this rule, and `::a_single_variant_that_makes_the_reference_is_its_statement`;
+  `a_single_variant_that_makes_the_reference_normalises_to_its_statement` (property). Planned:
+  `::members_in_one_run_are_written_as_one_change`, `::touching_members_are_one_delins`,
   `::a_group_can_reduce_to_a_deletion`, `::a_group_can_reduce_to_a_duplication`,
   `::members_with_an_unchanged_base_between_stay_apart`, `::members_in_one_codon_are_one_delins`,
   `::members_one_base_apart_in_two_codons_stay_apart`, `::grouping_runs_across_touch_and_codon`,

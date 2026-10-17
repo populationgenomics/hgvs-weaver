@@ -188,9 +188,10 @@ proptest! {
 
 const SYNTHETIC: &str = "NC_000099.1";
 
-/// An edit of any kind the comparison distinguishes, including the two that
-/// can make the reference without being written as `=`: an identity, an
-/// inversion and a delins of the bases already there among them.
+/// An edit of any kind the comparison distinguishes, with identities and
+/// inversions besides: an identity, an inversion of a range that is its own
+/// reverse complement and a delins of the bases already there all make the
+/// reference.
 fn single_edit(len: usize) -> BoxedStrategy<PlacedHgvs> {
     let span = (1usize..=len.saturating_sub(2).max(1))
         .prop_flat_map(move |l| (0..=len.saturating_sub(l + 1)).prop_map(move |s| (s, s + l)));
@@ -226,9 +227,8 @@ fn respelled(seq: &str, p: &PlacedHgvs, widen: (usize, usize)) -> PlacedHgvs {
     let lo = s.saturating_sub(widen.0);
     let mut hi = (e + widen.1).min(seq.len());
     if lo == hi {
-        hi = (lo + 1).min(seq.len());
+        hi = lo + 1;
     }
-    let lo = if lo == hi { lo - 1 } else { lo };
     let edited = apply(seq, p);
     let alt = &edited[lo..hi + edited.len() - seq.len()];
     let edit = if alt.is_empty() {
@@ -347,6 +347,102 @@ proptest! {
                 }
             }
         }
+    }
+}
+
+/// A sequence holding a single variant that makes the reference without
+/// being written as `=`, and the half-open range of the bases it names: an
+/// inversion of a palindrome, a repeat at the count its run already has, or
+/// a delins of the bases already there.
+fn seq_and_statement() -> impl Strategy<Value = (String, PlacedHgvs, (usize, usize))> {
+    (dna(0, 12), dna(1, 3), 1usize..=4, dna(0, 12), 0u8..3).prop_map(
+        |(prefix, unit, copies, suffix, kind)| {
+            let at = prefix.len();
+            let middle = match kind {
+                0 => format!("{unit}{}", revcomp(&unit)),
+                _ => unit.repeat(copies),
+            };
+            let seq = format!("{prefix}{middle}{suffix}");
+            let (placed, named) = match kind {
+                0 => {
+                    let edit = NaEdit::Inv {
+                        ref_: None,
+                        uncertain: false,
+                    };
+                    let end = at + middle.len();
+                    (
+                        PlacedHgvs {
+                            start: at,
+                            end,
+                            edit,
+                        },
+                        (at, end),
+                    )
+                }
+                1 => {
+                    // The run read 3' from `at`, which the suffix can continue.
+                    let mut run = at;
+                    while seq[run..].starts_with(unit.as_str()) {
+                        run += unit.len();
+                    }
+                    let count = ((run - at) / unit.len()) as i32;
+                    let edit = NaEdit::Repeat {
+                        ref_: Some(unit.clone()),
+                        min: count,
+                        max: count,
+                        uncertain: false,
+                    };
+                    (
+                        PlacedHgvs {
+                            start: at,
+                            end: at + unit.len(),
+                            edit,
+                        },
+                        (at, run),
+                    )
+                }
+                _ => {
+                    let edit = NaEdit::RefAlt {
+                        ref_: Some(String::new()),
+                        alt: Some(middle.clone()),
+                        uncertain: false,
+                    };
+                    let end = at + middle.len();
+                    (
+                        PlacedHgvs {
+                            start: at,
+                            end,
+                            edit,
+                        },
+                        (at, end),
+                    )
+                }
+            };
+            (seq, placed, named)
+        },
+    )
+}
+
+proptest! {
+    /// A single variant that makes the reference normalises to the identity
+    /// of the bases it names, and that identity normalises to itself.
+    #[test]
+    fn a_single_variant_that_makes_the_reference_normalises_to_its_statement(
+        (seq, p, named) in seq_and_statement(),
+    ) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let store = ReferenceStore::with_block_size(&hdp, 4);
+        let r = store.reference("X", G);
+        let identity = PlacedEdit {
+            start: named.0,
+            end: named.1,
+            edit: NaEdit::RefAlt { ref_: None, alt: None, uncertain: false },
+        };
+        let before = PlacedEdit { start: p.start, end: p.end, edit: p.edit.clone() };
+        let after = normalize(&r, before, &ExonBounds::unspliced()).unwrap();
+        prop_assert_eq!(&after, &identity, "on {}: {:?}", seq, p);
+        let again = normalize(&r, after.clone(), &ExonBounds::unspliced()).unwrap();
+        prop_assert_eq!(again, after);
     }
 }
 
