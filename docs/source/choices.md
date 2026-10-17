@@ -2091,7 +2091,10 @@ bases it covers in the same way. `c.[7_9inv;8T>A]` inverts `CTG`, read as writte
 landing where an A already is, or inverts the changed bases `CAG` back to `CTG`, the reference; `c.[7_9inv;8T>G]` is
 `CGG` or `CCG` by the same two readings. The same holds for any member that reads a stretch another member changes: a
 conversion, which the specification no longer uses but weaver parses, and an insertion of a copied range (`ins5_16`),
-which weaver does not yet parse. Each of these has answers, and weaver does not pick one: it returns them all.
+which weaver does not yet parse. An insertion between two bases another member deletes or replaces is ambiguous too:
+`c.[7_9del;7_8insA]` either loses the A with the bases around its junction, `c.7_9del`, or keeps it in their place,
+`c.7_9delinsA`, and `c.[7_8delinsTG;7_8insA]` is `c.7_8delinsTG` or `c.7_8delinsTAG` by the same two readings. Each of
+these has answers, and weaver does not pick one: it returns them all.
 
 **One reading: accepted.** Nearness is not the problem: `c.[7_8del;9_10del]` is two deletions meeting at a junction,
 together a deletion of four bases, and `c.[2077G>A;2077_2078insTA]`, the allele the specification's BRCA1 question asks
@@ -2099,10 +2102,10 @@ about, changes a base and inserts beside it. Members that agree on every base th
 redundancy is dropped: one edit written twice, `c.[7C>T;7C>T]` or `c.[7C>T;7delinsT]`; overlapping edits that put the
 same base at each shared position, `c.[7_8delinsTG;7C>T]`, which is `c.7_8delinsTG`; overlapping deletions, which remove
 each shared base once, `c.[7_9del;8_10del]`, which deletes c.7 to c.10; and identities, `c.[7_9=;8=]`, which is
-`c.7_9=`. An insertion inside a stretch that is read base by base keeps its place among the new bases:
-`c.[7_8delinsTG;7_8insA]` puts the A between the T and the G, `c.7_8delinsTAG`, and `c.[7_9del;7_8insA]` leaves the A
-where c.7 and c.8 were, `c.7_9delinsA`. Insertions at one junction whose orders make one sequence and that are not
-identical, `c.[7_8insA;7_8insAA]`, have one reading too.
+`c.7_9=`. An insertion at the outer flank of a deleted or replaced stretch meets it rather than overlapping it:
+`c.[7_9del;6_7insA]` puts the A where c.7_9 were, `c.7_9delinsA`, and `c.[7_8delinsTG;8_9insA]` puts it after the G,
+`c.7_8delinsTGA`. Insertions at one junction whose orders make one sequence and that are not identical,
+`c.[7_8insA;7_8insAA]`, have one reading too.
 
 So each member is read as the reference interval it replaces and the bases it puts there; an insertion replaces the
 empty interval at a junction between two bases, and a duplication is an insertion at the junction 3' of the bases it
@@ -2114,9 +2117,9 @@ stretch as a whole. A duplication and an inversion read the bases they cover. Th
   or removes; when a delins that changes the length shares a base with another member, or another member inserts inside
   it; when a member inserts inside a positional identity's stretch; or when an identity names a base an inversion
   changes; contradictory comes first when both apply;
-- ambiguous when two members insert at one junction and their orders make different sequences, when identical insertions
-  could be one written twice, or when a member changes, removes or inserts among the bases a duplication or an inversion
-  reads;
+- ambiguous when a member inserts between two bases another deletes or replaces base by base; when two members insert at
+  one junction and their orders make different sequences, when identical insertions could be one written twice, or when
+  a member changes, removes or inserts among the bases a duplication or an inversion reads;
 - accepted otherwise. Identical members are one edit written twice, `c.[7_9delinsA;7_9delinsA]` as much as
   `c.[7C>T;7C>T]`, except insertions, where two copies are a reading too. Where a change agrees with an identity, the
   identity stays and the change is cut where it stands: `c.[7=;7_8delinsCG]` is written `c.[7=;8T>G]`, and
@@ -2159,8 +2162,8 @@ NM_X.1:c.[7_9dup;6_7insA]       AAAACTGCTGGCC                  accepted, c.6_7in
 NM_X.1:c.[7C>T;7C>T]            AAATTGGCC                      accepted, c.7C>T
 NM_X.1:c.[7_8delinsTG;7C>T]     AAATGGGCC                      accepted, c.7_8delinsTG: the two agree at c.7
 NM_X.1:c.[7_9del;8_10del]       AAACC                          accepted, c.8_11del: c.8 and c.9 deleted once
-NM_X.1:c.[7_8delinsTG;7_8insA]  AAATAGGGCC                     accepted, c.7_8delinsTAG: the A between the T and the G
-NM_X.1:c.[7_9del;7_8insA]       AAAAGCC                        accepted, c.7_9delinsA: the A where c.7 and c.8 were
+NM_X.1:c.[7_9del;6_7insA]       AAAAGCC                        accepted, c.7_9delinsA: the A at the deletion's flank
+NM_X.1:c.[7_8delinsTG;8_9insA]  AAATGAGGCC                     accepted, c.7_8delinsTGA: the A after the G
 NM_X.1:c.[7_9=;8=]              AAACTGGCC                      accepted, c.7_9=
 NM_X.1:c.[7=;7_8delinsCG]       AAACGGGCC                      accepted, c.[7=;8T>G]: the identity stays
 NM_X.1:c.[8=;7_9delinsTTA]      AAATTAGCC                      accepted, c.[7C>T;8=;9G>A]: the delins cut at c.8
@@ -2189,15 +2192,18 @@ NM_X.1:c.[7_9dup;9_10insCTG]    AAACTGCTGGCC                   ambiguous: c.7_9d
 NM_X.1:c.[7_9inv;8T>A]          AAACAGGCC | AAACTGGCC          ambiguous: c.8T>A (the reference inverted)
                                                                         | c.7_9= (the changed bases inverted)
 NM_X.1:c.[7_9inv;8T>G]          AAACGGGCC | AAACCGGCC          ambiguous: c.8T>G | c.8T>C
+NM_X.1:c.[7_9del;7_8insA]       AAAGCC | AAAAGCC               ambiguous: c.7_9del | c.7_9delinsA
+NM_X.1:c.[7_8delinsTG;7_8insA]  AAATGGGCC | AAATAGGGCC         ambiguous: c.7_8delinsTG | c.7_8delinsTAG
 ```
 
 - **Agrees:** mavehgvs 0.8.1 refuses every case found contradictory or ambiguous above that was checked against it
   (`c.[7C>T;7C>G]`, `c.[7_9del;8T>G]`, `c.[7_8delinsTG;8del]`, `c.[7_9delinsA;8T>G]`, `c.[7_8insA;7_8insG]`,
-  `c.[7_9dup;8T>G]`, `c.[7_9dup;9_10insA]`, with "multi-variant has overlapping changes" or "multiple changes at same
-  position") and accepts `c.[7_8del;9_10del]`. The other rows: not checked; it does not parse `inv`.
+  `c.[7_9dup;8T>G]`, `c.[7_9dup;9_10insA]`, `c.[7_9del;7_8insA]`, `c.[7_8delinsTG;7_8insA]`, with "multi-variant has
+  overlapping changes" or "multiple changes at same position") and accepts `c.[7_8del;9_10del]`. The other rows: not
+  checked; it does not parse `inv`.
 - **Differs:** mavehgvs counts an insertion's flanking positions as part of it and refuses any overlap, so it also
   refuses the accepted `c.[7C>T;7_8insTA]`, `c.[7_8insA;8T>G]`, `c.[7_9dup;6_7insA]`, `c.[7_9del;8_10del]`,
-  `c.[7_8delinsTG;7_8insA]` and `c.[7_9del;7_8insA]`, and `c.[2077G>A;2077_2078insTA]`, for which the specification
+  `c.[7_9del;6_7insA]` and `c.[7_8delinsTG;8_9insA]`, and `c.[2077G>A;2077_2078insTA]`, for which the specification
   recommends `c.2077delinsATA`; it refuses any `=` among the members. `bcftools consensus`, applying records rather than
   an allele, does not refuse: it applies the first of two overlapping records and skips the second with "The site …
   overlaps with another variant, skipping…"
@@ -2217,8 +2223,9 @@ NM_X.1:c.[7_9inv;8T>G]          AAACGGGCC | AAACCGGCC          ambiguous: c.8T>G
 - **Tests:** none yet; planned: `cis_phased_test::members_meeting_at_a_junction_are_accepted`,
   `::an_insertion_beside_a_changed_base_is_accepted`, `::an_insertion_before_a_changed_base_is_accepted`,
   `::an_insertion_before_what_a_duplication_copies_is_accepted`, `::members_that_agree_on_a_base_are_one_change`,
-  `::overlapping_deletions_delete_each_base_once`, `::an_insertion_inside_a_same_length_delins_keeps_its_place`,
-  `::an_insertion_inside_a_deletion_keeps_its_place`, `::an_identity_beside_an_agreeing_change_stays`,
+  `::overlapping_deletions_delete_each_base_once`, `::an_insertion_inside_a_same_length_delins_is_ambiguous`,
+  `::an_insertion_inside_a_deletion_is_ambiguous`, `::an_insertion_at_the_flank_of_a_deletion_is_accepted`,
+  `::an_insertion_at_the_flank_of_a_delins_is_accepted`, `::an_identity_beside_an_agreeing_change_stays`,
   `::a_change_agreeing_with_an_identity_inside_it_is_cut_there`, `::an_edit_written_twice_is_one_edit`,
   `::two_changes_to_one_base_are_contradictory`, `::a_change_inside_a_deletion_is_contradictory`,
   `::a_change_under_an_identity_is_contradictory`, `::an_insertion_inside_an_identity_is_contradictory`,
@@ -2242,10 +2249,10 @@ is the list. A caller that knows which reading was meant, from the assay or the 
 reports the ambiguity rather than a sequence nobody wrote.
 
 Today the readings come from [cis alleles whose members overlap](#overlapping-members-of-a-cis-allele-need-one-reading):
-two insertions at one junction, identical insertions, a change to what a duplication copies or an inversion reads. A
-`c.` range that crosses an exon junction is a likely future source: today it
-[projects over the intron](#a-change-across-a-splice-junction-has-no-genomic-form), and issue #64 asks whether it is
-instead ambiguous between including the intron and not; this entry does not decide that. A `CisPhasedBlock` whose
+an insertion inside a deleted or replaced stretch, two insertions at one junction, identical insertions, a change to
+what a duplication copies or an inversion reads. A `c.` range that crosses an exon junction is a likely future source:
+today it [projects over the intron](#a-change-across-a-splice-junction-has-no-genomic-form), and issue #64 asks whether
+it is instead ambiguous between including the intron and not; this entry does not decide that. A `CisPhasedBlock` whose
 members' placements make different sequences is another source,
 [read back](#members-of-a-cis-allele-that-meet-are-written-as-one-change) by `from_vrs`.
 
