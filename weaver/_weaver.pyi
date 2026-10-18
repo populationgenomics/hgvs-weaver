@@ -220,6 +220,8 @@ class VariantMapper:
             UnsupportedOperationError: If the variant inserts at an exon
                 junction (c.5_6insT where c.5 and c.6 lie in different
                 exons), which is before or after the intron on the genome.
+                The message names the spelling at each end of the intron,
+                c.5_5+1insT and c.6-1_6insT, either of which projects.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = ...) -> Variant:
@@ -471,8 +473,9 @@ class VariantMapper:
             AmbiguousDescriptionError: If an allele in cis has several readings.
             ValidationError: If an allele in cis has no reading.
             UnsupportedOperationError: If an allele in cis has readings weaver does not
-                list, members that share bases across an exon junction, or a form it
-                would be written in that does not read as it does.
+                list, members that share bases across an exon junction, a form it
+                would be written in that does not read as it does, or members that
+                all project to the genome but have no reading there.
         """
     def p_to_c(self, var_p: Variant, transcript_ac: str | None = ...) -> tuple[Variant, bool]:
         """

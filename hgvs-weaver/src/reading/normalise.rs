@@ -1007,7 +1007,8 @@ impl VariantMapper<'_> {
     /// [`HgvsError::Ambiguous`] listing its readings normalised, and one whose
     /// readings are not listed [`HgvsError::UnsupportedOperation`]. So is an
     /// allele whose members share bases across an exon junction or a
-    /// statement, or whose written form would not read as it does.
+    /// statement, whose written form would not read as it does, or whose
+    /// members all project to the genome but have no reading there.
     pub(crate) fn normalize_cis(&self, cis: &CisPhasedVariant) -> Result<SV, HgvsError> {
         let frame = self.checked_frame(cis, On::Written)?;
         if matches!(cis.coordinate_type(), "c" | "n" | "r")
@@ -1082,14 +1083,24 @@ impl VariantMapper<'_> {
             return Err(unsupported("states other bases".into()));
         }
         if matches!(cis.coordinate_type(), "c" | "n" | "r") {
-            if let Ok(before) = self.read_cis_on_genome(cis) {
-                let after = self
-                    .read_cis_on_genome(&as_allele)
-                    .map_err(|e| unsupported(format!("does not read on the genome: {e}")))?;
-                let genome = self.refs.reference(before.accession(), before.kind());
-                if !before.same_sequence(&after, &genome)? {
-                    return Err(unsupported("makes another sequence on the genome".into()));
+            // A member with no genomic form leaves nothing to compare there;
+            // one that projects into an allele with no reading on the genome
+            // is a contradiction the transcript's reading hides.
+            let before = match self.read_cis_on_genome(cis) {
+                Ok(before) => before,
+                Err(HgvsError::CisMember { .. }) => return Ok(normalised),
+                Err(e) => {
+                    return Err(HgvsError::UnsupportedOperation(format!(
+                        "{cis} is not yet normalised: it does not read on the genome: {e}"
+                    )))
                 }
+            };
+            let after = self
+                .read_cis_on_genome(&as_allele)
+                .map_err(|e| unsupported(format!("does not read on the genome: {e}")))?;
+            let genome = self.refs.reference(before.accession(), before.kind());
+            if !before.same_sequence(&after, &genome)? {
+                return Err(unsupported("makes another sequence on the genome".into()));
             }
         }
         Ok(normalised)

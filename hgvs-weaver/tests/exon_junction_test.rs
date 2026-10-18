@@ -227,6 +227,14 @@ fn inserts_at_the_junction<T: std::fmt::Debug>(result: &Result<T, HgvsError>) ->
     matches!(result, Err(HgvsError::UnsupportedOperation(m)) if m.contains("inserts at an exon junction"))
 }
 
+/// The message of `result`'s refusal.
+fn refusal<T: std::fmt::Debug>(result: Result<T, HgvsError>) -> String {
+    match result {
+        Err(HgvsError::UnsupportedOperation(m)) => m,
+        other => panic!("not a refusal: {other:?}"),
+    }
+}
+
 #[test]
 fn a_repeat_at_its_own_count_across_the_junction_is_not_written_as_an_identity() {
     // From c.4 the run is c.4_6, AA|A: an identity over it would name the
@@ -953,5 +961,65 @@ fn on_the_minus_strand_a_delins_across_the_junction_projected_to_the_genome_and_
     assert_eq!(
         round_trip(&minus(), "NM_JM.1:c.5_6delinsGT"),
         "NM_JM.1:c.5_6delinsGT"
+    );
+}
+
+#[test]
+fn the_refusal_of_an_insertion_at_the_junction_names_its_spelling_at_each_end_of_the_intron() {
+    let message = refusal(projected(&plus(), "NM_J.1:c.5_6insT"));
+    assert!(message.contains("NM_J.1:c.5_5+1insT"), "{message}");
+    assert!(message.contains("NM_J.1:c.6-1_6insT"), "{message}");
+}
+
+#[test]
+fn on_the_minus_strand_the_refusal_of_an_insertion_at_the_junction_names_its_spelling_at_each_end_of_the_intron(
+) {
+    let message = refusal(projected(&minus(), "NM_JM.1:c.5_6insN[3]"));
+    assert!(message.contains("NM_JM.1:c.5_5+1insN[3]"), "{message}");
+    assert!(message.contains("NM_JM.1:c.6-1_6insN[3]"), "{message}");
+}
+
+#[test]
+fn an_insertion_after_the_earlier_exons_last_base_projects_to_the_start_of_the_intron() {
+    assert_eq!(
+        projected(&plus(), "NM_J.1:c.5_5+1insT").unwrap(),
+        "NC_J.1:g.20_21insT"
+    );
+}
+
+#[test]
+fn an_insertion_before_the_later_exons_first_base_projects_to_the_end_of_the_intron() {
+    assert_eq!(
+        projected(&plus(), "NM_J.1:c.6-1_6insT").unwrap(),
+        "NC_J.1:g.30_31insT"
+    );
+}
+
+#[test]
+fn on_the_minus_strand_an_insertion_after_the_earlier_exons_last_base_projects_to_the_start_of_the_intron(
+) {
+    // The intron runs down from g.37, after c.5 at g.38.
+    assert_eq!(
+        projected(&minus(), "NM_JM.1:c.5_5+1insT").unwrap(),
+        "NC_JM.1:g.37_38insA"
+    );
+}
+
+#[test]
+fn on_the_minus_strand_an_insertion_before_the_later_exons_first_base_projects_to_the_end_of_the_intron(
+) {
+    assert_eq!(
+        projected(&minus(), "NM_JM.1:c.6-1_6insT").unwrap(),
+        "NC_JM.1:g.27_28insA"
+    );
+}
+
+#[test]
+fn an_insertion_across_the_junction_between_bases_that_are_not_neighbours_is_invalid() {
+    // c.4 and c.6 have c.5 between them, so nothing is inserted between them.
+    let result = projected(&plus(), "NM_J.1:c.4_6insT");
+    assert!(
+        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("not neighbours")),
+        "{result:?}"
     );
 }

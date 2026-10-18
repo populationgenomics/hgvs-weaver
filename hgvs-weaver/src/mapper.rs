@@ -294,6 +294,38 @@ fn genomic_range_readings(
     Ok(readings)
 }
 
+/// `posedit`, an insertion between the last base of one exon and the first of
+/// the next, spelled at each end of the intron between them: after the
+/// earlier exon's last base, `c.5_5+1ins`, and before the later exon's first,
+/// `c.6-1_6ins`. Each names two neighbouring genomic positions.
+fn at_each_end_of_the_intron(
+    posedit: &crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>,
+) -> Result<[crate::structs::PosEdit<BaseOffsetInterval, crate::edits::NaEdit>; 2], HgvsError> {
+    let pos = posedit
+        .pos
+        .as_ref()
+        .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
+    let end = pos.end.ok_or_else(|| {
+        HgvsError::ValidationError(format!("{posedit} names one base, not an insertion's two"))
+    })?;
+    let into_the_intron = |p: BaseOffsetPosition, by: i32| BaseOffsetPosition {
+        offset: Some(crate::structs::IntronicOffset(by)),
+        ..p
+    };
+    let between = |start, end| crate::structs::PosEdit {
+        pos: Some(BaseOffsetInterval {
+            start,
+            end: Some(end),
+            uncertain: pos.uncertain,
+        }),
+        ..posedit.clone()
+    };
+    Ok([
+        between(pos.start, into_the_intron(pos.start, 1)),
+        between(into_the_intron(end, -1), end),
+    ])
+}
+
 /// The refusal of `variant`, a range across an exon junction with an end
 /// among bases one sequence holds and the other lacks: the other sequence has
 /// no position for that end, and the run it belongs to is not what the range
@@ -1882,12 +1914,23 @@ impl<'a> VariantMapper<'a> {
                 crate::edits::NaEdit::Ins { .. } | crate::edits::NaEdit::InsLength { .. }
             )
         {
+            let written = |posedit: &crate::structs::PosEdit<BaseOffsetInterval, _>| {
+                format!("{}:{}.{posedit}", var_c.ac(), var_c.coordinate_type())
+            };
+            if named.1 - named.0 != 2 {
+                return Err(HgvsError::ValidationError(format!(
+                    "{} inserts between bases that are not neighbours",
+                    written(var_c.posedit())
+                )));
+            }
+            let [after, before] = at_each_end_of_the_intron(var_c.posedit())?;
             return Err(HgvsError::UnsupportedOperation(format!(
-                "{}:{}.{} inserts at an exon junction: on the genome its bases go before or \
-                 after the intron, and the description does not say which",
-                var_c.ac(),
-                var_c.coordinate_type(),
-                var_c.posedit()
+                "{} inserts at an exon junction: on the genome its bases go before or after the \
+                 intron, and the description does not say which; {} puts them at the start of \
+                 the intron and {} at its end",
+                written(var_c.posedit()),
+                written(&after),
+                written(&before)
             )));
         }
         if !exonic {
