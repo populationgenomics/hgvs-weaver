@@ -270,25 +270,45 @@ def compare(baseline: pathlib.Path, output: pathlib.Path) -> None:
 def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
     """The rows whose verdict through c_to_p (rs_equiv) differs from the direct one (rs_nuc_equiv), by pattern.
 
-    A row neither column judges (Unknown, an error, blank) is counted but not listed: neither side says anything.
+    Rows both columns judge come first, a contradiction (equivalent one way, Different the other) apart from a
+    difference of level; then rows only one column judges. A row with no ClinVar protein, or that neither judges,
+    says nothing about transitivity and is only counted.
     """
-    patterns: collections.Counter[tuple[str, str]] = collections.Counter()
+    groups: dict[str, collections.Counter[tuple[str, str]]] = {
+        "contradict": collections.Counter(),
+        "differ in level": collections.Counter(),
+        "judged by one column only": collections.Counter(),
+    }
     examples: dict[tuple[str, str], list[dict[str, str]]] = collections.defaultdict(list)
-    unjudged = 0
+    no_protein = unjudged = 0
     for key in sorted(rows):
         row = rows[key]
         pattern = (_state(row, "rs_equiv", None), _state(row, "rs_nuc_equiv", None))
-        if not JUDGED.intersection(pattern):
+        judged = [verdict in JUDGED for verdict in pattern]
+        if pattern[1] == "blank":
+            no_protein += 1
+            continue
+        if not any(judged):
             unjudged += 1
-        elif pattern[0] != pattern[1]:
-            patterns[pattern] += 1
-            if len(examples[pattern]) < 3:
-                examples[pattern].append(row)
-    print(f"rs_equiv against rs_nuc_equiv: {sum(patterns.values())} rows disagree; {unjudged} judged by neither")
-    for pattern, n in patterns.most_common():
-        print(f"    {n:6d}  rs_equiv {pattern[0]}, rs_nuc_equiv {pattern[1]}")
-        for row in examples[pattern]:
-            print(f"        e.g. {row['variant_nuc']}  ClinVar {row['variant_prot']}  weaver {row['rs_p'][:60]!r}")
+            continue
+        if pattern[0] == pattern[1]:
+            continue
+        if not all(judged):
+            group = "judged by one column only"
+        elif "Different" in pattern:
+            group = "contradict"
+        else:
+            group = "differ in level"
+        groups[group][pattern] += 1
+        if len(examples[pattern]) < 3:
+            examples[pattern].append(row)
+    print(f"rs_equiv against rs_nuc_equiv: {no_protein} rows with no ClinVar protein, {unjudged} judged by neither")
+    for group, patterns in groups.items():
+        print(f"  {sum(patterns.values())} rows {group}")
+        for pattern, n in patterns.most_common():
+            print(f"    {n:6d}  rs_equiv {pattern[0]}, rs_nuc_equiv {pattern[1]}")
+            for row in examples[pattern]:
+                print(f"        e.g. {row['variant_nuc']}  ClinVar {row['variant_prot']}  weaver {row['rs_p'][:60]!r}")
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -16,6 +16,7 @@ import argparse
 import concurrent.futures
 import csv
 import dataclasses
+import importlib.util
 import logging
 import sys
 import typing
@@ -37,16 +38,6 @@ except ImportError:
     sys.exit(1)
 
 import weaver
-
-try:
-    from weaver_data_provider import genome as wd_genome
-    from weaver_data_provider import provider as wd_provider
-    from weaver_data_provider import store as wd_store
-except ImportError:
-    print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
-    print("  pip install hgvs-weaver-data")
-    sys.exit(1)
-
 from weaver.cli import provider
 
 # The columns the validation writes after the input's own; an input that already carries them has them replaced.
@@ -75,6 +66,11 @@ _worker: _Worker | None = None
 
 def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
     """Initializes this worker process's mappers over a weaver-data-provider store and genome."""
+    # Imported here, not at module level: only the store needs it, and it needs Python 3.12; main checks for it.
+    from weaver_data_provider import genome as wd_genome  # noqa: PLC0415
+    from weaver_data_provider import provider as wd_provider  # noqa: PLC0415
+    from weaver_data_provider import store as wd_store  # noqa: PLC0415
+
     global _worker
     rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
     fh_results: dict[str, str] = {}
@@ -246,7 +242,7 @@ def nuc_equivalence(
         level = mapper.equivalent_level(weaver.parse(nuc_hgvs), weaver.parse(prot_hgvs), searcher)
     except Exception as e:
         return f"ERR:{e!s}"
-    except BaseException:
+    except BaseException:  # a Rust panic surfaces as pyo3's PanicException, which derives from BaseException
         return "PANIC"
     return str(level).split(".")[-1]
 
@@ -339,6 +335,10 @@ def main(argv: list[str] | None = None) -> None:
         help="Disable ferro-hgvs comparison entirely (fh_parse column will be SKIP).",
     )
     args = parser.parse_args(argv)
+    if importlib.util.find_spec("weaver_data_provider") is None:
+        print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
+        print("  pip install hgvs-weaver-data")
+        sys.exit(1)
 
     with open(args.input_file) as f_in:
         reader = csv.DictReader(f_in, delimiter="\t")

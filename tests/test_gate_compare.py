@@ -9,8 +9,6 @@ from collections.abc import Iterable, Sequence
 
 import pytest
 
-pytest.importorskip("weaver_data_provider", reason="weaver-gate needs hgvs-weaver-data, on Python 3.12 or later")
-
 from weaver.cli import gate
 
 FIELDS = ("variant_nuc", "variant_prot", "spdi", "rs_p", "rs_spdi", "rs_equiv", "rs_nuc_equiv")
@@ -63,7 +61,7 @@ def test_a_moved_verdict_is_counted_by_its_direction(
     assert re.search(r"1  Identity -> Different", out)
 
 
-def test_rows_whose_two_verdicts_disagree_are_listed_by_pattern(
+def test_rows_whose_two_verdicts_disagree_are_grouped_by_pattern(
     tmp_path: pathlib.Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -71,16 +69,30 @@ def test_rows_whose_two_verdicts_disagree_are_listed_by_pattern(
         output_row(variant_nuc="NM_TEST.1:c.4G>A", rs_equiv="Identity", rs_nuc_equiv="Identity"),
         output_row(variant_nuc="NM_TEST.1:c.5C>T", rs_equiv="Identity", rs_nuc_equiv="Analogous"),
         output_row(variant_nuc="NM_TEST.1:c.6T>A", rs_equiv="Identity", rs_nuc_equiv="Analogous"),
-        output_row(variant_nuc="NM_TEST.1:c.7G>C", rs_equiv="Unknown", rs_nuc_equiv="Different"),
-        output_row(variant_nuc="NM_TEST.1:c.8G>C", rs_equiv="Unknown", rs_nuc_equiv="ERR:no protein"),
+        output_row(variant_nuc="NM_TEST.1:c.7G>C", rs_equiv="Analogous", rs_nuc_equiv="Different"),
+        output_row(variant_nuc="NM_TEST.1:c.8G>C", rs_equiv="Unknown", rs_nuc_equiv="Identity"),
+        output_row(variant_nuc="NM_TEST.1:c.9G>C", rs_equiv="Unknown", rs_nuc_equiv="ERR:no protein"),
+        output_row(variant_nuc="NM_TEST.1:c.10G>C", rs_equiv="Unknown", rs_nuc_equiv=""),
     ]
-    output = write(tmp_path / "new.tsv", rows)
-    gate.compare(write(tmp_path / "old.tsv", rows), output)
+    gate.compare(write(tmp_path / "old.tsv", rows), write(tmp_path / "new.tsv", rows))
     out = capsys.readouterr().out
     report = out[out.index("rs_equiv against rs_nuc_equiv") :]
-    assert re.search(r"3 rows disagree; 1 judged by neither", report)
-    assert re.search(r"2  rs_equiv Identity, rs_nuc_equiv Analogous", report)
-    assert re.search(r"1  rs_equiv Unknown, rs_nuc_equiv Different", report)
+    assert re.search(r"1 rows with no ClinVar protein, 1 judged by neither", report)
+    assert re.search(r"1 rows contradict\n +1  rs_equiv Analogous, rs_nuc_equiv Different", report)
+    assert re.search(r"2 rows differ in level\n +2  rs_equiv Identity, rs_nuc_equiv Analogous", report)
+    assert re.search(r"1 rows judged by one column only\n +1  rs_equiv Unknown, rs_nuc_equiv Identity", report)
     assert "NM_TEST.1:c.7G>C" in report
     assert "NM_TEST.1:c.4G>A" not in report
-    assert "NM_TEST.1:c.8G>C" not in report
+    assert "NM_TEST.1:c.9G>C" not in report
+
+
+def test_an_output_without_the_column_reports_it_absent_and_lists_no_disagreements(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = [output_row(rs_equiv="Identity", rs_nuc_equiv="Different")]
+    baseline = write(tmp_path / "old.tsv", rows)
+    gate.compare(baseline, write(tmp_path / "new.tsv", rows, FIELDS_WITHOUT_NUC_EQUIV))
+    out = capsys.readouterr().out
+    assert "rs_nuc_equiv: absent from new.tsv" in out
+    assert "rs_equiv against rs_nuc_equiv" not in out

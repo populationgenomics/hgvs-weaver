@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import re
 
-import pytest
-
-pytest.importorskip("weaver_data_provider", reason="weaver-validate needs hgvs-weaver-data, on Python 3.12 or later")
-
 import hgvs.parser
 import hgvs.variantmapper
+import pytest
 
 import weaver
 from weaver.cli import provider as cli_provider
@@ -118,7 +115,7 @@ def test_a_row_without_a_predicted_protein_is_still_judged() -> None:
     ("variant_nuc", "variant_prot", "message"),
     [
         ("NM_TEST.1:c.4T>A", "NP_TEST.1:p.(Ala2Thr)", "expected T, found G"),
-        ("NM_TEST.1:c.4G>A", "NP_TEST.1:p.Garbage", "expected num"),
+        ("NM_TEST.1:c.4G>A", "NP_TEST.1:p.Garbage", "NP_TEST.1:p.Garbage"),
     ],
 )
 def test_a_description_that_cannot_be_judged_is_an_error_in_the_column(
