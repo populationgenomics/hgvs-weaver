@@ -1422,7 +1422,8 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::intronic_members_on_the_minus_strand_are_one_change`, `::an_rna_allele_with_intronic_members_is_written_in_rna`,
   `::intronic_members_that_meet_are_one_change`, `::an_intronic_member_written_twice_is_one_member`,
   `::an_intronic_edit_written_two_ways_is_written_once_whatever_the_order`, `::an_identity_joins_no_intronic_group`,
-  `::an_intronic_group_can_be_written_in_the_exon`, `::members_sharing_bases_across_a_statement_are_refused`,
+  `::an_exonic_member_sharing_bases_with_an_intronic_group_joins_it`, `::an_intronic_group_can_be_written_in_the_exon`,
+  `::members_sharing_bases_across_a_statement_are_refused`,
   `::normalising_an_ambiguous_allele_raises_with_its_readings`, `::normalising_a_contradictory_allele_raises`,
   `::normalising_an_allele_whose_readings_are_not_listed_raises`,
   `::members_justified_over_one_run_render_as_the_allele_they_make`; `::an_ambiguity_carries_its_readings` and

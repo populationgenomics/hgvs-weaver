@@ -565,8 +565,10 @@ class VariantMapper:
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
-            UnsupportedOperationError: If an allele in cis is not normalised, as
-                normalize_variant raises it, or a member has no Allele.
+            AmbiguousDescriptionError: If an allele in cis has several readings.
+            ValidationError: If an allele in cis has no reading.
+            UnsupportedOperationError: If an allele in cis cannot be written on the
+                genome as the Alleles it makes, or a member has no Allele.
         """
 
     def vrs_id(self, var: Variant) -> str:

@@ -1112,8 +1112,18 @@ impl VariantMapper<'_> {
         let (allele, _) = allele_on(cis, frame, &reference);
         let settled = self.settle(cis, frame, &allele, true)?;
         let mut current = cis.clone();
-        for _ in 0..=cis.members.len() {
-            let next = self.introns_once(&current)?;
+        for round in 0..=cis.members.len() {
+            // From the second round on, the allele being read is one weaver
+            // wrote, so a refusal of it is a refusal of `cis`.
+            let next = self.introns_once(&current).map_err(|e| {
+                if round == 0 {
+                    e
+                } else {
+                    HgvsError::UnsupportedOperation(format!(
+                        "{cis} is not yet normalised: written as {current}, {e}"
+                    ))
+                }
+            })?;
             if next == current {
                 let normalised = match <[SV; 1]>::try_from(next.members) {
                     Ok([one]) => one,
@@ -1164,10 +1174,11 @@ impl VariantMapper<'_> {
         let n = allele.members.len();
         let meets = |a: Span, b: Span| a.0 <= b.1 && b.0 <= a.1;
         // Identities state bases and are kept as written; they join no group.
+        // Every change meeting another, directly or through a third, is one
+        // group; a group holding an intronic member is merged on the genome.
         let groups = components(n, |a, b| {
-            let (ia, ib) = (allele.members[a].0, allele.members[b].0);
             let changes = !allele.members[a].1.is_identity() && !allele.members[b].1.is_identity();
-            changes && (intronic[ia] || intronic[ib]) && meets(extents[a], extents[b])
+            changes && meets(extents[a], extents[b])
         });
         // Each member's placement: a member placed as another is that member
         // written twice, which the allele keeps once.
@@ -1195,7 +1206,8 @@ impl VariantMapper<'_> {
         for group in groups.iter() {
             let lone = group.len() == 1;
             let slot = group[0];
-            if lone && !(intronic[allele.members[slot].0] && twice(allele.members[slot].0)) {
+            let holds_intronic = group.iter().any(|&k| intronic[allele.members[k].0]);
+            if !holds_intronic || lone && !twice(allele.members[slot].0) {
                 continue;
             }
             // A lone intronic member written twice is written once, as the

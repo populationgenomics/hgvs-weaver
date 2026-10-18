@@ -2798,7 +2798,7 @@ impl<'a> VariantMapper<'a> {
         match self.to_vrs_variation(var)? {
             VrsVariation::CisPhasedBlock(block) => Ok(block),
             _ => Err(HgvsError::UnsupportedOperation(format!(
-                "{var} normalises to one change, rendered as one VRS object rather than a \
+                "{var} is one change on the genome, rendered as one VRS object rather than a \
                  CisPhasedBlock; use to_vrs_variation"
             ))),
         }

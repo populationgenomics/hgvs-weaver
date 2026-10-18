@@ -1859,6 +1859,23 @@ fn an_intronic_edit_written_two_ways_is_written_once_whatever_the_order() {
 }
 
 #[test]
+fn an_exonic_member_sharing_bases_with_an_intronic_group_joins_it() {
+    // c.7_9del shares c.9 with the inversion and meets the duplication,
+    // whose copy reaches into the intron
+    let hdp = normalising_provider();
+    for allele in [
+        "NM_S.1:c.[9_10inv;3_6-2dup;7_9del]",
+        "NM_S.1:c.[7_9del;9_10inv;3_6-2dup]",
+    ] {
+        assert_eq!(
+            normalised(&hdp, allele),
+            normalised(&hdp, "NM_S.1:c.[3_6-2dup;7_9del;9_10inv]"),
+            "{allele}"
+        );
+    }
+}
+
+#[test]
 fn an_identity_joins_no_intronic_group() {
     assert_eq!(
         normalised(&normalising_provider(), "NM_S.1:c.[5A>T;5+1=]"),
