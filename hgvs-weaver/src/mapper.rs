@@ -1550,6 +1550,14 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
+        if !pos.is_exact() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{}:{}.{} has an uncertain position, which a genomic interval cannot carry",
+                var_c.ac(),
+                var_c.coordinate_type(),
+                var_c.posedit()
+            )));
+        }
         let run = self.repeat_run_tx(&am, var_c, pos)?;
         let (pos, edit) = match &run {
             Some((interval, edit)) => (interval, edit),
@@ -2490,7 +2498,8 @@ impl<'a> VariantMapper<'a> {
 
     /// The canonical allele of a nucleotide variant on its genomic reference:
     /// the one unambiguous statement of the change that SPDI, VRS and
-    /// equivalence all derive from. See [`CanonicalAllele`].
+    /// equivalence all derive from. See [`CanonicalAllele`]. A variant whose
+    /// position is uncertain names no one change, so it has none.
     pub fn canonical_allele(
         &self,
         var: &crate::SequenceVariant,
@@ -2500,6 +2509,11 @@ impl<'a> VariantMapper<'a> {
                 "A cis allele has one canonical allele per member, not one of its own; \
                  take canonical_allele of each of the {} members of {var}, or to_vrs_variation",
                 cis.members.len()
+            )));
+        }
+        if !var.has_exact_position() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var} has an uncertain position, so it names no one change to make an allele of"
             )));
         }
         if let crate::SequenceVariant::Protein(vp) = var {

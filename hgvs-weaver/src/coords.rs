@@ -348,6 +348,23 @@ impl SequenceVariant {
             _ => false,
         }
     }
+
+    /// Whether the position, if there is one, names its bases or residues
+    /// exactly: not `g.(3_4)`, `g.(?_10)_(20_?)`, `c.(4_6)` or
+    /// `p.(Lys2_Leu3)`. A cis allele's is exact when every member's is.
+    pub fn has_exact_position(&self) -> bool {
+        match self {
+            SequenceVariant::Genomic(v) => v.posedit.pos.as_ref().is_none_or(|p| p.is_exact()),
+            SequenceVariant::Mitochondrial(v) => {
+                v.posedit.pos.as_ref().is_none_or(|p| p.is_exact())
+            }
+            SequenceVariant::Coding(v) => v.posedit.pos.as_ref().is_none_or(|p| p.is_exact()),
+            SequenceVariant::NonCoding(v) => v.posedit.pos.as_ref().is_none_or(|p| p.is_exact()),
+            SequenceVariant::Rna(v) => v.posedit.pos.as_ref().is_none_or(|p| p.is_exact()),
+            SequenceVariant::Protein(v) => v.posedit.pos.as_ref().is_none_or(|p| !p.uncertain),
+            SequenceVariant::CisPhased(v) => v.members.iter().all(Self::has_exact_position),
+        }
+    }
 }
 
 impl From<TranscriptPos> for HgvsTranscriptPos {

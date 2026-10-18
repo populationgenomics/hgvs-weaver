@@ -1,10 +1,11 @@
 use crate::allele::{CanonicalAllele, StatedBases};
 use crate::data::{IdentifierKind, TranscriptSearch};
-use crate::edits::{NaEdit, RnaStatement, StopDistance};
+use crate::edits::{AaEdit, NaEdit, StopDistance};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
 use crate::structs::{
-    CVariant, CisPhasedVariant, LinearVariant, PVariant, SequenceVariant, Variant,
+    AaInterval, CVariant, CisPhasedVariant, LinearVariant, PVariant, PosEdit, SequenceVariant,
+    Variant,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,12 +102,7 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // The text comparison drops parentheses, and those of r.(?) are part
-        // of what it states.
-        if rna_statements(var1) != rna_statements(var2) {
-            return Ok(EquivalenceLevel::Different);
-        }
-        if self.normalize_format(&var1.to_string()) == self.normalize_format(&var2.to_string()) {
+        if spelling(var1) == spelling(var2) {
             return Ok(EquivalenceLevel::Identity);
         }
         if let Some(level) = self.cis_phased_level(var1, var2)? {
@@ -117,8 +113,7 @@ impl<'a> VariantEquivalence<'a> {
                 // Versions of one protein accession are compared on ours: the
                 // same description in another spelling, or the same protein left.
                 base_accession(&p1.ac) == base_accession(&p2.ac)
-                    && (self.normalize_format(&p1.posedit.to_string())
-                        == self.normalize_format(&p2.posedit.to_string())
+                    && (posedit_spelling(&p1.posedit) == posedit_spelling(&p2.posedit)
                         || same_protein(
                             self.protein_outcome_on(p1, &p1.ac)?,
                             self.protein_outcome_on(p2, &p1.ac)?,
@@ -218,8 +213,7 @@ impl<'a> VariantEquivalence<'a> {
             Some(g) => g?,
         };
         if matches!(g.posedit.edit, NaEdit::NACopy { .. }) {
-            let edit = self.normalize_format(&g.posedit.to_string());
-            return Ok(Some(Comparand::Projection(g.ac, edit)));
+            return Ok(Some(Comparand::Projection(g.ac, g.posedit.to_string())));
         }
         Ok(self
             .nucleotide_allele(&SequenceVariant::Genomic(g))?
@@ -268,7 +262,7 @@ impl<'a> VariantEquivalence<'a> {
         // First by description: the prediction written exactly as given is
         // Identity (c. implies p.(...) exactly); the same description in
         // another spelling is Analogous. Neither needs the protein sequence.
-        let described = self.normalize_format(&vp.to_string());
+        let described = protein_spelling(vp);
         let mut analogous = false;
         let mut predictions = Vec::with_capacity(coding.len());
         for c in &coding {
@@ -277,7 +271,7 @@ impl<'a> VariantEquivalence<'a> {
                 if predicted.to_string() == vp.to_string() {
                     return Ok(EquivalenceLevel::Identity);
                 }
-                analogous |= self.normalize_format(&predicted.to_string()) == described;
+                analogous |= protein_spelling(predicted) == described;
             }
             predictions.push(predicted);
         }
@@ -346,6 +340,10 @@ impl<'a> VariantEquivalence<'a> {
                 }),
                 _ => None,
             });
+        }
+        // An uncertain range, `p.(Lys2_Leu3)del`, does not say which residues change.
+        if vp.posedit.pos.as_ref().is_some_and(|p| p.uncertain) {
+            return Ok(None);
         }
         let (start, end) = crate::mapper::residue_range(vp, &reference)?;
         // `p.Met1?`: something happens from this residue on; what, it does not say.
@@ -509,42 +507,80 @@ impl<'a> VariantEquivalence<'a> {
         // Default: return as-is.
         Ok(vec![var.clone()])
     }
+}
 
-    fn normalize_format(&self, s: &str) -> String {
-        // A ? is kept: p.Met1? is an unknown change from Met1, not p.Met1Xaa.
-        let mut s = s.replace(['(', ')'], "");
-        // Normalize 3-letter AA codes to 1-letter
-        let replacements = [
-            ("Ala", "A"),
-            ("Arg", "R"),
-            ("Asn", "N"),
-            ("Asp", "D"),
-            ("Cys", "C"),
-            ("Gln", "Q"),
-            ("Glu", "E"),
-            ("Gly", "G"),
-            ("His", "H"),
-            ("Ile", "I"),
-            ("Leu", "L"),
-            ("Lys", "K"),
-            ("Met", "M"),
-            ("Phe", "F"),
-            ("Pro", "P"),
-            ("Ser", "S"),
-            ("Thr", "T"),
-            ("Trp", "W"),
-            ("Tyr", "Y"),
-            ("Val", "V"),
-            ("Asx", "B"),
-            ("Glx", "Z"),
-            ("Xaa", "X"),
-            ("Ter", "*"),
-        ];
-        for (from, to) in replacements {
-            s = s.replace(from, to);
-        }
-        s
+/// The text two descriptions are one spelling by: as printed, without the
+/// parentheses of a prediction, and with a protein's residues in one-letter
+/// code. A prediction is taken as its confirmation, so `p.(Val600Glu)` is
+/// `p.Val600Glu` and `r.(=)` is `r.=`; every other parenthesis is part of
+/// what is said and stays, as in `g.(3_4)del`, `p.(Lys2_Leu3)del` and `r.(?)`.
+fn spelling(var: &SequenceVariant) -> String {
+    let mut var = var.clone();
+    as_confirmed(&mut var);
+    let text = var.to_string();
+    if var.coordinate_type() == "p" {
+        one_letter(&text)
+    } else {
+        text
     }
+}
+
+/// [`spelling`] of a protein description.
+fn protein_spelling(vp: &PVariant) -> String {
+    spelling(&SequenceVariant::Protein(vp.clone()))
+}
+
+/// [`spelling`] of a protein posedit alone, for descriptions on two versions
+/// of one accession.
+fn posedit_spelling(posedit: &PosEdit<AaInterval, AaEdit>) -> String {
+    let mut posedit = posedit.clone();
+    posedit.predicted = false;
+    one_letter(&posedit.to_string())
+}
+
+/// Clears the prediction flag of `var`, or of a cis allele's members. Only
+/// `p.` and `r.` carry one.
+fn as_confirmed(var: &mut SequenceVariant) {
+    match var {
+        SequenceVariant::Protein(p) => p.posedit.predicted = false,
+        SequenceVariant::Rna(r) => r.posedit.predicted = false,
+        SequenceVariant::CisPhased(cis) => cis.members.iter_mut().for_each(as_confirmed),
+        _ => {}
+    }
+}
+
+/// Protein text with its three-letter residue codes in one letter. A `?` is
+/// kept: `p.Met1?` is an unknown change from Met1, not `p.Met1Xaa`.
+fn one_letter(text: &str) -> String {
+    const CODES: [(&str, &str); 24] = [
+        ("Ala", "A"),
+        ("Arg", "R"),
+        ("Asn", "N"),
+        ("Asp", "D"),
+        ("Cys", "C"),
+        ("Gln", "Q"),
+        ("Glu", "E"),
+        ("Gly", "G"),
+        ("His", "H"),
+        ("Ile", "I"),
+        ("Leu", "L"),
+        ("Lys", "K"),
+        ("Met", "M"),
+        ("Phe", "F"),
+        ("Pro", "P"),
+        ("Ser", "S"),
+        ("Thr", "T"),
+        ("Trp", "W"),
+        ("Tyr", "Y"),
+        ("Val", "V"),
+        ("Asx", "B"),
+        ("Glx", "Z"),
+        ("Xaa", "X"),
+        ("Ter", "*"),
+    ];
+    CODES
+        .iter()
+        .fold(text.to_string(), |s, (from, to)| s.replace(from, to))
 }
 
 /// The value two single nucleotide variants are the same change by, on the
@@ -624,19 +660,6 @@ fn silent_prediction(p: &PVariant, len: usize) -> Outcome {
             Stated::residues(start..pos.end.as_ref().map_or(start, index) + 1, len)
         }
     })
-}
-
-/// What `var` states about the whole RNA (`r.0`, `r.(?)`), itself or through
-/// the members of a cis allele, in the order written.
-fn rna_statements(var: &SequenceVariant) -> Vec<RnaStatement> {
-    match var {
-        SequenceVariant::Rna(r) => match r.posedit.edit {
-            NaEdit::Statement(statement) => vec![statement],
-            _ => vec![],
-        },
-        SequenceVariant::CisPhased(cis) => cis.members.iter().flat_map(rna_statements).collect(),
-        _ => vec![],
-    }
 }
 
 /// The accession without its version: `NP_000050` of `NP_000050.3`.

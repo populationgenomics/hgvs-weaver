@@ -208,6 +208,7 @@ Representation Specification 2.0.1.
 | [A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)                                     |                agrees                | differs intronic |   differs intronic   |        –         |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                  –                   |     differs      |          –           |        –         |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |     agrees; silent on `p.Arg12?`     |        –         |          –           |     differs      |
+| [An uncertain position names no one change](#an-uncertain-position-names-no-one-change)                                             |                agrees                |        –         |          –           |        –         |
 | [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |                  –                   |        –         |          –           |        –         |
 | [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours)                             |                  –                   |        –         |          –           |        –         |
 | [A cis allele is the sequence its members make](#a-cis-allele-is-the-sequence-its-members-make)                                     |                  –                   |        –         |          –           |        –         |
@@ -1715,12 +1716,19 @@ A statement the nomenclature has no example for would take the parentheses, as a
 parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
 a prediction. A prediction's parentheses enclose the whole description; those of an uncertain residue or range,
 `p.(Gln18)[(70_80)]`, belong to the position, so a description that opens with one is not a prediction, and
-`p.((Gln18)[(70_80)])` is. In equivalence parentheses are spelling between two `p.` descriptions: `p.(Met1?)` and
-`p.Met1?` are Identity, as `p.(?)` and `p.?` are. Against a coding change the prediction written exactly is Identity and
-the same description in another spelling Analogous, so `c.-3_4del` is Identity with `p.(Met1?)` and Analogous with
-`p.Met1?`, as `c.10C>G` is with `p.(Arg4Gly)` and `p.Arg4Gly`; Identity is therefore not transitive across the two. The
-parentheses of `r.(?)` are not a prediction but part of the statement
-([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)).
+`p.((Gln18)[(70_80)])` is.
+
+In equivalence a prediction is taken as its confirmation, so a prediction's parentheses are spelling and no other
+parentheses are. Between two `p.` descriptions `p.(Val600Glu)` and `p.Val600Glu` are Identity, as `p.(Met1?)` and
+`p.Met1?`, `p.(=)` and `p.=`, and `p.(?)` and `p.?` are; so are the members of a protein allele in cis,
+`p.[(Lys2Asn);(Leu3Pro)]` and `p.[Lys2Asn;Leu3Pro]`. `r.(=)`, the RNA predicted unchanged, is Identity with `r.=`, the
+RNA analysed and found unchanged, for the same reason, and a predicted RNA change, `r.(10c>g)`, is compared as its `c.`
+spelling, which carries no prediction. The parentheses of an uncertain position say what is not known
+([below](#an-uncertain-position-names-no-one-change)), and those of `r.(?)` are not a prediction but part of the
+statement ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)), so neither is dropped. Against a
+coding change the prediction written exactly is Identity and the same description in another spelling Analogous, so
+`c.-3_4del` is Identity with `p.(Met1?)` and Analogous with `p.Met1?`, as `c.10C>G` is with `p.(Arg4Gly)` and
+`p.Arg4Gly`; Identity is therefore not transitive across the two.
 
 **Example:**
 
@@ -1755,7 +1763,11 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `::test_transform_stated_met1_to_stated_question`;
   `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
   `::a_change_over_an_uncertain_residue_range_is_not_a_prediction`,
-  `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`.
+  `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`;
+  `equivalence_test::a_predicted_protein_change_is_its_confirmation`,
+  `::a_cis_allele_of_predicted_protein_changes_is_its_confirmation`,
+  `::a_coding_change_is_analogous_to_its_prediction_written_unbracketed`;
+  `whole_sequence_identity_test::the_rna_predicted_unchanged_is_the_rna_found_unchanged`.
 
 ### Frameshift length counts to the first new stop
 
@@ -2047,6 +2059,52 @@ NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
   `::an_unknown_change_from_a_residue_matches_a_coding_change_predicted_there`,
   `::a_predicted_unknown_change_from_a_residue_is_the_stated_one`;
   `printed_reparse_test::an_unknown_change_from_a_residue_past_met1`.
+
+### An uncertain position names no one change
+
+**A description whose position is uncertain is the same as itself and different from every other: it has no canonical
+allele, and a transcript position that is uncertain has no genomic form.**
+
+`g.(3_4)del` deletes one base somewhere in g.3 to g.4; `g.3_4del` deletes both, and `g.3del` names one of the two
+candidates. Neither is what the uncertain description says, so comparing either against it on the genome would claim a
+knowledge the description disclaims. The same holds for breakpoints known only to ranges, `g.(1_3)_(10_12)del`, for an
+uncertain transcript interval, `c.(4_6)del`, and for an uncertain residue range, `p.(Lys2_Leu3)del`. Reading any of them
+at the first base of each range would turn the uncertainty into a definite change. A genomic interval cannot carry the
+uncertainty of a transcript one, so `c_to_g` refuses `c.(4_6)del` rather than write the exact `g.` interval it would
+otherwise give.
+
+A parenthesised single position, `g.(5)_(12)del`, is exact ([Range bounds](#uncertain-breakpoints-become-range-bounds)),
+and a deletion with uncertain breakpoints still has a VRS Allele with Range bounds; it is the canonical allele, the one
+value every exact spelling of a change shares, that an uncertain description lacks.
+
+**Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`):
+
+```text
+NC_TEST.1:g.(1003_1004)del           vs  NC_TEST.1:g.1003_1004del    Different
+NC_TEST.1:g.(1003_1004)del           vs  NC_TEST.1:g.1003del         Different
+NC_TEST.1:g.(1003_1004)del           vs  NC_TEST.1:g.(1003_1004)del  Identity
+NC_TEST.1:g.(1001_1003)_(1010_1012)del  vs  NC_TEST.1:g.1001_1010del Different
+NM_X.1:c.(4_6)del                    vs  NC_X.1:g.109_111del         Different
+NP_X.1:p.(Lys2_Leu3)del              vs  NP_X.1:p.Lys2_Leu3del       Different
+canonical_allele NC_TEST.1:g.(1003_1004)del    →  UnsupportedOperation
+c_to_g NM_X.1:c.(4_6)del                       →  UnsupportedOperation
+```
+
+- **Others:** not checked.
+- **Spec (agrees):** [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/): `(A_B)_(C_D)` "where
+  `B_C` describes the minimal extent and `A_D` the maximal". That two such descriptions are Different unless written
+  alike is weaver's reading; the specification does not compare descriptions.
+- **Tests:** `equivalence_test::one_base_deleted_somewhere_in_a_range_is_not_the_range_deleted`,
+  `::one_base_deleted_somewhere_in_a_range_is_not_its_first_base_deleted`,
+  `::one_base_deleted_somewhere_in_a_range_is_itself`,
+  `::a_deletion_between_uncertain_breakpoints_is_not_one_from_their_first_bases`,
+  `::a_copy_number_somewhere_in_a_range_is_not_one_of_the_range`,
+  `::a_coding_deletion_over_an_uncertain_range_is_not_the_exact_one`,
+  `::a_coding_deletion_over_an_uncertain_range_is_not_the_exact_genomic_one`,
+  `::a_protein_deletion_over_an_uncertain_range_is_not_the_exact_one`,
+  `::one_base_deleted_somewhere_in_a_range_has_no_canonical_allele`,
+  `::a_coding_deletion_over_an_uncertain_range_has_no_genomic_form`;
+  `vrs_range_test::uncertain_breakpoints_become_ranges`.
 
 ### Judging with no protein sequence is an error
 
