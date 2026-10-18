@@ -1300,9 +1300,13 @@ fn every_written_reading_has_one_reading_where_changes_shift_into_each_other() {
 }
 
 #[test]
-fn an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced() {
+fn an_insertion_on_an_exon_junction_read_on_the_genome_fails_its_member() {
     let err = read(&reading_provider(), "NM_S.1:c.[5+1G>T;5_6insA]").unwrap_err();
-    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+    assert!(
+        matches!(&err, HgvsError::CisMember { index: 1, source, .. }
+            if matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("inserts at an exon junction"))),
+        "{err}"
+    );
 }
 
 #[test]
@@ -1822,15 +1826,33 @@ fn a_change_cut_at_an_identity_states_nothing_a_restating_member_changes() {
 #[test]
 fn a_transcript_allele_is_not_written_as_another_genome() {
     // read on the transcript, the delins takes in the copy; on the genome
-    // the copy stays, so no transcript form says what the allele does
+    // c.5_6 is g.20 to g.31, the intron included, which the delins replaces
+    // and the duplication copies g.20 of, so the allele has no reading there
     let err = normalise(
         &normalising_provider(),
         "NM_S.1:c.[5_6delinsAC;3_5dup;3_5=]",
     )
     .unwrap_err();
     assert!(
-        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("on the genome")),
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("it does not read on the genome")),
         "{err}"
+    );
+}
+
+#[test]
+fn a_transcript_allele_with_a_member_inserting_at_a_junction_normalises_on_the_transcript() {
+    // c.5_6insC has no genomic form, so the allele is not compared there
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5_6insC;7C>T]"),
+        "NM_S.1:c.[5_6insC;7C>T]"
+    );
+}
+
+#[test]
+fn a_transcript_allele_with_an_uncertain_member_normalises_on_the_transcript() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[(7_8)del;13T>G]"),
+        "NM_S.1:c.[(7_8)del;13T>G]"
     );
 }
 

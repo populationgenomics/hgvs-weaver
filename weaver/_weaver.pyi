@@ -188,6 +188,10 @@ class VariantMapper:
         """
         Maps a coding cDNA variant (c.) to a genomic variant (g.).
 
+        A range across an exon junction is the genomic range it numbers, the
+        intron included: c.4_6dup across the junction after c.5 duplicates
+        c.4, c.5, the intron and c.6.
+
         The edit is re-read against the genome: a stated reference the record has
         but the genome does not becomes the genome's base, and a change the genome
         already carries is written =; no change on the record (c.123=) is the
@@ -213,6 +217,11 @@ class VariantMapper:
                 in cis of them.
             ReferenceMismatchError: If a base the variant states is not the record's
                 (exonic) or the genome's on the transcript's strand (intronic).
+            UnsupportedOperationError: If the variant inserts at an exon
+                junction (c.5_6insT where c.5 and c.6 lie in different
+                exons), which is before or after the intron on the genome.
+                The message names the spelling at each end of the intron,
+                c.5_5+1insT and c.6-1_6insT, either of which projects.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = ...) -> Variant:
@@ -282,7 +291,11 @@ class VariantMapper:
         already carries is written =; no change on the genome (g.123=) is the
         record's base becoming the genome's where the two differ, and a duplication
         or inversion carries the genome's bases. An intronic position has no transcript base and
-        is carried as given.
+        is carried as given. A range whose ends lie in two exons is written over
+        the c. range that numbers the same bases, intron included: g.19_31dup
+        over c.4, c.5, the intron and c.6 is c.4_6dup. Where the record's bases
+        there differ from the genome's, only a statement projects, as the
+        record's correction.
 
         An allele in cis of g. members, g.[a;b], projects member by member to an
         allele in cis on the transcript, its members written in reverse on a
@@ -299,6 +312,9 @@ class VariantMapper:
         Raises:
             ValueError: If var_g is not a genomic variant or an allele
                 in cis of them.
+            UnsupportedOperationError: If a range whose ends lie in two exons
+                changes bases where the record differs from the genome, or ends
+                on bases only one of them holds.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def g_to_c_all(self, var_g: Variant, searcher: Any) -> list[Variant]:
@@ -337,6 +353,8 @@ class VariantMapper:
         Raises:
             ValueError: If var_n is not a non-coding variant or an allele
                 in cis of them.
+            UnsupportedOperationError: If the variant inserts at an exon
+                junction, as c_to_g refuses.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def protein_vrs(self, var_c: Variant, protein_ac: str | None = ...) -> dict[str, Any]:
@@ -455,8 +473,9 @@ class VariantMapper:
             AmbiguousDescriptionError: If an allele in cis has several readings.
             ValidationError: If an allele in cis has no reading.
             UnsupportedOperationError: If an allele in cis has readings weaver does not
-                list, members that share bases across an exon junction, or a form it
-                would be written in that does not read as it does.
+                list, members that share bases across an exon junction, a form it
+                would be written in that does not read as it does, or members that
+                all project to the genome but have no reading there.
         """
     def p_to_c(self, var_p: Variant, transcript_ac: str | None = ...) -> tuple[Variant, bool]:
         """
