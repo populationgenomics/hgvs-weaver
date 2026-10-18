@@ -474,11 +474,11 @@ fn cis_alleles_compare_as_sets_of_their_members_alleles() {
         level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T;13T>G]"),
         Identity
     );
-    // The same members in the other order, spelled on the genome, or
-    // written unnormalised, name the same molecule.
+    // The same members in the other order are the same spelling; spelled on
+    // the genome, or written unnormalised, they name the same molecule.
     assert_eq!(
         level("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[13T>G;7C>T]"),
-        Analogous
+        Identity
     );
     assert_eq!(
         level("NM_X.1:c.[7C>T;13T>G]", "NC_X.1:g.[22C>T;28T>G]"),
@@ -514,11 +514,18 @@ fn cis_alleles_compare_as_sets_of_their_members_alleles() {
     // nucleotide cis allele is projected to protein.
     assert_eq!(
         level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Ala4del;Lys2Leu]"),
-        Analogous
+        Identity
     );
     assert_eq!(
         level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[K2L;A4del]"),
         Identity
+    );
+    assert_eq!(
+        level(
+            "NP_X.1:p.[Lys2Leu;Ala4del]",
+            "NP_X.1:p.[Ala4del;Lys2delinsLeu]"
+        ),
+        Analogous
     );
     assert_eq!(
         level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Lys2Leu;Tyr5del]"),
@@ -528,13 +535,15 @@ fn cis_alleles_compare_as_sets_of_their_members_alleles() {
         level("NM_X.1:c.[7C>T;13T>G]", "NP_X.1:p.Leu3Phe"),
         Different
     );
-    // A member without a canonical allele compares Different, not an error.
+    // With a member that has no canonical allele, the same members in
+    // another order are the same spelling, and others are Different, not an
+    // error.
     assert_eq!(
-        level("NC_X.1:g.[22C>T;20_30copy3]", "NC_X.1:g.[22C>T;20_30copy3]"),
+        level("NC_X.1:g.[22C>T;30_35copy3]", "NC_X.1:g.[30_35copy3;22C>T]"),
         Identity
     );
     assert_eq!(
-        level("NC_X.1:g.[22C>T;20_30copy3]", "NC_X.1:g.[20_30copy3;22C>T]"),
+        level("NC_X.1:g.[22C>T;30_35copy3]", "NC_X.1:g.[22C>T;30_35copy4]"),
         Different
     );
 }

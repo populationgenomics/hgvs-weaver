@@ -3,12 +3,12 @@
 `VariantMapper.equivalent_level(a, b, searcher)` says whether two HGVS descriptions name the same change. It answers at
 one of four levels:
 
-| Level       | Meaning                                                                                                                                                           |
-| :---------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Identity`  | The same text after spelling normalisation, or a prediction written exactly as given. A prediction's parentheses and a one-member allele's brackets are spelling. |
-| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                            |
-| `Different` | Both descriptions are understood and they name different changes.                                                                                                 |
-| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                          |
+| Level       | Meaning                                                                                                                                                                                             |
+| :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Identity`  | The same text after spelling normalisation, or a prediction written exactly as given. A prediction's parentheses, a one-member allele's brackets and the order of an allele's members are spelling. |
+| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                                                              |
+| `Different` | Both descriptions are understood and they name different changes.                                                                                                                                   |
+| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                                                            |
 
 `equivalent(a, b, searcher)` is `Identity` or `Analogous`.
 
@@ -68,7 +68,8 @@ exons or crosses a junction or gap; otherwise the comparison is an error (`Unkno
 applied. An allele whose members are
 [contradictory or ambiguous](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not compared: the
 judgement is that error. A one-member allele is its member, and its brackets are spelling, as a prediction's parentheses
-are: `c.[7C>T]` and `c.7C>T` are `Identity`.
+are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
+`c.[7C>T;13T>G]` are `Identity`.
 
 ### Nucleotide against protein
 
@@ -116,7 +117,9 @@ Parentheses that mark a prediction are spelling, since a prediction is taken as 
 its own: the RNA follows the DNA change it accompanies, which is not `r.?`'s effect of unknown kind, so it is the same
 only as itself, also inside a cis allele. Those of an uncertain position, `g.(3_4)del` or `p.(Lys2_Leu3)del`, say the
 change is not known exactly; such a description names no one change, so it has no allele and is the same only as itself
-([the choice](choices.md#an-uncertain-position-names-no-one-change)).
+([the choice](choices.md#an-uncertain-position-names-no-one-change)). As the member of a cis allele it matches a member
+spelled as it is, and the exact members beside it are compared by their alleles, so `g.[(3_4)del;10_11insA]` is
+`g.[(3_4)del;10dup]` where g.10 is an A.
 
 Judging needs the protein sequence. With no sequence to read the description against the result is an error (`Unknown`
 or `ERR:` in the harness), not a guess from the residues the descriptions happen to name.

@@ -265,7 +265,7 @@ def test_equivalence_compares_the_sets_of_members(mapper: weaver.VariantMapper) 
     def level(other: str) -> weaver.EquivalenceLevel:
         return mapper.equivalent_level(a, weaver.parse(other), searcher)
 
-    assert level("NM_X.1:c.[13T>G;7C>T]") == weaver.EquivalenceLevel.Analogous
+    assert level("NM_X.1:c.[13T>G;7C>T]") == weaver.EquivalenceLevel.Identity
     assert level("NC_X.1:g.[22C>T;28T>G]") == weaver.EquivalenceLevel.Analogous
     assert level("NM_X.1:c.[7C>T;13T>A]") == weaver.EquivalenceLevel.Different
     assert level("NM_X.1:c.7C>T") == weaver.EquivalenceLevel.Different
