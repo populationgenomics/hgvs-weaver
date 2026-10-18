@@ -175,6 +175,39 @@ fn a_member_that_fails_to_project_fails_the_allele_and_is_named() {
 }
 
 #[test]
+fn a_member_stating_bases_across_a_junction_states_the_genomic_range() {
+    let hdp = provider();
+    let g = VariantMapper::new(&hdp)
+        .c_to_g_cis(&cis("NM_S.1:c.[4_6=;7C>T]"), None)
+        .unwrap();
+    assert_eq!(g.to_string(), "NC_S.1:g.[19_31=;32C>T]");
+}
+
+#[test]
+fn a_member_inserting_at_a_junction_fails_the_allele() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // between c.5 and c.6 is either end of the intron
+    let err = mapper
+        .c_to_g_cis(&cis("NM_S.1:c.[5_6insT;7C>T]"), None)
+        .unwrap_err();
+    let HgvsError::CisMember {
+        index,
+        member,
+        source,
+        ..
+    } = &err
+    else {
+        panic!("not a member's error: {err}");
+    };
+    assert_eq!((*index, member.as_str()), (0, "NM_S.1:c.5_6insT"));
+    assert!(
+        matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("inserts at an exon junction")),
+        "{source}"
+    );
+}
+
+#[test]
 fn a_member_outside_every_exon_fails_the_allele() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);

@@ -1300,9 +1300,13 @@ fn every_written_reading_has_one_reading_where_changes_shift_into_each_other() {
 }
 
 #[test]
-fn an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced() {
+fn an_insertion_on_an_exon_junction_read_on_the_genome_fails_its_member() {
     let err = read(&reading_provider(), "NM_S.1:c.[5+1G>T;5_6insA]").unwrap_err();
-    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+    assert!(
+        matches!(&err, HgvsError::CisMember { index: 1, source, .. }
+            if matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("inserts at an exon junction"))),
+        "{err}"
+    );
 }
 
 #[test]

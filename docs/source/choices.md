@@ -178,7 +178,7 @@ Representation Specification 2.0.1.
 | Choice                                                                                                                              |                            Spec                            |    biocommons    |   VariantValidator   |     ClinVar      |
 | :---------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------: | :--------------: | :------------------: | :--------------: |
 | [A projection states the bases of the target](#a-projection-states-the-bases-of-the-target)                                         |                           agrees                           |      agrees      |        agrees        |        –         |
-| [A change across a splice junction has no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form)                     |                           agrees                           |        –         |       differs        |        –         |
+| [A range across an exon junction is the genomic range](#a-range-across-an-exon-junction-is-the-genomic-range)                       |   agrees; silent on `=` and `inv`    |        –         | agrees on `inv`, differs on `=` |        –         |
 | [No normalisation before projecting](#no-normalisation-before-projecting)                                                           |                             –                              |        –         |       differs        |        –         |
 | [Gapped exons are projected locally](#gapped-exons-are-projected-locally)                                                           |                             –                              |        –         |       differs        |        –         |
 | [A transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion)         |                             –                              |     differs      | differs inside a run |        –         |
@@ -273,28 +273,163 @@ NM_001372044.2:c.1568C>T     →  NC_000022.11:g.50697558=
   `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases` (MUC2 and
   SHANK3 with NCBI's alignments); `a_variant_agrees_with_its_projection` (property, where record and genome agree).
 
-### A change across a splice junction has no genomic form
+### A range across an exon junction is the genomic range
 
-**An `r.` change spanning an exon boundary describes the spliced RNA, and weaver refuses to project it to the genome.**
+**A `c.` or `n.` range whose ends lie in two exons names every position between them, the intron included, in both
+directions: `c.4_6dup` across the junction after c.5 duplicates c.4, c.5, the intron and c.6, and `g.19_31dup` over the
+same bases is `c.4_6dup`. Two descriptions have no such range and are refused when projected to the genome: an insertion
+at a junction, and an `r.` change across one.**
 
-The `c.` spelling of the same change still projects, to a deletion that includes the intron, and its protein consequence
-is still predicted. weaver refuses the `r.` projection because a warning is easy to miss and the two molecules are not
-the same.
+A transcript is spliced: the last base of one exon and the first base of the next are neighbours on the transcript, with
+an intron between them on the genome. `c.` numbering covers the intron too, as `c.5+1` to `c.6-1`, so a range such as
+`c.4_6` can be read in two ways: as the three exonic bases the transcript holds, or as every position from c.4 to c.6,
+which on the genome is g.19 to g.31. The specification takes the second. Its
+[duplication](https://hgvs-nomenclature.org/stable/recommendations/DNA/duplication/) page describes
+`NC_000023.11(NM_004006.2):c.720_991dup` as "a duplication of nucleotides c.720 to c.991 starting in exon 8 (position
+c.720) and ending in exon 10 (position c.991) of the DMD gene", written against the chromosome, so what is duplicated
+includes introns 8 and 9. weaver reads every such range that way, whatever the edit:
 
-**Example** (exon 1 of `NM_R.1` ends at r.45):
+- **A deletion or delins** removes the range, so the intron goes with the exonic bases: `c.4_6del` is `g.19_31del`, and
+  `c.5_6delinsAA` replaces twelve bases with two, though c.5 and c.6 are both A.
+- **A duplication** copies the range, the intron included, and **an inversion** turns it round, the intron's splice
+  signals with it.
+- **A statement**, `c.4_6=`, says the whole range is as the reference has it, so it claims the intron's bases as well as
+  the three a transcript description names. Bases a description states, `c.4_6AAA=`, are checked on the record and not
+  carried, since the genome's range holds more than the record's.
+- **Where the record differs from the genome** inside the range, the edit is applied to the range as the record reads it
+  and the genome gets the edit that gives the result, as any projection does
+  ([above](#a-projection-states-the-bases-of-the-target)): on `NM_JD.1`, which holds G at c.4 over the genome's A,
+  `c.4_6=` is `g.19A>G`. A base one sequence holds and the other lacks, inside an exon aligned with gaps, is read the
+  same way. From the genome, a statement becomes the record's correction in the same way; any other edit would change
+  the record's bases and the intron in one range, which the transcript cannot write, and is refused. A range with an end
+  on bases only one sequence holds has no position for that end on the other, and is refused too.
+- **From the genome**, a range whose ends lie in two exons is written over the `c.` range that numbers the same bases,
+  so each projection above comes back as written. `g.19_31delinsAAA`, which deletes the intron and keeps the exonic
+  bases, is `c.4_6delinsAAA`. The same deletion written over the intron alone, `g.21_30del`, has its ends in the intron
+  and is carried as given, `c.5+1_6-1del` ([intronic positions](#intronic-positions-are-carried-as-given)).
+
+An insertion at a junction has no range to read. `c.5_6insT` puts a base between the last base of exon 1 and the first
+of exon 2, and on the genome that is after g.20 or before g.31: the intron stays, on one side of the base or the other,
+and the description does not say which. `g.20_31insT` would not be HGVS, which inserts only between neighbouring
+positions, so the projection is refused, as it is when an allele in cis is read on the genome
+([overlapping members](#overlapping-members-of-a-cis-allele-need-one-reading)). An insertion inside one exon, and a
+duplication of an exon's last base, project as usual.
+
+An `r.` change across a junction describes an event in the spliced RNA, such as an exon skipped. Its `c.` spelling
+projects, by the range reading, and its protein consequence is still predicted; the `r.` projection is refused because
+the two molecules are not the same, and a warning is easy to miss.
+
+Normalisation does not change: a variant is still not shifted across a junction
+([below](#a-shift-stops-at-an-exonexon-junction)).
+
+The alternatives, each rejected:
+
+- **The transcript's bases.** Reading the edit on the spliced transcript and writing whatever genomic edit gives the
+  same bases, deletes an intron the description does not mention: `c.4_6dup` becomes `g.21_30delinsAAA`, `c.4_6inv`
+  becomes `g.19_31delinsTTT` and `c.4_6=` becomes `g.21_30del`, a statement that nothing changed turned into a deletion.
+- **Refusing a statement across a junction**, so that `c.4_6=` had no genomic form. It avoided the deletion, but the
+  specification's range reading gives the statement one.
+- **Projecting only a change that leaves no intron at the junction**: deletions and delins, refusing duplications and
+  inversions. The reasoning was biological, since a copy across the junction leaves a three-base exon between two
+  introns that splicing would likely skip, and an inverted intron has its splice signals backwards, but the
+  specification's `c.720_991dup` describes exactly such a duplication.
+- **An allele of two identities** for a statement, `g.[19_20=;31=]` for `c.4_6=`, which keeps what a transcript writer
+  examined but turns a single variant into an allele every caller of a projection would have to handle.
+
+**Example** (exon 1 of `NM_J.1` ends at c.5; c.4 to c.6 are `AAA`; c.4 is g.19, c.5 g.20 and c.6 g.31 of `NC_J.1`, the
+intron g.21 to g.30; exon 1 of `NM_R.1` ends at r.45):
 
 ```text
-NM_R.1:r.44_47del   → genome    UnsupportedOperation: "spans a splice junction: the spliced RNA has no single genomic equivalent"
-NM_R.1:r.44_47del   → protein   the same frameshift as NM_R.1:c.44_47del
-NM_R.1:c.44_47del   → genome    projects, over the intron
-NM_R.1:r.45del      → genome    projects: one exon
+NM_J.1:c.4_6del          →  NC_J.1:g.19_31del
+NM_J.1:c.5_6delinsGC     →  NC_J.1:g.20_31delinsGC
+NM_J.1:c.4_6dup          →  NC_J.1:g.19_31dup          the intron copied with the bases
+NM_J.1:c.4_6inv          →  NC_J.1:g.19_31inv          and turned round
+NM_J.1:c.4_6=            →  NC_J.1:g.19_31=            the intron's bases stated too
+NM_J.1:c.4_6AAA=         →  NC_J.1:g.19_31=            the record's bases checked, not carried
+NM_JD.1:c.4_6=           →  NC_J.1:g.19A>G             the record's G over the genome's A
+NM_J.1:c.5_6insT         →  UnsupportedOperation: "inserts at an exon junction"
+NM_J.1:c.4_5insT         →  NC_J.1:g.19_20insT         inside one exon
+
+NC_J.1:g.19_31dup        →  NM_J.1:c.4_6dup
+NC_J.1:g.19_31delinsAAA  →  NM_J.1:c.4_6delinsAAA      the intron deleted
+NC_J.1:g.21_30del        →  NM_J.1:c.5+1_6-1del        the same deletion, written in the intron
+NC_J.1:g.19_31=          →  NM_JD.1:c.4G>A
+
+NM_J.1:c.4_6=  vs  NC_J.1:g.19_31=               Identity
+NM_J.1:c.4_6=  vs  NC_J.1:g.21_30del             Different
+
+NM_R.1:r.44_47del        →  UnsupportedOperation: "spans a splice junction"
+NM_R.1:c.44_47del        →  projects, over the intron
 ```
 
-- **Differs:** VariantValidator projects the `c.` reading with the warning "spans at least one intron".
-- **Spec (agrees):** [RNA substitution](https://hgvs-nomenclature.org/stable/recommendations/RNA/substitution/) and
-  [RNA splicing](https://hgvs-nomenclature.org/stable/recommendations/RNA/splicing/), where exon skipping is written as
-  an `r.` deletion across the junction (`r.(3277_3432del)`), an RNA event.
+- **Agrees:** VariantValidator on the inversion: `NM_000546.6:c.73_76inv`, across the junction after TP53's c.74, is
+  `NC_000017.11:g.7676402_7676522inv`, with the warning "spans at least one intron".
+- **Differs:** VariantValidator projects `NM_000546.6:c.73_76=` to `NC_000017.11:g.7676404_7676520del`, the deletion of
+  the intron, with no warning, and `NC_000017.11:g.7676403_7676521=` to `NM_000546.6:c.74_75delinsTGTGAG…TTTCAGA`, the
+  two exonic bases with the intron's 117 between them; it projects the `c.` reading of an `r.` change across a junction,
+  with the same warning. biocommons not checked.
+- **Spec (agrees; silent on a statement and an inversion across a junction):**
+  [duplication](https://hgvs-nomenclature.org/stable/recommendations/DNA/duplication/), `c.720_991dup` from exon 8 to
+  exon 10; [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/), which inserts between two
+  neighbouring positions; [RNA splicing](https://hgvs-nomenclature.org/stable/recommendations/RNA/splicing/), where exon
+  skipping is an `r.` deletion across the junction, an RNA event.
 - **Tests:** `rna_test::r_projects_to_the_genome_within_one_exon_only`, `::r_predicts_the_protein_like_c`;
+  `exon_junction_test::an_identity_across_the_junction_is_the_identity_of_the_genomic_range`,
+  `::on_the_minus_strand_an_identity_across_the_junction_is_the_identity_of_the_genomic_range`,
+  `::a_non_coding_identity_across_the_junction_is_the_identity_of_the_genomic_range`,
+  `::an_identity_stating_its_bases_across_the_junction_is_the_identity_of_the_genomic_range`,
+  `::an_identity_stating_bases_the_record_lacks_across_the_junction_is_a_mismatch`,
+  `::a_delins_of_the_records_bases_across_the_junction_replaces_the_genomic_range`,
+  `::an_identity_across_the_junction_where_the_record_differs_writes_the_records_base`,
+  `::a_duplication_across_the_junction_duplicates_the_genomic_range`,
+  `::on_the_minus_strand_a_duplication_across_the_junction_duplicates_the_genomic_range`,
+  `::an_inversion_across_the_junction_inverts_the_genomic_range`,
+  `::on_the_minus_strand_an_inversion_across_the_junction_inverts_the_genomic_range`,
+  `::a_deletion_across_the_junction_deletes_the_genomic_range`,
+  `::a_delins_across_the_junction_replaces_the_genomic_range`,
+  `::on_the_minus_strand_a_delins_across_the_junction_replaces_the_genomic_range`,
+  `::a_delins_of_bases_known_by_number_across_the_junction_replaces_the_genomic_range`,
+  `::an_insertion_at_the_junction_has_no_genomic_form`,
+  `::on_the_minus_strand_an_insertion_at_the_junction_has_no_genomic_form`,
+  `::a_non_coding_insertion_of_a_length_at_the_junction_has_no_genomic_form`,
+  `::an_identity_ending_on_the_last_base_of_its_exon_projects`,
+  `::on_the_minus_strand_an_identity_starting_on_the_first_base_of_its_exon_projects`,
+  `::a_duplication_of_the_last_base_of_its_exon_projects`, `::an_insertion_inside_one_exon_projects`,
+  `::an_identity_across_the_junction_is_its_genomic_identity`,
+  `::an_identity_across_the_junction_is_not_the_deletion_of_the_intron`,
+  `::the_genomic_deletion_of_the_intron_written_over_the_exons_bases_is_its_projection`,
+  `::a_genomic_identity_over_the_intron_is_the_identity_of_the_transcript_range`,
+  `::a_genomic_identity_stating_the_intron_is_the_identity_of_the_transcript_range`,
+  `::a_genomic_delins_of_the_bases_there_over_the_intron_is_the_delins_of_the_transcript_range`,
+  `::on_the_minus_strand_a_genomic_identity_over_the_intron_is_the_identity_of_the_transcript_range`,
+  `::a_genomic_identity_over_the_intron_as_a_cis_member_is_the_identity_of_the_transcript_range`,
+  `::the_genomic_deletion_of_the_intron_written_over_the_exons_bases_is_the_delins_of_the_transcript_range`,
+  `::on_the_minus_strand_the_genomic_deletion_of_the_intron_written_over_the_exons_bases_is_the_delins_of_the_transcript_range`,
+  `::a_genomic_duplication_over_the_intron_is_the_duplication_of_the_transcript_range`,
+  `::on_the_minus_strand_a_genomic_inversion_over_the_intron_is_the_inversion_of_the_transcript_range`,
+  `::a_genomic_identity_over_the_intron_writes_the_genomes_base_where_the_record_differs`,
+  `::on_the_minus_strand_a_genomic_identity_over_the_intron_writes_the_genomes_base_where_the_record_differs`,
+  `::a_genomic_duplication_over_the_intron_where_the_record_differs_is_refused`,
+  `::the_genomic_deletion_written_over_the_intron_alone_is_carried_as_intronic`,
+  `::an_identity_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::a_deletion_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::a_duplication_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::an_inversion_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::a_delins_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::on_the_minus_strand_an_identity_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::on_the_minus_strand_a_duplication_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::on_the_minus_strand_an_inversion_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::a_duplication_across_the_junction_where_the_record_differs_duplicates_the_records_reading`,
+  `::on_the_minus_strand_a_duplication_across_the_junction_where_the_record_differs_duplicates_the_records_reading`,
+  `::a_statement_across_the_junction_over_a_genome_base_the_record_lacks_deletes_it`,
+  `::a_genomic_statement_over_the_intron_and_a_base_the_record_lacks_inserts_it`,
+  `::a_statement_across_the_junction_over_a_record_base_the_genome_lacks_inserts_it`,
+  `::a_range_across_the_junction_ending_on_a_record_base_the_genome_lacks_is_refused`,
+  `::on_the_minus_strand_a_deletion_across_the_junction_projected_to_the_genome_and_back_is_itself`,
+  `::on_the_minus_strand_a_delins_across_the_junction_projected_to_the_genome_and_back_is_itself`;
+  `cis_projection_test::a_member_stating_bases_across_a_junction_states_the_genomic_range`,
+  `::a_member_inserting_at_a_junction_fails_the_allele`;
+  `cis_phased_test::an_insertion_on_an_exon_junction_read_on_the_genome_fails_its_member`;
   `rna_across_a_junction_has_a_protein_but_no_genomic_form` (property).
 
 ### No normalisation before projecting
@@ -666,11 +801,11 @@ them in another order.
 
 All or nothing follows from what an allele is. A chromosome carrying two changes, one of which has no genomic form, is
 not described by the genomic form of the other, so returning the members that did project would describe a different
-allele. The error is the failing member's own, an `UnsupportedOperation` for an `r.` member across a splice junction, a
-`ValidationError` for a position outside every exon, wrapped with the member and its place in the allele, so a caller
-can still match on why. A member that projects to a form the target cannot hold fails the same way: an `r.` change
-across a splice junction has [no genomic form](#a-change-across-a-splice-junction-has-no-genomic-form), and neither has
-an allele containing one.
+allele. The error is the failing member's own, an `UnsupportedOperation` for an `r.` member across a splice junction or
+an insertion at one, a `ValidationError` for a position outside every exon, wrapped with the member and its place in the
+allele, so a caller can still match on why. A member that projects to a form the target cannot hold fails the same way:
+an `r.` change across a splice junction has [no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range),
+and neither has an allele containing one.
 
 One member reads differently alone. A duplication inserts its copy "directly 3' of the original copy", on the strand it
 is written on, and on the other strand 3' is the other side. Alone that does not matter: a copy beside the original
@@ -710,6 +845,8 @@ NR_XR.1:n.[26_28dup;22_23insA;23_25dup]
                                                                        the second copy meets the first, rewritten
 
 NM_S.1:r.[4a>u;5_6del]             →  UnsupportedOperation, member 2, NM_S.1:r.5_6del: spans a splice junction
+NM_S.1:c.[4_6=;7C>T]               →  NC_S.1:g.[19_31=;32C>T]          a range across the junction, intron included
+NM_S.1:c.[5_6insT;7C>T]            →  UnsupportedOperation, member 1, NM_S.1:c.5_6insT: inserts at an exon junction
 NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20del: outside every exon
 ```
 
@@ -738,7 +875,9 @@ NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20d
   `::an_uncertain_duplication_beside_an_insertion_across_strands_is_refused`,
   `::an_uncertain_transcript_duplication_beside_an_insertion_is_refused`,
   `::a_copy_of_the_genomes_first_base_has_no_junction_before_it`,
-  `::a_member_that_fails_to_project_fails_the_allele_and_is_named`, `::a_member_outside_every_exon_fails_the_allele`;
+  `::a_member_that_fails_to_project_fails_the_allele_and_is_named`,
+  `::a_member_stating_bases_across_a_junction_states_the_genomic_range`,
+  `::a_member_inserting_at_a_junction_fails_the_allele`, `::a_member_outside_every_exon_fails_the_allele`;
   `a_cis_allele_projected_to_the_genome_and_back_is_itself`,
   `a_duplication_beside_an_insertion_makes_the_same_exon_on_the_genome`,
   `a_cis_allele_in_transcript_order_projects_in_genomic_order` (properties); `tests/test_cis_phased.py`.
@@ -802,9 +941,11 @@ different bases, one in each exon. Shifting across the junction would rewrite th
 The rule reaches every kind of edit that slides:
 
 - An insertion does not slide onto the junction. Between the two exons, `c.5_6ins` names no single place on the genome:
-  the end of one exon or the start of the next. An insertion written there is left as written.
+  the end of one exon or the start of the next. An insertion written there is left as written, and has
+  [no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range).
 - An insertion that repeats the bases before it becomes a duplication only when those bases lie in one exon. A
-  duplication of bases from two exons would duplicate the intron with them.
+  duplication of bases from two exons would duplicate the intron with them
+  ([the range it names](#a-range-across-an-exon-junction-is-the-genomic-range)).
 - A deletion or duplication that already spans a junction may shift while each end stays in its exon. Each spelling
   covers the whole intron on the genome, and two spellings one base apart differ only in their first and last bases,
   which are the same base, so on the genome they are one change.
@@ -1172,7 +1313,7 @@ Two details of the codon condition:
 
 Nothing is merged across an exon junction, whether the members touch there or share a codon the junction splits. A
 merged change would span the junction, and a `c.` change across a junction
-[projects over the intron](#a-change-across-a-splice-junction-has-no-genomic-form): it deletes the intron, which the
+[projects over the intron](#a-range-across-an-exon-junction-is-the-genomic-range): it deletes the intron, which the
 members did not. It would also hide where each change is. On `NM_S.1`, which is `NM_X.1` with exon 1 ending at c.5,
 `c.[4A>T;6A>T]` projects to two substitutions, `g.[19A>T;31A>T]`, and `c.4_6delinsTAT` to `g.19_31delinsTAT`, a
 different genome; `c.[5A>T;6A>T]`, which touch across the junction, stay two members, while `c.[6A>T;7C>G]`, both in
@@ -1195,8 +1336,8 @@ either side of the intron. A duplication's shift stops at the exon's last base, 
 ([the junction entry](#a-shift-stops-at-an-exonexon-junction)), and that is allowed inside an allele too:
 `c.[4dup;6A>T]` is written `c.[5dup;6A>T]`. The copy goes on the junction, but directly 3' of the base it copies, so on
 the genome it is `g.20dup`, and no reader can put it in the other exon. An insertion written on a junction, `c.5_6insC`,
-is the ambiguity [issue #64](https://github.com/populationgenomics/hgvs-weaver/issues/64) records, and is left as
-written and merged with nothing. An intronic member's extent is computed on the genome, where it has bases. One that
+names no single place on the genome and [has no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range);
+it is left as written and merged with nothing. An intronic member's extent is computed on the genome, where it has bases. One that
 meets no other member there is carried as given, as a single intronic variant is, and the exonic members are normalised
 on the transcript: `c.[7C>T;5+2T>A;4del]` on `NM_S.1` becomes `c.[5del;5+2T>A;7C>T]`, and `c.[5+1G>C;13T>G]` stays as
 written. An intronic member and the members it meets on the genome are merged there, trimmed to what they alter, and
@@ -2226,7 +2367,7 @@ no region a member could equally be written over, since a deletion in a run that
 Otherwise the comparison is refused. Comparing on the transcript whenever both descriptions are on one would answer a
 different question. On `NM_S.1`, which is `NM_X.1` with exon 1 ending at c.5, `c.[4A>T;6A>T]` and `c.4_6delinsTAT` make
 one transcript. The first projects to `g.[19A>T;31A>T]`; the second is a `c.` change across a junction, which
-[projects over the intron](#a-change-across-a-splice-junction-has-no-genomic-form), to `g.19_31delinsTAT`. Each
+[projects over the intron](#a-range-across-an-exon-junction-is-the-genomic-range), to `g.19_31delinsTAT`. Each
 description is the same change as its own projection, and the two projections are different genomes; had the transcript
 made the two descriptions the same change, equivalence would stop being transitive. A single variant meets the same
 case: c.4_6 of `NM_S.1` is `AA|A`, and `c.5del` and `c.6del` make one transcript but delete g.20 and g.31.
@@ -2634,7 +2775,7 @@ NM_X.1:c.[7_9inv;8_10inv]                                      UnsupportedOperat
   `::unstated_bases_inserted_inside_an_identity_are_contradictory`, `::an_identity_inside_a_copy_number_is_accepted`,
   `::repeated_members_without_a_sequence_are_carried_with_their_repeats`,
   `::members_combined_in_too_many_ways_to_search_are_refused`,
-  `::an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced`,
+  `::an_insertion_on_an_exon_junction_read_on_the_genome_fails_its_member`,
   `::a_reading_that_changes_an_identity_is_no_reading`, `::an_identity_over_the_edge_of_a_copy_number_is_accepted`,
   `::identical_copy_numbers_count_once`, `::overlapping_inversions_that_change_each_others_bases_are_not_yet_listed`,
   `::a_duplication_and_an_inversion_reading_each_others_changes_are_not_yet_listed`;
@@ -2658,10 +2799,10 @@ The readings come from [cis alleles whose members overlap](#overlapping-members-
 insertion inside a deleted or replaced stretch, two insertions at one junction, identical insertions, a change to what a
 duplication copies or an inversion reads. They also come from
 [cancelling members](#members-of-a-cis-allele-that-meet-are-written-as-one-change) that can be paired more than one way:
-the readings then make one sequence, and state different bases. A `c.` range that crosses an exon junction
-[projects over the intron](#a-change-across-a-splice-junction-has-no-genomic-form); whether it is instead ambiguous
-between including the intron and not is issue #64. A `CisPhasedBlock` whose members' placements make different sequences
-is another source, [read back](#members-of-a-cis-allele-that-meet-are-written-as-one-change) by `from_vrs`.
+the readings then make one sequence, and state different bases. A `c.` range that crosses an exon junction is not one of
+them: it is [the genomic range](#a-range-across-an-exon-junction-is-the-genomic-range), intron included, as the
+specification numbers it. A `CisPhasedBlock` whose members' placements make different sequences is another source,
+[read back](#members-of-a-cis-allele-that-meet-are-written-as-one-change) by `from_vrs`.
 
 Each reading is written as `normalize` writes an allele. Where that rule cannot write a reading, as where it would merge
 members across an exon junction, the reading is written as the changes it makes, cut where a statement stands and not

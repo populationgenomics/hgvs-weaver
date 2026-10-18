@@ -212,6 +212,158 @@ fn within_one_exon(am: &TranscriptMapper, start: i32, end: i32) -> bool {
         .any(|x| x.transcript_start.0 <= start && end <= x.transcript_end.0)
 }
 
+/// Whether `edit`, over transcript indices `[start, end)`, is read over the
+/// genomic range they number: the indices cross an exon junction, and the
+/// edit is not an insertion, which is placed between two bases rather than
+/// over them, or a repeat, which counts its run.
+fn read_over_the_genomic_range(
+    am: &TranscriptMapper,
+    edit: &crate::edits::NaEdit,
+    (start, end): (usize, usize),
+) -> bool {
+    use crate::edits::NaEdit;
+    !matches!(
+        edit,
+        NaEdit::Ins { .. } | NaEdit::InsLength { .. } | NaEdit::Repeat { .. }
+    ) && !within_one_exon(am, start as i32, end as i32)
+}
+
+/// A genomic range `[g_lo, g_hi)` that holds the record's indices
+/// `[n_lo, n_hi)` and the introns between them, read two ways, each in the
+/// genome's orientation.
+struct GenomicRangeReadings {
+    /// The range as the record reads it: each base the record aligns there is
+    /// the record's, a record base the genome lacks is where it aligns, a
+    /// genome base the record lacks inside an exon is absent, and the introns
+    /// are the genome's.
+    record: String,
+    /// The genome's bases with the introns left out: what the record's
+    /// positions hold on the genome, a genome base the record lacks included.
+    spliced_genome: String,
+}
+
+fn genomic_range_readings(
+    am: &TranscriptMapper,
+    record: &crate::reference::Reference<'_, '_>,
+    genome: &crate::reference::Reference<'_, '_>,
+    (n_lo, n_hi): (usize, usize),
+    (g_lo, g_hi): (usize, usize),
+) -> Result<GenomicRangeReadings, HgvsError> {
+    let minus = am.transcript.strand == crate::data::Strand::Minus;
+    let in_genome_order: Vec<usize> = if minus {
+        (n_lo..n_hi).rev().collect()
+    } else {
+        (n_lo..n_hi).collect()
+    };
+    let exon_of = |n: usize| {
+        am.exons
+            .iter()
+            .position(|x| x.transcript_start.0 <= n as i32 && (n as i32) < x.transcript_end.0)
+    };
+    let mut readings = GenomicRangeReadings {
+        record: String::with_capacity(g_hi - g_lo),
+        spliced_genome: String::with_capacity(n_hi - n_lo),
+    };
+    let mut at = g_lo;
+    let mut previous_exon = None;
+    for n in in_genome_order {
+        let (lo, hi) = am.n_to_g_footprint(TranscriptPos(n as i32))?.range;
+        let (lo, hi) = (lo.0 as usize, hi.0 as usize);
+        let exon = exon_of(n);
+        if lo > at {
+            let between = genome.slice(at, lo)?;
+            if previous_exon.is_some() && previous_exon == exon {
+                readings.spliced_genome.push_str(&between);
+            } else {
+                readings.record.push_str(&between);
+            }
+        }
+        let base = record.slice(n, n + 1)?;
+        readings.record.push_str(&if minus {
+            crate::utils::reverse_complement(&base)
+        } else {
+            base
+        });
+        readings.spliced_genome.push_str(&genome.slice(lo, hi)?);
+        at = at.max(hi);
+        previous_exon = exon;
+    }
+    if g_hi > at {
+        readings.record.push_str(&genome.slice(at, g_hi)?);
+    }
+    Ok(readings)
+}
+
+/// The refusal of `variant`, a range across an exon junction with an end
+/// among bases one sequence holds and the other lacks: the other sequence has
+/// no position for that end, and the run it belongs to is not what the range
+/// names.
+fn ends_in_a_run_across_a_junction(variant: &str) -> HgvsError {
+    HgvsError::UnsupportedOperation(format!(
+        "{variant} spans an exon junction and ends among bases the genome and the \
+         record do not share: that end has no position on the other sequence"
+    ))
+}
+
+/// `edit`, over `named` on `source`, as it is written over the range the
+/// other sequence numbers across an exon junction: the bases it states are
+/// checked on `source` and dropped, since the two sequences hold different
+/// bases over the range.
+fn bare_across_a_junction(
+    edit: &crate::edits::NaEdit,
+    source: &crate::reference::Reference<'_, '_>,
+    named: (usize, usize),
+) -> Result<crate::edits::NaEdit, HgvsError> {
+    use crate::edits::NaEdit;
+    edit.check_stated(source.accession(), named.0, named.1, |s, e| {
+        source.slice(s, e)
+    })?;
+    if let NaEdit::RefAlt { uncertain, .. } = edit {
+        if edit.is_identity() {
+            return Ok(NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                uncertain: *uncertain,
+            });
+        }
+    }
+    Ok(match edit {
+        NaEdit::RefAlt {
+            ref_,
+            alt,
+            uncertain,
+        } => NaEdit::RefAlt {
+            ref_: ref_.as_ref().map(|_| String::new()),
+            alt: alt.clone(),
+            uncertain: *uncertain,
+        },
+        NaEdit::Del { uncertain, .. } => NaEdit::Del {
+            ref_: None,
+            uncertain: *uncertain,
+        },
+        NaEdit::Dup { uncertain, .. } => NaEdit::Dup {
+            ref_: None,
+            uncertain: *uncertain,
+        },
+        NaEdit::Inv { uncertain, .. } => NaEdit::Inv {
+            ref_: None,
+            uncertain: *uncertain,
+        },
+        NaEdit::DelInsLength {
+            min,
+            max,
+            uncertain,
+            ..
+        } => NaEdit::DelInsLength {
+            ref_: None,
+            min: *min,
+            max: *max,
+            uncertain: *uncertain,
+        },
+        other => other.clone(),
+    })
+}
+
 /// The end of the run of `unit` on `reference` from `start`, half-open.
 fn run_up(
     reference: &crate::reference::Reference<'_, '_>,
@@ -376,6 +528,43 @@ fn project_edit_over_run(
     let target_ref = target.slice(t_lo, t_hi)?;
     debug_assert_ne!(target_ref, source_ref, "the target lacks the run");
     normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
+}
+
+/// `edit`, bare and in the transcript's orientation, over a transcript range
+/// across an exon junction, written for the genome over `range`, the genomic
+/// range it numbers. `record` is that range as the record reads it
+/// ([`GenomicRangeReadings::record`]). Where it is the genome's, the edit is
+/// carried as given; where the record differs, the edit is applied to the
+/// record's reading and the genome gets the minimal edit to the result.
+fn project_over_genomic_range(
+    edit: &crate::edits::NaEdit,
+    record: &str,
+    genome: &crate::reference::Reference<'_, '_>,
+    (g_lo, g_hi): (usize, usize),
+    strand: crate::data::Strand,
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    let genome_ref = genome.slice(g_lo, g_hi)?;
+    if genome_ref.eq_ignore_ascii_case(record) || !resolves_over_range(edit) {
+        return Ok((apply_strand_complement(edit.clone(), strand), g_lo, g_hi));
+    }
+    let orient = |b: &str| match strand {
+        crate::data::Strand::Minus => crate::utils::reverse_complement(b),
+        crate::data::Strand::Plus => b.to_string(),
+    };
+    let read = orient(record);
+    let resolved = edit.resolve_with(genome.accession(), 0, read.len(), |s, e| {
+        Ok(read
+            .get(s..e.min(read.len()))
+            .unwrap_or_default()
+            .to_string())
+    })?;
+    let made = format!(
+        "{}{}{}",
+        &read[..resolved.start],
+        resolved.alt,
+        &read[resolved.end..]
+    );
+    normalize::minimal_edit(genome, g_lo, g_hi, &genome_ref, &orient(&made))
 }
 
 fn apply_strand_complement(
@@ -1229,6 +1418,13 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
+    ///
+    /// A genomic range whose ends lie in two exons is written over the
+    /// transcript range, which HGVS numbers over the same bases, intron
+    /// included. Where the record's bases there are not the genome's, a
+    /// statement becomes the record's correction and any other edit is
+    /// [`HgvsError::UnsupportedOperation`], as is a range across a junction
+    /// with an end on bases only one sequence holds.
     pub fn g_to_c(&self, var_g: &GVariant, transcript_ac: &str) -> Result<CVariant, HgvsError> {
         let transcript = self
             .provider()
@@ -1322,7 +1518,19 @@ impl<'a> VariantMapper<'a> {
             let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
                 (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
             });
-            let (edit, s, e) = if touches_run {
+            let (edit, s, e) = if read_over_the_genomic_range(&am, edit, (t_lo, t_hi)) {
+                if touches_run {
+                    return Err(ends_in_a_run_across_a_junction(&var_g.to_string()));
+                }
+                self.genomic_range_on_transcript(
+                    &am,
+                    var_g,
+                    bare_across_a_junction(edit, &source, named)?,
+                    (&source, named),
+                    &target,
+                    (t_lo, t_hi),
+                )?
+            } else if touches_run {
                 project_edit_over_run(
                     edit,
                     (&source, named, wide),
@@ -1383,6 +1591,50 @@ impl<'a> VariantMapper<'a> {
                 predicted: var_g.posedit.predicted,
             },
         })
+    }
+
+    /// `edit`, bare, over the genomic range `named`, whose ends lie in two
+    /// exons, written for the transcript over `[t_lo, t_hi)`, the transcript
+    /// range that numbers the same bases. Where the record holds the genome's
+    /// bases at its positions, the edit is carried as given. Where it does
+    /// not, an identity becomes the edit that makes the record's bases the
+    /// genome's; any other edit changes bases the transcript cannot write
+    /// over the intron, and is refused.
+    fn genomic_range_on_transcript(
+        &self,
+        am: &TranscriptMapper,
+        var_g: &GVariant,
+        edit: crate::edits::NaEdit,
+        (genome, named): (&crate::reference::Reference<'_, '_>, (usize, usize)),
+        record: &crate::reference::Reference<'_, '_>,
+        (t_lo, t_hi): (usize, usize),
+    ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+        let readings = genomic_range_readings(am, record, genome, (t_lo, t_hi), named)?;
+        if genome
+            .slice(named.0, named.1)?
+            .eq_ignore_ascii_case(&readings.record)
+        {
+            return Ok((
+                apply_strand_complement(edit, am.transcript.strand),
+                t_lo,
+                t_hi,
+            ));
+        }
+        if !edit.is_identity() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_g} spans an intron where {} holds bases the genome does not: the \
+                 change cannot be written over the record's range",
+                record.accession()
+            )));
+        }
+        let genomes = match am.transcript.strand {
+            crate::data::Strand::Minus => {
+                crate::utils::reverse_complement(&readings.spliced_genome)
+            }
+            crate::data::Strand::Plus => readings.spliced_genome,
+        };
+        let records = record.slice(t_lo, t_hi)?;
+        normalize::minimal_edit(record, t_lo, t_hi, &records, &genomes)
     }
 
     /// A repeat names its first unit by its first base, and its run extends 3'
@@ -1523,6 +1775,11 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// Transforms any transcript-space variant (`c.` or `n.`) to a genomic variant (`g.`).
+    ///
+    /// A range across an exon junction is the genomic range it numbers, the
+    /// intron included: `c.4_6dup` over the junction after c.5 duplicates
+    /// c.4, c.5, the intron and c.6. An insertion at a junction has no single
+    /// place on the genome, and is [`HgvsError::UnsupportedOperation`].
     pub fn tx_to_g<V: TranscriptVariant>(
         &self,
         var_c: &V,
@@ -1618,6 +1875,21 @@ impl<'a> VariantMapper<'a> {
         let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
             (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
         });
+        let across_a_junction = exonic && !within_one_exon(&am, named.0 as i32, named.1 as i32);
+        if across_a_junction
+            && matches!(
+                edit,
+                crate::edits::NaEdit::Ins { .. } | crate::edits::NaEdit::InsLength { .. }
+            )
+        {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{}:{}.{} inserts at an exon junction: on the genome its bases go before or \
+                 after the intron, and the description does not say which",
+                var_c.ac(),
+                var_c.coordinate_type(),
+                var_c.posedit()
+            )));
+        }
         if !exonic {
             let (lo, hi) = (g_lo as usize, g_hi as usize);
             // Offsets from `lo` count along the transcript: on the minus
@@ -1636,7 +1908,26 @@ impl<'a> VariantMapper<'a> {
         }
         let minus = am.transcript.strand == crate::data::Strand::Minus;
         let intronic_repeat_on_minus = Repeat::of(edit).filter(|_| minus && !exonic);
-        let (edit, s, e) = if touches_run {
+        let (edit, s, e) = if exonic && read_over_the_genomic_range(&am, edit, named) {
+            if touches_run {
+                return Err(ends_in_a_run_across_a_junction(&format!(
+                    "{}:{}.{}",
+                    var_c.ac(),
+                    var_c.coordinate_type(),
+                    var_c.posedit()
+                )));
+            }
+            let bare = bare_across_a_junction(edit, &source, named)?;
+            let range = (g_lo as usize, g_hi as usize);
+            let readings = genomic_range_readings(&am, &source, &target, named, range)?;
+            project_over_genomic_range(
+                &bare,
+                &readings.record,
+                &target,
+                range,
+                am.transcript.strand,
+            )?
+        } else if touches_run {
             project_edit_over_run(
                 edit,
                 (&source, named, wide),
