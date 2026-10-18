@@ -1545,8 +1545,8 @@ are `c.-2-1_3=`, from an intron in the 5'UTR, and `c.43_45+1=`. A residue whose 
 named, which keeps the statement to what was checked. One that covers every codon through the stop names every residue,
 which is the whole protein, `p.(=)`, wherever it starts, as `c.=` does. An identity that covers no whole codon, in the
 5'UTR, in an intron, in the 3'UTR or inside one codon, `c.1114=`, states bases and no residue, so it makes no statement
-about the protein, and `c_to_p` refuses it with a `NoProteinStatement` error rather than write one. HGVS has no `p.`
-form for "no statement": `p.(=)` would claim the whole protein unchanged, and `p.?` that the protein is affected in an
+about the protein, and `c_to_p` refuses it with `NoProteinStatementError` rather than write one. HGVS has no `p.` form
+for "no statement": `p.(=)` would claim the whole protein unchanged, and `p.?` that the protein is affected in an
 unknown way; neither is what the description says. A codon whose uncovered bases are all wobble positions of a
 fourfold-degenerate codon could also be called unchanged, since no base there could change its residue; weaver does not,
 because reading the codon table to name a residue the description never reached costs more than it says. A conversion is
@@ -1565,12 +1565,12 @@ NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silent
 NM_X.1:c.21_*1dup          →  NP_X.1:p.(Ter7=)   across the stop, named up to it
 NM_X.1:c.10_*14del         →  NP_X.1:p.?         residue 4 to the end of the transcript
 NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity of the whole transcript
-NM_W.1:c.45+1=             →  NoProteinStatement   an intronic identity
+NM_W.1:c.45+1=             →  NoProteinStatementError  an intronic identity
 NM_W.1:c.-2_3=             →  NP_W.1:p.(Met1=)   an identity from the 5'UTR, at the codon it covers
 NM_W.1:c.43_45+1=          →  NP_W.1:p.(Arg15=)  an identity into an intron, at the codon it covers
-NM_W.1:c.-2_2=             →  NoProteinStatement   no whole codon covered
-NM_W.1:c.5_6=              →  NoProteinStatement   part of one codon
-NM_W.1:c.*3=               →  NoProteinStatement   in the 3'UTR
+NM_W.1:c.-2_2=             →  NoProteinStatementError  no whole codon covered
+NM_W.1:c.5_6=              →  NoProteinStatementError  part of one codon
+NM_W.1:c.*3=               →  NoProteinStatementError  in the 3'UTR
 NM_W.1:c.1_90=             →  NP_W.1:p.(=)       every codon through the stop
 NM_W.1:c.1_87=             →  NP_W.1:p.(Met1_Val29=)   every codon but the stop
 
@@ -1640,7 +1640,7 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
   identified", in prose beside the allele `p.[(Ser68Arg)];[?]`, so it is read as `p.?` predicted.
 
 An identity that covers no whole codon makes no statement about the protein, and the nomenclature has no form for that:
-`c_to_p` raises a `NoProteinStatement` error rather than write `p.(=)` or `p.?`, each of which would claim something the
+`c_to_p` raises `NoProteinStatementError` rather than write `p.(=)` or `p.?`, each of which would claim something the
 description does not ([edits outside the CDS](#edits-outside-the-cds-are-statements)).
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
