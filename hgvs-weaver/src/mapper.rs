@@ -2865,13 +2865,7 @@ impl<'a> VariantMapper<'a> {
             // merged on the genome, where no codon groups members, so every
             // spelling of one genomic allele splits into Alleles alike.
             self.read_cis(cis)?;
-            let on_genome = match cis.coordinate_type() {
-                "c" => self.c_to_g_cis(cis, None)?,
-                "n" => self.n_to_g_cis(cis, None)?,
-                "r" => self.r_to_g_cis(cis, None)?,
-                _ => cis.clone(),
-            };
-            return match self.normalize_cis(&on_genome)? {
+            return match self.normalize_cis_on_genome(cis)? {
                 crate::SequenceVariant::CisPhased(normalised) => Ok(VrsVariation::CisPhasedBlock(
                     self.cis_phased_block(&normalised, var)?,
                 )),

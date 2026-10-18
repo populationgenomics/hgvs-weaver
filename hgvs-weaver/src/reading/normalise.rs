@@ -658,6 +658,19 @@ impl Context<'_, '_, '_, '_> {
             window = (window.0.min(u.window.0), window.1.max(u.window.1));
         }
         let exons = &self.frame.exons;
+        let over_statement = barriers
+            .stated
+            .iter()
+            .any(|&s| overlap(s, window).is_some());
+        if over_statement && self.writing == Writing::Normalised {
+            // Members that share bases are one change, and one change over a
+            // statement would say its bases change.
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{}: members that share bases across a statement are not merged, since one \
+                 change there would say the stated bases change",
+                self.allele.description
+            )));
+        }
         let across = window.0 < window.1 && exons.exon(window.0) != exons.exon(window.1 - 1);
         if across && self.writing == Writing::Normalised {
             // Members that share bases or a junction are one change, and a
@@ -992,9 +1005,9 @@ impl VariantMapper<'_> {
     /// As [`read_cis`](Self::read_cis): a contradictory allele is a
     /// [`HgvsError::ValidationError`], an ambiguous one
     /// [`HgvsError::Ambiguous`] listing its readings normalised, and one whose
-    /// readings are not listed [`HgvsError::UnsupportedOperation`]. So is a
-    /// transcript allele with an intronic member that meets an exon or
-    /// another member on the genome.
+    /// readings are not listed [`HgvsError::UnsupportedOperation`]. So is an
+    /// allele whose members share bases across an exon junction or a
+    /// statement, or whose written form would not read as it does.
     pub(crate) fn normalize_cis(&self, cis: &CisPhasedVariant) -> Result<SV, HgvsError> {
         let frame = self.checked_frame(cis, On::Written)?;
         if matches!(cis.coordinate_type(), "c" | "n" | "r")
@@ -1002,6 +1015,24 @@ impl VariantMapper<'_> {
         {
             return self.normalize_cis_with_introns(cis, &frame);
         }
+        let reference = self.refs.reference(&frame.accession, frame.kind);
+        let (allele, _) = allele_on(cis, &frame, &reference);
+        let settled = self.settle(cis, &frame, &allele, true)?;
+        let normalised =
+            self.describe_statement(&frame, &allele, &settled.statement, Writing::Normalised)?;
+        self.read_as(cis, &settled, &reference, normalised)
+    }
+
+    /// An allele in cis of nucleotide members read on the genome, each
+    /// transcript member placed as [`read_cis_on_genome`](Self::read_cis_on_genome)
+    /// places it, normalised there and written in `g.`: no codon groups
+    /// members on the genome. For VRS, which renders the genome.
+    ///
+    /// # Errors
+    ///
+    /// As [`normalize_cis`](Self::normalize_cis).
+    pub(crate) fn normalize_cis_on_genome(&self, cis: &CisPhasedVariant) -> Result<SV, HgvsError> {
+        let frame = self.checked_frame(cis, On::Genome)?;
         let reference = self.refs.reference(&frame.accession, frame.kind);
         let (allele, _) = allele_on(cis, &frame, &reference);
         let settled = self.settle(cis, &frame, &allele, true)?;
@@ -1023,16 +1054,27 @@ impl VariantMapper<'_> {
     ) -> Result<SV, HgvsError> {
         let as_allele = match &normalised {
             SV::CisPhased(c) => c.clone(),
-            one => CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), vec![one.clone()])?,
+            one => CisPhasedVariant::new(
+                one.ac().to_string(),
+                one.gene().map(str::to_string),
+                vec![one.clone()],
+            )?,
         };
         let unsupported = |why: String| {
             HgvsError::UnsupportedOperation(format!(
                 "{cis} is not yet normalised: {as_allele}, the form it would be written in, {why}"
             ))
         };
-        let after = self
+        let mut after = self
             .read_cis(&as_allele)
             .map_err(|e| unsupported(format!("does not read: {e}")))?;
+        if (after.accession(), after.kind()) != (reference.accession(), reference.kind()) {
+            // Read on the genome, as an allele with an intronic member is,
+            // where what it is written as no longer has one.
+            after = self
+                .read_cis_on_genome(&as_allele)
+                .map_err(|e| unsupported(format!("does not read on the genome: {e}")))?;
+        }
         if !same_replacements(&settled.replacements, after.replacements(), reference)? {
             return Err(unsupported("makes another sequence".into()));
         }
@@ -1121,14 +1163,46 @@ impl VariantMapper<'_> {
         // through another, as groups of slots.
         let n = allele.members.len();
         let meets = |a: Span, b: Span| a.0 <= b.1 && b.0 <= a.1;
+        // Identities state bases and are kept as written; they join no group.
         let groups = components(n, |a, b| {
             let (ia, ib) = (allele.members[a].0, allele.members[b].0);
-            (intronic[ia] || intronic[ib]) && meets(extents[a], extents[b])
+            let changes = !allele.members[a].1.is_identity() && !allele.members[b].1.is_identity();
+            changes && (intronic[ia] || intronic[ib]) && meets(extents[a], extents[b])
         });
+        // Each member's placement: a member placed as another is that member
+        // written twice, which the allele keeps once.
+        let act_of: Vec<Option<&Act>> = (0..cis.members.len())
+            .map(|i| {
+                frame
+                    .placed
+                    .iter()
+                    .find(|(j, ..)| *j == i)
+                    .and_then(|(_, p, ..)| match p {
+                        Placed::Applied(act) => Some(act),
+                        Placed::Unapplied(_) => None,
+                    })
+            })
+            .collect();
+        let twice = |i: usize| {
+            act_of[i].is_some_and(|act| {
+                !matches!(act, Act::Insert { .. } | Act::Dup { .. })
+                    && act_of.iter().filter(|a| *a == &Some(act)).count() > 1
+            })
+        };
+        let same_as = |i: usize, slot: usize| act_of[i] == Some(&allele.members[slot].1);
         let mut grouped = vec![false; cis.members.len()];
         let mut members: Vec<SV> = Vec::new();
-        for group in groups.iter().filter(|g| g.len() > 1) {
-            let indices: Vec<usize> = group.iter().map(|&k| allele.members[k].0).collect();
+        for group in groups.iter() {
+            let lone = group.len() == 1;
+            let slot = group[0];
+            if lone && !(intronic[allele.members[slot].0] && twice(allele.members[slot].0)) {
+                continue;
+            }
+            // A lone intronic member written twice is written once, as the
+            // edit it makes, whichever spelling comes first.
+            let indices: Vec<usize> = (0..cis.members.len())
+                .filter(|&i| group.iter().any(|&k| same_as(i, k)))
+                .collect();
             for &i in &indices {
                 grouped[i] = true;
             }

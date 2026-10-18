@@ -1835,6 +1835,60 @@ fn a_transcript_allele_is_not_written_as_another_genome() {
 }
 
 #[test]
+fn an_intronic_member_written_twice_is_one_member() {
+    assert_eq!(
+        normalised(
+            &normalising_provider(),
+            "NM_S.1:c.[5delinsAA;5+1G>A;5+1G>A]"
+        ),
+        "NM_S.1:c.5+1delinsAA"
+    );
+}
+
+#[test]
+fn an_intronic_edit_written_two_ways_is_written_once_whatever_the_order() {
+    let hdp = normalising_provider();
+    assert_eq!(
+        normalised(&hdp, "NM_S.1:c.[5+5delinsT;5+5G>T]"),
+        "NM_S.1:c.5+5G>T"
+    );
+    assert_eq!(
+        normalised(&hdp, "NM_S.1:c.[5+5G>T;5+5delinsT]"),
+        "NM_S.1:c.5+5G>T"
+    );
+}
+
+#[test]
+fn an_identity_joins_no_intronic_group() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5A>T;5+1=]"),
+        "NM_S.1:c.[5A>T;5+1=]"
+    );
+}
+
+#[test]
+fn an_intronic_group_can_be_written_in_the_exon() {
+    // the copy of c.5+1 sits after c.5, still in exon 1 on the genome
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5+1dup;5A>T]"),
+        "NM_S.1:c.5delinsTG"
+    );
+}
+
+#[test]
+fn members_sharing_bases_across_a_statement_are_refused() {
+    let err = normalise(
+        &normalising_provider(),
+        "NM_X.1:c.[6=;6_7delinsAG;5_6delinsTA]",
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("across a statement")),
+        "{err}"
+    );
+}
+
+#[test]
 fn an_intronic_member_a_merged_change_reaches_joins_it() {
     // c.3_5 of NM_S.1 is GAA: deleted as one, it justifies up to c.5+1,
     // beside c.5+2, which neither deletion reached alone
@@ -2026,7 +2080,7 @@ fn vrs(hdp: &Provider, hgvs: &str) -> VrsVariation {
 }
 
 #[test]
-fn the_vrs_identifier_follows_the_description() {
+fn an_allele_split_into_other_alleles_has_another_vrs_identifier() {
     let hdp = normalising_provider();
     let touching = vrs(&hdp, "NM_X.1:c.[7C>T;8T>G]");
     assert!(matches!(touching, VrsVariation::Allele(_)), "{touching:?}");
@@ -2119,20 +2173,33 @@ fn a_coding_allele_and_its_genomic_projection_share_a_vrs_identifier() {
 
 #[test]
 fn a_delins_is_one_allele_whatever_it_leaves_unchanged_inside() {
-    // c.4_6 is AAA: the delins keeps c.5
-    let hdp = normalising_provider();
-    assert!(matches!(
-        vrs(&hdp, "NM_X.1:c.4_6delinsTAT"),
-        VrsVariation::Allele(_)
-    ));
+    // c.4_6 is AAA, g.19_21: the delins keeps c.5
+    let VrsVariation::CisPhasedBlock(block) =
+        vrs(&normalising_provider(), "NM_X.1:c.[4_6delinsTAT;13T>G]")
+    else {
+        panic!("not a block");
+    };
+    assert_eq!(block.members.len(), 2);
+    let location = &block.members[0].location;
+    assert_eq!((location.start, location.end), (Exact(18), Exact(21)));
 }
 
 #[test]
-fn members_that_touch_on_the_genome_are_one_allele() {
+fn members_that_touch_on_the_transcript_but_not_the_genome_are_two_alleles() {
+    // c.5 and c.6 of NM_S.1 are either side of the intron
+    let rendered = vrs(&normalising_provider(), "NM_S.1:c.[5del;6del]");
+    assert!(
+        matches!(&rendered, VrsVariation::CisPhasedBlock(b) if b.members.len() == 2),
+        "{rendered:?}"
+    );
+}
+
+#[test]
+fn a_minus_strand_duplication_beside_a_delins_renders_as_its_genome_reading() {
     let hdp = normalising_provider();
     assert_eq!(
-        vrs(&hdp, "NM_X.1:c.[7C>T;8T>G]").id(),
-        vrs(&hdp, "NC_X.1:g.22_23delinsTG").id()
+        vrs(&hdp, "NR_XR.1:n.[27_28delinsCA;28dup]").id(),
+        vrs(&hdp, "NR_XR.1:n.28dup").id()
     );
 }
 
