@@ -964,6 +964,17 @@ fn merge_statements(mut ranges: Vec<(usize, usize)>, exons: &ExonBounds) -> Vec<
     out
 }
 
+/// A repeat member that makes the reference and, on the genome, states more
+/// than the identity over its transcript run would.
+pub(super) struct RepeatStatement {
+    /// The run it states on the transcript.
+    run: Span,
+    /// The repeat as written.
+    written: PlacedEdit,
+    /// The genomic range it states.
+    on_genome: Span,
+}
+
 /// Where a member no sequence is built from sits, for ordering.
 fn reach_key(reach: &Reach) -> (usize, usize) {
     match *reach {
@@ -1327,24 +1338,121 @@ impl VariantMapper<'_> {
 
     /// The description of one reading, normalised: the members of `allele`
     /// under `choice`, with the bases `set_aside` and the identities among
-    /// them stated unchanged.
+    /// them stated unchanged, except where an identity would not state on the
+    /// genome all that a repeat among `repeats` does, which is then written
+    /// as given.
     pub(super) fn describe(
         &self,
         frame: &Frame,
         allele: &Allele,
         choice: &Choice,
         set_aside: &[(usize, usize)],
+        repeats: &[RepeatStatement],
         writing: Writing,
     ) -> Result<SV, HgvsError> {
         let normalised = self
             .normal_form(frame, allele, choice, set_aside, writing)
-            .and_then(|form| self.written(frame, form.stated, form.changes));
+            .and_then(|form| {
+                let (stated, changes) =
+                    self.with_repeats_as_written(frame, form.stated, form.changes, repeats)?;
+                self.written(frame, stated, changes)
+            });
         match normalised {
             Err(_) if writing == Writing::Reading => {
-                self.written_plainly(frame, allele, choice, set_aside)
+                self.written_plainly(frame, allele, choice, set_aside, repeats)
             }
             other => other,
         }
+    }
+
+    /// `stated`, sorted and merged, and `changes`, with each of `repeats`
+    /// whose run an identity holds, and whose bases on the genome that
+    /// identity does not all state, taken out of it and written as given.
+    fn with_repeats_as_written(
+        &self,
+        frame: &Frame,
+        stated: Vec<Span>,
+        mut changes: Vec<PlacedEdit>,
+        repeats: &[RepeatStatement],
+    ) -> Result<(Vec<Span>, Vec<PlacedEdit>), HgvsError> {
+        let mut left = Vec::with_capacity(stated.len() + repeats.len());
+        for (s, e) in stated {
+            // An identity across a junction states the intron on the genome
+            // and is kept apart from those in one exon, which are disjoint,
+            // so a run is held by at most one of those.
+            if frame.exons.exon(s) != frame.exons.exon(e - 1) {
+                left.push((s, e));
+                continue;
+            }
+            let mut inside: Vec<&RepeatStatement> = repeats
+                .iter()
+                .filter(|r| s <= r.run.0 && r.run.1 <= e)
+                .collect();
+            if !inside.is_empty() {
+                let (lo, hi) = self.genome_range(frame, &identity(s, e))?;
+                inside.retain(|r| !(lo <= r.on_genome.0 && r.on_genome.1 <= hi));
+            }
+            inside.sort_unstable_by_key(|r| r.run);
+            let mut at = s;
+            for r in inside {
+                if r.run.0 > at {
+                    left.push((at, r.run.0));
+                }
+                at = at.max(r.run.1);
+                changes.push(r.written.clone());
+            }
+            if at < e {
+                left.push((at, e));
+            }
+        }
+        Ok((left, changes))
+    }
+
+    /// The repeats among the members of `allele` that make the reference on
+    /// their own and, on the genome, state bases the identity over their
+    /// transcript run does not, so that one alone would be
+    /// [left as written](Self::alone). Only a transcript frame has a genome
+    /// to count a different run.
+    pub(super) fn repeats_stating_more(
+        &self,
+        frame: &Frame,
+        allele: &Allele,
+    ) -> Result<Vec<RepeatStatement>, HgvsError> {
+        let Some(am) = frame.mapper.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let mut found = Vec::new();
+        for k in 0..allele.members.len() {
+            let (index, act) = &allele.members[k];
+            let written = frame
+                .placed
+                .iter()
+                .find(|(i, ..)| i == index)
+                .and_then(|(.., edit)| edit.clone())
+                .ok_or_else(|| {
+                    HgvsError::Other(format!(
+                        "{}: member {} has no placed edit",
+                        allele.description,
+                        index + 1
+                    ))
+                })?;
+            if !matches!(written.edit, NaEdit::Repeat { .. }) || !allele.cancels(&[k])? {
+                continue;
+            }
+            if !crate::mapper::genome_may_count_more(am, allele.reference, &written)? {
+                continue;
+            }
+            let run = act.named();
+            let on_genome = self.genome_range(frame, &written)?;
+            if on_genome != self.genome_range(frame, &identity(run.0, run.1))? {
+                found.push(RepeatStatement {
+                    run,
+                    written,
+                    on_genome,
+                });
+            }
+        }
+        Ok(found)
     }
 
     /// One reading written as its replacements make it, cut where a
@@ -1356,6 +1464,7 @@ impl VariantMapper<'_> {
         allele: &Allele,
         choice: &Choice,
         set_aside: &[(usize, usize)],
+        repeats: &[RepeatStatement],
     ) -> Result<SV, HgvsError> {
         let reference = allele.reference;
         let mut stated: Vec<Span> = set_aside.to_vec();
@@ -1418,6 +1527,7 @@ impl VariantMapper<'_> {
                 changes.push(placed);
             }
         }
+        let (stated, changes) = self.with_repeats_as_written(frame, stated, changes, repeats)?;
         self.written(frame, stated, changes)
     }
 

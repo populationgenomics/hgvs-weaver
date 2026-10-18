@@ -1424,6 +1424,165 @@ fn normalised(hdp: &Provider, hgvs: &str) -> String {
         .to_string()
 }
 
+/// `NM_EDGE.1` on the plus strand of `NC_EDGE.1`: exon 1 is `ATGCAGTGT` (c.1
+/// to c.9, g.11 to g.19), the intron `GTAAGCCCCCAG` (g.20 to g.31), exon 2
+/// `CTGTAAGG` (c.10 to c.*2, g.32 to g.39). From c.6 the transcript holds
+/// two GT, the genome three; from c.7 the transcript holds one TG, the genome
+/// two, the second of c.9 and the intron's first base.
+fn exon_edge() -> Provider {
+    let (exon_1, intron, exon_2) = ("ATGCAGTGT", "GTAAGCCCCCAG", "CTGTAAGG");
+    let flank = "CCCCCGCCCC";
+    Provider::new()
+        .sequence(
+            "NC_EDGE.1",
+            &format!("{flank}{exon_1}{intron}{exon_2}{flank}"),
+        )
+        .sequence("NM_EDGE.1", &format!("{exon_1}{exon_2}"))
+        .transcript(support::transcript(
+            "NM_EDGE.1",
+            "NC_EDGE.1",
+            Strand::Plus,
+            Some((0, 14)),
+            vec![
+                support::exon((0, 9), (10, 18), Strand::Plus),
+                support::exon((9, 17), (31, 38), Strand::Plus),
+            ],
+        ))
+}
+
+/// `NM_REV.1`, `ATGAAACAGCAGCAGTTCTAAGG`, on the minus strand of `NC_REV.1`:
+/// from c.5 the transcript holds two A, and the genome's run, read from its
+/// other end, holds c.4 as well.
+fn minus_strand() -> Provider {
+    let transcript = "ATGAAACAGCAGCAGTTCTAAGG";
+    let flank = "CCCCCGCCCC";
+    Provider::new()
+        .sequence(
+            "NC_REV.1",
+            &format!(
+                "{flank}{}{flank}",
+                hgvs_weaver::utils::reverse_complement(transcript)
+            ),
+        )
+        .sequence("NM_REV.1", transcript)
+        .transcript(single_exon_transcript(
+            "NM_REV.1",
+            "NC_REV.1",
+            10,
+            Strand::Minus,
+            0,
+            20,
+            transcript.len() as i32,
+        ))
+}
+
+/// `NM_M2.1`, `NM_REV.1`'s sequence split after c.9 into two exons on the
+/// minus strand of `NC_M2.1`: exon 1 `ATGAAACAG` (c.1 to c.9), an intron
+/// `GTAAGCCCCCAG`, exon 2 `CAGCAGTTCTAAGG` (c.10 to c.*3).
+fn minus_strand_two_exons() -> Provider {
+    let (exon_1, intron, exon_2) = ("ATGAAACAG", "GTAAGCCCCCAG", "CAGCAGTTCTAAGG");
+    let flank = "CCCCCGCCCC";
+    let rc = hgvs_weaver::utils::reverse_complement;
+    Provider::new()
+        .sequence(
+            "NC_M2.1",
+            &format!("{flank}{}{}{}{flank}", rc(exon_2), rc(intron), rc(exon_1)),
+        )
+        .sequence("NM_M2.1", &format!("{exon_1}{exon_2}"))
+        .transcript(support::transcript(
+            "NM_M2.1",
+            "NC_M2.1",
+            Strand::Minus,
+            Some((0, 20)),
+            vec![
+                support::exon((0, 9), (36, 44), Strand::Minus),
+                support::exon((9, 23), (10, 23), Strand::Minus),
+            ],
+        ))
+}
+
+#[test]
+fn a_repeat_member_inside_an_identity_across_a_junction_is_left_as_written_once() {
+    // c.5_12= crosses the junction after c.9, and stays apart from the
+    // repeat's run, c.5_6.
+    assert_eq!(
+        normalised(&minus_strand_two_exons(), "NM_M2.1:c.[5A[2];5_12=]"),
+        "NM_M2.1:c.[5A[2];5_12=]"
+    );
+}
+
+#[test]
+fn a_repeat_member_the_intron_continues_with_whole_copies_is_left_as_written() {
+    assert_eq!(
+        normalised(&exon_edge(), "NM_EDGE.1:c.[2T>C;6GT[2]]"),
+        "NM_EDGE.1:c.[2T>C;6GT[2]]"
+    );
+}
+
+#[test]
+fn a_repeat_member_the_intron_completes_a_copy_of_is_left_as_written() {
+    assert_eq!(
+        normalised(&exon_edge(), "NM_EDGE.1:c.[2T>C;7TG[1]]"),
+        "NM_EDGE.1:c.[2T>C;7TG[1]]"
+    );
+}
+
+#[test]
+fn a_repeat_member_whose_genome_run_starts_before_it_on_the_minus_strand_is_left_as_written() {
+    assert_eq!(
+        normalised(&minus_strand(), "NM_REV.1:c.[2T>C;5A[2]]"),
+        "NM_REV.1:c.[2T>C;5A[2]]"
+    );
+}
+
+#[test]
+fn a_repeat_member_is_its_statement_where_an_identity_beside_it_states_the_rest_of_its_run() {
+    // c.4= states the copy the genome counts before c.5, so c.4_6= states
+    // on the genome all that c.5A[2] does.
+    assert_eq!(
+        normalised(&minus_strand(), "NM_REV.1:c.[4=;5A[2]]"),
+        "NM_REV.1:c.4_6="
+    );
+}
+
+#[test]
+fn a_repeat_member_is_written_beside_an_identity_that_does_not_state_its_run() {
+    // c.5_9= would be g.15_19; the repeat states g.16_21, the intron's GT
+    // with it.
+    assert_eq!(
+        normalised(&exon_edge(), "NM_EDGE.1:c.[5=;6GT[2]]"),
+        "NM_EDGE.1:c.[5=;6GT[2]]"
+    );
+}
+
+#[test]
+fn a_repeat_member_that_meets_an_identity_inside_its_run_is_left_as_written() {
+    // c.8= lies in c.6GT[2]'s run, and c.6_9= would state g.16_19 of the
+    // g.16_21 the repeat states.
+    assert_eq!(
+        normalised(&exon_edge(), "NM_EDGE.1:c.[2T>C;6GT[2];8=]"),
+        "NM_EDGE.1:c.[2T>C;6GT[2]]"
+    );
+}
+
+#[test]
+fn repeat_members_that_meet_on_the_minus_strand_are_left_as_written() {
+    // Each states g.28_30 on the genome; c.5_6= would state g.29_30.
+    assert_eq!(
+        normalised(&minus_strand(), "NM_REV.1:c.[5A[2];6A[1]]"),
+        "NM_REV.1:c.[5A[2];6A[1]]"
+    );
+}
+
+#[test]
+fn a_repeat_member_whose_runs_agree_is_its_statement() {
+    // From c.4 the minus strand's two runs are one: c.4_6.
+    assert_eq!(
+        normalised(&minus_strand(), "NM_REV.1:c.[2T>C;4A[3]]"),
+        "NM_REV.1:c.[2T>C;4_6=]"
+    );
+}
+
 #[test]
 fn members_in_one_run_are_written_as_one_change() {
     let hdp = normalising_provider();
