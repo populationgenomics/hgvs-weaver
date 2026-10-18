@@ -384,9 +384,14 @@ impl Context<'_, '_, '_, '_> {
                             .any(|&k| members[k].1.junction() == Some(r.start))
                 })
             } else {
+                let holds =
+                    |u: &Unit| u.window.0 <= r.start && r.end <= u.window.1 && self.replaces(u);
+                // A part of a member cut at a statement takes what it makes
+                // before a member that only restates it does.
                 units
                     .iter()
-                    .position(|u| u.window.0 <= r.start && r.end <= u.window.1 && self.replaces(u))
+                    .position(|u| matches!(u.form, Form::Piece) && holds(u))
+                    .or_else(|| units.iter().position(holds))
             };
             let inside_statement =
                 r.start < r.end && stated.iter().any(|&(s, e)| s <= r.start && r.end <= e);
@@ -1034,6 +1039,17 @@ impl VariantMapper<'_> {
         if merge_ranges(settled.statement.stated.clone()) != after.stated() {
             return Err(unsupported("states other bases".into()));
         }
+        if matches!(cis.coordinate_type(), "c" | "n" | "r") {
+            if let Ok(before) = self.read_cis_on_genome(cis) {
+                let after = self
+                    .read_cis_on_genome(&as_allele)
+                    .map_err(|e| unsupported(format!("does not read on the genome: {e}")))?;
+                let genome = self.refs.reference(before.accession(), before.kind());
+                if !before.same_sequence(&after, &genome)? {
+                    return Err(unsupported("makes another sequence on the genome".into()));
+                }
+            }
+        }
         Ok(normalised)
     }
 
@@ -1205,7 +1221,32 @@ impl VariantMapper<'_> {
                 }
                 let (edit, s, e) =
                     normalize::minimal_edit(reference, window.0, window.1, &ref_, &alt)?;
-                changes.push(PlacedEdit::from_hgvs_range(s, e, edit));
+                let mut placed = PlacedEdit::from_hgvs_range(s, e, edit);
+                if let NaEdit::Ins {
+                    alt: Some(inserted),
+                    uncertain,
+                } = &placed.edit
+                {
+                    if placed.start > 0 && reference.base(placed.start)?.is_none() {
+                        // No insertion after the last base: a delins of it.
+                        let at = placed.start - 1;
+                        let last = Segment::Reference {
+                            start: at,
+                            end: at + 1,
+                        }
+                        .read(reference, 0, 1)?;
+                        placed = PlacedEdit {
+                            start: at,
+                            end: at + 1,
+                            edit: NaEdit::RefAlt {
+                                ref_: Some(String::new()),
+                                alt: Some(format!("{last}{inserted}")),
+                                uncertain: *uncertain,
+                            },
+                        };
+                    }
+                }
+                changes.push(placed);
             }
         }
         self.written(frame, stated, changes)

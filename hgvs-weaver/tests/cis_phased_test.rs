@@ -1807,6 +1807,33 @@ fn a_redundant_member_agreeing_with_a_cut_change_does_not_stop_the_cut() {
 }
 
 #[test]
+fn a_change_cut_at_an_identity_states_nothing_a_restating_member_changes() {
+    // g.22 is C: the delins changes it, as the substitution says again
+    let hdp = normalising_provider();
+    let reading = read(&hdp, "NC_X.1:g.[22C>T;22_23delinsTT;23=]").unwrap();
+    assert_eq!(reading.stated(), &[(22, 23)]);
+    assert_eq!(
+        normalised(&hdp, "NC_X.1:g.[22C>T;22_23delinsTT;23=]"),
+        "NC_X.1:g.[22C>T;23=]"
+    );
+}
+
+#[test]
+fn a_transcript_allele_is_not_written_as_another_genome() {
+    // read on the transcript, the delins takes in the copy; on the genome
+    // the copy stays, so no transcript form says what the allele does
+    let err = normalise(
+        &normalising_provider(),
+        "NM_S.1:c.[5_6delinsAC;3_5dup;3_5=]",
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("on the genome")),
+        "{err}"
+    );
+}
+
+#[test]
 fn an_intronic_member_a_merged_change_reaches_is_refused_at_once() {
     // c.3_5 of NM_S.1 is GAA: deleted as one, it justifies up to c.5+1,
     // beside c.5+2, which neither deletion reached alone

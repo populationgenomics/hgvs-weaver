@@ -1105,7 +1105,8 @@ So weaver normalises by what the members do together, and keeps going until noth
 
 The result makes the sequence the allele makes, states the bases it states, passes the overlap rule, and normalising it
 again changes nothing. Where the form `normalize` would write does not read back as the allele does, on any of the first
-three, it refuses with `UnsupportedOperation` rather than hand on another allele: an error, not a guess.
+three, or, for a transcript allele, would make something else on the genome, it refuses with `UnsupportedOperation`
+rather than hand on another allele: an error, not a guess.
 
 The bases an allele is read as stating, which equivalence compares, are the ones this rule writes, so a reading of the
 allele and its normalised description agree on them.
@@ -1400,7 +1401,8 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::members_beside_a_member_across_an_exon_junction_do_not_shift_onto_it`,
   `::a_redundant_member_agreeing_with_a_cut_change_does_not_stop_the_cut`,
   `::an_intronic_member_a_merged_change_reaches_is_refused_at_once`,
-  `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
+  `::a_change_cut_at_an_identity_states_nothing_a_restating_member_changes`,
+  `::a_transcript_allele_is_not_written_as_another_genome`, `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
   `::a_member_without_a_sequence_is_kept_as_written_in_its_place`,
   `::a_merged_change_is_not_written_where_unstated_bases_are_inserted`,
   `::an_intronic_member_apart_from_the_exons_is_kept_as_written`,
