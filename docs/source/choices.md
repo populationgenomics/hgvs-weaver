@@ -2022,31 +2022,35 @@ combination, the same as `c.7C>T`, which records nothing about them.
 
 Read from the sequence, a protein consequence comes from the codons all the members leave, as the delins page asks:
 `c.[4A>T;6A>T]` turns the codon `AAA` into `TAT`. An allele that makes the reference predicts what its statement
-predicts. `c.[4_5insA;5del]`, read as `c.4_5=`, is `p.(Lys2=)`, silent at the residue its bases are in, as
-[an identity inside the codons](#edits-outside-the-cds-are-statements) is; in a UTR it is `p.(=)`. `c.[10=;20=]`,
-statements in two codons, is `p.[(Ala4=;Ter7=)]`, the predicted allele written as the protein alleles page writes one,
-the parentheses inside the brackets. An allele that changes the sequence and states bases predicts both: each stated
-base in a codon the change leaves as it was adds its residue, silent, to the predicted allele, so `c.[13T>G;10_12=]` is
-`p.[(Ala4=;Tyr5Asp)]` and `c.[4_5insA;5del;13T>G]` is `p.[(Lys2=;Tyr5Asp)]`. A stated base in a codon the change alters
-adds nothing, since the change names that residue: `c.[4_5insA;5del;6A>T]` is `p.(Lys2Asn)`. Nor does one outside the
-codons, or in a codon read in a new frame or past a new stop; `p.(=)` is about the whole protein and does not stand
-beside a change.
+predicts, and a statement names a residue only when it states the residue's whole codon, as
+[an identity inside the codons](#edits-outside-the-cds-are-statements) does. `c.[10_12=;19_21=]`, two whole codons, is
+`p.[(Ala4=;Ter7=)]`, the predicted allele written as the protein alleles page writes one, the parentheses inside the
+brackets. A statement covering no whole codon makes no protein statement: `c.[4_5insA;5del]`, read as `c.4_5=`, states
+two of the three bases of codon 2, and `c.[10=;20=]` one base each of codons 4 and 7, so `c_to_p` raises
+`NoProteinStatementError` for both. An allele that changes the sequence and states bases predicts both: a member adds a
+residue, silent, to the predicted allele only when the allele states that residue's whole codon and the change leaves it
+as it was, so `c.[13T>G;10_12=]` is `p.[(Ala4=;Tyr5Asp)]`, while a statement of part of a codon adds nothing, so
+`c.[4_5insA;5del;13T>G]` is `p.(Tyr5Asp)`. A statement in a codon the change alters adds nothing either, since the
+change names that residue: `c.[4_5insA;5del;6A>T]` is `p.(Lys2Asn)`. Nor does a statement outside the codons, or of a
+codon read in a new frame or past a new stop; `p.(=)` is about the whole protein and does not stand beside a change.
 
 Some members cannot be applied to a sequence: a statement (the whole-sequence `=`, `?`, `spl`, `0`, `r.(?)`); a position
-that is uncertain or imprecise, `g.(?_5)_(10_?)del`; inserted bases that are not stated, `insN[20]`; a copy number; and
-a conversion, whose bases weaver does not model, and which is not an identity though it prints as one. A positional
-identity, `c.10_12=`, is not among them: it replaces its bases with themselves, so `c.[7C>T;10_12=]` makes what `c.7C>T`
-makes, and states c.10 to c.12 besides. An allele with members that cannot be applied is compared in two parts: the
-members that can be applied by the sequence they make, as above, and the members that cannot as an unordered collection
-of their projections to the genome, counted with repeats. Two alleles are the same change when both parts match. An
-applicable part that makes the reference is compared as the statement it makes, so `c.[4_5insA;5del;10_12copy3]` is
-`c.[4_5=;10_12copy3]` and not `c.[13=;10_12copy3]`. Order still does not matter, so `g.[22C>T;30_35copy3]` is
-`g.[30_35copy3;22C>T]`, and a split of the applicable part still does not, so `c.[7C>T;8T>G;10_12copy3]` is
-`c.[7_8delinsTG;10_12copy3]`; a member that cannot be applied matches only its own projection, so `30_35copy3` is not
-`30_35copy4`. The projection, not the text as written, is compared, so `c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`,
-the same members on one genome, are one allele though `10_12copy3` and `25_27copy3` are different text. Such a member is
-still held to the [overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so
-`g.[22C>T;20_30copy3]` is refused rather than compared in two parts.
+that is uncertain or imprecise, `g.(?_5)_(10_?)del`; inserted bases that are not stated, `insN[20]`, or written `N`,
+which is a base not stated; a copy number; and a conversion, whose bases weaver does not model, and which is not an
+identity though it prints as one. A positional identity, `c.10_12=`, is not among them: it replaces its bases with
+themselves, so `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and states c.10 to c.12 besides. An allele with members that
+cannot be applied is compared in two parts: the members that can be applied by the sequence they make, as above, and the
+members that cannot as an unordered collection of their projections to the genome, identical members counting once, as
+an edit written twice is read once, so `g.[30_35copy3;30_35copy3]` is `g.30_35copy3`. Two alleles are the same change
+when both parts match. An applicable part that makes the reference is compared as the statement it makes, so
+`c.[4_5insA;5del;10_12copy3]` is `c.[4_5=;10_12copy3]` and not `c.[13=;10_12copy3]`. Order still does not matter, so
+`g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split of the applicable part still does not, so
+`c.[7C>T;8T>G;10_12copy3]` is `c.[7_8delinsTG;10_12copy3]`; a member that cannot be applied matches only its own
+projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as written, is compared, so
+`c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`, the same members on one genome, are one allele though `10_12copy3` and
+`25_27copy3` are different text. Such a member is still held to the
+[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so `g.[22C>T;20_30copy3]` is
+refused rather than compared in two parts.
 
 A `p.` frameshift or extension can be applied. Equivalence already turns a single one into
 [the protein it leaves](equivalence_logic.md#the-protein-a-description-leaves): residues it does not name match any
@@ -2099,9 +2103,11 @@ NM_X.1:c.[4_5insA;5del;13T>G]          ATG AAA CTG GCC GAT CGC TAA    Analogous 
 on TTTTTTTTTT:
 X:g.[4_5insA;5del]  vs  X:g.5T>A       TTTTATTTTT for both            Analogous: here the members change a base
 
-NM_X.1:c.[4_5insA;5del]                →  NP_X.1:p.(Lys2=)            the statement c.4_5=, silent at Lys2
-NM_X.1:c.[10=;20=]                     →  NP_X.1:p.[(Ala4=;Ter7=)]
+NM_X.1:c.[4_5insA;5del]                →  NoProteinStatementError     c.4_5= states part of codon 2
+NM_X.1:c.[10=;20=]                     →  NoProteinStatementError     part of codon 4 and part of codon 7
+NM_X.1:c.[10_12=;19_21=]               →  NP_X.1:p.[(Ala4=;Ter7=)]    codons 4 and 7 whole
 NM_X.1:c.[13T>G;10_12=]                →  NP_X.1:p.[(Ala4=;Tyr5Asp)]  the change and the statement
+NM_X.1:c.[4_5insA;5del;13T>G]          →  NP_X.1:p.(Tyr5Asp)          part of codon 2 adds nothing
 NM_X.1:c.[4_5insA;5del;6A>T]           →  NP_X.1:p.(Lys2Asn)          the stated bases are in the changed codon
 
 NM_X.1:c.[4A>T;6A>T]                   ATG TAT CTG GCC TAT CGC TAA    →  NP_X.1:p.(Lys2Tyr)
@@ -2162,7 +2168,9 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::the_vrs_identifier_follows_the_description`, `::a_cancelling_allele_states_the_bases_its_members_name`,
   `::cancelling_depends_on_the_reference`, `::a_change_is_never_a_statement`,
   `::an_identity_beside_a_change_is_part_of_the_allele`, `::cancelling_members_beside_a_change_are_a_statement`,
-  `::a_change_with_a_statement_predicts_both`, `::a_cancelling_allele_predicts_its_statements_protein`;
+  `::a_change_with_a_statement_predicts_both`, `::statements_of_whole_codons_predict_their_residues`,
+  `::a_statement_of_part_of_a_codon_makes_no_protein_statement`,
+  `::a_statement_of_part_of_a_codon_beside_a_change_adds_nothing`;
   `equivalence_is_transitive_over_statements_and_changes` (property).
 
 ### Overlapping members of a cis allele need one reading
@@ -2238,7 +2246,15 @@ A member that cannot be applied, a copy number or a position that is uncertain o
 is held to this rule on its outer bounds. `g.[22C>T;20_30copy3]` changes a base inside the stretch whose copies it
 counts, and `g.[(?_5)_(10_?)del;7A>T]` changes g.7, which lies inside even the bases the deletion certainly removes:
 both are contradictory. An unknown outer bound, the `?` of `(?_5)`, reaches the end of the sequence on that side, as a
-bound for this check only: nothing is built or read for it.
+bound for this check only: nothing is built or read for it. An insertion of bases it does not state, `insN[3]` or
+`insN`, an `N` being a base not stated, names only its junction, so `c.[7_8insN[3];8T>G]` is accepted as
+`c.[7_8insA;8T>G]` is; and identical copy numbers count once, as any edit written twice is read once.
+
+Two kinds of overlap have readings weaver does not yet list, and raise `UnsupportedOperation` rather than
+`AmbiguousDescriptionError`: two inversions over overlapping stretches that each change bases the other reads,
+`c.[7_9inv;8_10inv]`, where each changes c.8, and a duplication and an inversion that each read bases the other changes.
+Each reader can read the reference or the bases the other leaves, which depends on the order the two are applied in;
+listing them is [issue #84](https://github.com/populationgenomics/hgvs-weaver/issues/84).
 
 One case sits on the line. `c.[7_8insA;8T>G]` inserts between c.7 and c.8 and changes c.8. Read against the reference
 the insertion is at a junction and c.8 is a base, so they share nothing, and the result has one reading, the same as
@@ -2284,6 +2300,7 @@ NC_X.1:g.[22C>T;20_30copy3]                                    contradictory: g.
 
 NM_X.1:c.[7_8insA;7_8insG]      AAACAGTGGCC | AAACGATGGCC      ambiguous: c.7_8insAG | c.7_8insGA
 NM_X.1:c.[7_8insA;7_8insA]      AAACATGGCC | AAACAATGGCC       ambiguous: c.7_8insA | c.7_8insAA
+NM_X.1:c.[7_8insA;7_8insA;7_8insA]                             ambiguous: c.7_8insA | c.7_8insAA | c.7_8insAAA
 NM_X.1:c.[7_9dup;8T>G]          AAACGGCTGGCC | AAACGGCGGGCC    ambiguous: c.7_8insGGC (a copy of the reference)
                                                                         | c.8delinsGGCG (a copy of the edited bases)
 NM_X.1:c.[7_9dup;9_10insA]      AAACTGACTGGCC | AAACTGCTGAGCC  ambiguous: c.6_9dup | c.9_10insCTGA
@@ -2294,6 +2311,8 @@ NM_X.1:c.[7_9inv;8T>A]          AAACAGGCC | AAACTGGCC          ambiguous: c.8T>A
 NM_X.1:c.[7_9inv;8T>G]          AAACGGGCC | AAACCGGCC          ambiguous: c.8T>G | c.8T>C
 NM_X.1:c.[7_9del;7_8insA]       AAAGCC | AAAAGCC               ambiguous: c.7_9del | c.7_9delinsA
 NM_X.1:c.[7_8delinsTG;7_8insA]  AAATGGGCC | AAATAGGGCC         ambiguous: c.7_8delinsTG | c.7_8delinsTAG
+
+NM_X.1:c.[7_9inv;8_10inv]                                      UnsupportedOperation: readings not yet listed (#84)
 ```
 
 - **Agrees:** mavehgvs 0.8.1 refuses every case found contradictory or ambiguous above that was checked against it
@@ -2358,7 +2377,9 @@ NM_X.1:c.[7_8delinsTG;7_8insA]  AAATGGGCC | AAATAGGGCC         ambiguous: c.7_8d
   `::repeated_members_without_a_sequence_are_carried_with_their_repeats`,
   `::members_combined_in_too_many_ways_to_search_are_refused`,
   `::an_insertion_on_an_exon_junction_read_on_the_genome_is_refused_as_unplaced`,
-  `::a_reading_that_changes_an_identity_is_no_reading`, `::an_identity_over_the_edge_of_a_copy_number_is_accepted`;
+  `::a_reading_that_changes_an_identity_is_no_reading`, `::an_identity_over_the_edge_of_a_copy_number_is_accepted`,
+  `::identical_copy_numbers_count_once`, `::overlapping_inversions_that_change_each_others_bases_are_not_yet_listed`,
+  `::a_duplication_and_an_inversion_reading_each_others_changes_are_not_yet_listed`;
   `tests/test_cis_phased.py::test_validate_raises_on_a_contradictory_allele`; `member_order_does_not_change_the_reading`
   (property). Planned: `cis_phased_test::a_change_agreeing_with_an_identity_inside_it_is_cut_there`, which `normalize`
   writes.
@@ -2398,6 +2419,8 @@ reference, so which bases are copied does not arise inside VRS; only its overlap
 NM_X.1:c.[7_8insA;7_8insG]       →  AmbiguousDescriptionError: NM_X.1:c.7_8insAG | NM_X.1:c.7_8insGA
 NM_X.1:c.[7_9dup;8T>G]           →  AmbiguousDescriptionError: NM_X.1:c.7_8insGGC | NM_X.1:c.8delinsGGCG
 NM_X.1:c.[3_4insA;5del;6_7insA]  →  AmbiguousDescriptionError: NM_X.1:c.[3_5=;6dup] | NM_X.1:c.[4dup;5_7=]
+NM_X.1:c.[7_8insA;7_8insA;7_8insA]
+                                 →  AmbiguousDescriptionError: NM_X.1:c.7_8insA | NM_X.1:c.7_8insAA | NM_X.1:c.7_8insAAA
 NM_X.1:c.[7C>T;7C>G]         →  ValidationError: contradictory, no reading
 ```
 
