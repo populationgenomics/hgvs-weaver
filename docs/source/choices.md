@@ -1427,7 +1427,12 @@ an intron can continue a run past its exon's edge, with whole copies or by compl
 stays as written too: `c.5A[2]` where c.4_6 is `AAA` on the minus strand, since `c.5_6=` would not state c.4, which the
 repeat states on the genome; and `c.6GT[1]` where exon 1 ends `GTG` and its intron opens with T, since the genome's run
 is two copies, the second straddling the edge, and `c.6_7=` would state only the first. Telling this case apart reads
-the genome, which normalising a transcript variant otherwise does not need.
+the genome, which normalising a transcript variant otherwise does not need. Such a repeat in an allele is a statement,
+and stops a shift, as any member that makes the reference is, and is written the same way, whether it meets other
+members or not: `c.[2T>C;5A[2]]` and `c.[5A[2];6A[1]]` stay as written, and `c.[2T>C;6GT[2];8=]` is `c.[2T>C;6GT[2]]`,
+the identity inside its run stating nothing it does not. Where the identity its run joins states on the genome all that
+the repeat does, the identity is written instead: in `c.[4=;5A[2]]`, `c.4=` states the copy the genome counts before
+c.5, so the allele is `c.4_6=`.
 
 Cancelling members beside a change keep their statement as an identity member, since the statement is part of the allele
 ([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)): `c.[4_5insA;5del;13T>G]` becomes
@@ -1624,6 +1629,15 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
   `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_completes_a_copy`,
   `::a_repeat_that_makes_the_reference_inside_a_plus_strand_exon_normalises_without_the_genome`;
+  `cis_phased_test::a_repeat_member_the_intron_continues_with_whole_copies_is_left_as_written`,
+  `::a_repeat_member_the_intron_completes_a_copy_of_is_left_as_written`,
+  `::a_repeat_member_whose_genome_run_starts_before_it_on_the_minus_strand_is_left_as_written`,
+  `::a_repeat_member_whose_runs_agree_is_its_statement`,
+  `::a_repeat_member_is_its_statement_where_an_identity_beside_it_states_the_rest_of_its_run`,
+  `::a_repeat_member_is_written_beside_an_identity_that_does_not_state_its_run`,
+  `::a_repeat_member_that_meets_an_identity_inside_its_run_is_left_as_written`,
+  `::repeat_members_that_meet_on_the_minus_strand_are_left_as_written`,
+  `::a_repeat_member_inside_an_identity_across_a_junction_is_left_as_written_once`;
   `exon_junction_test::a_repeat_at_its_own_count_across_the_junction_is_not_written_as_an_identity`;
   `a_single_variant_that_makes_the_reference_normalises_to_its_statement`,
   `normalising_a_cis_allele_keeps_its_sequence`, `normalising_a_cis_allele_twice_is_normalising_it_once`,

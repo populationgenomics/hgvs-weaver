@@ -1892,7 +1892,9 @@ impl VariantMapper<'_> {
             return Err(self.ambiguity(cis, write, || {
                 readings
                     .iter()
-                    .map(|(choice, _)| self.describe(frame, allele, choice, &[], Writing::Reading))
+                    .map(|(choice, _)| {
+                        self.describe(frame, allele, choice, &[], &[], Writing::Reading)
+                    })
                     .collect()
             }));
         }
@@ -1976,11 +1978,13 @@ impl VariantMapper<'_> {
             .iter()
             .map(|&k| allele.members[k].1.named())
             .collect();
+        let repeats = self.repeats_stating_more(frame, allele)?;
         self.describe(
             frame,
             &allele.subset(&statement.rest),
             &statement.choice,
             &set_aside,
+            &repeats,
             writing,
         )
     }
