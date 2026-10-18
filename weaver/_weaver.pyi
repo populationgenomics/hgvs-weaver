@@ -455,9 +455,8 @@ class VariantMapper:
             AmbiguousDescriptionError: If an allele in cis has several readings.
             ValidationError: If an allele in cis has no reading.
             UnsupportedOperationError: If an allele in cis has readings weaver does not
-                list, members that share bases across an exon junction, an intronic
-                member that meets another member on the genome, or a form it would be
-                written in that does not read as it does.
+                list, members that share bases across an exon junction, or a form it
+                would be written in that does not read as it does.
         """
     def p_to_c(self, var_p: Variant, transcript_ac: str | None = ...) -> tuple[Variant, bool]:
         """
@@ -541,13 +540,14 @@ class VariantMapper:
         same over the deleted range. Unknown bases cannot slide, so neither is
         normalised.
 
-        An allele in cis of nucleotide members is normalised first
-        (normalize_variant), so members that meet become one Allele. One that
-        normalises to a single change is that change's object; otherwise it becomes a
-        CisPhasedBlock whose ``members`` are the normalised members' Alleles, in
-        order of position, with the shared sequence as ``sequenceReference``. Its
-        identifier (ga4gh:CPB.) does not depend on the order of the members. An
-        allele of protein members becomes a block of its members as written.
+        An allele in cis of nucleotide members is projected to the genome, where the
+        members that overlap, touch or would shift into each other become one Allele;
+        no codon groups them there, so a c. allele and its g. projection get one
+        identifier. One that is a single change there is that change's object;
+        otherwise it becomes a CisPhasedBlock whose ``members`` are the Alleles, in
+        order along the genome, with the shared sequence as ``sequenceReference``. Its
+        identifier (ga4gh:CPB.) does not depend on the order of the members. An allele
+        of protein members becomes a block of its members as written.
 
         The dict's ``type`` says which object was returned.
 

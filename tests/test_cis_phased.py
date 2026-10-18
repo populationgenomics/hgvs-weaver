@@ -215,6 +215,11 @@ def test_to_vrs_is_a_cis_phased_block_of_the_members_alleles(mapper: weaver.Vari
     assert mapper.vrs_id(weaver.parse("NC_X.1:g.[22C>T;28T>G]")) == block["id"]
 
 
+def test_a_coding_allele_and_its_genomic_projection_share_a_vrs_identifier(mapper: weaver.VariantMapper) -> None:
+    # c.4 and c.6 share a codon, which groups them in the c. text but not in VRS
+    assert mapper.vrs_id(weaver.parse("NM_X.1:c.[4A>T;6A>T]")) == mapper.vrs_id(weaver.parse("NC_X.1:g.[19A>T;21A>T]"))
+
+
 @pytest.mark.parametrize(
     ("hgvs", "expected"),
     [

@@ -2781,13 +2781,11 @@ impl<'a> VariantMapper<'a> {
     /// `sequenceReference`, and the input HGVS as an expression. The
     /// identifier does not depend on the order of the members.
     ///
-    /// An allele of nucleotide members is normalised first
-    /// ([`normalize_variant`](Self::normalize_variant)), so members that meet
-    /// are one Allele and the members are in order of position; a
-    /// contradictory or ambiguous allele is refused before a block could
-    /// conflate its readings, and one that normalises to a single change is
-    /// one VRS object, which [`to_vrs_variation`](Self::to_vrs_variation)
-    /// renders.
+    /// An allele of nucleotide members is rendered as
+    /// [`to_vrs_variation`](Self::to_vrs_variation) renders it: projected to
+    /// the genome, with the members that meet there as one Allele, in order
+    /// along the genome. One that is a single change there is that change's
+    /// object, not a block.
     pub fn to_vrs_cis_phased(
         &self,
         var: &crate::SequenceVariant,
@@ -2845,9 +2843,13 @@ impl<'a> VariantMapper<'a> {
     /// duplication with uncertain breakpoints (which has no Allele), else the
     /// `Allele` of `to_vrs` (an imprecise deletion included).
     ///
-    /// An allele of nucleotide members is normalised first, so members that
-    /// meet are one Allele: one that normalises to a single change is that
-    /// change's object, carrying the allele as written as its expression.
+    /// An allele of nucleotide members is read where it is written, refused
+    /// if contradictory or ambiguous, projected to the genome and normalised
+    /// there ([`normalize_variant`](Self::normalize_variant) on the `g.`
+    /// allele, so no codon groups members): members that overlap, touch or
+    /// would shift into each other are one Allele, each fully justified. One
+    /// that is a single change there is that change's object, carrying the
+    /// allele as written as its expression.
     pub fn to_vrs_variation(
         &self,
         var: &crate::SequenceVariant,
@@ -2858,7 +2860,18 @@ impl<'a> VariantMapper<'a> {
                     self.cis_phased_block(cis, var)?,
                 ));
             }
-            return match self.normalize_cis(cis)? {
+            // Read where written, so that a contradictory or ambiguous allele
+            // is refused before a block could conflate its readings; then
+            // merged on the genome, where no codon groups members, so every
+            // spelling of one genomic allele splits into Alleles alike.
+            self.read_cis(cis)?;
+            let on_genome = match cis.coordinate_type() {
+                "c" => self.c_to_g_cis(cis, None)?,
+                "n" => self.n_to_g_cis(cis, None)?,
+                "r" => self.r_to_g_cis(cis, None)?,
+                _ => cis.clone(),
+            };
+            return match self.normalize_cis(&on_genome)? {
                 crate::SequenceVariant::CisPhased(normalised) => Ok(VrsVariation::CisPhasedBlock(
                     self.cis_phased_block(&normalised, var)?,
                 )),

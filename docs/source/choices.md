@@ -1040,12 +1040,11 @@ one or enters a positional identity. Where the allele cannot be written so witho
 raises rather than answer.**
 
 `normalize` produces the preferred spelling for interchange: what weaver hands to other tools, and what string matching
-uses. Parsing, validating, projecting and comparing keep the form as written, `to_vrs` normalises because it too hands
-the allele to other tools, and weaver [does not normalise before projecting](#no-normalisation-before-projecting).
-Merging is for the readers of that spelling. Consumers that match strings converge only on preferred forms. Tools that
-read members one at a time mispredict, which is the specification's reason for the delins. Members that touch are read
-differently by readers with other conventions for applying them, and a merged change is read one way. And `to_vrs`
-renders the normalised allele, so the HGVS and VRS output share a shape. A caller who wants the structure as written, a
+uses. Parsing, validating, projecting and comparing keep the form as written, and weaver
+[does not normalise before projecting](#no-normalisation-before-projecting). Merging is for the readers of that
+spelling. Consumers that match strings converge only on preferred forms. Tools that read members one at a time
+mispredict, which is the specification's reason for the delins. Members that touch are read differently by readers with
+other conventions for applying them, and a merged change is read one way. A caller who wants the structure as written, a
 combinatorial screen recording that a position was wild type in a given combination, does not call `normalize`.
 
 Normalising the members one at a time can break the allele. A member's 3' shift stops at the first base that differs
@@ -1180,8 +1179,11 @@ is the ambiguity [issue #64](https://github.com/populationgenomics/hgvs-weaver/i
 written and merged with nothing. An intronic member's extent is computed on the genome, where it has bases. One that
 meets no other member there is carried as given, as a single intronic variant is, and the exonic members are normalised
 on the transcript: `c.[7C>T;5+2T>A;4del]` on `NM_S.1` becomes `c.[5del;5+2T>A;7C>T]`, and `c.[5+1G>C;13T>G]` stays as
-written. How an intronic member is written together with a member it meets is not yet decided, so an allele in which one
-does, `c.[5A>T;5+1G>C]` or `c.[5+2T>A;5+3A>G]`, is refused with `UnsupportedOperation`.
+written. An intronic member and the members it meets on the genome are merged there, trimmed to what they alter, and
+written back in transcript coordinates with intronic offsets: `c.[5A>T;5+1G>C]` is `c.5_5+1delinsTC` and
+`c.[5+2T>A;5+3A>G]` is `c.5+2_5+3delinsAG`. The result is not shifted, as a single intronic variant is not. What the
+exonic members are written as can reach an intronic member none of them reached, `c.[3del;4_5del;5+2T>A]` becoming
+`c.5_5+2del`, so this repeats until nothing changes.
 
 A positional identity, `c.6=`, is a barrier: it is merged with no change, and no shift enters it, since it says those
 bases are as they were. Identities that overlap or touch are written as one, `c.[7_9=;8=]` as `c.7_9=` and
@@ -1205,18 +1207,16 @@ from the end-trimming biocommons and VRS do.
 
 `normalize` writes the members in order of position along the sequence the allele is written on, as the alleles page
 lists them "in genomic order", whatever order they were written in. When every member falls into one group, the result
-is the plain variant, `c.7_8delinsTG`, not the one-member allele `c.[7_8delinsTG]`. Normalising changes the description,
-and the [VRS identifier follows the description](#a-cis-allele-is-the-sequence-its-members-make), so the normalised form
-can have a different identifier from the allele written.
+is the plain variant, `c.7_8delinsTG`, not the one-member allele `c.[7_8delinsTG]`.
 
 A group that makes the reference is written as what it states. `c.[4_5insA;5del]` inserts an A and deletes the A after
 it; on `NM_X.1`, whose c.4_6 is `AAA`, the members pass the overlap rule and together make the reference. What remains
 is a statement that the bases the members are written over, c.4 and c.5, are unchanged, which is how
 [equivalence reads it](#a-cis-allele-is-the-sequence-its-members-make), so `normalize` writes `c.4_5=`, and `to_vrs`,
-which normalises, renders the reference Allele over those bases. The statement is about the sequence: c.4 and c.5 read
-as the reference does, with nothing between them, which is what the members make. It is not a claim that no member
-touched them; read as members of one allele, `c.[4_5=;5del]` would be contradictory, but normalisation replaces the
-members with the statement rather than writing it beside them.
+merging them on the genome, renders the reference Allele over those bases. The statement is about the sequence: c.4 and
+c.5 read as the reference does, with nothing between them, which is what the members make. It is not a claim that no
+member touched them; read as members of one allele, `c.[4_5=;5del]` would be contradictory, but normalisation replaces
+the members with the statement rather than writing it beside them.
 
 A member names the positions written in it: a range every base in it, an insertion its two flanks, a duplication the
 bases it copies, and a repeat the [whole run](#a-repeat-resolves-to-its-whole-run) it resolves to. There is no widening
@@ -1261,11 +1261,16 @@ The rejected alternatives were to drop a group that makes the reference, which l
 say, and to refuse an allele that makes the reference, which would also refuse `c.[10=;20=]` and `c.[7_9=;8=]`,
 statements with one reading. `validate` passes such an allele when its stated bases are right.
 
-`to_vrs` normalises a cis allele first, so members whose justified regions meet become one Allele. On `GAAAAAG`,
-`g.[2del;4A>T]` makes `GATAAG` and `g.[6del;4A>T]` makes `GAATAG`; their deletions both justify over g.2_6, so rendered
-member by member, as ga4gh.vrs does, they give one block for two different alleles. Normalised first, they are
-`g.3_4delinsT` and `g.4_5delinsT`, two different Alleles. weaver's rendering differs from a block of members translated
-one at a time wherever members meet, and that is where such a block can lose this information.
+`to_vrs` does not take this spelling. It projects the allele to the genome and merges there only the members that must
+be one Allele to say what the allele does: those that overlap, touch, or would shift into each other. No codon groups
+members on the genome, so `c.[4A>T;6A>T]` and its projection `g.[19A>T;21A>T]` are one block of two Alleles, with one
+identifier, though `normalize` writes the first `c.4_6delinsTAT`. Each Allele is then fully justified, as VRS places
+one, and a delins is not split at the bases it leaves unchanged: `c.4_6delinsTAT` is one Allele, as other VRS producers
+keep it. The merging matters: on `GAAAAAG`, `g.[2del;4A>T]` makes `GATAAG` and `g.[6del;4A>T]` makes `GAATAG`; their
+deletions both justify over g.2_6, so rendered member by member, as ga4gh.vrs does, they give one block for two
+different alleles. Merged first, they are `g.3_4delinsT` and `g.4_5delinsT`, two different Alleles. weaver's rendering
+differs from a block of members translated one at a time wherever members meet, and that is where such a block can lose
+this information.
 
 `from_vrs` reads a `CisPhasedBlock` back the same way: each member is trimmed to its minimal edit, every placement of
 that edit within the member's justified location is considered, and the placements the overlap rule accepts are
@@ -1400,7 +1405,7 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::a_member_across_an_exon_junction_stops_a_neighbours_shift`,
   `::members_beside_a_member_across_an_exon_junction_do_not_shift_onto_it`,
   `::a_redundant_member_agreeing_with_a_cut_change_does_not_stop_the_cut`,
-  `::an_intronic_member_a_merged_change_reaches_is_refused_at_once`,
+  `::an_intronic_member_a_merged_change_reaches_joins_it`,
   `::a_change_cut_at_an_identity_states_nothing_a_restating_member_changes`,
   `::a_transcript_allele_is_not_written_as_another_genome`, `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
   `::a_member_without_a_sequence_is_kept_as_written_in_its_place`,
@@ -1408,8 +1413,9 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::an_intronic_member_apart_from_the_exons_is_kept_as_written`,
   `::a_splice_site_member_that_meets_nothing_is_kept_as_written`,
   `::an_allele_with_a_splice_site_member_renders_as_a_block`,
-  `::an_intronic_member_that_meets_an_exonic_member_is_not_yet_normalised`,
-  `::intronic_members_that_meet_are_not_yet_normalised`, `::normalising_an_ambiguous_allele_raises_with_its_readings`,
+  `::an_intronic_member_and_an_exonic_member_it_meets_are_one_change`, `::an_intronic_change_is_not_shifted`,
+  `::intronic_members_on_the_minus_strand_are_one_change`, `::an_rna_allele_with_intronic_members_is_written_in_rna`,
+  `::intronic_members_that_meet_are_one_change`, `::normalising_an_ambiguous_allele_raises_with_its_readings`,
   `::normalising_a_contradictory_allele_raises`, `::normalising_an_allele_whose_readings_are_not_listed_raises`,
   `::members_justified_over_one_run_render_as_the_allele_they_make`; `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
@@ -2189,16 +2195,16 @@ Read as proteins, the two alleles are Analogous as their frameshift and delins a
 is "can be the same", so it is not transitive: `p.Leu3ProfsTer3` is Analogous with both `p.Leu3delinsProAlaTer` and
 `p.Leu3delinsProGlyTer`, which are Different from each other.
 
-The VRS identifier follows the normalised description, not the sequence. `to_vrs`
-[normalises a cis allele first](#members-of-a-cis-allele-that-meet-are-written-as-one-change), so members that meet
-become one Allele, and an allele whose members all meet is rendered as the Allele of the plain variant: `c.[7C>T;8T>G]`
-and `c.7_8delinsTG` share one identifier. Members that stay apart are rendered as a `CisPhasedBlock` of their Alleles,
-so `c.[5A>G;9G>T]` and `c.5_9delinsGACTT`, the same change, still have different identifiers; equivalence is where those
-are found to name one change. Other producers build a block from members translated one at a time (MaveDB, for one,
-translates each member with ga4gh.vrs and assembles the block), so weaver's identifier differs from theirs wherever
-members meet: MaveDB's stored blocks for adjacent multi-variants, `c.[7C>T;8T>G]` among them, will not match weaver's
-Allele. The block's identifier does not depend on member order
-([below](#cisphasedblock-members-are-sorted-before-digesting)).
+A VRS identifier is not a key for the change. `to_vrs`
+[merges the members that meet on the genome](#members-of-a-cis-allele-that-meet-are-written-as-one-change) into one
+Allele each, so an allele whose members all meet is rendered as the Allele of the plain variant: `c.[7C>T;8T>G]` and
+`c.7_8delinsTG` share one identifier. Two descriptions get one identifier only where the change is split into Alleles
+the same way: `c.[5A>G;9G>T]` is a `CisPhasedBlock` of two Alleles and `c.5_9delinsGACTT` one Allele, the same change
+with different identifiers. Equivalence, which compares the sequences, decides whether two descriptions are the same
+change. Other producers build a block from members translated one at a time (MaveDB, for one, translates each member
+with ga4gh.vrs and assembles the block), so weaver's identifier differs from theirs wherever members meet: MaveDB's
+stored blocks for adjacent multi-variants, `c.[7C>T;8T>G]` among them, will not match weaver's Allele. The block's
+identifier does not depend on member order ([below](#cisphasedblock-members-are-sorted-before-digesting)).
 
 **Example** (`NM_X.1` is `GGGGG` `ATG AAA CTG GCC TAT CGC TAA` `CCGTATAAGTAAGG`, Met Lys Leu Ala Tyr Arg Ter, at genomic
 index 10 of `NC_X.1`, so c.7 is g.22; `NR_XR.1` reads the same forty bases of `NC_X.1` on the minus strand, so n.23 is
@@ -2264,6 +2270,7 @@ NM_S.1:c.5del  vs  NM_S.1:c.6del       AACTG for both                 Different:
 
 to_vrs_variation NM_X.1:c.[7C>T;8T>G]    →  an Allele, ga4gh:VA.…, that of c.7_8delinsTG: the members touch
 to_vrs_variation NM_X.1:c.[5A>G;9G>T]    →  a CisPhasedBlock of two Alleles, ga4gh:CPB.…
+to_vrs_variation NM_X.1:c.[4A>T;6A>T]    →  a CisPhasedBlock, that of NC_X.1:g.[19A>T;21A>T]: no codon on the genome
 to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the same change, another identifier
 ```
 
@@ -2288,6 +2295,8 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::the_vrs_identifier_follows_the_description`, `::a_one_member_allele_renders_as_its_members_allele`,
   `::a_cancelling_allele_renders_as_the_reference_over_the_bases_it_names`,
   `::a_block_is_only_for_an_allele_that_normalises_to_several_members`,
+  `::a_coding_allele_and_its_genomic_projection_share_a_vrs_identifier`,
+  `::a_delins_is_one_allele_whatever_it_leaves_unchanged_inside`, `::members_that_touch_on_the_genome_are_one_allele`,
   `::an_allele_rendered_as_one_allele_carries_the_allele_as_written`; `walking_two_readings_agrees_with_building_them`,
   `members_apart_make_what_each_makes_alone`, `the_generated_alleles_are_mostly_read` (properties); planned:
   `cis_phased_test::adjacent_members_are_the_delins_they_make`, `::members_in_either_order_are_one_allele`,
@@ -2682,8 +2691,8 @@ read back:
 
 ### CisPhasedBlock members are sorted before digesting
 
-**The identifier does not depend on the order the members are written; the `members` array keeps the order of the
-normalised allele `to_vrs` renders, by position along the sequence the allele is written on.**
+**The identifier does not depend on the order the members are written; the `members` array is in order of position along
+the genome, where `to_vrs` merges the members.**
 
 The schema's `minItems: 2` is relaxed to one when a block is read, a departure from VRS, because HGVS allows the
 degenerate `c.[145C>T]` and other producers render it as a block of one; `to_vrs` itself renders it as an Allele. The
@@ -2694,7 +2703,7 @@ in-trans form `[..];[..]` is rejected: it describes two molecules.
 ```text
 NM_X.1:c.[7C>T;13T>G]   and  NM_X.1:c.[13T>G;7C>T]    →  the same ga4gh:CPB. id, members in the normalised order
 NM_X.1:c.[7C>T;13T>G]   and  NC_X.1:g.[22C>T;28T>G]   →  the same id
-NM_X.1:c.[7C>T]                                        →  an Allele: normalised, it is c.7C>T
+NM_X.1:c.[7C>T]                                        →  an Allele: on the genome it is one change, g.22C>T
 NM_X.1:c.[7C>T];[13T>G] →  UnsupportedOperation: describes two molecules (alleles in trans); parse each [..] as a cis allele instead
 ```
 

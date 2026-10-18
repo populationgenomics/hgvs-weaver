@@ -1054,9 +1054,13 @@ impl VariantMapper<'_> {
     }
 
     /// A transcript allele with intronic members, read on the genome in
-    /// `frame`. Each intronic member that meets nothing on the genome is
-    /// carried as given, as a single intronic variant is, and the exonic
-    /// members are normalised as an allele on the transcript.
+    /// `frame`. An intronic member and the members it meets on the genome are
+    /// written as the one change they make there, in transcript coordinates
+    /// with intronic offsets and not shifted, as a single intronic variant is
+    /// not; an intronic member that meets nothing is carried as given; the
+    /// other exonic members are normalised as an allele on the transcript.
+    /// What that writes can reach an intronic member none of its members
+    /// reached, so it repeats until nothing changes.
     fn normalize_cis_with_introns(
         &self,
         cis: &CisPhasedVariant,
@@ -1065,63 +1069,40 @@ impl VariantMapper<'_> {
         let reference = self.refs.reference(&frame.accession, frame.kind);
         let (allele, _) = allele_on(cis, frame, &reference);
         let settled = self.settle(cis, frame, &allele, true)?;
-        let intronic = self.intronic_apart(cis, &allele)?;
-        let (inner, exonic): (Vec<_>, Vec<_>) = cis
-            .members
-            .iter()
-            .enumerate()
-            .partition(|(i, _)| intronic[*i]);
-        let mut members: Vec<SV> = if exonic.is_empty() {
-            Vec::new()
-        } else {
-            let sub = CisPhasedVariant::new(
-                cis.ac.clone(),
-                cis.gene.clone(),
-                exonic.into_iter().map(|(_, m)| m.clone()).collect(),
-            )?;
-            match self.normalize_cis(&sub)? {
-                SV::CisPhased(c) => c.members,
-                one => vec![one],
+        let mut current = cis.clone();
+        for _ in 0..=cis.members.len() {
+            let next = self.introns_once(&current)?;
+            if next == current {
+                let normalised = match <[SV; 1]>::try_from(next.members) {
+                    Ok([one]) => one,
+                    Err(members) => SV::CisPhased(CisPhasedVariant::new(
+                        cis.ac.clone(),
+                        cis.gene.clone(),
+                        members,
+                    )?),
+                };
+                return self.read_as(cis, &settled, &reference, normalised);
             }
-        };
-        for (_, m) in inner {
-            if inserts(m) || !members.contains(m) {
-                members.push(m.clone());
-            }
+            current = next;
         }
-        members.sort_by_key(transcript_key);
-        // The exonic members, written as one change, can reach an intronic
-        // member none of them reached alone.
-        let written = CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), members)?;
-        let on_genome = self.checked_frame(&written, On::Written)?;
-        let genome = self.refs.reference(&on_genome.accession, on_genome.kind);
-        let (written_allele, _) = allele_on(&written, &on_genome, &genome);
-        self.intronic_apart(&written, &written_allele)
-            .map_err(|e| HgvsError::UnsupportedOperation(format!("{cis}: {e}")))?;
-        let normalised = match <[SV; 1]>::try_from(written.members) {
-            Ok([one]) => one,
-            Err(members) => SV::CisPhased(CisPhasedVariant::new(
-                cis.ac.clone(),
-                cis.gene.clone(),
-                members,
-            )?),
-        };
-        self.read_as(cis, &settled, &reference, normalised)
+        Err(HgvsError::UnsupportedOperation(format!(
+            "{cis} is not yet normalised: writing its intronic members with what they meet \
+             does not settle"
+        )))
     }
 
-    /// Which members of the transcript allele `cis` are intronic, once none
-    /// of them meets another member on the genome, where `allele` places
-    /// them.
-    ///
-    /// # Errors
-    ///
-    /// [`HgvsError::UnsupportedOperation`] when an intronic member meets
-    /// another member: how the two are written together is not decided.
-    fn intronic_apart(
-        &self,
-        cis: &CisPhasedVariant,
-        allele: &Allele,
-    ) -> Result<Vec<bool>, HgvsError> {
+    /// One round of [`normalize_cis_with_introns`](Self::normalize_cis_with_introns).
+    fn introns_once(&self, cis: &CisPhasedVariant) -> Result<CisPhasedVariant, HgvsError> {
+        let frame = self.checked_frame(cis, On::Written)?;
+        if frame.kind != IdentifierType::GenomicAccession {
+            // No intronic member is left: the allele is a transcript one.
+            return Ok(match self.normalize_cis(cis)? {
+                SV::CisPhased(c) => c,
+                one => CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), vec![one])?,
+            });
+        }
+        let genome = self.refs.reference(&frame.accession, frame.kind);
+        let (allele, _) = allele_on(cis, &frame, &genome);
         let extents = allele.extents()?;
         let mut intronic = Vec::with_capacity(cis.members.len());
         for m in &cis.members {
@@ -1136,24 +1117,115 @@ impl VariantMapper<'_> {
             };
             intronic.push(pos.is_some_and(crate::mapper::has_intronic_offset));
         }
-        let meets = |a: (usize, usize), b: (usize, usize)| a.0 <= b.1 && b.0 <= a.1;
-        let reaches: Vec<(usize, (usize, usize))> = allele
-            .members
-            .iter()
-            .zip(&extents)
-            .map(|((i, _), e)| (*i, *e))
-            .chain(allele.outer.iter().map(|o| (o.index, reach_key(&o.reach))))
-            .collect();
-        for &(i, e) in reaches.iter().filter(|(i, _)| intronic[*i]) {
-            if let Some(&(j, _)) = reaches.iter().find(|&&(j, f)| j != i && meets(e, f)) {
-                return Err(HgvsError::UnsupportedOperation(format!(
-                    "{cis}: the intronic member {} meets {} on the genome, and how an intronic \
-                     member is written with what it meets is not decided",
-                    cis.members[i], cis.members[j]
-                )));
+        // The members an intronic member meets on the genome, directly or
+        // through another, as groups of slots.
+        let n = allele.members.len();
+        let meets = |a: Span, b: Span| a.0 <= b.1 && b.0 <= a.1;
+        let groups = components(n, |a, b| {
+            let (ia, ib) = (allele.members[a].0, allele.members[b].0);
+            (intronic[ia] || intronic[ib]) && meets(extents[a], extents[b])
+        });
+        let mut grouped = vec![false; cis.members.len()];
+        let mut members: Vec<SV> = Vec::new();
+        for group in groups.iter().filter(|g| g.len() > 1) {
+            let indices: Vec<usize> = group.iter().map(|&k| allele.members[k].0).collect();
+            for &i in &indices {
+                grouped[i] = true;
+            }
+            let window = group
+                .iter()
+                .map(|&k| allele.members[k].1.written())
+                .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+                .expect("a group has members");
+            members.push(self.merged_on_genome(cis, &frame, &genome, &indices, window)?);
+        }
+        let mut exonic = Vec::new();
+        for (i, m) in cis.members.iter().enumerate() {
+            if grouped[i] {
+                continue;
+            }
+            if intronic[i] {
+                if inserts(m) || !members.contains(m) {
+                    members.push(m.clone());
+                }
+            } else {
+                exonic.push(m.clone());
             }
         }
-        Ok(intronic)
+        if !exonic.is_empty() {
+            let sub = CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), exonic)?;
+            match self.normalize_cis(&sub)? {
+                SV::CisPhased(c) => members.extend(c.members),
+                one => members.push(one),
+            }
+        }
+        members.sort_by_key(transcript_key);
+        CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), members)
+    }
+
+    /// The members of `cis` at `indices`, which meet on the genome, written
+    /// as the one change they make over `window` there, trimmed to what it
+    /// alters and not shifted, in the allele's own system.
+    fn merged_on_genome(
+        &self,
+        cis: &CisPhasedVariant,
+        frame: &Frame,
+        genome: &Reference<'_, '_>,
+        indices: &[usize],
+        (lo, hi): Span,
+    ) -> Result<SV, HgvsError> {
+        let group = CisPhasedVariant::new(
+            cis.ac.clone(),
+            cis.gene.clone(),
+            indices.iter().map(|&i| cis.members[i].clone()).collect(),
+        )?;
+        let reading = self.read_cis_on_genome(&group)?;
+        let alt = reading.sequence(genome, lo, hi)?;
+        let ref_ = Segment::Reference { start: lo, end: hi }.read(genome, 0, hi - lo)?;
+        let (edit, s, e) = normalize::minimal_edit(genome, lo, hi, &ref_, &alt)?;
+        let placed = PlacedEdit::from_hgvs_range(s, e, edit);
+        let (first, last) = crate::mapper::hgvs_positions(&placed);
+        let g = crate::structs::GVariant {
+            ac: frame.accession.clone(),
+            gene: cis.gene.clone(),
+            posedit: crate::structs::PosEdit {
+                pos: Some(crate::structs::SimpleInterval {
+                    start: crate::mapper::simple_position(first),
+                    end: last.map(crate::mapper::simple_position),
+                    uncertain: false,
+                }),
+                edit: placed.edit,
+                uncertain: false,
+                predicted: false,
+            },
+        };
+        let c = self.g_to_c(&g, &cis.ac)?;
+        let coding = {
+            let t = self.provider().get_transcript(&cis.ac, None)?;
+            t.cds_start_index.is_some() && t.cds_end_index.is_some()
+        };
+        let as_n = || {
+            if coding {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{cis}: an n. allele on a coding transcript is not written back from the genome"
+                )));
+            }
+            Ok(SV::NonCoding(crate::structs::NVariant {
+                ac: c.ac.clone(),
+                gene: c.gene.clone(),
+                posedit: c.posedit.clone(),
+            }))
+        };
+        Ok(match cis.coordinate_type() {
+            "c" => SV::Coding(c.clone()),
+            "n" => as_n()?,
+            _ if coding => SV::Rna(self.tx_to_r(&SV::Coding(c.clone()))?),
+            _ => SV::Rna(self.tx_to_r(&SV::NonCoding(crate::structs::NVariant {
+                ac: c.ac.clone(),
+                gene: c.gene.clone(),
+                posedit: c.posedit.clone(),
+            }))?),
+        })
     }
 
     /// The description of one reading, normalised: the members of `allele`
