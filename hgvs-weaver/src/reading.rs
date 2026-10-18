@@ -35,6 +35,10 @@ use crate::transcript_mapper::TranscriptMapper;
 use crate::utils::reverse_complement;
 use crate::SequenceVariant as SV;
 
+mod normalise;
+
+use normalise::Writing;
+
 /// Where the bases of a stretch of an allele's sequence come from. Only a
 /// reading builds one, so a range is never backwards.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,7 +397,7 @@ fn same_replacements(
 }
 
 /// What a base-by-base member puts at each base of its stretch.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Value {
     /// Nothing: the base is deleted.
     Delete,
@@ -404,7 +408,7 @@ enum Value {
 }
 
 /// A member read as the reference stretch it replaces and what it puts there.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Act {
     /// A substitution, deletion, delins that keeps the length, or identity:
     /// each base of `[start, end)` gets one base, or none.
@@ -506,7 +510,7 @@ enum Placed {
 }
 
 /// How a duplication or inversion reads bases another member changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Mode {
     /// The reference's bases; the other members' changes then land on their
     /// own positions.
@@ -587,6 +591,15 @@ struct Outer {
     index: usize,
     reach: Reach,
 }
+
+/// A choice described by what its members do: how many read edited bases,
+/// how many insertions are dropped, which, and the order at each junction.
+type ChoiceKey<'m> = (
+    usize,
+    usize,
+    Vec<(&'m Act, Mode, bool)>,
+    Vec<(usize, Vec<&'m Act>)>,
+);
 
 /// The most readings listed, and the most insertions ordered at one junction.
 const MAX_READINGS: usize = 1024;
@@ -922,6 +935,21 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
         exclude: Option<usize>,
         stack: &mut Vec<usize>,
     ) -> Result<Vec<Replacement>, HgvsError> {
+        Ok(merge_touching(
+            self.assemble_runs(choice, window, exclude, stack)?,
+        ))
+    }
+
+    /// As [`assemble`](Self::assemble), with replacements that touch left
+    /// apart: no replacement then reaches past the bases of the members that
+    /// make it.
+    fn assemble_runs(
+        &self,
+        choice: &Choice,
+        window: Option<(usize, usize)>,
+        exclude: Option<usize>,
+        stack: &mut Vec<usize>,
+    ) -> Result<Vec<Replacement>, HgvsError> {
         let live = |k: usize| Some(k) != exclude && !choice.dropped[k];
         let in_window = |r: (usize, usize)| {
             window.is_none_or(|w| overlap(r, w).is_some() || r.0 == r.1 && strictly_inside(r.0, w))
@@ -1064,7 +1092,7 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
         }));
         // An insertion at a junction goes before a stretch starting there.
         all.sort_by_key(|r| (r.start, r.end));
-        Ok(merge_touching(all))
+        Ok(all)
     }
 
     /// Whether `replacements`, a reading of every member, change a base an
@@ -1219,15 +1247,22 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
                 if self.breaks_an_identity(&replacements)? {
                     continue;
                 }
-                let mut seen = false;
-                for (_, r) in &out {
+                // Choices that make one sequence are one reading, kept as the
+                // choice whose key is least, so that which one is written does
+                // not depend on the order of the members.
+                let mut seen = None;
+                for (i, (_, r)) in out.iter().enumerate() {
                     if same_replacements(r, &replacements, self.reference)? {
-                        seen = true;
+                        seen = Some(i);
                         break;
                     }
                 }
-                if !seen {
-                    out.push((choice, replacements));
+                match seen {
+                    None => out.push((choice, replacements)),
+                    Some(i) if self.choice_key(&choice) < self.choice_key(&out[i].0) => {
+                        out[i] = (choice, replacements);
+                    }
+                    Some(_) => {}
                 }
             }
         }
@@ -1239,6 +1274,28 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
             )));
         }
         Ok(out)
+    }
+
+    /// What a choice does, described by the members' acts rather than their
+    /// places in the allele: fewest readers of edited bases first, then
+    /// fewest insertions dropped, then the acts themselves.
+    fn choice_key(&self, choice: &Choice) -> ChoiceKey<'_> {
+        let edited = choice.mode.iter().filter(|&&m| m == Mode::Edited).count();
+        let dropped = choice.dropped.iter().filter(|&&d| d).count();
+        let mut acts: Vec<(&Act, Mode, bool)> = self
+            .members
+            .iter()
+            .enumerate()
+            .filter(|&(k, _)| choice.mode[k] == Mode::Edited || choice.dropped[k])
+            .map(|(k, (_, act))| (act, choice.mode[k], choice.dropped[k]))
+            .collect();
+        acts.sort_unstable();
+        let orders = choice
+            .order
+            .iter()
+            .map(|(&j, slots)| (j, slots.iter().map(|&k| &self.members[k].1).collect()))
+            .collect();
+        (edited, dropped, acts, orders)
     }
 
     fn too_many(&self) -> HgvsError {
@@ -1511,8 +1568,14 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
     }
 
     /// The sets of members that together make the reference, no smaller set
-    /// of them doing so, and whose span holds no base another member names.
-    fn cancelling_sets(&self, extents: &[(usize, usize)]) -> Result<Vec<Vec<usize>>, HgvsError> {
+    /// of them doing so, whose span holds no base another member names and
+    /// lies in one of `exons`: members in two exons do not meet, and on the
+    /// genome an intron lies between them.
+    fn cancelling_sets(
+        &self,
+        extents: &[(usize, usize)],
+        exons: &ExonBounds,
+    ) -> Result<Vec<Vec<usize>>, HgvsError> {
         let changes: Vec<usize> = (0..self.members.len())
             .filter(|&k| !self.members[k].1.is_identity())
             .collect();
@@ -1520,7 +1583,10 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
         for group in self.groups(&changes, extents) {
             let mut making: Vec<Vec<usize>> = Vec::new();
             for set in self.candidate_sets(&group)? {
-                if making.iter().any(|m| m.iter().all(|k| set.contains(k))) {
+                let span = self.span_of(&set);
+                if exons.exon(span.0) != exons.exon(span.1 - 1)
+                    || making.iter().any(|m| m.iter().all(|k| set.contains(k)))
+                {
                     continue;
                 }
                 if self.cancels(&set)? {
@@ -1699,22 +1765,30 @@ struct Frame {
     system: System,
     exons: ExonBounds,
     mapper: Option<TranscriptMapper>,
-    /// Each member placed, with its index in the allele as written, and the
-    /// member as written in the frame's system.
-    placed: Vec<(usize, Placed, SV)>,
+    /// Each member placed, with its index in the allele as written, the
+    /// member as written in the frame's system, and, for an applied member,
+    /// its edit over the HGVS range it is written over.
+    placed: Vec<(usize, Placed, SV, Option<PlacedEdit>)>,
 }
 
-/// A change of a written reading: the stretch it is written over, and the
-/// replacements that make it.
-type Change = ((usize, usize), Vec<Replacement>);
-
-/// One reading of the allele as written back: the stated ranges and, for
-/// each change, the stretch it is written over with what it makes there.
-struct Written {
+/// The statements an allele's one reading makes: the bases it states
+/// unchanged, the members set aside as statements, and the one reading of
+/// the members left beside them.
+struct Statement {
     stated: Vec<(usize, usize)>,
-    /// Each change: the stretch it is written over, and the replacements
-    /// that make it.
-    changes: Vec<Change>,
+    /// The members, as slots of the allele, set aside: sets that together
+    /// make the reference.
+    chosen: Vec<usize>,
+    /// The members left, as slots of the allele, and their one reading.
+    rest: Vec<usize>,
+    choice: Choice,
+}
+
+/// The one reading of an allele: the replacements its members make, and its
+/// statements.
+struct Settled {
+    replacements: Vec<Replacement>,
+    statement: Statement,
 }
 
 /// Which sequence a transcript allele is read on.
@@ -1769,6 +1843,22 @@ impl VariantMapper<'_> {
         on: On,
         write: bool,
     ) -> Result<CisReading, HgvsError> {
+        let frame = self.checked_frame(cis, on)?;
+        let reference = self.refs.reference(&frame.accession, frame.kind);
+        let (allele, unapplied) = allele_on(cis, &frame, &reference);
+        let settled = self.settle(cis, &frame, &allele, write)?;
+        Ok(CisReading {
+            stated: StatedBases::of_ranges(&frame.accession, settled.statement.stated),
+            accession: frame.accession,
+            kind: frame.kind,
+            replacements: settled.replacements,
+            unapplied,
+        })
+    }
+
+    /// Where an allele of nucleotide members is read, once each member is
+    /// found to state only bases its reference holds.
+    fn checked_frame(&self, cis: &CisPhasedVariant, on: On) -> Result<Frame, HgvsError> {
         if cis.coordinate_type() == "p" {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{cis} is an allele of protein members, which is not read into a sequence"
@@ -1783,219 +1873,125 @@ impl VariantMapper<'_> {
         {
             self.check_stated(m)?;
         }
-        let frame = self.frame(cis, on)?;
-        let reference = self.refs.reference(&frame.accession, frame.kind);
-        let text: Vec<String> = cis.members.iter().map(ToString::to_string).collect();
-        let mut members: Vec<(usize, Act)> = Vec::new();
-        let mut outer: Vec<Outer> = Vec::new();
-        let mut unapplied: Vec<SV> = Vec::new();
-        for (index, placed, _) in &frame.placed {
-            let member = &cis.members[*index];
-            // Identical members other than insertions and duplications are
-            // one edit written twice.
-            match placed {
-                Placed::Applied(act) => {
-                    let twice = !matches!(act, Act::Insert { .. } | Act::Dup { .. })
-                        && members.iter().any(|(_, a)| a == act);
-                    if !twice {
-                        members.push((*index, act.clone()));
-                    }
-                }
-                Placed::Unapplied(reach) => {
-                    let inserts = member_edit(member).is_some_and(|e| {
-                        matches!(
-                            e,
-                            NaEdit::Ins { .. } | NaEdit::InsLength { .. } | NaEdit::Dup { .. }
-                        )
-                    });
-                    let twice = !inserts && unapplied.contains(member);
-                    if !twice {
-                        outer.push(Outer {
-                            index: *index,
-                            reach: *reach,
-                        });
-                        unapplied.push(member.clone());
-                    }
-                }
-            }
-        }
-        let allele = Allele {
-            reference: &reference,
-            description: cis.to_string(),
-            text,
-            members,
-            outer,
-        };
+        self.frame(cis, on)
+    }
+
+    /// The one reading of `allele` and the statements it makes, or the error
+    /// that it has none or several: `write` decides whether an ambiguity's
+    /// readings are written out.
+    fn settle(
+        &self,
+        cis: &CisPhasedVariant,
+        frame: &Frame,
+        allele: &Allele,
+        write: bool,
+    ) -> Result<Settled, HgvsError> {
         allele.check_contradictions()?;
         let mut readings = allele.readings()?;
-        let extents = allele.extents()?;
         if readings.len() > 1 {
-            let written = readings
-                .iter()
-                .map(|(_, replacements)| self.written_reading(&allele, &extents, replacements))
-                .collect::<Result<Vec<_>, _>>()?;
-            return Err(self.ambiguity(cis, &frame, &reference, written, write));
+            return Err(self.ambiguity(cis, write, || {
+                readings
+                    .iter()
+                    .map(|(choice, _)| self.describe(frame, allele, choice, &[], Writing::Reading))
+                    .collect()
+            }));
         }
         let (_, replacements) = readings
             .pop()
             .expect("members that are not contradictory have a reading");
-        let sets = allele.cancelling_sets(&extents)?;
-        let mut written: Vec<Written> = Vec::new();
+        let extents = allele.extents()?;
+        let sets = allele.cancelling_sets(&extents, &frame.exons)?;
+        let mut statements: Vec<Statement> = Vec::new();
         for family in families(&sets)? {
             let chosen: Vec<usize> = family
                 .iter()
                 .flat_map(|&s| sets[s].iter().copied())
                 .collect();
-            let w = self.written_statement(&allele, &extents, &chosen)?;
-            if !written.iter().any(|o| o.stated == w.stated) {
-                written.push(w);
+            let s = self.statement(frame, allele, chosen)?;
+            if !statements.iter().any(|o| o.stated == s.stated) {
+                statements.push(s);
             }
         }
-        if written.len() > 1 {
-            return Err(self.ambiguity(cis, &frame, &reference, written, write));
+        if statements.len() > 1 {
+            return Err(self.ambiguity(cis, write, || {
+                statements
+                    .iter()
+                    .map(|s| self.describe_statement(frame, allele, s, Writing::Reading))
+                    .collect()
+            }));
         }
-        let stated = written
-            .pop()
-            .expect("the cancelling sets have a family")
-            .stated;
-        Ok(CisReading {
-            stated: StatedBases::of_ranges(&frame.accession, stated),
-            accession: frame.accession,
-            kind: frame.kind,
+        let statement = statements.pop().expect("the cancelling sets have a family");
+        Ok(Settled {
             replacements,
-            unapplied,
+            statement,
         })
     }
 
-    /// A reading whose sequence is `replacements`: the identities, and the
-    /// groups of members that meet and make the reference, as statements,
-    /// and every other group as the change it makes there.
-    fn written_reading(
+    /// The statements made when the sets of members `chosen` are set aside:
+    /// those bases, and what the members left state once normalised, their
+    /// identities and each group of them that meets and makes the reference.
+    fn statement(
         &self,
+        frame: &Frame,
         allele: &Allele,
-        extents: &[(usize, usize)],
-        replacements: &[Replacement],
-    ) -> Result<Written, HgvsError> {
-        let mut stated: Vec<(usize, usize)> = allele
-            .members
-            .iter()
-            .filter(|(_, a)| a.is_identity())
-            .map(|(_, a)| a.named())
-            .collect();
-        let rest: Vec<usize> = (0..allele.members.len())
-            .filter(|k| !allele.members[*k].1.is_identity())
-            .collect();
-        let mut changes = Vec::new();
-        for group in allele.groups(&rest, extents) {
-            let window = group
-                .iter()
-                .map(|&k| allele.members[k].1.written())
-                .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
-                .expect("a group has members");
-            let inside: Vec<Replacement> = replacements
-                .iter()
-                .filter(|r| window.0 <= r.start && r.end <= window.1)
-                .cloned()
-                .collect();
-            if same_replacements(&inside, &[], allele.reference)? {
-                stated.extend(group.iter().map(|&k| allele.members[k].1.named()));
-            } else {
-                changes.push(window);
-            }
-        }
-        let stated = merge_ranges(stated);
-        let mut split = Vec::new();
-        for window in changes {
-            split.extend(self.split_at_statements(allele, window, &stated, replacements)?);
-        }
-        Ok(Written {
-            stated,
-            changes: split,
-        })
-    }
-
-    /// The change over `window` written on each side of every statement it
-    /// spans: each replacement goes to the stretch between statements that
-    /// holds it, an insertion at a statement's edge to the stretch beside it,
-    /// or to a stretch of its own where there is none.
-    fn split_at_statements(
-        &self,
-        allele: &Allele,
-        (lo, hi): (usize, usize),
-        stated: &[(usize, usize)],
-        replacements: &[Replacement],
-    ) -> Result<Vec<Change>, HgvsError> {
-        let mut cuts: Vec<usize> = stated
-            .iter()
-            .flat_map(|&(s, e)| [s, e])
-            .filter(|&c| lo < c && c < hi)
-            .chain([lo, hi])
-            .collect();
-        cuts.sort_unstable();
-        cuts.dedup();
-        let mut pieces: Vec<Change> = cuts
-            .windows(2)
-            .map(|w| (w[0], w[1]))
-            .filter(|&(a, b)| !stated.iter().any(|&(s, e)| s <= a && b <= e))
-            .map(|piece| (piece, Vec::new()))
-            .collect();
-        for r in replacements.iter().filter(|r| lo <= r.start && r.end <= hi) {
-            let holds = |&((a, b), _): &Change| a <= r.start && r.end <= b;
-            let inner = |&((a, b), _): &Change| a < r.start && r.start < b;
-            let slot = pieces
-                .iter()
-                .position(|p| holds(p) && (r.start < r.end || inner(p)))
-                .or_else(|| pieces.iter().position(holds));
-            match slot {
-                Some(k) => pieces[k].1.push(r.clone()),
-                None => pieces.push(((r.start, r.end), vec![r.clone()])),
-            }
-        }
-        let mut out = Vec::new();
-        for (piece, reps) in pieces {
-            if !reps.is_empty() && !same_replacements(&reps, &[], allele.reference)? {
-                out.push((piece, reps));
-            }
-        }
-        Ok(out)
-    }
-
-    /// The reading in which the sets of members `chosen` are statements.
-    fn written_statement(
-        &self,
-        allele: &Allele,
-        extents: &[(usize, usize)],
-        chosen: &[usize],
-    ) -> Result<Written, HgvsError> {
+        chosen: Vec<usize>,
+    ) -> Result<Statement, HgvsError> {
         let rest: Vec<usize> = (0..allele.members.len())
             .filter(|k| !chosen.contains(k))
             .collect();
         let sub = allele.subset(&rest);
         let mut readings = sub.readings()?;
-        let (Some((_, replacements)), true) = (readings.pop(), readings.is_empty()) else {
+        let (Some((choice, _)), true) = (readings.pop(), readings.is_empty()) else {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{}: the members left beside a statement have several readings",
                 allele.description
             )));
         };
-        let sub_extents: Vec<(usize, usize)> = rest.iter().map(|&k| extents[k]).collect();
-        let mut w = self.written_reading(&sub, &sub_extents, &replacements)?;
-        w.stated = merge_ranges(
-            w.stated
-                .into_iter()
-                .chain(chosen.iter().map(|&k| allele.members[k].1.named()))
-                .collect(),
-        );
-        Ok(w)
+        let set_aside: Vec<(usize, usize)> = chosen
+            .iter()
+            .map(|&k| allele.members[k].1.named())
+            .collect();
+        let stated = self
+            .normal_form(frame, &sub, &choice, &set_aside, Writing::Reading)?
+            .stated;
+        Ok(Statement {
+            stated,
+            chosen,
+            rest,
+            choice,
+        })
     }
 
+    /// The description of the reading in which `statement`'s sets are set
+    /// aside.
+    fn describe_statement(
+        &self,
+        frame: &Frame,
+        allele: &Allele,
+        statement: &Statement,
+        writing: Writing,
+    ) -> Result<SV, HgvsError> {
+        let set_aside: Vec<(usize, usize)> = statement
+            .chosen
+            .iter()
+            .map(|&k| allele.members[k].1.named())
+            .collect();
+        self.describe(
+            frame,
+            &allele.subset(&statement.rest),
+            &statement.choice,
+            &set_aside,
+            writing,
+        )
+    }
+
+    /// The error for an allele with several readings: listing each, written
+    /// by `readings`, when `write` asks for them.
     fn ambiguity(
         &self,
         cis: &CisPhasedVariant,
-        frame: &Frame,
-        reference: &Reference<'_, '_>,
-        written: Vec<Written>,
         write: bool,
+        readings: impl FnOnce() -> Result<Vec<SV>, HgvsError>,
     ) -> HgvsError {
         if !write {
             return HgvsError::Ambiguous {
@@ -2003,11 +1999,7 @@ impl VariantMapper<'_> {
                 readings: Vec::new(),
             };
         }
-        let readings = written
-            .iter()
-            .map(|w| self.describe(frame, reference, w))
-            .collect::<Result<Vec<_>, _>>();
-        match readings {
+        match readings() {
             Ok(mut readings) => {
                 readings.sort_by_key(ToString::to_string);
                 HgvsError::Ambiguous {
@@ -2020,154 +2012,6 @@ impl VariantMapper<'_> {
             )),
         }
     }
-
-    /// The description of one reading: its statements as identities and each
-    /// change normalised, kept from crossing a statement or an exon junction.
-    fn describe(
-        &self,
-        frame: &Frame,
-        reference: &Reference<'_, '_>,
-        written: &Written,
-    ) -> Result<SV, HgvsError> {
-        // A statement is cut where an exon ends, or where something is
-        // inserted between two of its bases.
-        let inserted: Vec<usize> = written
-            .changes
-            .iter()
-            .flat_map(|(_, reps)| reps.iter().filter(|r| r.start == r.end).map(|r| r.start))
-            .chain(frame.placed.iter().filter_map(|(_, p, _)| match p {
-                Placed::Unapplied(Reach::Junction(at)) => Some(*at),
-                _ => None,
-            }))
-            .collect();
-        let mut statements: Vec<(usize, usize)> = Vec::new();
-        for &(s, e) in &written.stated {
-            let mut at = s;
-            for cut in (s + 1..e).filter(|&c| frame.exons.is_junction(c) || inserted.contains(&c)) {
-                statements.push((at, cut));
-                at = cut;
-            }
-            statements.push((at, e));
-        }
-        let mut parts: Vec<PlacedEdit> = statements
-            .iter()
-            .map(|&(s, e)| PlacedEdit {
-                start: s,
-                end: e,
-                edit: NaEdit::RefAlt {
-                    ref_: None,
-                    alt: None,
-                    uncertain: false,
-                },
-            })
-            .collect();
-        let mut windows = written.changes.clone();
-        let changes = loop {
-            let mut placed = Vec::with_capacity(windows.len());
-            for (w, reps) in &windows {
-                placed.push(self.written_change(
-                    reference,
-                    reps,
-                    *w,
-                    &frame.exons,
-                    &written.stated,
-                )?);
-            }
-            // Two changes meet when the bases they replace overlap or touch,
-            // and no statement lies between them.
-            let meeting = (0..placed.len()).find_map(|a| {
-                (a + 1..placed.len()).find_map(|b| {
-                    let (x, y) = (
-                        (placed[a].start, placed[a].end),
-                        (placed[b].start, placed[b].end),
-                    );
-                    let union = (x.0.min(y.0), x.1.max(y.1));
-                    let split = written.stated.iter().any(|&r| overlap(r, union).is_some());
-                    (x.0 <= y.1 && y.0 <= x.1 && !split).then_some((a, b))
-                })
-            });
-            let Some((a, b)) = meeting else {
-                break placed;
-            };
-            let (wb, reps_b) = windows.remove(b);
-            let (wa, reps_a) = &mut windows[a];
-            *wa = (wa.0.min(wb.0), wa.1.max(wb.1));
-            reps_a.extend(reps_b);
-            reps_a.sort_by_key(|r| (r.start, r.end));
-        };
-        parts.extend(changes);
-        parts.sort_by_key(|p| p.hgvs_range());
-        let mut members = parts
-            .iter()
-            .map(|p| self.member_variant(frame, p))
-            .collect::<Result<Vec<_>, _>>()?;
-        // What no sequence is built from is part of every reading, as written.
-        members.extend(
-            frame
-                .placed
-                .iter()
-                .filter(|(_, p, _)| matches!(p, Placed::Unapplied(_)))
-                .map(|(_, _, written)| written.clone()),
-        );
-        let description = match <[SV; 1]>::try_from(members) {
-            Ok([one]) => one,
-            Err(members) => SV::CisPhased(CisPhasedVariant::new(
-                frame.accession.clone(),
-                frame.gene.clone(),
-                members,
-            )?),
-        };
-        if let SV::CisPhased(cis) = &description {
-            if let Err(e) = self.read_cis_unwritten(cis) {
-                let why = match e {
-                    HgvsError::Ambiguous { .. } => "it has several readings itself".to_string(),
-                    other => other.to_string(),
-                };
-                return Err(HgvsError::UnsupportedOperation(format!(
-                    "the reading {cis} has no one reading of its own: {why}"
-                )));
-            }
-        }
-        Ok(description)
-    }
-
-    /// The change `replacements`, all inside `window`, make there,
-    /// normalised within `exons`, or left where it is when normalising would
-    /// move it among the `stated` bases.
-    fn written_change(
-        &self,
-        reference: &Reference<'_, '_>,
-        replacements: &[Replacement],
-        (lo, hi): (usize, usize),
-        exons: &ExonBounds,
-        stated: &[(usize, usize)],
-    ) -> Result<PlacedEdit, HgvsError> {
-        let alt = materialise(&pieces(replacements.iter(), lo, hi), reference)?;
-        let ref_ = materialise(&[Segment::Reference { start: lo, end: hi }], reference)?;
-        let (edit, s, e) = normalize::minimal_edit(reference, lo, hi, &ref_, &alt)?;
-        let written = PlacedEdit::from_hgvs_range(s, e, edit);
-        let intrudes = |p: &PlacedEdit| {
-            stated.iter().any(|&r| {
-                if p.is_insertion() {
-                    strictly_inside(p.start, r)
-                } else {
-                    overlap((p.start, p.end), r).is_some()
-                }
-            })
-        };
-        // Shifted no further than a statement's edge, where an insertion is
-        // written as a delins of the base beside it; else shifted freely; else
-        // where it is.
-        let barred = exons.with_cuts(stated.iter().flat_map(|&(s, e)| [s, e]));
-        for bounds in [&barred, exons] {
-            let normalised = normalize::normalize(reference, written.clone(), bounds)?;
-            if !intrudes(&normalised) {
-                return Ok(normalised);
-            }
-        }
-        Ok(written)
-    }
-
     /// A placed edit as a variant of the frame's system.
     fn member_variant(&self, frame: &Frame, placed: &PlacedEdit) -> Result<SV, HgvsError> {
         let (s, e) = crate::mapper::hgvs_positions(placed);
@@ -2241,6 +2085,15 @@ impl VariantMapper<'_> {
         })
     }
 
+    /// A placed edit as a variant of the frame's system, an `r.` one in the
+    /// `c.` or `n.` it is spelled from.
+    fn transcript_spelling(&self, frame: &Frame, placed: &PlacedEdit) -> Result<SV, HgvsError> {
+        match self.member_variant(frame, placed)? {
+            SV::Rna(r) => self.r_as_transcript(&r),
+            other => Ok(other),
+        }
+    }
+
     /// Where the allele is read, and each member placed there.
     fn frame(&self, cis: &CisPhasedVariant, on: On) -> Result<Frame, HgvsError> {
         let system = match cis.coordinate_type() {
@@ -2292,6 +2145,7 @@ impl VariantMapper<'_> {
             .reference(&cis.ac, IdentifierType::TranscriptAccession);
         let mut placed = Vec::new();
         for (index, posedit) in posedits.iter().enumerate() {
+            let mut edit = None;
             let place = match &posedit.pos {
                 None => Placed::Unapplied(Reach::Stretch(0, usize::MAX)),
                 Some(pos) => {
@@ -2307,6 +2161,11 @@ impl VariantMapper<'_> {
                         || pos.start.uncertain
                         || pos.end.as_ref().is_some_and(|e| e.uncertain)
                         || posedit.uncertain;
+                    edit = Some(PlacedEdit::from_hgvs_range(
+                        start,
+                        end,
+                        posedit.edit.clone(),
+                    ));
                     place(
                         &posedit.edit,
                         start,
@@ -2317,7 +2176,8 @@ impl VariantMapper<'_> {
                     )?
                 }
             };
-            placed.push((index, place, cis.members[index].clone()));
+            let edit = edit.filter(|_| matches!(place, Placed::Applied(_)));
+            placed.push((index, place, cis.members[index].clone(), edit));
         }
         Ok(Frame {
             accession: cis.ac.clone(),
@@ -2345,7 +2205,8 @@ impl VariantMapper<'_> {
                     )))
                 }
             };
-            placed.push((index, place_linear(posedit, &reference, m)?, m.clone()));
+            let (place, edit) = place_linear(posedit, &reference, m)?;
+            placed.push((index, place, m.clone(), edit));
         }
         Ok(Frame {
             accession: cis.ac.clone(),
@@ -2396,7 +2257,8 @@ impl VariantMapper<'_> {
                     )));
                 }
             }
-            let place = match place_linear(&projected.posedit, &reference, &cis.members[index])? {
+            let (place, edit) = place_linear(&projected.posedit, &reference, &cis.members[index])?;
+            let place = match place {
                 Placed::Applied(Act::Dup { start, end, .. }) if minus => {
                     Placed::Applied(Act::Dup {
                         start,
@@ -2406,7 +2268,7 @@ impl VariantMapper<'_> {
                 }
                 other => other,
             };
-            placed.push((index, place, SV::Genomic(projected)));
+            placed.push((index, place, SV::Genomic(projected), edit));
         }
         Ok(Frame {
             accession: genome,
@@ -2420,14 +2282,71 @@ impl VariantMapper<'_> {
     }
 }
 
-/// A `g.` or `m.` member placed on its genome.
+/// The members of `cis` placed in `frame` on `reference`, and those no
+/// sequence can be built from as written. Identical members other than
+/// insertions and duplications are one edit written twice, and are kept once.
+fn allele_on<'x, 's, 'a>(
+    cis: &CisPhasedVariant,
+    frame: &Frame,
+    reference: &'x Reference<'s, 'a>,
+) -> (Allele<'x, 's, 'a>, Vec<SV>) {
+    let text: Vec<String> = cis.members.iter().map(ToString::to_string).collect();
+    let mut members: Vec<(usize, Act)> = Vec::new();
+    let mut outer: Vec<Outer> = Vec::new();
+    let mut unapplied: Vec<SV> = Vec::new();
+    for (index, placed, _, _) in &frame.placed {
+        let member = &cis.members[*index];
+        match placed {
+            Placed::Applied(act) => {
+                let twice = !matches!(act, Act::Insert { .. } | Act::Dup { .. })
+                    && members.iter().any(|(_, a)| a == act);
+                if !twice {
+                    members.push((*index, act.clone()));
+                }
+            }
+            Placed::Unapplied(reach) => {
+                let inserts = member_edit(member).is_some_and(|e| {
+                    matches!(
+                        e,
+                        NaEdit::Ins { .. } | NaEdit::InsLength { .. } | NaEdit::Dup { .. }
+                    )
+                });
+                let twice = !inserts && unapplied.contains(member);
+                if !twice {
+                    outer.push(Outer {
+                        index: *index,
+                        reach: *reach,
+                    });
+                    unapplied.push(member.clone());
+                }
+            }
+        }
+    }
+    // In order of position, so that nothing read from the allele depends on
+    // the order its members are written in; each keeps its index for errors.
+    members.sort_by(|(_, a), (_, b)| {
+        (a.written(), a.junction(), a).cmp(&(b.written(), b.junction(), b))
+    });
+    outer.sort_by_key(|o| (o.reach.bases(), o.reach.junctions()));
+    let allele = Allele {
+        reference,
+        description: cis.to_string(),
+        text,
+        members,
+        outer,
+    };
+    (allele, unapplied)
+}
+
+/// A `g.` or `m.` member placed on its genome, and, where it is applied, its
+/// edit over the HGVS range it is written over.
 fn place_linear(
     posedit: &PosEdit<SimpleInterval, NaEdit>,
     reference: &Reference<'_, '_>,
     member: &SV,
-) -> Result<Placed, HgvsError> {
+) -> Result<(Placed, Option<PlacedEdit>), HgvsError> {
     let Some(pos) = &posedit.pos else {
-        return Ok(Placed::Unapplied(Reach::Stretch(0, usize::MAX)));
+        return Ok((Placed::Unapplied(Reach::Stretch(0, usize::MAX)), None));
     };
     let uncertain = crate::mapper::is_uncertain_linear(pos) || posedit.uncertain;
     if uncertain {
@@ -2439,10 +2358,13 @@ fn place_linear(
             Some(b) => index(b).map_or(usize::MAX, |i| i + 1),
             None => index(last.base).map_or(usize::MAX, |i| i + 1),
         };
-        return Ok(Placed::Unapplied(Reach::of(&posedit.edit, lo, hi)));
+        return Ok((Placed::Unapplied(Reach::of(&posedit.edit, lo, hi)), None));
     }
     let (start, end) = crate::mapper::simple_interval_range(pos)?;
-    place(&posedit.edit, start, end, false, reference, member)
+    let placed = place(&posedit.edit, start, end, false, reference, member)?;
+    let edit = matches!(placed, Placed::Applied(_))
+        .then(|| PlacedEdit::from_hgvs_range(start, end, posedit.edit.clone()));
+    Ok((placed, edit))
 }
 
 /// Whether a bound of a `g.` or `m.` member is unknown or known only to lie

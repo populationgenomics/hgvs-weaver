@@ -181,9 +181,13 @@ def test_protein_vrs_refuses_an_allele(mapper: weaver.VariantMapper) -> None:
         mapper.protein_vrs(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
 
 
-def test_normalise_and_validate_go_member_by_member(mapper: weaver.VariantMapper) -> None:
-    # c.4 is the first A of AAA (c.4_6): the deletion shifts to c.6.
-    assert str(mapper.normalize_variant(weaver.parse("NM_X.1:c.[4del;13T>G]"))) == "NM_X.1:c.[6del;13T>G]"
+def test_an_allele_normalised_to_one_change_comes_back_as_a_plain_variant(mapper: weaver.VariantMapper) -> None:
+    normalised = mapper.normalize_variant(weaver.parse("NM_X.1:c.[7C>T;8T>G]"))
+    assert normalised.members is None
+    assert str(normalised) == "NM_X.1:c.7_8delinsTG"
+
+
+def test_validate_reads_the_allele_whole() -> None:
     assert weaver.parse("NM_X.1:c.[7C>T;13T>G]").validate(Provider())
     assert not weaver.parse("NM_X.1:c.[7C>T;13A>G]").validate(Provider())
 
@@ -203,11 +207,17 @@ def test_to_vrs_is_a_cis_phased_block_of_the_members_alleles(mapper: weaver.Vari
     assert block["sequenceReference"] == block["members"][0]["location"]["sequenceReference"]
     assert block["sequenceReference"]["refgetAccession"] == f"SQ.{sha512t24u(GENOME)}"
     assert block["expressions"] == [{"syntax": "hgvs.c", "value": "NM_X.1:c.[7C>T;13T>G]"}]
-    # The identifier does not depend on the order written; the members do.
+    # Neither the identifier nor the members, in the normalised order, depend
+    # on the order written.
     reversed_ = mapper.to_vrs(weaver.parse("NM_X.1:c.[13T>G;7C>T]"))
     assert reversed_["id"] == block["id"]
-    assert reversed_["members"] == block["members"][::-1]
+    assert reversed_["members"] == block["members"]
     assert mapper.vrs_id(weaver.parse("NC_X.1:g.[22C>T;28T>G]")) == block["id"]
+
+
+def test_a_coding_allele_and_its_genomic_projection_share_a_vrs_identifier(mapper: weaver.VariantMapper) -> None:
+    # c.4 and c.6 share a codon, which groups them in the c. text but not in VRS
+    assert mapper.vrs_id(weaver.parse("NM_X.1:c.[4A>T;6A>T]")) == mapper.vrs_id(weaver.parse("NC_X.1:g.[19A>T;21A>T]"))
 
 
 @pytest.mark.parametrize(

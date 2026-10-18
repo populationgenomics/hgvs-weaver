@@ -121,7 +121,7 @@ fn project_edit(
 /// strand where the run reaches its exon's last base and the intron can
 /// continue it, or its exon is aligned with gaps. Otherwise the two runs are
 /// one, and need no genome to tell.
-fn genome_may_count_more(
+pub(crate) fn genome_may_count_more(
     am: &TranscriptMapper,
     start: usize,
     last: Option<usize>,
@@ -2350,8 +2350,8 @@ impl<'a> VariantMapper<'a> {
                 let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
                 SV::Rna(self.tx_to_r(&normalised)?)
             }
-            // Each member normalises on its own; the allele keeps their order.
-            SV::CisPhased(cis) => {
+            // A p. allele is not normalised, but what each member names is read.
+            SV::CisPhased(cis) if cis.coordinate_type() == "p" => {
                 let members = cis
                     .members
                     .into_iter()
@@ -2363,6 +2363,8 @@ impl<'a> VariantMapper<'a> {
                     members,
                 })
             }
+            // Members that meet are written as the one change they make.
+            SV::CisPhased(cis) => self.normalize_cis(&cis)?,
             // A p. description is not normalised, but what it names is read.
             SV::Protein(v) => {
                 let p = SV::Protein(v);
@@ -2779,21 +2781,36 @@ impl<'a> VariantMapper<'a> {
     /// `sequenceReference`, and the input HGVS as an expression. The
     /// identifier does not depend on the order of the members.
     ///
-    /// A block's members are unordered, so an allele of nucleotide members
-    /// is read first ([`read_cis`](Self::read_cis)): a contradictory or
-    /// ambiguous one is refused before a block could conflate its readings.
+    /// An allele of nucleotide members is rendered as
+    /// [`to_vrs_variation`](Self::to_vrs_variation) renders it: projected to
+    /// the genome, with the members that meet there as one Allele, in order
+    /// along the genome. One that is a single change there is that change's
+    /// object, not a block.
     pub fn to_vrs_cis_phased(
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<VrsCisPhasedBlock, HgvsError> {
-        let crate::SequenceVariant::CisPhased(cis) = var else {
+        if !matches!(var, crate::SequenceVariant::CisPhased(_)) {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "Only an allele in cis, ac:c.[a;b], renders as a CisPhasedBlock, not {var}"
             )));
-        };
-        if cis.coordinate_type() != "p" {
-            self.read_cis(cis)?;
         }
+        match self.to_vrs_variation(var)? {
+            VrsVariation::CisPhasedBlock(block) => Ok(block),
+            _ => Err(HgvsError::UnsupportedOperation(format!(
+                "{var} is one change on the genome, rendered as one VRS object rather than a \
+                 CisPhasedBlock; use to_vrs_variation"
+            ))),
+        }
+    }
+
+    /// The block of `cis`'s members, with `var`, the allele as written, as
+    /// its expression.
+    fn cis_phased_block(
+        &self,
+        cis: &crate::structs::CisPhasedVariant,
+        var: &crate::SequenceVariant,
+    ) -> Result<VrsCisPhasedBlock, HgvsError> {
         let members = cis
             .members
             .iter()
@@ -2825,12 +2842,48 @@ impl<'a> VariantMapper<'a> {
     /// the `CopyNumberCount` of a copy-number edit, the `CopyNumberChange` of a
     /// duplication with uncertain breakpoints (which has no Allele), else the
     /// `Allele` of `to_vrs` (an imprecise deletion included).
+    ///
+    /// An allele of nucleotide members is read where it is written, refused
+    /// if contradictory or ambiguous, projected to the genome and normalised
+    /// there ([`normalize_variant`](Self::normalize_variant) on the `g.`
+    /// allele, so no codon groups members): members that overlap, touch or
+    /// would shift into each other are one Allele, each fully justified. One
+    /// that is a single change there is that change's object, carrying the
+    /// allele as written as its expression.
     pub fn to_vrs_variation(
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<VrsVariation, HgvsError> {
-        if let crate::SequenceVariant::CisPhased(_) = var {
-            return Ok(VrsVariation::CisPhasedBlock(self.to_vrs_cis_phased(var)?));
+        if let crate::SequenceVariant::CisPhased(cis) = var {
+            if cis.coordinate_type() == "p" {
+                return Ok(VrsVariation::CisPhasedBlock(
+                    self.cis_phased_block(cis, var)?,
+                ));
+            }
+            // Read where written, so that a contradictory or ambiguous allele
+            // is refused before a block could conflate its readings; then
+            // merged on the genome, where no codon groups members, so every
+            // spelling of one genomic allele splits into Alleles alike.
+            self.read_cis(cis)?;
+            return match self.normalize_cis_on_genome(cis)? {
+                crate::SequenceVariant::CisPhased(normalised) => Ok(VrsVariation::CisPhasedBlock(
+                    self.cis_phased_block(&normalised, var)?,
+                )),
+                one => {
+                    let expressions = vec![crate::vrs::VrsExpression {
+                        syntax: format!("hgvs.{}", var.coordinate_type()),
+                        value: var.to_string(),
+                    }];
+                    let mut rendered = self.to_vrs_variation(&one)?;
+                    match &mut rendered {
+                        VrsVariation::Allele(a) => a.expressions = expressions,
+                        VrsVariation::CopyNumberCount(c) => c.expressions = expressions,
+                        VrsVariation::CopyNumberChange(c) => c.expressions = expressions,
+                        VrsVariation::CisPhasedBlock(b) => b.expressions = expressions,
+                    }
+                    Ok(rendered)
+                }
+            };
         }
         Ok(if is_copy_number(var) {
             VrsVariation::CopyNumberCount(self.to_vrs_copy_number(var)?)
