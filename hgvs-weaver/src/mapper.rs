@@ -756,9 +756,8 @@ fn predicted_statement(
 /// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
 /// predicts no protein, reaching into it disrupts the start codon, staying
 /// upstream says nothing, since an upstream start may be created), or an
-/// edit entirely in the 3'UTR, which cannot change the protein. An identity
-/// there changes nothing, so it predicts `p.(=)` wherever it lies. `None`
-/// when the edit is a change to read.
+/// edit entirely in the 3'UTR, which cannot change the protein. `None`
+/// when the edit is to be read on the codons.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
@@ -776,15 +775,6 @@ fn statement_about_transcript(
     if !(intronic || in_3_utr || in_5_utr) {
         return None;
     }
-    if var_c.posedit.edit.is_identity() {
-        return Some(statement(None, ProteinStatement::Unchanged));
-    }
-    if intronic {
-        return Some(statement(None, ProteinStatement::Unknown));
-    }
-    if in_3_utr {
-        return Some(statement(None, ProteinStatement::Unchanged));
-    }
     let cds_len = transcript
         .cds_start_index
         .zip(transcript.cds_end_index)
@@ -795,6 +785,12 @@ fn statement_about_transcript(
         e.anchor == Anchor::CdsEnd
             || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
     });
+    if intronic {
+        return Some(statement(None, ProteinStatement::Unknown));
+    }
+    if in_3_utr {
+        return Some(statement(None, ProteinStatement::Unchanged));
+    }
     let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
     Some(if covers_cds && deletes {
         statement(None, ProteinStatement::NoProtein { uncertain: true })
@@ -810,6 +806,33 @@ fn statement_about_transcript(
         statement(Some(met1), ProteinStatement::Unknown)
     } else {
         statement(None, ProteinStatement::Unknown)
+    })
+}
+
+/// The first (`from_start`) or last coding base a range end covers, as a
+/// 0-based index from the first base of the CDS: negative in the 5'UTR, at
+/// or past `cds_len` in the 3'UTR. An end in an intron covers up to the
+/// exonic base on its inner side.
+fn covered_cds_index(
+    pos: &crate::structs::BaseOffsetPosition,
+    cds_len: i64,
+    from_start: bool,
+) -> Result<i64, HgvsError> {
+    let base = pos.base.0 as i64;
+    let index = match pos.anchor {
+        Anchor::CdsStart if base > 0 => base - 1,
+        Anchor::CdsStart => base,
+        Anchor::CdsEnd => cds_len - 1 + base,
+        Anchor::TranscriptStart => {
+            return Err(HgvsError::ValidationError(format!(
+                "a c. position is numbered from the CDS, not the transcript start: {base}"
+            )))
+        }
+    };
+    Ok(match pos.offset.map(|o| o.0) {
+        Some(o) if o > 0 && from_start => index + 1,
+        Some(o) if o < 0 && !from_start => index - 1,
+        _ => index,
     })
 }
 
@@ -1818,6 +1841,22 @@ impl<'a> VariantMapper<'a> {
                         .whole()?;
                     (p.ac.clone(), strip_stop(whole), String::new())
                 }
+                // An identity: the reference over the residues it names.
+                crate::edits::AaEdit::Identity { .. } => {
+                    let pos = p.posedit.pos.as_ref().ok_or_else(|| {
+                        HgvsError::ValidationError(format!("{p} names no residue"))
+                    })?;
+                    let whole = strip_stop(
+                        self.refs
+                            .reference(&p.ac, IdentifierType::ProteinAccession)
+                            .whole()?,
+                    );
+                    let index = |a: &crate::structs::AAPosition| a.base.to_index().0 as usize;
+                    let first = index(&pos.start).min(whole.len());
+                    let end = (pos.end.as_ref().map_or(first, index) + 1).clamp(first, whole.len());
+                    touched = Some((first, end));
+                    (p.ac.clone(), whole.clone(), whole)
+                }
                 _ => {
                     return Err(HgvsError::UnsupportedOperation(format!(
                         "{p} names no protein sequence, so it has no allele"
@@ -1937,6 +1976,14 @@ impl<'a> VariantMapper<'a> {
                 var_c.ac
             )));
         }
+        if var_c.posedit.edit.is_identity() {
+            self.check_transcript_stated(var_c)?;
+            return Ok(CodingOutcome::Statement(self.identity_prediction(
+                var_c,
+                &transcript,
+                protein_ac,
+            )?));
+        }
         if let Some(statement) = statement_about_transcript(var_c, &transcript, &protein_ac) {
             // A statement reads no codon, but the bases the edit states must
             // still be there.
@@ -1982,6 +2029,79 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         Ok(CodingOutcome::Change(reading))
+    }
+
+    /// What an identity predicts: the residues whose whole codon it covers,
+    /// unchanged, `p.(Met1=)`, or `p.(=)` when it covers every codon of a CDS
+    /// that ends in a stop. Where its ends lie, in a UTR or an intron, does
+    /// not enter.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::NoProteinStatement`] when it covers no whole codon: it
+    /// states bases, not residues.
+    fn identity_prediction(
+        &self,
+        var_c: &CVariant,
+        transcript: &TranscriptData,
+        protein_ac: String,
+    ) -> Result<PVariant, HgvsError> {
+        use crate::structs::{AAPosition, AaInterval, ProteinPos, ProteinStatement};
+        let pos = var_c
+            .posedit
+            .pos
+            .as_ref()
+            .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        let ref_seq = self
+            .refs
+            .reference(&var_c.ac, IdentifierType::TranscriptAccession)
+            .whole()?;
+        let (cds_start, cds_end) = cds_bounds(transcript, ref_seq.len())?;
+        let cds_len = (cds_end + 1 - cds_start) as i64;
+        let codons = cds_len / 3;
+        let first = covered_cds_index(&pos.start, cds_len, true)?;
+        let last = covered_cds_index(pos.end.as_ref().unwrap_or(&pos.start), cds_len, false)?;
+        // Whole codons in [first, last], 0-based and half-open.
+        let from = (first.max(0) as u64).div_ceil(3) as i64;
+        let to = ((last + 1).max(0) / 3).min(codons);
+        let every_codon = from == 0 && to == codons && !transcript.cds_end_open;
+        if from >= to {
+            return Err(HgvsError::NoProteinStatement(format!(
+                "{var_c} covers no whole codon, so it states no residue of {protein_ac}"
+            )));
+        }
+        if every_codon {
+            return Ok(predicted_statement(
+                var_c,
+                &protein_ac,
+                None,
+                ProteinStatement::Unchanged,
+            ));
+        }
+        let residue = |codon: i64| -> Result<AAPosition, HgvsError> {
+            let at = cds_start + 3 * codon as usize;
+            let aa = crate::utils::translate_codon(&ref_seq[at..at + 3]).ok_or_else(|| {
+                HgvsError::ValidationError(format!("{}: no codon at {at}", var_c.ac))
+            })?;
+            Ok(AAPosition {
+                base: ProteinPos(codon as i32).to_hgvs(),
+                aa: crate::utils::aa1_to_aa3(aa).to_string(),
+            })
+        };
+        Ok(PVariant {
+            ac: protein_ac,
+            gene: var_c.gene.clone(),
+            posedit: crate::structs::PosEdit {
+                pos: Some(AaInterval {
+                    start: residue(from)?,
+                    end: (to - 1 > from).then(|| residue(to - 1)).transpose()?,
+                    uncertain: false,
+                }),
+                edit: crate::edits::AaEdit::Identity { uncertain: false },
+                uncertain: false,
+                predicted: true,
+            },
+        })
     }
 
     /// `p.(=)` for `c.=`: the whole transcript unchanged predicts the protein

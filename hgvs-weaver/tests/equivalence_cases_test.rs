@@ -81,13 +81,27 @@ fn test_analogous_clinvar_tyr165ter_mismatch() -> Result<(), HgvsError> {
 }
 
 #[test]
-fn test_analogous_repeat_equivalence() -> Result<(), HgvsError> {
+fn one_copy_of_a_run_of_one_is_not_the_whole_protein_unchanged() -> Result<(), HgvsError> {
     let hdp = Provider::new().sequence("NP_001365049.1", &protein_with(489, "PRS", 592));
     let eq_mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&eq_mapper, &hdp);
 
     let v1 = parse_hgvs_variant("NP_001365049.1:p.490PRS[1]")?;
     let v2 = parse_hgvs_variant("NP_001365049.1:p.=")?;
+    assert_eq!(eq.equivalent_level(&v1, &v2)?, EquivalenceLevel::Different);
+    Ok(())
+}
+
+#[test]
+fn test_analogous_repeat_equivalence() -> Result<(), HgvsError> {
+    let hdp = Provider::new().sequence("NP_001365049.1", &protein_with(489, "PRS", 592));
+    let eq_mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&eq_mapper, &hdp);
+
+    // One copy of a run that has one leaves the protein as it is, and says so
+    // of the residues it names.
+    let v1 = parse_hgvs_variant("NP_001365049.1:p.490PRS[1]")?;
+    let v2 = parse_hgvs_variant("NP_001365049.1:p.Pro490_Ser492=")?;
     let res = eq.equivalent_level(&v1, &v2)?;
     assert!(res.is_equivalent());
 

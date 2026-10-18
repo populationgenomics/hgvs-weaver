@@ -1536,15 +1536,23 @@ and no residue past the end of the protein is named. An edit that runs to the en
 three bases after the last intact codon: translation runs off the edited transcript with no stop and no residue to name
 at the first change, so weaver says nothing rather than read the missing codon as a stop.
 
-These statements are about a change. An identity, `=`, changes nothing wherever it lies, so outside the codons it
-predicts `p.(=)` too: one in the 5'UTR, in an intron, or covering every codon (`c.-5_*15=`, every base of the
-transcript) leaves the protein as it is, not disrupted from `Met1` and not unknown. An identity inside the codons is
-still written silently at the residues it covers, `p.(Arg2=)`, and so is one that reaches into them from a UTR without
-covering all of them: `c.-2_3=` covers codon 1 and is `p.(Met1=)`, a statement about one residue, where `p.(=)` would
-claim the whole protein (planned, with
-[the comparison of silent statements](#judged-by-allele-and-by-the-protein-left-behind)). A conversion is not counted as
-an identity here: intronic or upstream it stays `p.?`. weaver does not model a conversion's bases (it parses to an edit
-with none, printed `=`), so inside the codons one is still read as silent; that is an open defect, not a choice.
+These statements are about a change, and a change predicts the whole protein, every base it does not name taken as the
+reference's: `c.*3G>A` leaves the protein as it is, `p.(=)`. An identity, `=`, is not a change but a statement, and
+claims only what it covers: the residues whose whole codon it covers, wherever its ends lie, in a UTR or an intron.
+`c.-2_3=` covers codon 1 and is `p.(Met1=)`, a statement about one residue where `p.(=)` would claim the whole protein,
+and it is compared as that ([the comparison of silent statements](#judged-by-allele-and-by-the-protein-left-behind)); so
+are `c.-2-1_3=`, from an intron in the 5'UTR, and `c.43_45+1=`. A residue whose codon it covers only in part is not
+named, which keeps the statement to what was checked. One that covers every codon through the stop names every residue,
+which is the whole protein, `p.(=)`, wherever it starts, as `c.=` does. An identity that covers no whole codon, in the
+5'UTR, in an intron, in the 3'UTR or inside one codon, `c.1114=`, states bases and no residue, so it makes no statement
+about the protein, and `c_to_p` refuses it with `NoProteinStatementError` rather than write one. HGVS has no `p.` form
+for "no statement": `p.(=)` would claim the whole protein unchanged, and `p.?` that the protein is affected in an
+unknown way; neither is what the description says. A codon whose uncovered bases are all wobble positions of a
+fourfold-degenerate codon could also be called unchanged, since no base there could change its residue; weaver does not,
+because reading the codon table to name a residue the description never reached costs more than it says. A conversion is
+not counted as an identity here: intronic or upstream it stays `p.?`. weaver does not model a conversion's bases (it
+parses to an edit with none, printed `=`), so inside the codons one is still read as silent; that is an open defect, not
+a choice.
 
 **Example** (`NM_X.1` has a five-base 5'UTR and a fourteen-base 3'UTR):
 
@@ -1557,7 +1565,14 @@ NM_X.1:c.21A>G             →  NP_X.1:p.(Ter7=)   the stop codon itself, silent
 NM_X.1:c.21_*1dup          →  NP_X.1:p.(Ter7=)   across the stop, named up to it
 NM_X.1:c.10_*14del         →  NP_X.1:p.?         residue 4 to the end of the transcript
 NM_W.1:c.-5_*15=           →  NP_W.1:p.(=)       an identity of the whole transcript
-NM_W.1:c.45+1=             →  NP_W.1:p.(=)       an intronic identity
+NM_W.1:c.45+1=             →  NoProteinStatementError  an intronic identity
+NM_W.1:c.-2_3=             →  NP_W.1:p.(Met1=)   an identity from the 5'UTR, at the codon it covers
+NM_W.1:c.43_45+1=          →  NP_W.1:p.(Arg15=)  an identity into an intron, at the codon it covers
+NM_W.1:c.-2_2=             →  NoProteinStatementError  no whole codon covered
+NM_W.1:c.5_6=              →  NoProteinStatementError  part of one codon
+NM_W.1:c.*3=               →  NoProteinStatementError  in the 3'UTR
+NM_W.1:c.1_90=             →  NP_W.1:p.(=)       every codon through the stop
+NM_W.1:c.1_87=             →  NP_W.1:p.(Met1_Val29=)   every codon but the stop
 
 NM_000249.3:c.-7_*46del    →  NP_000240.1:p.0?
 NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
@@ -1565,9 +1580,8 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
 
 - **Agrees:** biocommons, on `p.0?` and on the start codon, which it writes `p.Met1?`, unbracketed (its own test table).
 - **Agrees:** VariantValidator, on `p.(=)` for the 3'UTR (older versions wrote `p.?`); ClinVar writes a 3'UTR change as
-  silent at the stop, `p.Ter1648=`, which leaves the same protein; once silent statements are compared by the residues
-  they name (planned), that spelling is Different from weaver's `p.(=)`, and the ClinVar gate rows that carry it will
-  move.
+  silent at the stop, `p.Ter1648=`, which leaves the same protein; since silent statements are compared by the residues
+  they name, that spelling is Different from weaver's `p.(=)`.
 - **Differs:** ClinVar writes `Met1fs`, `Met1_Glu2insGly…`, committing to a consequence. For a substitution entirely in
   the 5'UTR VariantValidator writes `p.(=)` where weaver writes `p.?`; both are defensible.
 - **Spec (agrees; silent on an edit that leaves no codon where the protein changes):**
@@ -1585,12 +1599,24 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   `::a_cds_with_no_stop_shifted_to_the_end_of_its_record_says_nothing`;
   `real_transcripts_test::biocommons_real_transcript_cases` (WHOLEGENE01/02, INITMET02/03);
   `statements_test::an_identity_across_the_whole_transcript_predicts_the_protein_unchanged`,
-  `::an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged` (to change: `p.(Met1=)` for `c.-2_3=`,
-  planned, in the PR that implements the silent statements, which reports each ClinVar gate row it moves),
-  `::an_identity_in_the_5_utr_predicts_the_protein_unchanged`, `::an_intronic_identity_predicts_the_protein_unchanged`,
+  `::an_identity_from_the_5_utr_into_the_cds_is_silent_at_the_codons_it_covers`,
+  `::an_identity_ending_in_an_intron_is_silent_at_the_whole_codons_it_covers`,
+  `::an_identity_starting_in_an_intron_is_silent_at_the_whole_codons_it_covers`,
+  `::an_identity_from_an_intron_in_the_5_utr_is_silent_at_the_whole_codons_it_covers`,
+  `::an_identity_covering_no_whole_codon_makes_no_protein_statement`,
+  `::an_identity_inside_one_codon_makes_no_protein_statement`, `::one_base_unchanged_makes_no_protein_statement`,
+  `::an_identity_in_the_3_utr_makes_no_protein_statement`,
+  `::an_identity_of_every_codon_predicts_the_protein_unchanged`,
+  `::an_identity_of_every_codon_but_the_stop_names_its_residues`,
+  `::an_identity_in_the_5_utr_makes_no_protein_statement`, `::an_intronic_identity_makes_no_protein_statement`;
+  `test_regressions::test_regression_c_360_eq`; `tests/test_no_protein_statement.py`;
+  `equivalence_test::one_base_unchanged_is_not_its_residue_unchanged`,
   `::an_identity_across_the_whole_transcript_is_not_no_protein`,
   `::an_identity_inside_the_codons_is_written_silently_at_its_residues`,
-  `::an_intronic_conversion_is_an_unknown_effect`, `::an_upstream_conversion_is_an_unknown_effect`.
+  `::an_intronic_conversion_is_an_unknown_effect`, `::an_upstream_conversion_is_an_unknown_effect`;
+  `equivalence_test::an_identity_from_the_5_utr_into_the_cds_is_the_start_codon_unchanged`,
+  `::an_identity_from_the_5_utr_into_the_cds_is_not_the_whole_protein_unchanged`,
+  `::a_silent_change_in_the_stop_codon_is_the_stop_unchanged`, `::a_three_prime_utr_change_is_not_the_stop_unchanged`.
 
 ### A prediction is bracketed as HGVS writes it
 
@@ -1612,6 +1638,10 @@ and weaver follows the spelling it gives each one rather than bracketing all of 
   `p.0` is an observation, as in the alleles page's `p.[Ser86Arg];[0]`, linked there to "the absence of RNA (`r.0`)".
 - `p.(?)`, which weaver parses but never writes: the alleles page writes it for "a variant expected but not yet
   identified", in prose beside the allele `p.[(Ser68Arg)];[?]`, so it is read as `p.?` predicted.
+
+An identity that covers no whole codon makes no statement about the protein, and the nomenclature has no form for that:
+`c_to_p` raises `NoProteinStatementError` rather than write `p.(=)` or `p.?`, each of which would claim something the
+description does not ([edits outside the CDS](#edits-outside-the-cds-are-statements)).
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
 parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
@@ -1809,7 +1839,8 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
 
 **Two nucleotide descriptions are the same change when they make the same sequence on the genome and state the same
 bases unchanged; for two single variants that change the sequence, that is when their canonical alleles are equal. A
-coding variant and a protein description agree when they leave the same protein.**
+coding variant and a protein description agree when they leave the same protein, and, where they leave it as it is,
+state it of the same residues.**
 
 A copy number written alone has no allele, and is compared by its projection to the genome, as it is to be inside a cis
 allele. `NM_X.1:c.10_12copy3` projects to exactly `NC_X.1:g.25_27copy3`, so the two are Identity. Projection adds a
@@ -1823,12 +1854,28 @@ prediction and the brackets of a one-member allele are spelling. Cis alleles are
 
 A protein description that leaves the protein unchanged is a statement in the same way, and is the same only as a
 statement about the same residues. `p.(Leu3=)` and `p.(Ala4=)` leave the same protein but say it of different residues,
-so they are Different, as `c.10=` and `c.20=` are; `p.(=)`, about the whole protein, is Different from each. A coding
-change is compared as the statement it predicts: `c.9G>A`, silent in codon 3, predicts `p.(Leu3=)`, while `c.*3G>A`, in
-the 3'UTR, predicts `p.(=)` ([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the first is the same
-as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that changes the sequence and states bases predicts both,
-`c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are those where the
-comparison by protein left behind answers otherwise today.
+so they are Different, as `c.10=` and `c.20=` are; `p.(=)`, about the whole protein, is Different from each, and is the
+same as every residue through the stop unchanged, `p.Met1_Ter7=`. Statements that overlap without naming the same
+residues are Different: `p.Arg6_Ter7insTer` names the two residues it is inserted between and `p.(Ter7=)` names one, and
+counting the overlap as a match would make `p.(Arg6=)` and `p.(Ter7=)` each the same as `p.(Arg6_Ter7=)` but not as each
+other, so that equivalence would stop being transitive.
+
+Between a coding identity and a protein description, equivalence asks whether the identity predicts the description, and
+its prediction is the residues whose whole codon it covers
+([edits outside the CDS](#edits-outside-the-cds-are-statements)): `c.7_10=` is `p.(Leu3=)`, Identity as written and
+Analogous in another spelling. ClinVar reads an identity outward, naming every residue whose codon it touches: `c.1114=`
+as `p.Asn372=`, `c.949_952=` as `p.Ala317_Ala318=`. biocommons names the first residue it touches, `c.36_74=` as
+`p.(Leu12=)`. Both are Different from the identity, unless they happen to be its prediction: Analogous would make them
+the same change, and `p.Leu3_Ala4=` claims that Ala4 is unchanged, which `c.7_10=` does not state. An identity that
+covers no whole codon makes no protein claim, so it is Different from every protein description, `p.(=)` included.
+Outward rounding as an optional prediction is proposed in
+[issue #83](https://github.com/populationgenomics/hgvs-weaver/issues/83).
+
+A coding change is compared as the statement it predicts: `c.9G>A`, silent in codon 3, predicts `p.(Leu3=)`, while
+`c.*3G>A`, in the 3'UTR, predicts `p.(=)` ([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the first
+is the same as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that changes the sequence and states bases
+predicts both, `c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are
+those where the comparison by protein left behind answers otherwise today.
 
 **Example** (`NM_X.1`, `NC_X.1`, `NR_XR.1` and `NP_X.1` as in
 [the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)):
@@ -1836,9 +1883,15 @@ comparison by protein left behind answers otherwise today.
 ```text
 NM_X.1:c.10_12copy3          vs  NC_X.1:g.25_27copy3                       Identity: it projects exactly to it
 NM_X.1:c.10_12copy3          vs  NR_XR.1:n.24_26copy3                      Analogous: both project to g.25_27copy3
-NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(Ala4=)                          Different: Leu3 and Ala4 (planned)
-NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(=)                              Different: one residue, the whole protein (planned)
-NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=) (planned)
+NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(Ala4=)                          Different: Leu3 and Ala4
+NP_X.1:p.(Leu3=)             vs  NP_X.1:p.(=)                              Different: one residue, the whole protein
+NP_X.1:p.Met1_Ter7=          vs  NP_X.1:p.(=)                              Analogous: every residue through the stop
+NM_X.1:c.1_21=               vs  NP_X.1:p.(=)                              Identity: every codon predicts the whole protein
+NP_X.1:p.Arg6_Ter7insTer     vs  NP_X.1:p.(Ter7=)                          Different: Arg6 and Ter7, and Ter7 alone
+NM_X.1:c.7_10=               vs  NP_X.1:p.(Leu3=)                          Identity: the whole codon it covers
+NM_X.1:c.7_10=               vs  NP_X.1:p.Leu3_Ala4=                       Different: it does not state Ala4
+NM_X.1:c.9=                  vs  NP_X.1:p.Leu3=                            Different: it covers no whole codon
+NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=)
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Leu3=)                          Identity: the prediction as weaver writes it
 NM_X.1:c.*3G>A               vs  NP_X.1:p.(=)                              Identity
 NM_X.1:c.[13T>G;10_12=]      vs  NP_X.1:p.(Tyr5Asp)                        Different: it predicts p.[(Ala4=;Tyr5Asp)] (planned)
@@ -1850,18 +1903,38 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValTer        equiv
 NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: one residue too many
 ```
 
-- **Differs:** biocommons compares normalised text.
+- **Differs:** biocommons compares normalised text, and names the first residue an identity touches; ClinVar names every
+  residue an identity touches. weaver claims only the residues of whole codons covered, and grades both other readings
+  Different.
 - **Spec (silent):** none; HGVS describes, it does not compare.
 - **Tests:** `transcript_coordinates_test::canonical_alleles_make_spdi_vrs_and_equivalence_one_value`;
   `equivalence_cases_test::test_clinvar_regression_tyr165ter`, `::test_analogous_fs_wildcard_unification`;
   `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
-  `equivalence_test::a_lone_copy_number_compares_by_projection`; `a_variant_agrees_with_its_projection`,
-  `equivalence_of_single_variants_is_transitive`, `a_single_statement_never_equals_a_change` and
-  `single_statements_are_the_same_when_they_name_the_same_bases` (properties). Planned:
   `equivalence_test::silent_statements_at_different_residues_differ`,
-  `::a_silent_residue_is_not_the_whole_protein_unchanged`, `::a_coding_change_predicted_silent_is_its_statement`. These
-  rules move rows of the ClinVar gate, ClinVar's `p.Ter=` spellings among them; the PR that implements them reports each
-  moved row and checks it against the truth columns.
+  `::a_silent_residue_is_not_the_whole_protein_unchanged`, `::a_silent_residue_is_its_statement_in_any_spelling`,
+  `::a_coding_change_predicted_silent_is_its_statement`,
+  `::a_coding_change_predicted_silent_says_nothing_of_another_residue`,
+  `::a_three_prime_utr_change_is_the_whole_protein_unchanged`, `::a_three_prime_utr_change_is_not_the_stop_unchanged`,
+  `::a_stop_inserted_before_the_stop_states_its_two_flanks`,
+  `::an_unknown_change_from_the_stop_is_not_the_protein_unchanged`,
+  `::a_silent_change_in_the_stop_codon_is_the_stop_written_as_itself`,
+  `::a_silent_change_in_the_stop_codon_is_not_a_stop_loss`, `::the_stop_unchanged_is_the_stop_written_as_itself`,
+  `::replacing_the_stop_over_a_range_is_not_the_protein_unchanged`,
+  `::every_residue_through_the_stop_unchanged_is_the_whole_protein_unchanged`,
+  `::every_residue_but_the_stop_unchanged_is_not_the_whole_protein_unchanged`,
+  `::an_identity_of_every_codon_is_the_whole_protein_unchanged`,
+  `::an_identity_of_every_codon_from_the_5_utr_is_every_residue_unchanged`,
+  `::a_stop_inserted_before_the_stop_is_not_the_stop_unchanged`,
+  `::a_silent_change_in_the_stop_codon_is_not_a_stop_inserted_before_it`,
+  `::an_insertion_before_the_stop_is_the_residue_added_before_it`,
+  `::a_silent_prediction_is_not_read_again_on_the_protein`, `::one_base_unchanged_is_not_the_whole_protein_unchanged`,
+  `::an_identity_is_the_whole_codons_it_covers_as_predicted`, `::an_identity_is_its_prediction_in_another_spelling`,
+  `::an_identity_is_not_every_residue_it_touches`, `::an_identity_across_two_codons_is_not_the_first_residue_alone`;
+  `equivalence_cases_test::one_copy_of_a_run_of_one_is_not_the_whole_protein_unchanged`;
+  `equivalence_test::a_lone_copy_number_compares_by_projection`; `a_variant_agrees_with_its_projection`,
+  `equivalence_of_single_variants_is_transitive`, `a_single_statement_never_equals_a_change`,
+  `single_statements_are_the_same_when_they_name_the_same_bases` and `protein_side_equivalence_is_transitive`
+  (properties).
 
 ### A description that says nothing matches nothing
 

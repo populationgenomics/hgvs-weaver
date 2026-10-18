@@ -43,14 +43,12 @@ fn test_regression_c_360_eq() -> Result<(), HgvsError> {
     let SequenceVariant::Coding(var_c) = v_raw else {
         panic!()
     };
-    let p_var = mapper.c_to_p(&var_c, None)?;
-
-    // Should be synonymous (Thr120=)
-    // Current bug makes it a frameshift deletion of c.360
+    // One base unchanged covers no whole codon: it is not read as an edit
+    // (a frameshift, once), and it makes no statement about the protein.
+    let result = mapper.c_to_p(&var_c, None);
     assert!(
-        !p_var.to_string().contains("fs"),
-        "Should not be a frameshift, got {}",
-        p_var
+        matches!(result, Err(HgvsError::NoProteinStatement(_))),
+        "{result:?}"
     );
     Ok(())
 }

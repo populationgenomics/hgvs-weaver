@@ -649,6 +649,110 @@ fn apply_protein(ref_aa: &str, vp: &PVariant) -> Option<String> {
     Some(out)
 }
 
+proptest! {
+    // Three descriptions must meet at one residue for a violation to show.
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    /// Judged on the protein, being the same change is transitive: over a
+    /// coding substitution at one codon (silent, missense, nonsense or a
+    /// stop loss), its prediction, silent and substituted descriptions of
+    /// that codon's residue, and the whole protein unchanged, two that are
+    /// each the same as a third are the same as each other. Statements that
+    /// say only where a change starts, `p.Met1?`, are not generated: they
+    /// match changes that differ from each other.
+    #[test]
+    fn protein_side_equivalence_is_transitive(
+        g in gene(),
+        site in (0usize..3, 0usize..3, prop::sample::select(BASES.to_vec())),
+        picks in prop::collection::vec((0u8..9, prop::sample::select(RESIDUES.to_vec())), 3),
+    ) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let eq = VariantEquivalence::new(&mapper, &hdp);
+        let mut described = Vec::new();
+        for &(kind, residue) in &picks {
+            let Some(v) = protein_side(&g, &am, &mapper, site, kind, residue) else { return Ok(()) };
+            described.push(v);
+        }
+        let same = |a: &SequenceVariant, b: &SequenceVariant| {
+            eq.equivalent_level(a, b).unwrap_or_else(|e| panic!("{a} vs {b}: {e}")).is_equivalent()
+        };
+        for [x, y, z] in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            let (x, y, z) = (&described[x], &described[y], &described[z]);
+            if same(x, y) && same(y, z) {
+                prop_assert!(same(x, z), "{x} is {y}, and {y} is {z}, but {x} is not {z}");
+            }
+        }
+    }
+}
+
+/// The residues a generated protein substitution may name.
+const RESIDUES: [char; 21] = [
+    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
+    'Y', '*',
+];
+
+/// A description of kind `kind` on `g` at `(codon, base in codon, base)`,
+/// judged on its protein; codon 2 stands for the stop codon. Kind 0 is the
+/// coding substitution, 7 one at the same offset in the 3'UTR; 1 is the
+/// stated form of kind 0's prediction; at the codon's residue, 2 is
+/// `p.Xxx#=`, 3 the substitution by itself, 4 that by `residue`; 5 and 6 are
+/// `p.=` and `p.(=)`, and 8 every residue through the stop unchanged. `None`
+/// for a substitution by the base already there.
+fn protein_side(
+    g: &Gene,
+    am: &TranscriptMapper,
+    mapper: &VariantMapper,
+    (codon, offset, base): (usize, usize, char),
+    kind: u8,
+    residue: char,
+) -> Option<SequenceVariant> {
+    let protein = translate(&g.transcript_seq[g.cds_start..=g.cds_end]);
+    let codon = if codon == 2 { protein.len() - 1 } else { codon };
+    let at = match kind {
+        7 => g.cds_end + 1 + offset,
+        _ => g.cds_start + 3 * codon + offset,
+    };
+    let reference = g.transcript_seq.as_bytes()[at] as char;
+    let snv = || {
+        (base != reference).then(|| {
+            coding_variant(
+                g,
+                am,
+                at,
+                at + 1,
+                NaEdit::RefAlt {
+                    ref_: Some(reference.to_string()),
+                    alt: Some(base.to_string()),
+                    uncertain: false,
+                },
+            )
+        })
+    };
+    let name = aa1_to_aa3(protein.as_bytes()[codon] as char);
+    let n = codon + 1;
+    let p = |edit: String| parse_hgvs_variant(&format!("NP_PROP.1:p.{edit}")).unwrap();
+    Some(match kind {
+        0 | 7 => SequenceVariant::Coding(snv()?),
+        1 => {
+            let predicted = mapper.c_to_p(&snv()?, Some("NP_PROP.1")).unwrap();
+            p(predicted
+                .to_string()
+                .split_once(":p.")
+                .unwrap()
+                .1
+                .replace(['(', ')'], ""))
+        }
+        2 => p(format!("{name}{n}=")),
+        3 => p(format!("{name}{n}{name}")),
+        4 => p(format!("{name}{n}{}", aa1_to_aa3(residue))),
+        5 => p("=".to_string()),
+        6 => p("(=)".to_string()),
+        _ => p(format!("Met1_Ter{}=", protein.len())),
+    })
+}
+
 fn up_to_stop(s: &str) -> String {
     match s.find('*') {
         Some(i) => s[..=i].to_string(),

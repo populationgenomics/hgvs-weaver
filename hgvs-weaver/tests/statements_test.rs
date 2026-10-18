@@ -47,12 +47,20 @@ fn parse(s: &str) -> SequenceVariant {
 }
 
 fn c_to_p(s: &str) -> SequenceVariant {
+    SequenceVariant::Protein(try_c_to_p(s).unwrap_or_else(|e| panic!("{s}: {e}")))
+}
+
+fn try_c_to_p(s: &str) -> Result<hgvs_weaver::PVariant, HgvsError> {
     let SequenceVariant::Coding(c) = parse(s) else {
         panic!("{s} is not c.");
     };
     let hdp = provider();
-    let p = VariantMapper::new(&hdp).c_to_p(&c, None).unwrap();
-    SequenceVariant::Protein(p)
+    VariantMapper::new(&hdp).c_to_p(&c, None)
+}
+
+/// Whether `s` is refused as making no statement about the protein.
+fn makes_no_protein_statement(s: &str) -> bool {
+    matches!(try_c_to_p(s), Err(HgvsError::NoProteinStatement(_)))
 }
 
 /// Whether `s` fails to parse, rather than parsing and failing later.
@@ -509,18 +517,91 @@ fn an_identity_across_the_whole_transcript_predicts_the_protein_unchanged() {
 }
 
 #[test]
-fn an_identity_from_the_5_utr_into_the_cds_predicts_the_protein_unchanged() {
-    assert_eq!(c_to_p("NM_W.1:c.-3_4="), parse("NP_W.1:p.(=)"));
+fn an_identity_from_the_5_utr_into_the_cds_is_silent_at_the_codons_it_covers() {
+    assert_eq!(c_to_p("NM_W.1:c.-2_3="), parse("NP_W.1:p.(Met1=)"));
 }
 
 #[test]
-fn an_identity_in_the_5_utr_predicts_the_protein_unchanged() {
-    assert_eq!(c_to_p("NM_W.1:c.-5_-1="), parse("NP_W.1:p.(=)"));
+fn an_identity_ending_in_an_intron_is_silent_at_the_whole_codons_it_covers() {
+    assert_eq!(c_to_p("NM_W.1:c.43_45+1="), parse("NP_W.1:p.(Arg15=)"));
 }
 
 #[test]
-fn an_intronic_identity_predicts_the_protein_unchanged() {
-    assert_eq!(c_to_p("NM_W.1:c.45+1="), parse("NP_W.1:p.(=)"));
+fn an_identity_starting_in_an_intron_is_silent_at_the_whole_codons_it_covers() {
+    assert_eq!(c_to_p("NM_W.1:c.45+2_48="), parse("NP_W.1:p.(Val16=)"));
+}
+
+#[test]
+fn an_identity_from_an_intron_in_the_5_utr_is_silent_at_the_whole_codons_it_covers() {
+    // NM_U.1 is NM_W.1 with a one-base intron, genome base 12, between c.-3
+    // and c.-2.
+    let mut g: Vec<u8> = b"CGT".iter().copied().cycle().take(200).collect();
+    g[15..18].copy_from_slice(b"ATG");
+    g[30..34].copy_from_slice(b"AAAA");
+    g[142..145].copy_from_slice(b"TAA");
+    let g = String::from_utf8(g).unwrap();
+    let spliced = format!("{}{}{}", &g[10..12], &g[13..60], &g[100..160]);
+    let hdp = Provider::new()
+        .sequence("NC_W.1", &g)
+        .sequence("NM_U.1", &spliced)
+        .sequence("NP_W.1", "MRRRRKSRRRRRRRRVVVVVVVVVVVVVV")
+        .transcript(transcript(
+            "NM_U.1",
+            "NC_W.1",
+            Strand::Plus,
+            Some((4, 93)),
+            vec![
+                exon((0, 2), (10, 11), Strand::Plus),
+                exon((2, 49), (13, 59), Strand::Plus),
+                exon((49, 109), (100, 159), Strand::Plus),
+            ],
+        ))
+        .protein_for("NM_U.1", "NP_W.1");
+    let SequenceVariant::Coding(c) = parse("NM_U.1:c.-2-1_3=") else {
+        panic!("not c.");
+    };
+    let p = VariantMapper::new(&hdp).c_to_p(&c, None).unwrap();
+    assert_eq!(SequenceVariant::Protein(p), parse("NP_W.1:p.(Met1=)"));
+}
+
+#[test]
+fn an_identity_covering_no_whole_codon_makes_no_protein_statement() {
+    assert!(makes_no_protein_statement("NM_W.1:c.-2_2="));
+}
+
+#[test]
+fn an_identity_inside_one_codon_makes_no_protein_statement() {
+    assert!(makes_no_protein_statement("NM_W.1:c.5_6="));
+}
+
+#[test]
+fn one_base_unchanged_makes_no_protein_statement() {
+    assert!(makes_no_protein_statement("NM_W.1:c.5="));
+}
+
+#[test]
+fn an_identity_of_every_codon_predicts_the_protein_unchanged() {
+    assert_eq!(c_to_p("NM_W.1:c.1_90="), parse("NP_W.1:p.(=)"));
+}
+
+#[test]
+fn an_identity_of_every_codon_but_the_stop_names_its_residues() {
+    assert_eq!(c_to_p("NM_W.1:c.1_87="), parse("NP_W.1:p.(Met1_Val29=)"));
+}
+
+#[test]
+fn an_identity_in_the_5_utr_makes_no_protein_statement() {
+    assert!(makes_no_protein_statement("NM_W.1:c.-5_-1="));
+}
+
+#[test]
+fn an_identity_in_the_3_utr_makes_no_protein_statement() {
+    assert!(makes_no_protein_statement("NM_W.1:c.*3="));
+}
+
+#[test]
+fn an_intronic_identity_makes_no_protein_statement() {
+    assert!(makes_no_protein_statement("NM_W.1:c.45+1="));
 }
 
 #[test]
