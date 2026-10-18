@@ -647,3 +647,47 @@ fn a_coding_change_is_analogous_to_its_prediction_written_unbracketed() {
         EquivalenceLevel::Analogous
     );
 }
+
+#[test]
+fn a_cis_allele_with_an_uncertain_coding_member_has_no_vrs_on_the_genome() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NM_X.1:c.[(4_6)del;10G>A]").unwrap();
+    let result = mapper.to_vrs_variation(&var);
+    assert!(
+        matches!(
+            &result,
+            Err(HgvsError::CisMember { index: 0, source, .. })
+                if matches!(**source, HgvsError::UnsupportedOperation(_))
+        ),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_cis_allele_with_a_member_somewhere_in_a_range_is_not_the_exact_allele() {
+    // g.115 is the G of CTG.
+    assert_eq!(
+        placed_level(
+            "NC_X.1:g.[(109_110)del;115G>A]",
+            "NC_X.1:g.[109_110del;115G>A]"
+        ),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_the_exact_one() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let normalised = |s: &str| {
+        mapper
+            .normalize_variant(parse_hgvs_variant(s).unwrap())
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        normalised("NC_X.1:g.[(105)_(112)del;115G>A]"),
+        normalised("NC_X.1:g.[105_112del;115G>A]")
+    );
+}

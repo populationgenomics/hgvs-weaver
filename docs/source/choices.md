@@ -2109,7 +2109,8 @@ A parenthesised single position, `g.(5)_(12)del`, is exact ([Range bounds](#unce
 it is Analogous to `g.5_12del`, the same allele in another spelling, normalises and has an SPDI as that does, and a copy
 number written so is the one written bare. A deletion with uncertain breakpoints still has a VRS Allele with Range
 bounds; it is the canonical allele, the one value every exact spelling of a change shares, that an uncertain description
-lacks.
+lacks. In an allele in cis the rule applies member by member: a `c.` allele with an uncertain member has no VRS on the
+genome, and the error names the member; a `g.` allele keeps that member's Range bounds.
 
 **Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`):
 
@@ -2147,7 +2148,10 @@ g_to_c NC_X.1:g.(109_110)del                           →  UnsupportedOperation
   `::a_copy_number_between_parenthesised_single_bases_is_the_exact_one`,
   `::a_deletion_between_parenthesised_single_bases_is_the_exact_one`,
   `::a_deletion_between_parenthesised_single_bases_has_the_exact_ones_spdi`,
-  `::a_genomic_deletion_somewhere_in_a_range_has_no_transcript_form`;
+  `::a_genomic_deletion_somewhere_in_a_range_has_no_transcript_form`,
+  `::a_cis_allele_with_an_uncertain_coding_member_has_no_vrs_on_the_genome`,
+  `::a_cis_allele_with_a_member_somewhere_in_a_range_is_not_the_exact_allele`,
+  `::a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_the_exact_one`;
   `vrs_range_test::uncertain_breakpoints_become_ranges`.
 
 ### Judging with no protein sequence is an error

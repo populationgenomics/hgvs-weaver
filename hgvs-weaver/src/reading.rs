@@ -2157,10 +2157,7 @@ impl VariantMapper<'_> {
                         )));
                     }
                     let (start, end) = (n_start.0 as usize, n_end.0 as usize);
-                    let uncertain = pos.uncertain
-                        || pos.start.uncertain
-                        || pos.end.as_ref().is_some_and(|e| e.uncertain)
-                        || posedit.uncertain;
+                    let uncertain = !pos.is_exact() || posedit.uncertain;
                     edit = Some(PlacedEdit::from_hgvs_range(
                         start,
                         end,
