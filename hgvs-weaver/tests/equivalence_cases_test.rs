@@ -187,7 +187,7 @@ fn test_multi_unit_repeat_equivalence() -> Result<(), HgvsError> {
 }
 
 #[test]
-fn test_immediate_stop_normalization() -> Result<(), HgvsError> {
+fn an_immediate_stop_from_a_delins_is_nonsense_not_a_frameshift() -> Result<(), HgvsError> {
     // AAA (Lys) GGG (Gly)
     let hdp = Provider::new()
         .sequence("NM_1.1", "AAAGGG")
@@ -201,13 +201,11 @@ fn test_immediate_stop_normalization() -> Result<(), HgvsError> {
         .protein_for("NM_1.1", "NP_1.1");
     let mapper = VariantMapper::new(&hdp);
 
-    // c.1_2delinsTA -> TAG (Stop) instead of ATG (Met)
-    let var_c = parse_hgvs_variant("NM_1.1:c.1_2delinsTA")?;
+    // c.4_5delinsTAG turns GGG into TAG G: one base more, the stop inside the inserted bases.
+    let var_c = parse_hgvs_variant("NM_1.1:c.4_5delinsTAG")?;
     if let hgvs_weaver::coords::SequenceVariant::Coding(c) = var_c {
         let var_p = mapper.c_to_p(&c, None)?;
-        let p_str = format!("{}", var_p);
-        // A nonsense substitution, not p.Met1fsTer1; the annotated start AAA reads as Met.
-        assert_eq!(p_str, "NP_1.1:p.(Met1Ter)");
+        assert_eq!(var_p.to_string(), "NP_1.1:p.(Gly2Ter)");
     } else {
         panic!("Not a coding variant");
     }

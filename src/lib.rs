@@ -1,4 +1,3 @@
-use ::hgvs_weaver::transform::{transform_variant, StartCodonConvention, VariantTransformSettings};
 use ::hgvs_weaver::{
     DataProvider, HgvsError, IdentifierKind, SequenceVariant, TranscriptData, TranscriptSearch,
     Variant as VariantTrait, VariantMapper,
@@ -191,76 +190,6 @@ impl PyEquivalenceLevel {
     }
 }
 
-#[pyclass(name = "StartCodonConvention", module = "weaver._weaver")]
-#[doc = "Controls how start-codon protein variants are represented.\n\nUsed in VariantTransformSettings to select between keeping the specific\npredicted amino acid change or using the HGVS p.Met1? notation."]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PyStartCodonConvention {
-    /// Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default.
-    Specific,
-    /// Use the HGVS `p.Met1?` notation for any non-silent change at the first codon, `p.(Met1?)` for a prediction.
-    HgvsQuestion,
-}
-
-#[pymethods]
-impl PyStartCodonConvention {
-    fn __repr__(&self) -> String {
-        format!("StartCodonConvention.{:?}", self)
-    }
-    fn __eq__(&self, other: &Self) -> bool {
-        self == other
-    }
-    fn __hash__(&self) -> u64 {
-        let mut s = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(self, &mut s);
-        std::hash::Hasher::finish(&s)
-    }
-}
-
-impl From<PyStartCodonConvention> for StartCodonConvention {
-    fn from(c: PyStartCodonConvention) -> Self {
-        match c {
-            PyStartCodonConvention::Specific => StartCodonConvention::Specific,
-            PyStartCodonConvention::HgvsQuestion => StartCodonConvention::HgvsQuestion,
-        }
-    }
-}
-
-#[pyclass(name = "VariantTransformSettings", module = "weaver._weaver")]
-#[doc = "Settings that control how a variant is transformed before formatting or comparison.\n\nCreate with keyword arguments:\n    settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)"]
-#[derive(Clone)]
-pub struct PyVariantTransformSettings {
-    pub inner: VariantTransformSettings,
-}
-
-#[pymethods]
-impl PyVariantTransformSettings {
-    #[new]
-    #[pyo3(signature = (start_codon = PyStartCodonConvention::Specific))]
-    #[doc = "Creates a new VariantTransformSettings.\n\nArgs:\n    start_codon: Convention for start-codon protein variants. Defaults to Specific."]
-    fn new(start_codon: PyStartCodonConvention) -> Self {
-        PyVariantTransformSettings {
-            inner: VariantTransformSettings {
-                start_codon: start_codon.into(),
-            },
-        }
-    }
-
-    #[getter]
-    fn start_codon(&self) -> PyStartCodonConvention {
-        match self.inner.start_codon {
-            StartCodonConvention::Specific => PyStartCodonConvention::Specific,
-            StartCodonConvention::HgvsQuestion => PyStartCodonConvention::HgvsQuestion,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "VariantTransformSettings(start_codon={:?})",
-            self.inner.start_codon
-        )
-    }
-}
-
 #[pyclass(name = "Variant", module = "weaver._weaver")]
 #[doc = "Represents a parsed HGVS variant.\n\nProvides access to the variant's accession, gene symbol, and coordinate type.\nVariants can be formatted back to HGVS strings or converted to JSON/dict representations.\n\nAn allele in cis, NM_004006.2:c.[145C>T;147C>G], is one Variant whose\nmembers are the plain variants written between the brackets."]
 #[derive(Clone)]
@@ -355,13 +284,6 @@ impl PyVariant {
         VariantMapper::new(&bridge)
             .validate(&self.inner)
             .map_err(map_hgvs_error)
-    }
-
-    #[doc = "Returns a new variant with the given transform settings applied.\n\nCurrently transforms protein variants according to the start_codon convention.\nAll other variant types are returned unchanged.\n\nArgs:\n    settings: A VariantTransformSettings object.\n\nReturns:\n    A new Variant with the settings applied."]
-    fn transform(&self, settings: &PyVariantTransformSettings) -> PyVariant {
-        PyVariant {
-            inner: transform_variant(&self.inner, &settings.inner),
-        }
     }
 }
 
@@ -1041,8 +963,6 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVariantMapper>()?;
     m.add_class::<PyIdentifierType>()?;
     m.add_class::<PyEquivalenceLevel>()?;
-    m.add_class::<PyStartCodonConvention>()?;
-    m.add_class::<PyVariantTransformSettings>()?;
     m.add("HGVSError", m.py().get_type::<HGVSError>())?;
     m.add("ParseError", m.py().get_type::<ParseError>())?;
     m.add("ValidationError", m.py().get_type::<ValidationError>())?;

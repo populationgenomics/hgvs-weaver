@@ -1002,17 +1002,18 @@ fn predicted_statement(
 }
 
 /// `p.?`, `p.(Met1?)`, `p.0?` or `p.(=)` for an edit whose codons cannot be
-/// read: an intronic position, a start in the 5'UTR (deleting the whole CDS
-/// predicts no protein, reaching into it disrupts the start codon, staying
-/// upstream says nothing, since an upstream start may be created), or an
-/// edit entirely in the 3'UTR, which cannot change the protein. `None`
-/// when the edit is to be read on the codons.
+/// read: an intronic position, a deletion of the whole CDS from the 5'UTR,
+/// which predicts no protein, one from the 5'UTR whose bases are not spelled
+/// out, read by where it is written, or an edit entirely in the 3'UTR, which
+/// cannot change the protein. `None` when the edit is to be read on the
+/// sequence; one that starts in the 5'UTR is [placed](place_on_coding) there
+/// first.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
     protein_ac: &str,
 ) -> Option<PVariant> {
-    use crate::structs::{AAPosition, AaInterval, ProteinPos, ProteinStatement};
+    use crate::structs::{AaInterval, ProteinStatement};
     let pos = var_c.posedit.pos.as_ref()?;
     let statement = |pos: Option<AaInterval>, statement: ProteinStatement| {
         predicted_statement(var_c, protein_ac, pos, statement)
@@ -1029,7 +1030,6 @@ fn statement_about_transcript(
         .zip(transcript.cds_end_index)
         .map(|(s, e)| e.0 - s.0 + 1);
     let end = pos.end.as_ref();
-    let reaches_cds = end.is_some_and(|e| e.anchor == Anchor::CdsEnd || e.base.0 > 0);
     let covers_cds = end.is_some_and(|e| {
         e.anchor == Anchor::CdsEnd
             || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
@@ -1040,22 +1040,92 @@ fn statement_about_transcript(
     if in_3_utr {
         return Some(statement(None, ProteinStatement::Unchanged));
     }
-    let deletes = matches!(var_c.posedit.edit, crate::edits::NaEdit::Del { .. });
-    Some(if covers_cds && deletes {
-        statement(None, ProteinStatement::NoProtein { uncertain: true })
-    } else if reaches_cds {
-        let met1 = AaInterval {
-            start: AAPosition {
-                base: ProteinPos(0).to_hgvs(),
-                aa: "Met".to_string(),
-            },
-            end: None,
-            uncertain: false,
-        };
-        statement(Some(met1), ProteinStatement::Unknown)
-    } else {
-        statement(None, ProteinStatement::Unknown)
+    use crate::edits::NaEdit;
+    if matches!(var_c.posedit.edit, NaEdit::Del { .. }) && covers_cds {
+        return Some(statement(
+            None,
+            ProteinStatement::NoProtein { uncertain: true },
+        ));
+    }
+    // Bases the edit does not spell out cannot be placed: it lies where it
+    // is written.
+    let unspelled = matches!(
+        var_c.posedit.edit,
+        NaEdit::InsLength { .. }
+            | NaEdit::DelInsLength { .. }
+            | NaEdit::Con { .. }
+            | NaEdit::NACopy { .. }
+            | NaEdit::Ins { alt: None, .. }
+    ) || matches!(var_c.posedit.edit, NaEdit::Repeat { min, max, .. } if min != max);
+    let reaches_cds = end.is_some_and(|e| e.anchor == Anchor::CdsEnd || e.base.0 > 0);
+    unspelled.then(|| match reaches_cds {
+        true => statement(Some(crate::protein::met1()), ProteinStatement::Unknown),
+        false => statement(None, ProteinStatement::Unknown),
     })
+}
+
+/// Where the change an edit makes to a transcript lies relative to the CDS:
+/// read on its 3'-most spelling, found from the reference and the edited
+/// sequence, so every spelling of one change lies in one place.
+enum Placement {
+    /// The change is wholly in the 5'UTR; an insertion just before the CDS
+    /// that cannot move into it is one.
+    FivePrimeUtr,
+    /// The change starts in the CDS, as this edit.
+    Cds(crate::edits::ResolvedEdit),
+    /// The change starts in the 5'UTR and reaches into the CDS.
+    AcrossStart,
+}
+
+/// The [`Placement`] of `edit` on `ref_seq`. An edit starting past the first
+/// base of the CDS is kept as written. One starting at it is kept too, unless
+/// its 3'-most spelling lies wholly upstream; one starting in the 5'UTR
+/// becomes its 3'-most spelling. An edit that changes nothing has no
+/// spelling to move to, and lies where it is written.
+fn place_on_coding(ref_seq: &str, edit: crate::edits::ResolvedEdit, cds_start: usize) -> Placement {
+    if edit.start > cds_start {
+        return Placement::Cds(edit);
+    }
+    let edited = format!(
+        "{}{}{}",
+        &ref_seq[..edit.start],
+        edit.alt,
+        &ref_seq[edit.end..]
+    );
+    let (r, a) = (ref_seq.as_bytes(), edited.as_bytes());
+    let same = |(x, y): &(&u8, &u8)| x.eq_ignore_ascii_case(y);
+    let prefix = r.iter().zip(a).take_while(same).count();
+    if prefix == r.len() && r.len() == a.len() {
+        return if edit.start >= cds_start {
+            Placement::Cds(edit)
+        } else if edit.end <= cds_start {
+            Placement::FivePrimeUtr
+        } else {
+            Placement::AcrossStart
+        };
+    }
+    let suffix = r
+        .iter()
+        .rev()
+        .zip(a.iter().rev())
+        .take_while(same)
+        .count()
+        .min(r.len().min(a.len()) - prefix);
+    let end = r.len() - suffix;
+    if end <= cds_start {
+        Placement::FivePrimeUtr
+    } else if edit.start >= cds_start {
+        Placement::Cds(edit)
+    } else if prefix >= cds_start {
+        Placement::Cds(crate::edits::ResolvedEdit {
+            start: prefix,
+            end,
+            ref_: ref_seq[prefix..end].to_string(),
+            alt: edited[prefix..a.len() - suffix].to_string(),
+        })
+    } else {
+        Placement::AcrossStart
+    }
 }
 
 /// The first (`from_start`) or last coding base a range end covers, as a
@@ -2335,8 +2405,8 @@ impl<'a> VariantMapper<'a> {
 
     /// What a coding variant does to the protein: a statement (`p.?`,
     /// `p.(Met1?)`, `p.0?`, `p.(=)`) when the edit lies outside or across the CDS
-    /// boundary or leaves no codon where the protein first changes, else the
-    /// resolved change to describe or read.
+    /// boundary, leaves no codon where the protein first changes, or changes
+    /// the first codon, else the resolved change to describe or read.
     fn coding_outcome(
         &self,
         var_c: &CVariant,
@@ -2384,7 +2454,29 @@ impl<'a> VariantMapper<'a> {
         let (cds_start, cds_end) = cds_bounds(&transcript, ref_seq.len())?;
         let cds_end_open = transcript.cds_end_open;
         let am = TranscriptMapper::new(transcript)?;
-        let resolved = resolve_in_transcript(var_c, &am, &ref_seq)?;
+        let resolved = match place_on_coding(
+            &ref_seq,
+            resolve_in_transcript(var_c, &am, &ref_seq)?,
+            cds_start,
+        ) {
+            Placement::Cds(edit) => edit,
+            Placement::FivePrimeUtr => {
+                return Ok(CodingOutcome::Statement(predicted_statement(
+                    var_c,
+                    &protein_ac,
+                    None,
+                    crate::structs::ProteinStatement::Unknown,
+                )))
+            }
+            Placement::AcrossStart => {
+                return Ok(CodingOutcome::Statement(predicted_statement(
+                    var_c,
+                    &protein_ac,
+                    Some(crate::protein::met1()),
+                    crate::structs::ProteinStatement::Unknown,
+                )))
+            }
+        };
         if cds_end_open {
             check_within_open_cds(&var_c.ac, &resolved, cds_start, cds_end)?;
         }
@@ -2412,6 +2504,12 @@ impl<'a> VariantMapper<'a> {
                 None,
                 crate::structs::ProteinStatement::Unknown,
             )));
+        }
+        if reading.changes_start() {
+            let mut var_p = reading.describe()?;
+            var_p.gene = var_c.gene.clone();
+            var_p.posedit.predicted = true;
+            return Ok(CodingOutcome::Statement(var_p));
         }
         Ok(CodingOutcome::Change(reading))
     }

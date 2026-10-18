@@ -760,17 +760,15 @@ fn c_to_p_refuses_an_intronic_base_it_predicts_an_unknown_effect_from() {
 }
 
 #[test]
-fn c_to_p_of_an_edit_stating_no_base_reads_none() {
-    // c.-8 lies before the record's first base; a deletion there states
-    // nothing, and the prediction needs no base.
+fn c_to_p_of_an_edit_before_the_record_is_refused() {
+    // c.-8 lies before the record's first base: there is no sequence to place
+    // the change on.
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-    assert_eq!(
-        mapper
-            .c_to_p(&coding("NM_S.1:c.-8del"), None)
-            .unwrap()
-            .to_string(),
-        "NP_S.1:p.?"
+    let result = mapper.c_to_p(&coding("NM_S.1:c.-8del"), None);
+    assert!(
+        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("before transcript start")),
+        "{result:?}"
     );
 }
 

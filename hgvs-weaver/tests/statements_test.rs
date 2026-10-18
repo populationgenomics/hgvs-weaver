@@ -9,10 +9,7 @@ use hgvs_weaver::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::{
-    parse_hgvs_variant, transform_variant, SequenceVariant, StartCodonConvention,
-    VariantTransformSettings,
-};
+use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
 use support::{exon, transcript, Provider};
 
 /// NM_W.1, CDS at transcript indices 5..=94 encoding NP_W.1, spliced from
@@ -445,24 +442,6 @@ fn the_mappers_unknown_effect_reparses_to_itself() {
 }
 
 #[test]
-fn the_start_codon_transform_of_a_one_letter_description_reparses_to_itself() {
-    let settings = VariantTransformSettings {
-        start_codon: StartCodonConvention::HgvsQuestion,
-    };
-    let p = transform_variant(&parse("NP_W.1:p.(M1V)"), &settings);
-    assert_eq!(parse(&p.to_string()), p);
-}
-
-#[test]
-fn the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself() {
-    let settings = VariantTransformSettings {
-        start_codon: StartCodonConvention::HgvsQuestion,
-    };
-    let p = transform_variant(&parse("NP_W.1:p.(Met1Val)"), &settings);
-    assert_eq!(parse(&p.to_string()), p);
-}
-
-#[test]
 fn a_start_loss_is_the_parsed_predicted_unknown_change_from_met1() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
@@ -624,6 +603,66 @@ fn an_intronic_conversion_is_an_unknown_effect() {
     assert_eq!(
         c_to_p("NM_W.1:c.45+1_45+3conNM_W.1:c.10_12"),
         parse("NP_W.1:p.?")
+    );
+}
+
+#[test]
+fn a_change_written_into_the_cds_that_leaves_it_is_its_5_utr_spelling() {
+    // NM_W.1 reads GTCGT ATG C: c.-1_1delinsCA changes only the T at c.-1.
+    assert_eq!(
+        [c_to_p("NM_W.1:c.-1_1delinsCA"), c_to_p("NM_W.1:c.-1T>C")],
+        [parse("NP_W.1:p.?"), parse("NP_W.1:p.?")]
+    );
+}
+
+#[test]
+fn an_insertion_before_the_cds_written_from_c1_is_a_5_utr_change() {
+    // c.1delinsGCCA and c.-1_1insGCC both put GCC before the ATG.
+    assert_eq!(
+        [
+            c_to_p("NM_W.1:c.1delinsGCCA"),
+            c_to_p("NM_W.1:c.-1_1insGCC")
+        ],
+        [parse("NP_W.1:p.?"), parse("NP_W.1:p.?")]
+    );
+}
+
+#[test]
+fn an_insertion_before_the_cds_whose_3_prime_spelling_is_in_the_start_codon_changes_it() {
+    // T ATA ATG C is T AT AAT G C, an insertion inside the codon, which
+    // becomes ATA.
+    assert_eq!(c_to_p("NM_W.1:c.-1_1insATA"), parse("NP_W.1:p.(Met1?)"));
+}
+
+#[test]
+fn a_change_written_from_the_5_utr_that_leaves_it_is_its_cds_spelling() {
+    // c.-1_4delinsTATGA changes only the C at c.4.
+    assert_eq!(
+        [
+            c_to_p("NM_W.1:c.-1_4delinsTATGA").to_string(),
+            c_to_p("NM_W.1:c.4C>A").to_string()
+        ],
+        ["NP_W.1:p.(Arg2Ser)", "NP_W.1:p.(Arg2Ser)"]
+    );
+}
+
+#[test]
+fn a_change_written_upstream_whose_3_prime_spelling_is_in_the_start_codon_changes_it() {
+    // c.-1delinsTA makes T AATG C: an A inserted inside the codon, which
+    // becomes AAT.
+    assert_eq!(c_to_p("NM_W.1:c.-1delinsTA"), parse("NP_W.1:p.(Met1?)"));
+}
+
+#[test]
+fn an_upstream_insertion_of_unspelled_bases_is_an_unknown_effect() {
+    assert_eq!(c_to_p("NM_W.1:c.-3_-2insN[20]"), parse("NP_W.1:p.?"));
+}
+
+#[test]
+fn a_delins_of_unspelled_bases_into_the_cds_is_an_unknown_change_from_met1() {
+    assert_eq!(
+        c_to_p("NM_W.1:c.-3_4delinsN[10]"),
+        parse("NP_W.1:p.(Met1?)")
     );
 }
 

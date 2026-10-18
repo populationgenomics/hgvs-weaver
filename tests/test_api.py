@@ -72,10 +72,10 @@ def test_c_to_p() -> None:
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
-    # c.1A>G changes ATG(Met) → GTG(Val): predicts p.(Met1Val)
+    # c.1A>G changes the start codon ATG: what translation does is not predicted.
     v_c = weaver.parse("NM_TEST:c.1A>G")
     v_p = mapper.c_to_p(v_c)
-    assert "p.(Met1Val)" in v_p.format()
+    assert v_p.format().endswith(":p.(Met1?)")
 
 
 def test_c_to_p_missense() -> None:

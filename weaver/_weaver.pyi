@@ -52,22 +52,6 @@ class ReferenceMismatchError(HGVSError):
     every operation that reads the stated bases; Variant.validate answers False instead.
     """
 
-@final
-class StartCodonConvention:
-    """
-    Controls how start-codon protein variants are represented.
-
-    Used in VariantTransformSettings to select between keeping the specific
-    predicted amino acid change or using the HGVS p.Met1? notation.
-    """
-
-    HgvsQuestion: ClassVar[StartCodonConvention]
-    """Use the HGVS `p.Met1?` notation for any non-silent change at the first codon, `p.(Met1?)` for a prediction."""
-    Specific: ClassVar[StartCodonConvention]
-    """Keep the specific predicted amino acid change (e.g., `p.(Met1Val)`). Default."""
-    def __eq__(self, value: object) -> bool: ...
-    def __hash__(self) -> int: ...
-
 class UnsupportedOperationError(HGVSError): ...
 class ValidationError(HGVSError): ...
 
@@ -119,19 +103,6 @@ class Variant:
         """Returns a dictionary representation of the internal variant structure."""
     def to_json(self) -> str:
         """Returns a JSON string representation of the internal variant structure."""
-    def transform(self, settings: VariantTransformSettings) -> Variant:
-        """
-        Returns a new variant with the given transform settings applied.
-
-        Currently transforms protein variants according to the start_codon convention.
-        All other variant types are returned unchanged.
-
-        Args:
-            settings: A VariantTransformSettings object.
-
-        Returns:
-            A new Variant with the settings applied.
-        """
     def validate(self, provider: Any) -> bool:
         """
         Validates the bases and residues the variant states against the provided DataProvider.
@@ -657,24 +628,6 @@ class VariantMapper:
             HGVSError: If the string is malformed or the deletion does not match the
                 sequence.
         """
-
-@final
-class VariantTransformSettings:
-    """
-    Settings that control how a variant is transformed before formatting or comparison.
-
-    Create with keyword arguments:
-        settings = VariantTransformSettings(start_codon=StartCodonConvention.HgvsQuestion)
-    """
-    def __new__(cls, start_codon: StartCodonConvention = ...) -> VariantTransformSettings:
-        """
-        Creates a new VariantTransformSettings.
-
-        Args:
-            start_codon: Convention for start-codon protein variants. Defaults to Specific.
-        """
-    @property
-    def start_codon(self) -> StartCodonConvention: ...
 
 def parse(input: str) -> Variant:
     """

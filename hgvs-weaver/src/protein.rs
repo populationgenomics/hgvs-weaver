@@ -64,6 +64,8 @@ pub(crate) struct Reading {
     first_changed: usize,
     /// Whether the edit left the reference's own stop codon intact.
     stop_intact: bool,
+    /// Whether the edited sequence's first codon differs from the reference's.
+    start_changed: bool,
 }
 
 impl Reading {
@@ -75,11 +77,14 @@ impl Reading {
         let alt_nt = splice(&change.coding, start, end, alt);
         let mut ref_aa: Vec<char> = translate(&change.coding).chars().collect();
         let mut alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
-        // The annotated first codon is the initiator, Met whatever it is; an
-        // edit that changes it is read as the codon it makes.
+        // The annotated first codon is the initiator, Met whatever it is.
+        let start_changed = match (alt_nt.get(..3), change.coding.get(..3)) {
+            (Some(a), Some(r)) => !a.eq_ignore_ascii_case(r),
+            (a, r) => a != r,
+        };
         if let Some(first) = ref_aa.first_mut() {
             *first = 'M';
-            if alt_nt.get(..3) == change.coding.get(..3) {
+            if !start_changed {
                 alt_aa[0] = 'M';
             }
         }
@@ -150,7 +155,16 @@ impl Reading {
             last_codon,
             first_changed,
             stop_intact: end <= stop * 3,
+            start_changed,
         }
+    }
+
+    /// The edit changes the first codon: whether translation starts, and
+    /// where, is not predicted, so the change is the unknown change from
+    /// Met1. Read from the sequences, so an edit that rewrites the codon as
+    /// itself, or inserts after it, is not one.
+    pub(crate) fn changes_start(&self) -> bool {
+        self.start_changed
     }
 
     /// The change this is a reading of.
@@ -169,8 +183,22 @@ impl Reading {
     }
 
     /// Refuses a change whose protein cannot be predicted: one that
-    /// [runs off](Self::runs_off) the edited transcript.
+    /// [runs off](Self::runs_off) the edited transcript, or one that
+    /// [changes the start](Self::changes_start).
     fn check_predictable(&self) -> Result<(), HgvsError> {
+        self.check_reads_on()?;
+        if self.start_changed {
+            return Err(HgvsError::UnsupportedOperation(
+                "the edit changes the first codon, so whether and where translation starts, and the \
+                 protein it makes, is not predicted"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Refuses a change that [runs off](Self::runs_off) the edited transcript.
+    fn check_reads_on(&self) -> Result<(), HgvsError> {
         if self.runs_off() {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "the edited transcript ends before a codon at residue {}: translation runs off its end \
@@ -238,12 +266,15 @@ impl Reading {
 
     /// [`describe`](crate::protein::describe) of the change read.
     pub(crate) fn describe(&self) -> Result<PVariant, HgvsError> {
-        self.check_predictable()?;
         let out = Writer {
             ref_aa: &self.ref_aa,
             alt_aa: &self.alt_aa,
             protein_ac: &self.change.protein_ac,
         };
+        self.check_reads_on()?;
+        if self.start_changed {
+            return out.variant(Some(met1()), AaEdit::Statement(ProteinStatement::Unknown));
+        }
         if self.unchanged() {
             // A difference entirely past the stop is no change to the protein;
             // it is not written against a residue the protein does not have.
@@ -261,6 +292,18 @@ impl Reading {
         } else {
             describe_frameshift(self, &out)
         }
+    }
+}
+
+/// Residue 1, the initiator, which reads as Met whatever its codon.
+pub(crate) fn met1() -> AaInterval {
+    AaInterval {
+        start: AAPosition {
+            base: ProteinPos(0).to_hgvs(),
+            aa: "Met".to_string(),
+        },
+        end: None,
+        uncertain: false,
     }
 }
 
@@ -357,12 +400,13 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
         if i >= ins.len() && t.ref_aa[i - ins.len()..i] == *ins {
             return out.duplication(i - ins.len(), i - 1);
         }
-        if i == 0 {
-            return Err(HgvsError::UnsupportedOperation(
-                "N-terminal protein insertions are not supported".into(),
-            ));
-        }
-        return out.insertion(i - 1, i, ins);
+        let before = i.checked_sub(1).ok_or_else(|| {
+            HgvsError::Other(
+                "residue 1 differs only where the start codon changed, which describe answers first"
+                    .into(),
+            )
+        })?;
+        return out.insertion(before, i, ins);
     }
     if del.len() == 1 && ins.len() == 1 {
         return out.substitution(i, del[0], ins[0]);
@@ -693,8 +737,22 @@ mod tests {
     }
 
     #[test]
-    fn n_terminal_insertion_is_unsupported() {
-        assert!(p(CDS, UTR, ins("GTG"), 0, 1).contains("N-terminal"));
+    fn a_lowercase_start_codon_written_back_as_itself_is_unchanged() {
+        let delins = NaEdit::RefAlt {
+            ref_: None,
+            alt: Some("ATG".into()),
+            uncertain: false,
+        };
+        assert_eq!(
+            p(&CDS.to_ascii_lowercase(), UTR, delins, 0, 3),
+            "NP:p.Met1="
+        );
+    }
+
+    #[test]
+    fn an_insertion_inside_the_first_codon_is_an_unknown_change_from_met1() {
+        // ATG becomes AGTGTG.
+        assert_eq!(p(CDS, UTR, ins("GTG"), 0, 1), "NP:p.Met1?");
     }
 
     #[test]
