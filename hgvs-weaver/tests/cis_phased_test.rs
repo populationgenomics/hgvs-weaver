@@ -1250,9 +1250,12 @@ fn three_identical_insertions_are_one_two_or_three() {
 }
 
 #[test]
-fn repeated_members_without_a_sequence_are_carried_with_their_repeats() {
+fn identical_copy_numbers_count_once() {
     let reading = read(&reading_provider(), "NC_X.1:g.[30_35copy3;30_35copy3]").unwrap();
-    assert_eq!(reading.unapplied().len(), 2);
+    assert_eq!(
+        reading.unapplied(),
+        &[parse_hgvs_variant("NC_X.1:g.30_35copy3").unwrap()]
+    );
 }
 
 #[test]
@@ -1368,4 +1371,17 @@ fn statements_either_side_of_an_insertion_are_written_apart() {
 #[test]
 fn an_identity_over_the_edge_of_a_copy_number_is_accepted() {
     assert!(read(&reading_provider(), "NC_Z.1:g.[2_3=;3_4copy3]").is_ok());
+}
+
+#[test]
+fn overlapping_inversions_that_change_each_others_bases_are_not_yet_listed() {
+    // c.7_9 is CTG and c.8_10 TGG: each inversion changes c.8
+    let err = read(&reading_provider(), "NM_X.1:c.[7_9inv;8_10inv]").unwrap_err();
+    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+#[test]
+fn a_duplication_and_an_inversion_reading_each_others_changes_are_not_yet_listed() {
+    let err = read(&reading_provider(), "NM_X.1:c.[7_9inv;7_8dup]").unwrap_err();
+    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
 }

@@ -189,8 +189,9 @@ impl CisReading {
     /// The members no sequence can be built from: a copy number, an uncertain
     /// position, a conversion, inserted bases not stated or written `N`, a
     /// statement. They take part in no replacement; each is held to the
-    /// overlap rule on its outer bounds. They are listed as written, repeats
-    /// included, for a comparison that counts them.
+    /// overlap rule on its outer bounds. They are listed as written; identical
+    /// ones other than insertions and duplications are one member written
+    /// twice, and are listed once.
     pub fn unapplied(&self) -> &[SV] {
         &self.unapplied
     }
@@ -1813,8 +1814,8 @@ impl VariantMapper<'_> {
                             index: *index,
                             reach: *reach,
                         });
+                        unapplied.push(member.clone());
                     }
-                    unapplied.push(member.clone());
                 }
             }
         }
