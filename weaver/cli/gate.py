@@ -29,10 +29,11 @@ from weaver.cli import validate
 
 NCBI = "https://ftp.ncbi.nlm.nih.gov"
 HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
-# The SPDI column against ClinVar's; the equivalence verdicts as they stand; the protein column only as answered,
-# an error or blank, since ClinVar's protein strings carry an NP accession and a spelling weaver's do not share.
-COMPARED = (("rs_spdi", "spdi"), ("rs_equiv", None), ("rs_nuc_equiv", None), ("rs_p", None))
-VERDICTS = frozenset({"rs_equiv", "rs_nuc_equiv"})
+# The SPDI column against ClinVar's; the equivalence verdicts as they stand, biocommons' answer judged by weaver's
+# equivalence among them; the protein column only as answered, an error or blank, since ClinVar's protein strings
+# carry an NP accession and a spelling weaver's do not share.
+COMPARED = (("rs_spdi", "spdi"), ("rs_equiv", None), ("rs_nuc_equiv", None), ("ref_equiv", None), ("rs_p", None))
+VERDICTS = frozenset({"rs_equiv", "rs_nuc_equiv", "ref_equiv"})
 JUDGED = frozenset({"Identity", "Analogous", "Different"})
 
 
