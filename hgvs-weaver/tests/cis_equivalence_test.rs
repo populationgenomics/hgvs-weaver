@@ -204,6 +204,35 @@ fn an_allele_of_one_member_is_that_member() {
 }
 
 #[test]
+fn an_allele_of_one_member_is_its_members_genomic_allele() {
+    // c.4del is g.19del, in the run g.19_21.
+    assert_eq!(level("NM_X.1:c.[4del]", "NC_X.1:g.21del"), Analogous);
+}
+
+#[test]
+fn an_allele_of_one_member_is_identical_to_its_exact_projection() {
+    assert_eq!(level("NC_X.1:g.22C>T", "NM_X.1:c.[7C>T]"), Identity);
+}
+
+#[test]
+fn an_allele_of_one_member_is_not_another_variant() {
+    assert_eq!(level("NM_X.1:c.[7C>T]", "NM_X.1:c.13T>G"), Different);
+}
+
+#[test]
+fn a_plain_variant_is_the_allele_making_its_sequence() {
+    assert_eq!(
+        level("NM_X.1:c.7_8delinsTG", "NC_X.1:g.[23T>G;22C>T]"),
+        Analogous
+    );
+}
+
+#[test]
+fn a_mitochondrial_allele_of_one_member_is_identical_to_its_projection() {
+    assert_eq!(level("NC_X.1:m.[22C>T]", "NM_X.1:c.7C>T"), Identity);
+}
+
+#[test]
 fn an_allele_of_one_member_against_several_is_judged_by_its_member() {
     assert_eq!(
         level("NM_X.1:c.[7_8delinsTG]", "NM_X.1:c.[7C>T;8T>G]"),
@@ -389,6 +418,29 @@ fn a_copy_number_member_compares_by_its_projection() {
 }
 
 #[test]
+fn unstated_inserted_bases_compare_by_their_genomic_form() {
+    // c.15_16 is g.30_31.
+    assert_eq!(
+        level(
+            "NM_X.1:c.[7_8delinsTG;15_16insN[5]]",
+            "NC_X.1:g.[22C>T;23T>G;30_31insN[5]]"
+        ),
+        Analogous
+    );
+}
+
+#[test]
+fn unstated_inserted_bases_in_a_mitochondrial_allele_compare_on_the_genome() {
+    assert_eq!(
+        level(
+            "NC_X.1:m.[22C>T;23T>G;30_31insN[5]]",
+            "NC_X.1:g.[22_23delinsTG;30_31insN[5]]"
+        ),
+        Analogous
+    );
+}
+
+#[test]
 fn a_copy_number_member_is_not_another_count() {
     assert_eq!(
         level("NC_X.1:g.[22C>T;30_35copy3]", "NC_X.1:g.[22C>T;30_35copy4]"),
@@ -453,6 +505,14 @@ fn protein_alleles_compare_their_members_as_a_set() {
 }
 
 #[test]
+fn protein_alleles_in_one_letter_code_are_one_spelling() {
+    assert_eq!(
+        level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[K2L;A4del]"),
+        Identity
+    );
+}
+
+#[test]
 fn protein_alleles_with_a_member_changed_differ() {
     assert_eq!(
         level("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Lys2Leu;Tyr5del]"),
@@ -487,6 +547,33 @@ fn an_ambiguous_allele_is_refused_with_its_readings_where_written() {
         ),
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn a_contradictory_allele_is_refused_against_its_exact_projection() {
+    assert!(matches!(
+        judge("NM_X.1:c.[7C>T;7C>G]", "NC_X.1:g.[22C>T;22C>G]"),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn an_ambiguous_allele_is_refused_against_its_exact_projection() {
+    assert!(matches!(
+        judge(
+            "NM_X.1:c.[7_8insA;7_8insG]",
+            "NC_X.1:g.[22_23insA;22_23insG]"
+        ),
+        Err(HgvsError::Ambiguous { .. })
+    ));
+}
+
+#[test]
+fn a_contradictory_allele_is_refused_against_itself_in_another_order() {
+    assert!(matches!(
+        judge("NM_X.1:c.[7C>T;7C>G]", "NM_X.1:c.[7C>G;7C>T]"),
+        Err(HgvsError::ValidationError(_))
+    ));
 }
 
 #[test]

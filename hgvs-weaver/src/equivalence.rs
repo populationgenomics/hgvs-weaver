@@ -103,6 +103,15 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
+        // An allele with no one reading is refused before any spelling can
+        // match it.
+        for var in [var1, var2] {
+            if let SequenceVariant::CisPhased(cis) = var {
+                if reads_as_a_sequence(cis) {
+                    self.mapper.read_cis(cis)?;
+                }
+            }
+        }
         if spelling(var1) == spelling(var2) {
             return Ok(EquivalenceLevel::Identity);
         }
@@ -163,12 +172,17 @@ impl<'a> VariantEquivalence<'a> {
             _ => return Ok(None),
         };
         if let [member] = cis.members.as_slice() {
-            return self.equivalent_level_single(member, other).map(Some);
+            return self
+                .equivalent_level_single(&mito_as_genomic(member), other)
+                .map(Some);
         }
         if let SequenceVariant::CisPhased(one) = other {
             if let [member] = one.members.as_slice() {
                 return self
-                    .equivalent_level_single(&SequenceVariant::CisPhased(cis.clone()), member)
+                    .equivalent_level_single(
+                        &SequenceVariant::CisPhased(cis.clone()),
+                        &mito_as_genomic(member),
+                    )
                     .map(Some);
             }
         }
@@ -215,8 +229,8 @@ impl<'a> VariantEquivalence<'a> {
         }))
     }
 
-    /// Whether `tx`, a transcript allele of several members, projects onto
-    /// the genome `g` is on to `g`'s text, in any order of the members.
+    /// Whether `tx`, a transcript allele, projected member by member onto
+    /// `g`'s genome, is `g`'s text, in any order of the members.
     fn exact_cis_projection(
         &self,
         g: &CisPhasedVariant,
@@ -242,12 +256,8 @@ impl<'a> VariantEquivalence<'a> {
     ///
     /// # Errors
     ///
-    /// As [`read_cis`](VariantMapper::read_cis), the allele read where it is
-    /// written, then as [`read_cis_on_genome`](VariantMapper::read_cis_on_genome).
+    /// As [`read_cis_on_genome`](VariantMapper::read_cis_on_genome).
     fn allele_comparand(&self, cis: &CisPhasedVariant) -> Result<AlleleComparand, HgvsError> {
-        // Read where written first, so a contradiction or an ambiguity is
-        // reported in the allele's own coordinates.
-        self.mapper.read_cis(cis)?;
         let reading = self.mapper.read_cis_on_genome(cis)?;
         let mut unapplied = reading
             .unapplied()
@@ -267,10 +277,15 @@ impl<'a> VariantEquivalence<'a> {
             None | Some(Err(HgvsError::UnsupportedOperation(_))) => {
                 Ok(MemberKey::Spelling(spelling(member)))
             }
-            Some(g) => match self.comparand(&SequenceVariant::Genomic(g?))? {
-                Some(Comparand::Projection(ac, posedit)) => Ok(MemberKey::Projection(ac, posedit)),
-                _ => Ok(MemberKey::Spelling(spelling(member))),
-            },
+            Some(g) => {
+                let g = SequenceVariant::Genomic(g?);
+                match self.comparand(&g)? {
+                    Some(Comparand::Projection(ac, posedit)) => {
+                        Ok(MemberKey::Projection(ac, posedit))
+                    }
+                    _ => Ok(MemberKey::Spelling(spelling(&g))),
+                }
+            }
         }
     }
 
@@ -766,8 +781,9 @@ enum MemberKey {
     Allele(String),
     /// A copy number's accession and edit, projected to the genome.
     Projection(String, String),
-    /// A member that names no one change, by the [`spelling`] of its `g.`,
-    /// `c.` or `n.` form.
+    /// A member compared by its text: an uncertain one by the [`spelling`] of
+    /// its `g.`, `c.` or `n.` form; one that is applied to no sequence, a
+    /// conversion or unstated inserted bases, by that of its genomic form.
     Spelling(String),
 }
 

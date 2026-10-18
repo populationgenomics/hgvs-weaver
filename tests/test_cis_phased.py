@@ -258,15 +258,6 @@ def test_a_block_stating_its_sequence_once_reads_back(mapper: weaver.VariantMapp
         mapper.from_vrs(block)
 
 
-def test_an_allele_is_equivalent_to_the_delins_its_members_make(mapper: weaver.VariantMapper) -> None:
-    level = mapper.equivalent_level(
-        weaver.parse("NM_X.1:c.[7C>T;8T>G]"),
-        weaver.parse("NM_X.1:c.7_8delinsTG"),
-        Provider(),
-    )
-    assert level == weaver.EquivalenceLevel.Analogous
-
-
 def test_judging_an_ambiguous_allele_raises_its_readings(mapper: weaver.VariantMapper) -> None:
     with pytest.raises(weaver.AmbiguousDescriptionError) as raised:
         mapper.equivalent_level(
