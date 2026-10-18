@@ -1074,10 +1074,11 @@ So weaver normalises by what the members do together, and keeps going until noth
    identity is (below).
 1. A change that agrees with an identity on some of its bases is cut where the identity stands, and the identity kept:
    `c.[7=;7_8delinsCG]` is written `c.[7=;8T>G]`. The overlap rule accepts such an allele; only `normalize` writes it
-   this way. It is cut only when it lies in one exon and no other change shares a base with it or inserts inside it;
-   otherwise the identity is part of how the members read together, and the change is left as written, as any member
-   written across a statement is. A part that, cut, changes nothing is dropped; a change every part of which changes
-   nothing makes the reference, and states the bases it names.
+   this way. It is cut only when it lies in one exon and no other change shares a base with it or inserts inside it,
+   other than one that says again what it says of those bases, `c.7C>T` beside `c.7_9delinsTTA`; otherwise the identity
+   is part of how the members read together, and the change is left as written, as any member written across a statement
+   is. A part that, cut, changes nothing is dropped; a change every part of which changes nothing makes the reference,
+   and states the bases it names.
 1. Each member has an extent: the bases it is written over, together with its fully justified region, the region its
    [canonical allele](#the-canonical-allele-is-fully-justified) spans, everywhere it could equally be written. An
    insertion is written over no base: its extent is the empty interval at its junction, which touches the bases on
@@ -1157,9 +1158,10 @@ members did not. It would also hide where each change is. On `NM_S.1`, which is 
 different genome; `c.[5A>T;6A>T]`, which touch across the junction, stay two members, while `c.[6A>T;7C>G]`, both in
 exon 2, become `c.6_7delinsTG`. The same holds for `r.`, which normalises as its `c.` or `n.` spelling, and to which the
 codon rule applies as it does to `c.`. A member written across a junction already names the intron on the genome, so it
-is merged with nothing; and where another member shares a base with it, so that the two can only be written as one
-change, `normalize` refuses the allele with `UnsupportedOperation` rather than write a change across the junction. The
-allele still reads, and an ambiguity among such members still lists its readings.
+is merged with nothing, is normalised alone, and stops a neighbour's shift where it ends up: `c.[4del;5_6inv]` stays as
+written rather than move the deletion into the inversion. Where another member shares a base with it, so that the two
+can only be written as one change, `normalize` refuses the allele with `UnsupportedOperation` rather than write a change
+across the junction. The allele still reads, and an ambiguity among such members still lists its readings.
 
 No shift crosses an exon junction either, as [a single variant's does not](#a-shift-stops-at-an-exonexon-junction), and
 a member's justified region stops there too. Shifted across it, `c.4del` in `NM_S.1`'s `AA|A` would become `c.6del`,
@@ -1394,6 +1396,10 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::identities_apart_stay_apart`, `::an_identity_across_a_junction_is_not_merged_with_one_inside_an_exon`,
   `::identities_in_two_exons_stay_apart`, `::members_sharing_bases_across_an_exon_junction_are_refused`,
   `::members_sharing_bases_across_an_exon_junction_still_read`,
+  `::a_member_across_an_exon_junction_stops_a_neighbours_shift`,
+  `::members_beside_a_member_across_an_exon_junction_do_not_shift_onto_it`,
+  `::a_redundant_member_agreeing_with_a_cut_change_does_not_stop_the_cut`,
+  `::an_intronic_member_a_merged_change_reaches_is_refused_at_once`,
   `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
   `::a_member_without_a_sequence_is_kept_as_written_in_its_place`,
   `::a_merged_change_is_not_written_where_unstated_bases_are_inserted`,
@@ -2526,6 +2532,10 @@ the readings then make one sequence, and state different bases. A `c.` range tha
 between including the intron and not is issue #64. A `CisPhasedBlock` whose members' placements make different sequences
 is another source, [read back](#members-of-a-cis-allele-that-meet-are-written-as-one-change) by `from_vrs`.
 
+Each reading is written as `normalize` writes an allele. Where that rule cannot write a reading, as where it would merge
+members across an exon junction, the reading is written as the changes it makes, cut where a statement stands and not
+shifted, so the error still lists it.
+
 VRS meets the same cases from the other side. A `CisPhasedBlock`'s members are unordered (VRS 2.0.1 marks `members`
 `ordered: false`, though its description calls the block "an ordered set"), so `c.[7_8insA;7_8insG]` and
 `c.[7_8insG;7_8insA]` would make one block, which silently conflates what HGVS leaves ambiguous. `to_vrs` therefore
@@ -2555,7 +2565,8 @@ NM_X.1:c.[7C>T;7C>G]         →  ValidationError: contradictory, no reading
   `::a_reading_is_written_on_each_side_of_a_statement`,
   `::every_written_reading_has_one_reading_where_changes_shift_into_each_other`,
   `::a_member_without_a_sequence_is_in_every_reading`, `::statements_either_side_of_an_insertion_are_written_apart`,
-  `::to_vrs_refuses_an_ambiguous_allele`;
+  `::to_vrs_refuses_an_ambiguous_allele`, `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
+  `::an_ambiguity_the_rule_cannot_write_still_lists_its_readings`;
   `tests/test_cis_phased.py::test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings`; planned:
   `vrs_round_trip_test::a_block_inserting_twice_at_one_point_reads_back_as_ambiguous`,
   `::a_block_of_two_identical_insertions_reads_back_as_ambiguous`.

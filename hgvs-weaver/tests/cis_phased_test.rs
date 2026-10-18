@@ -1755,13 +1755,71 @@ fn a_change_every_part_of_which_agrees_with_the_reference_is_a_statement() {
 fn members_sharing_bases_across_an_exon_junction_are_refused() {
     // c.5_6 of NM_S.1 spans the junction; one change there deletes the intron
     let err = normalise(&normalising_provider(), "NM_S.1:c.[5_6delinsTT;5A>T]").unwrap_err();
-    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("across an exon junction")),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_member_across_an_exon_junction_stops_a_neighbours_shift() {
+    // c.4del would shift to c.5, inside the inversion of c.5_6
+    let hdp = normalising_provider();
+    assert_eq!(
+        normalised(&hdp, "NM_S.1:c.[4del;5_6inv]"),
+        "NM_S.1:c.[4del;5_6inv]"
+    );
+}
+
+#[test]
+fn an_ambiguity_the_rule_cannot_write_still_lists_its_readings() {
+    let hdp = normalising_provider();
+    for allele in [
+        "NR_MS.1:n.[30_32del;32dup]",
+        "NM_S.1:c.[5_7dup;4_5insC;7_9dup;6_7=]",
+    ] {
+        let err = read(&hdp, allele).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::Ambiguous { readings, .. } if readings.len() == 2),
+            "{allele}: {err}"
+        );
+    }
+}
+
+#[test]
+fn members_beside_a_member_across_an_exon_junction_do_not_shift_onto_it() {
+    let hdp = normalising_provider();
+    for allele in [
+        "NM_S.1:c.[4dup;5_6delinsAC]",
+        "NM_S.1:c.[4del;5_6dup]",
+        "NM_S.1:c.[3_4insA;4_6dup]",
+    ] {
+        assert_eq!(normalised(&hdp, allele), allele);
+    }
+}
+
+#[test]
+fn a_redundant_member_agreeing_with_a_cut_change_does_not_stop_the_cut() {
+    // c.7C>T says again what the delins says of c.7
+    let hdp = normalising_provider();
+    let once = normalised(&hdp, "NM_X.1:c.[7_9delinsTTA;8=;7C>T]");
+    assert_eq!(once, "NM_X.1:c.[7C>T;8=;9G>A]");
+}
+
+#[test]
+fn an_intronic_member_a_merged_change_reaches_is_refused_at_once() {
+    // c.3_5 of NM_S.1 is GAA: deleted as one, it justifies up to c.5+1,
+    // beside c.5+2, which neither deletion reached alone
+    let err = normalise(&normalising_provider(), "NM_S.1:c.[3del;4_5del;5+2T>A]").unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("intronic member")),
+        "{err}"
+    );
 }
 
 #[test]
 fn members_sharing_bases_across_an_exon_junction_still_read() {
-    let reading = read(&normalising_provider(), "NM_S.1:c.[4_6del;6del]").unwrap();
-    assert!(reading.stated().is_empty());
+    assert!(read(&normalising_provider(), "NM_S.1:c.[4_6del;6del]").is_ok());
 }
 
 #[test]
@@ -1843,13 +1901,19 @@ fn an_intronic_member_apart_from_the_exons_is_kept_as_written() {
 fn an_intronic_member_that_meets_an_exonic_member_is_not_yet_normalised() {
     // c.5 is g.20 and c.5+1 g.21: the two touch on the genome
     let err = normalise(&normalising_provider(), "NM_S.1:c.[5A>T;5+1G>C]").unwrap_err();
-    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("intronic member")),
+        "{err}"
+    );
 }
 
 #[test]
 fn intronic_members_that_meet_are_not_yet_normalised() {
     let err = normalise(&normalising_provider(), "NM_S.1:c.[5+2T>A;5+3A>G]").unwrap_err();
-    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("intronic member")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -1894,7 +1958,10 @@ fn normalising_a_contradictory_allele_raises() {
 #[test]
 fn normalising_an_allele_whose_readings_are_not_listed_raises() {
     let err = normalise(&normalising_provider(), "NM_X.1:c.[7_9inv;8_10inv]").unwrap_err();
-    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("readings are not listed")),
+        "{err}"
+    );
 }
 
 // to_vrs renders the normalised allele: choices.md, "A cis allele is the

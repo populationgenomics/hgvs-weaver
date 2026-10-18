@@ -69,7 +69,15 @@ impl Barriers {
         units: &[Unit],
     ) -> Barriers {
         let base = Barriers::new(exons, stated, frame, &[]);
-        let fixed = fixed_among(units, &base);
+        let mut fixed = fixed_among(units, &base);
+        // A member written across an exon junction meets nothing, and no
+        // other shifts onto it.
+        let spans = |(a, b): Span| a < b && exons.exon(a) != exons.exon(b - 1);
+        fixed.extend(units.iter().filter_map(|u| match &u.form {
+            Form::Spanning(p) => Some((p.start, p.end)),
+            Form::Member(_) if spans(u.window) => Some(u.window),
+            _ => None,
+        }));
         if fixed.is_empty() {
             return base;
         }
@@ -194,6 +202,9 @@ enum Form {
     Part(PlacedEdit),
     /// What the replacements make over the window, normalised.
     Change(PlacedEdit),
+    /// A member written across an exon junction, normalised alone: it meets
+    /// nothing, and others stop where it ends up.
+    Spanning(PlacedEdit),
 }
 
 /// Where a unit reaches.
@@ -262,6 +273,14 @@ impl Context<'_, '_, '_, '_> {
                     && self.allele.cancels(&[j])?,
             );
         }
+        let mut restated = Vec::new();
+        for k in 0..members.len() {
+            for j in 0..members.len() {
+                if j != k && self.agrees_within(k, j)? {
+                    restated.push((k, j));
+                }
+            }
+        }
         let exons = &self.frame.exons;
         // A member is cut where an identity it agrees with stands, unless
         // another change inserts inside it or shares a base with it: the
@@ -277,6 +296,7 @@ impl Context<'_, '_, '_, '_> {
             j == k
                 || choice.dropped[j]
                 || inert[j]
+                || restated.contains(&(k, j))
                 || !(other.junction().is_some_and(|at| strictly_inside(at, b))
                     || !other.is_identity() && other.bases().and_then(|o| overlap(o, b)).is_some())
         });
@@ -436,6 +456,28 @@ impl Context<'_, '_, '_, '_> {
         Ok((out, statements))
     }
 
+    /// Whether member `j` writes, base by base, within the bases member `k`
+    /// writes, and what it writes there is what `k` does: one edit `k` states
+    /// again.
+    fn agrees_within(&self, k: usize, j: usize) -> Result<bool, HgvsError> {
+        let members = &self.allele.members;
+        match (&members[k].1, &members[j].1) {
+            (
+                Act::Write {
+                    start: s1,
+                    end: e1,
+                    value: v1,
+                },
+                Act::Write {
+                    start: s2,
+                    end: e2,
+                    value: v2,
+                },
+            ) if s1 <= s2 && e2 <= e1 => self.allele.writes_agree((v1, *s1), (v2, *s2), (*s2, *e2)),
+            _ => Ok(false),
+        }
+    }
+
     /// The member at `slot` as written, over the HGVS range it is written
     /// over.
     fn written_edit(&self, slot: usize) -> Result<PlacedEdit, HgvsError> {
@@ -461,14 +503,14 @@ impl Context<'_, '_, '_, '_> {
                 self.allele.members[k].1,
                 Act::Write { .. } | Act::Block { .. } | Act::Inv { .. }
             ),
-            Form::Piece | Form::Part(_) | Form::Change(_) => true,
+            Form::Piece | Form::Part(_) | Form::Change(_) | Form::Spanning(_) => true,
         }
     }
 
     fn extent(&self, u: &Unit, barriers: &Barriers) -> Result<Extent, HgvsError> {
         let (written, reach) = match &u.form {
             Form::Member(k) => (self.allele.members[*k].1.written(), self.extents[*k]),
-            Form::Change(p) => self.justified(p)?,
+            Form::Change(p) | Form::Spanning(p) => self.justified(p)?,
             Form::Part(p) => {
                 let (w, j) = self.justified(p)?;
                 let o = u.window;
@@ -659,7 +701,9 @@ impl Context<'_, '_, '_, '_> {
             // and one trimmed onto a barrier it cannot leave is refused by
             // the overlap rule; reduced as a delins, either keeps the base
             // beside it.
-            let on_junction = settled.is_insertion() && exons.is_junction(settled.start);
+            let on_junction = settled.is_insertion()
+                && (exons.is_junction(settled.start)
+                    || self.reference.base(settled.start)?.is_none());
             if !on_junction && !barriers.intrudes(&settled) {
                 return Ok(settled);
             }
@@ -675,6 +719,18 @@ impl Context<'_, '_, '_, '_> {
                 edit: NaEdit::RefAlt {
                     ref_: Some(String::new()),
                     alt: Some(format!("{alt}{first}")),
+                    uncertain,
+                },
+            }
+        } else if lo == hi && self.reference.base(lo)?.is_none() {
+            // Nor one after the last.
+            let last = self.slice((lo - 1, lo))?;
+            PlacedEdit {
+                start: lo - 1,
+                end: lo,
+                edit: NaEdit::RefAlt {
+                    ref_: Some(String::new()),
+                    alt: Some(format!("{last}{alt}")),
                     uncertain,
                 },
             }
@@ -993,6 +1049,63 @@ impl VariantMapper<'_> {
         let reference = self.refs.reference(&frame.accession, frame.kind);
         let (allele, _) = allele_on(cis, frame, &reference);
         let settled = self.settle(cis, frame, &allele, true)?;
+        let intronic = self.intronic_apart(cis, &allele)?;
+        let (inner, exonic): (Vec<_>, Vec<_>) = cis
+            .members
+            .iter()
+            .enumerate()
+            .partition(|(i, _)| intronic[*i]);
+        let mut members: Vec<SV> = if exonic.is_empty() {
+            Vec::new()
+        } else {
+            let sub = CisPhasedVariant::new(
+                cis.ac.clone(),
+                cis.gene.clone(),
+                exonic.into_iter().map(|(_, m)| m.clone()).collect(),
+            )?;
+            match self.normalize_cis(&sub)? {
+                SV::CisPhased(c) => c.members,
+                one => vec![one],
+            }
+        };
+        for (_, m) in inner {
+            if inserts(m) || !members.contains(m) {
+                members.push(m.clone());
+            }
+        }
+        members.sort_by_key(transcript_key);
+        // The exonic members, written as one change, can reach an intronic
+        // member none of them reached alone.
+        let written = CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), members)?;
+        let on_genome = self.checked_frame(&written, On::Written)?;
+        let genome = self.refs.reference(&on_genome.accession, on_genome.kind);
+        let (written_allele, _) = allele_on(&written, &on_genome, &genome);
+        self.intronic_apart(&written, &written_allele)
+            .map_err(|e| HgvsError::UnsupportedOperation(format!("{cis}: {e}")))?;
+        let normalised = match <[SV; 1]>::try_from(written.members) {
+            Ok([one]) => one,
+            Err(members) => SV::CisPhased(CisPhasedVariant::new(
+                cis.ac.clone(),
+                cis.gene.clone(),
+                members,
+            )?),
+        };
+        self.read_as(cis, &settled, &reference, normalised)
+    }
+
+    /// Which members of the transcript allele `cis` are intronic, once none
+    /// of them meets another member on the genome, where `allele` places
+    /// them.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::UnsupportedOperation`] when an intronic member meets
+    /// another member: how the two are written together is not decided.
+    fn intronic_apart(
+        &self,
+        cis: &CisPhasedVariant,
+        allele: &Allele,
+    ) -> Result<Vec<bool>, HgvsError> {
         let extents = allele.extents()?;
         let mut intronic = Vec::with_capacity(cis.members.len());
         for m in &cis.members {
@@ -1024,39 +1137,7 @@ impl VariantMapper<'_> {
                 )));
             }
         }
-        let (inner, exonic): (Vec<_>, Vec<_>) = cis
-            .members
-            .iter()
-            .enumerate()
-            .partition(|(i, _)| intronic[*i]);
-        let mut members: Vec<SV> = if exonic.is_empty() {
-            Vec::new()
-        } else {
-            let sub = CisPhasedVariant::new(
-                cis.ac.clone(),
-                cis.gene.clone(),
-                exonic.into_iter().map(|(_, m)| m.clone()).collect(),
-            )?;
-            match self.normalize_cis(&sub)? {
-                SV::CisPhased(c) => c.members,
-                one => vec![one],
-            }
-        };
-        for (_, m) in inner {
-            if inserts(m) || !members.contains(m) {
-                members.push(m.clone());
-            }
-        }
-        members.sort_by_key(transcript_key);
-        let normalised = match <[SV; 1]>::try_from(members) {
-            Ok([one]) => one,
-            Err(members) => SV::CisPhased(CisPhasedVariant::new(
-                cis.ac.clone(),
-                cis.gene.clone(),
-                members,
-            )?),
-        };
-        self.read_as(cis, &settled, &reference, normalised)
+        Ok(intronic)
     }
 
     /// The description of one reading, normalised: the members of `allele`
@@ -1070,8 +1151,64 @@ impl VariantMapper<'_> {
         set_aside: &[(usize, usize)],
         writing: Writing,
     ) -> Result<SV, HgvsError> {
-        let form = self.normal_form(frame, allele, choice, set_aside, writing)?;
-        self.written(frame, form.stated, form.changes)
+        let normalised = self
+            .normal_form(frame, allele, choice, set_aside, writing)
+            .and_then(|form| self.written(frame, form.stated, form.changes));
+        match normalised {
+            Err(_) if writing == Writing::Reading => {
+                self.written_plainly(frame, allele, choice, set_aside)
+            }
+            other => other,
+        }
+    }
+
+    /// One reading written as its replacements make it, cut where a
+    /// statement stands and not shifted: for a reading an ambiguity lists
+    /// that the rule cannot write, so that the ambiguity still lists it.
+    fn written_plainly(
+        &self,
+        frame: &Frame,
+        allele: &Allele,
+        choice: &Choice,
+        set_aside: &[(usize, usize)],
+    ) -> Result<SV, HgvsError> {
+        let reference = allele.reference;
+        let mut stated: Vec<Span> = set_aside.to_vec();
+        stated.extend(
+            allele
+                .members
+                .iter()
+                .filter(|(_, a)| a.is_identity())
+                .map(|(_, a)| a.named()),
+        );
+        let stated = merge_statements(stated, &frame.exons);
+        let mut changes = Vec::new();
+        for r in allele.assemble(choice, None, None, &mut Vec::new())? {
+            let pieces_of = if r.start < r.end {
+                cut_at(r, &stated)?
+            } else {
+                vec![r]
+            };
+            for piece in pieces_of {
+                let window = (piece.start, piece.end);
+                let alt = materialise(
+                    &pieces(std::iter::once(&piece), window.0, window.1),
+                    reference,
+                )?;
+                let ref_ = Segment::Reference {
+                    start: window.0,
+                    end: window.1,
+                }
+                .read(reference, 0, window.1 - window.0)?;
+                if alt.eq_ignore_ascii_case(&ref_) {
+                    continue;
+                }
+                let (edit, s, e) =
+                    normalize::minimal_edit(reference, window.0, window.1, &ref_, &alt)?;
+                changes.push(PlacedEdit::from_hgvs_range(s, e, edit));
+            }
+        }
+        self.written(frame, stated, changes)
     }
 
     /// One reading normalised, as the bases it states unchanged, sorted and
@@ -1148,6 +1285,15 @@ impl VariantMapper<'_> {
             }
             units = kept;
         }
+        let first = Barriers::among(&frame.exons, &stated, frame, &units);
+        for u in &mut units {
+            if let Form::Member(k) = u.form {
+                let w = u.window;
+                if w.0 < w.1 && frame.exons.exon(w.0) != frame.exons.exon(w.1 - 1) {
+                    u.form = Form::Spanning(self.alone(&ctx, k, &first)?);
+                }
+            }
+        }
         loop {
             let barriers = Barriers::among(&frame.exons, &stated, frame, &units);
             let extents = units
@@ -1181,14 +1327,14 @@ impl VariantMapper<'_> {
         // A lone member settles against what the other units finally are:
         // the statements, and each unit left written across one.
         let barriers = Barriers::among(&frame.exons, &stated, frame, &units);
-        let fixed = barriers.fixed.clone();
+        let fixed = fixed_among(&units, &Barriers::new(&frame.exons, &stated, frame, &[]));
         let mut changes = Vec::with_capacity(units.len());
         for u in &units {
             let p = match &u.form {
                 // Written across a statement: left as written.
                 Form::Member(k) if fixed.contains(&u.window) => ctx.written_edit(*k)?,
                 Form::Member(k) => self.alone(&ctx, *k, &barriers)?,
-                Form::Change(p) | Form::Part(p) => p.clone(),
+                Form::Change(p) | Form::Part(p) | Form::Spanning(p) => p.clone(),
                 Form::Piece => unreachable!("a piece's change is read when it is made"),
             };
             if matches!(p.edit, NaEdit::RefAlt { alt: None, .. }) {
