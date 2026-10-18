@@ -63,7 +63,7 @@ text matches.
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
 them. Where the provider has no genome, the transcript is used only if nothing the comparison reads reaches outside the
-exons or crosses a junction or gap; otherwise the comparison is an error (`Unknown` in the harness).
+exons or crosses a junction or gap; otherwise the comparison is an error (`Unknown` or `ERR:` in the harness).
 [The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make) has the reasoning and the members that cannot be
 applied. An allele whose members are
 [contradictory or ambiguous](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not compared: the
@@ -116,7 +116,7 @@ follows the DNA change it accompanies, which is not `r.?`'s effect of unknown ki
 also inside a cis allele.
 
 Judging needs the protein sequence. With no sequence to read the description against the result is an error (`Unknown`
-in the harness), not a guess from the residues the descriptions happen to name.
+or `ERR:` in the harness), not a guess from the residues the descriptions happen to name.
 
 ## Examples
 

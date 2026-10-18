@@ -16,6 +16,7 @@ import argparse
 import concurrent.futures
 import csv
 import dataclasses
+import importlib.util
 import logging
 import sys
 import typing
@@ -37,24 +38,21 @@ except ImportError:
     sys.exit(1)
 
 import weaver
-
-try:
-    from weaver_data_provider import genome as wd_genome
-    from weaver_data_provider import provider as wd_provider
-    from weaver_data_provider import store as wd_store
-except ImportError:
-    print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
-    print("  pip install hgvs-weaver-data")
-    sys.exit(1)
-
 from weaver.cli import provider
+
+# The columns the validation writes after the input's own; an input that already carries them has them replaced.
+OUTPUT_FIELDS = ("rs_p", "rs_spdi", "ref_p", "ref_spdi", "rs_equiv", "rs_nuc_equiv", "ref_equiv", "fh_parse")
+
+
+class SearchingProvider(weaver.DataProvider, weaver.TranscriptSearch, typing.Protocol):
+    """A provider that also names the transcripts on a region, as a weaver-data-provider bundle does."""
 
 
 @dataclasses.dataclass(frozen=True)
 class _Worker:
     """What one worker process holds: the two mappers over the store, the biocommons parser, the ferro results."""
 
-    rp: wd_provider.BundleProvider
+    rp: SearchingProvider
     mapper: weaver.VariantMapper
     ref_vm: hgvs.variantmapper.VariantMapper
     ref_hp: typing.Any  # hgvs.parser.Parser builds its parse_* methods at run time, so a checker cannot see them
@@ -68,6 +66,11 @@ _worker: _Worker | None = None
 
 def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
     """Initializes this worker process's mappers over a weaver-data-provider store and genome."""
+    # Imported here, not at module level: only the store needs it, and it needs Python 3.12; main checks for it.
+    from weaver_data_provider import genome as wd_genome  # noqa: PLC0415
+    from weaver_data_provider import provider as wd_provider  # noqa: PLC0415
+    from weaver_data_provider import store as wd_store  # noqa: PLC0415
+
     global _worker
     rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
     fh_results: dict[str, str] = {}
@@ -126,6 +129,7 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
                 "rs_p": "ERR:MapperNotInit",
                 "rs_spdi": "ERR:MapperNotInit",
                 "rs_equiv": "ERR:MapperNotInit",
+                "rs_nuc_equiv": "ERR:MapperNotInit",
                 "ref_equiv": "ERR:MapperNotInit",
             },
         )
@@ -179,9 +183,11 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
     # Equivalence Checks (Using weaver to judge both)
     rs_equiv = "Unknown"
     ref_equiv = "Unknown"
+    rs_nuc_equiv = ""
     gt_p_str = row.get("variant_prot", "")
 
     if gt_p_str and gt_p_str != "ERR" and not gt_p_str.startswith("ERR"):
+        rs_nuc_equiv = nuc_equivalence(mapper, rp, nuc_hgvs, gt_p_str)
         try:
             v_gt = weaver.parse(gt_p_str)
             # RS Equivalence
@@ -212,12 +218,33 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
             "ref_p": ref_p or "",
             "ref_spdi": ref_spdi or "",
             "rs_equiv": rs_equiv,
+            "rs_nuc_equiv": rs_nuc_equiv,
             "ref_equiv": ref_equiv,
             "fh_parse": fh_parse,
         },
     )
 
     return res_row
+
+
+def nuc_equivalence(
+    mapper: weaver.VariantMapper,
+    searcher: weaver.TranscriptSearch,
+    nuc_hgvs: str,
+    prot_hgvs: str,
+) -> str:
+    """weaver's verdict on ClinVar's nucleotide description against its protein one, with no c_to_p between them.
+
+    This is the comparison a caller searching by either description makes; rs_equiv instead judges weaver's
+    predicted protein. The verdict's name, or "ERR:<message>" when either description cannot be judged.
+    """
+    try:
+        level = mapper.equivalent_level(weaver.parse(nuc_hgvs), weaver.parse(prot_hgvs), searcher)
+    except Exception as e:
+        return f"ERR:{e!s}"
+    except BaseException:  # a Rust panic surfaces as pyo3's PanicException, which derives from BaseException
+        return "PANIC"
+    return str(level).split(".")[-1]
 
 
 def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, str]:
@@ -308,16 +335,15 @@ def main(argv: list[str] | None = None) -> None:
         help="Disable ferro-hgvs comparison entirely (fh_parse column will be SKIP).",
     )
     args = parser.parse_args(argv)
+    if importlib.util.find_spec("weaver_data_provider") is None:
+        print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
+        print("  pip install hgvs-weaver-data")
+        sys.exit(1)
 
     with open(args.input_file) as f_in:
         reader = csv.DictReader(f_in, delimiter="\t")
-        base_fields = [
-            f
-            for f in (reader.fieldnames or [])
-            if f
-            not in {"rs_p", "rs_spdi", "ref_p", "ref_spdi", "rs_equiv", "ref_equiv", "equivalence_level", "fh_parse"}
-        ]
-        fieldnames = [*base_fields, "rs_p", "rs_spdi", "ref_p", "ref_spdi", "rs_equiv", "ref_equiv", "fh_parse"]
+        base_fields = [f for f in (reader.fieldnames or []) if f not in {*OUTPUT_FIELDS, "equivalence_level"}]
+        fieldnames = [*base_fields, *OUTPUT_FIELDS]
         rows: list[dict[str, str]] = (
             [next(reader) for _ in range(args.max_variants)] if args.max_variants else list(reader)
         )

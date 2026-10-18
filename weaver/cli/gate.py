@@ -29,9 +29,11 @@ from weaver.cli import validate
 
 NCBI = "https://ftp.ncbi.nlm.nih.gov"
 HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
-# The SPDI column against ClinVar's; the equivalence verdict as it stands; the protein column only as answered,
+# The SPDI column against ClinVar's; the equivalence verdicts as they stand; the protein column only as answered,
 # an error or blank, since ClinVar's protein strings carry an NP accession and a spelling weaver's do not share.
-COMPARED = (("rs_spdi", "spdi"), ("rs_equiv", None), ("rs_p", None))
+COMPARED = (("rs_spdi", "spdi"), ("rs_equiv", None), ("rs_nuc_equiv", None), ("rs_p", None))
+VERDICTS = frozenset({"rs_equiv", "rs_nuc_equiv"})
+JUDGED = frozenset({"Identity", "Analogous", "Different"})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -200,43 +202,58 @@ def build(release: Release, inputs: Inputs, data: pathlib.Path) -> tuple[pathlib
     return store, genome
 
 
+def _load(path: pathlib.Path) -> tuple[list[str], dict[str, dict[str, str]]]:
+    """A validation output's columns, and its rows by nucleotide description."""
+    with path.open(newline="") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        rows = {row["variant_nuc"]: row for row in reader}
+        return list(reader.fieldnames or []), rows
+
+
+def _state(row: dict[str, str], column: str, truth: str | None) -> str:
+    """The kind of answer a cell holds, by which a moved row is counted: a verdict as itself, an error as error."""
+    value = row[column]
+    if not value:
+        return "blank"
+    if value.startswith("ERR"):
+        return "error"
+    if column in VERDICTS:
+        return value
+    if truth is None:
+        return "answered"
+    return "match" if value == row[truth] else "mismatch"
+
+
 def compare(baseline: pathlib.Path, output: pathlib.Path) -> None:
-    """Print, per compared column, the rows that moved between two validation outputs and in which direction."""
+    """Print, per compared column, the rows that moved between two validation outputs and in which direction.
 
-    def load(path: pathlib.Path) -> dict[str, dict[str, str]]:
-        with path.open(newline="") as fh:
-            return {row["variant_nuc"]: row for row in csv.DictReader(fh, delimiter="\t")}
-
-    before, after = load(baseline), load(output)
+    A column one of the two outputs lacks is reported absent rather than compared. Then the output's rows on
+    which weaver's two verdicts against ClinVar's protein disagree: through its own c_to_p, and directly.
+    """
+    (before_fields, before), (after_fields, after) = _load(baseline), _load(output)
     shared = before.keys() & after.keys()
     print(f"\n{baseline.name}: {len(before)} rows; {output.name}: {len(after)} rows; {len(shared)} shared")
 
-    def state(row: dict[str, str], column: str, truth: str | None) -> str:
-        value = row[column]
-        if not value:
-            return "blank"
-        if column == "rs_equiv":
-            return value
-        if value.startswith("ERR"):
-            return "error"
-        if truth is None:
-            return "answered"
-        return "match" if value == row[truth] else "mismatch"
-
     for column, truth in COMPARED:
+        absent = [
+            path.name for path, fields in ((baseline, before_fields), (output, after_fields)) if column not in fields
+        ]
+        if absent:
+            print(f"{column}: absent from {' and '.join(absent)}; not compared")
+            continue
         moved: collections.Counter[str] = collections.Counter()
         examples: list[tuple[str, str, str]] = []
         for key in sorted(shared):
             a, b = before[key], after[key]
             if a[column] != b[column]:
-                kinds = (state(a, column, truth), state(b, column, truth))
+                kinds = (_state(a, column, truth), _state(b, column, truth))
                 moved[f"{kinds[0]} -> {kinds[1]}"] += 1
                 if len(examples) < 5 and kinds != ("error", "error"):
                     examples.append((key, a[column][:60], b[column][:60]))
         line = f"{column}: {sum(moved.values())} rows moved"
         if truth is not None:
             pct = [
-                100 * sum(state(r, column, truth) == "match" for r in rows.values()) / len(rows)
+                100 * sum(_state(r, column, truth) == "match" for r in rows.values()) / len(rows)
                 for rows in (before, after)
             ]
             line += f"; identity {pct[0]:.3f}% -> {pct[1]:.3f}%"
@@ -245,6 +262,53 @@ def compare(baseline: pathlib.Path, output: pathlib.Path) -> None:
             print(f"    {n:6d}  {kind}")
         for key, was, now in examples:
             print(f"    e.g. {key}: {was!r} -> {now!r}")
+
+    if "rs_nuc_equiv" in after_fields:
+        _print_disagreements(after)
+
+
+def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
+    """The rows whose verdict through c_to_p (rs_equiv) differs from the direct one (rs_nuc_equiv), by pattern.
+
+    Rows both columns judge come first, a contradiction (equivalent one way, Different the other) apart from a
+    difference of level; then rows only one column judges. A row with no ClinVar protein, or that neither judges,
+    says nothing about transitivity and is only counted.
+    """
+    groups: dict[str, collections.Counter[tuple[str, str]]] = {
+        "contradict": collections.Counter(),
+        "differ in level": collections.Counter(),
+        "judged by one column only": collections.Counter(),
+    }
+    examples: dict[tuple[str, str], list[dict[str, str]]] = collections.defaultdict(list)
+    no_protein = unjudged = 0
+    for key in sorted(rows):
+        row = rows[key]
+        pattern = (_state(row, "rs_equiv", None), _state(row, "rs_nuc_equiv", None))
+        judged = [verdict in JUDGED for verdict in pattern]
+        if pattern[1] == "blank":
+            no_protein += 1
+            continue
+        if not any(judged):
+            unjudged += 1
+            continue
+        if pattern[0] == pattern[1]:
+            continue
+        if not all(judged):
+            group = "judged by one column only"
+        elif "Different" in pattern:
+            group = "contradict"
+        else:
+            group = "differ in level"
+        groups[group][pattern] += 1
+        if len(examples[pattern]) < 3:
+            examples[pattern].append(row)
+    print(f"rs_equiv against rs_nuc_equiv: {no_protein} rows with no ClinVar protein, {unjudged} judged by neither")
+    for group, patterns in groups.items():
+        print(f"  {sum(patterns.values())} rows {group}")
+        for pattern, n in patterns.most_common():
+            print(f"    {n:6d}  rs_equiv {pattern[0]}, rs_nuc_equiv {pattern[1]}")
+            for row in examples[pattern]:
+                print(f"        e.g. {row['variant_nuc']}  ClinVar {row['variant_prot']}  weaver {row['rs_p'][:60]!r}")
 
 
 def main(argv: list[str] | None = None) -> None:

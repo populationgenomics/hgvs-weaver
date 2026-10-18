@@ -201,7 +201,14 @@ uv run --group gate weaver-gate --data data/gate \
 ```
 
 The comparison lists, for the SPDI, protein and equivalence columns, how many rows moved and in which direction (match
-to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row.
+to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row. A column the baseline
+predates is reported absent rather than compared.
+
+The validation judges ClinVar's protein description twice: against the protein weaver predicts from the nucleotide
+variant, and against the nucleotide variant itself, which is the comparison a search across coordinate systems makes. If
+equivalence carried through the prediction the two verdicts would agree; the comparison ends with the rows on which they
+do not, with examples: contradictions (equivalent one way, `Different` the other) apart from differences of level
+(`Identity` one way, `Analogous` the other), and both apart from rows only one of the two could judge.
 
 To run the validation against a store built elsewhere, `weaver-validate` takes the store and genome directly, locally or
 in a bucket (`hgvs-weaver-data[gcs]` for the latter):
