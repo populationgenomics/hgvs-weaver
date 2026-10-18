@@ -156,7 +156,7 @@ fn json_round_trips_with_the_members_nested() {
 }
 
 #[test]
-fn members_normalise_and_validate_one_by_one() {
+fn members_that_meet_no_other_normalise_alone_and_validate_one_by_one() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     // c.4 is the first A of AAA (c.4_6): the deletion shifts to c.6.
@@ -319,9 +319,6 @@ fn the_identifier_is_the_same_whichever_way_the_members_are_written() {
     let forward = block("NM_X.1:c.[7C>T;13T>G]");
     let reversed = block("NM_X.1:c.[13T>G;7C>T]");
     assert_eq!(forward.id, reversed.id);
-    // The members array keeps the order written, only the digest sorts.
-    assert_eq!(forward.members[0], reversed.members[1]);
-    assert_ne!(forward.to_json(), reversed.to_json());
     // The same changes spelled on the genome, or written unnormalised.
     assert_eq!(block("NC_X.1:g.[22C>T;28T>G]").id, forward.id);
     assert_eq!(
@@ -366,7 +363,6 @@ fn cis_phased_blocks_read_back_as_cis_alleles_on_their_own_sequence() {
         ("NC_X.1:g.[19del;28T>G]", "NC_X.1:g.[21del;28T>G]"),
         ("NC_X.1:m.[22C>T;28T>G]", "NC_X.1:g.[22C>T;28T>G]"),
         ("NP_X.1:p.[Lys2Leu;Ala4del]", "NP_X.1:p.[Lys2Leu;Ala4del]"),
-        ("NM_X.1:c.[7C>T]", "NC_X.1:g.[22C>T]"),
     ] {
         let var = parse_hgvs_variant(hgvs).unwrap();
         let block = mapper.to_vrs_cis_phased(&var).unwrap();
@@ -1384,4 +1380,504 @@ fn overlapping_inversions_that_change_each_others_bases_are_not_yet_listed() {
 fn a_duplication_and_an_inversion_reading_each_others_changes_are_not_yet_listed() {
     let err = read(&reading_provider(), "NM_X.1:c.[7_9inv;7_8dup]").unwrap_err();
     assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+// Normalising an allele: choices.md, "Members of a cis allele that meet are
+// written as one change".
+
+/// `reading_provider` with short genomes whose runs the rule is about:
+/// `NC_D.1` is `TCTCT`, `NC_E.1` `CTCTT`, `NC_F.1` `TTCAGCAGTT`, `NC_G.1`
+/// `AAATAAAA`, `NC_H.1` `ACACCCCGC` and `NC_K.1` `GAAAAAG`.
+fn normalising_provider() -> Provider {
+    reading_provider()
+        .sequence("NC_D.1", "TCTCT")
+        .sequence("NC_E.1", "CTCTT")
+        .sequence("NC_F.1", "TTCAGCAGTT")
+        .sequence("NC_G.1", "AAATAAAA")
+        .sequence("NC_H.1", "ACACCCCGC")
+        .sequence("NC_K.1", "GAAAAAG")
+}
+
+fn normalise(hdp: &Provider, hgvs: &str) -> Result<SequenceVariant, HgvsError> {
+    VariantMapper::new(hdp).normalize_variant(parse_hgvs_variant(hgvs).unwrap())
+}
+
+fn normalised(hdp: &Provider, hgvs: &str) -> String {
+    normalise(hdp, hgvs)
+        .unwrap_or_else(|e| panic!("{hgvs}: {e}"))
+        .to_string()
+}
+
+#[test]
+fn members_in_one_run_are_written_as_one_change() {
+    let hdp = normalising_provider();
+    for (allele, expected) in [
+        ("NC_D.1:g.[1del;2del;5del]", "NC_D.1:g.3_5del"),
+        ("NC_E.1:g.[1del;2del;4del]", "NC_E.1:g.3_5del"),
+        ("NC_F.1:g.[3_5del;7A>T]", "NC_F.1:g.4_7delinsT"),
+        ("NC_F.1:g.[4A>T;6_8del]", "NC_F.1:g.4_7delinsT"),
+        ("NC_G.1:g.[1_3del;4del;6A>T]", "NC_G.1:g.2_6delinsT"),
+    ] {
+        assert_eq!(normalised(&hdp, allele), expected, "{allele}");
+    }
+}
+
+#[test]
+fn members_justified_over_one_run_are_merged_before_either_is_shifted() {
+    // both deletions justify over g.2_6 of GAAAAAG
+    let hdp = normalising_provider();
+    assert_eq!(
+        normalised(&hdp, "NC_K.1:g.[2del;4A>T]"),
+        "NC_K.1:g.3_4delinsT"
+    );
+    assert_eq!(
+        normalised(&hdp, "NC_K.1:g.[6del;4A>T]"),
+        "NC_K.1:g.4_5delinsT"
+    );
+}
+
+#[test]
+fn an_extent_holds_the_bases_a_member_is_written_over() {
+    // the delins changes only g.9, but is written over g.7_9, which the run
+    // of Cs the deletion is in reaches
+    assert_eq!(
+        normalised(&normalising_provider(), "NC_H.1:g.[4del;7_9delinsCGG]"),
+        "NC_H.1:g.7_9delinsGG"
+    );
+}
+
+#[test]
+fn touching_members_are_one_delins() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[7C>T;8T>G;13T>G]"),
+        "NM_X.1:c.[7_8delinsTG;13T>G]"
+    );
+}
+
+#[test]
+fn an_allele_merged_whole_is_a_plain_variant() {
+    let merged = normalise(&normalising_provider(), "NM_X.1:c.[7C>T;8T>G]").unwrap();
+    assert!(
+        matches!(&merged, SequenceVariant::Coding(_)),
+        "{merged} is not a plain variant"
+    );
+}
+
+#[test]
+fn a_group_can_reduce_to_a_deletion() {
+    // shifted one at a time, the A deleted would stop at c.7, which the
+    // substitution makes an A
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4del;7C>A]"),
+        "NM_X.1:c.7del"
+    );
+}
+
+#[test]
+fn a_group_can_reduce_to_a_duplication() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[7C>A;7_8insC]"),
+        "NM_X.1:c.6dup"
+    );
+}
+
+#[test]
+fn members_with_an_unchanged_base_between_stay_apart() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[5A>G;9G>T]"),
+        "NM_X.1:c.[5A>G;9G>T]"
+    );
+}
+
+#[test]
+fn members_in_one_codon_are_one_delins() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4A>T;6A>T]"),
+        "NM_X.1:c.4_6delinsTAT"
+    );
+}
+
+#[test]
+fn members_one_base_apart_in_two_codons_stay_apart() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[6A>T;8T>G]"),
+        "NM_X.1:c.[6A>T;8T>G]"
+    );
+}
+
+#[test]
+fn grouping_runs_across_touch_and_codon() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4A>T;6A>T;7C>G]"),
+        "NM_X.1:c.4_7delinsTATG"
+    );
+}
+
+#[test]
+fn a_genomic_allele_has_no_codon() {
+    // g.19 and g.21 are c.4 and c.6
+    assert_eq!(
+        normalised(&normalising_provider(), "NC_X.1:g.[19A>T;21A>T]"),
+        "NC_X.1:g.[19A>T;21A>T]"
+    );
+}
+
+#[test]
+fn members_outside_the_cds_have_no_codon() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[*1C>A;*3G>T]"),
+        "NM_X.1:c.[*1C>A;*3G>T]"
+    );
+}
+
+#[test]
+fn an_insertion_inside_a_codon_joins_it() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4A>T;5_6insG]"),
+        "NM_X.1:c.4_5delinsTAG"
+    );
+}
+
+#[test]
+fn an_insertion_between_two_codons_joins_neither() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[5A>T;6_7insG]"),
+        "NM_X.1:c.[5A>T;6_7insG]"
+    );
+}
+
+#[test]
+fn a_deletion_across_two_codons_groups_by_its_region() {
+    // c.9 and c.10 are GG: either deletion is justified over both codons
+    let hdp = normalising_provider();
+    assert_eq!(
+        normalised(&hdp, "NM_X.1:c.[10del;12C>T]"),
+        "NM_X.1:c.10_12delinsCT"
+    );
+    assert_eq!(
+        normalised(&hdp, "NM_X.1:c.[9del;12C>T]"),
+        "NM_X.1:c.10_12delinsCT"
+    );
+}
+
+#[test]
+fn members_in_a_codon_split_by_an_intron_stay_apart() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[4A>T;6A>T]"),
+        "NM_S.1:c.[4A>T;6A>T]"
+    );
+}
+
+#[test]
+fn members_touching_across_a_junction_stay_apart() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5A>T;6A>T]"),
+        "NM_S.1:c.[5A>T;6A>T]"
+    );
+}
+
+#[test]
+fn members_touching_in_one_exon_beside_a_junction_are_one_change() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[6A>T;7C>G]"),
+        "NM_S.1:c.6_7delinsTG"
+    );
+}
+
+#[test]
+fn a_deletion_in_an_allele_stops_at_its_exons_last_base() {
+    let hdp = normalising_provider();
+    assert_eq!(
+        normalised(&hdp, "NM_S.1:c.[4del;7C>A]"),
+        "NM_S.1:c.[5del;7C>A]"
+    );
+    assert_eq!(
+        normalised(&hdp, "NM_S.1:c.[4del;6A>T]"),
+        "NM_S.1:c.[5del;6A>T]"
+    );
+}
+
+#[test]
+fn a_duplication_in_an_allele_stops_at_its_exons_last_base() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[4dup;6A>T]"),
+        "NM_S.1:c.[5dup;6A>T]"
+    );
+}
+
+#[test]
+fn no_shift_enters_an_identity() {
+    let hdp = normalising_provider();
+    assert_eq!(normalised(&hdp, "NM_X.1:c.[4del;6=]"), "NM_X.1:c.[5del;6=]");
+    assert_eq!(normalised(&hdp, "NM_X.1:c.[4del;5=]"), "NM_X.1:c.[4del;5=]");
+}
+
+#[test]
+fn members_are_written_in_order_of_position() {
+    let hdp = normalising_provider();
+    assert_eq!(
+        normalised(&hdp, "NM_X.1:c.[13T>G;7C>T]"),
+        "NM_X.1:c.[7C>T;13T>G]"
+    );
+    // along the transcript, whichever strand it is on
+    assert_eq!(
+        normalised(&hdp, "NR_XR.1:n.[29G>A;23A>C]"),
+        "NR_XR.1:n.[23A>C;29G>A]"
+    );
+}
+
+#[test]
+fn a_non_coding_allele_is_normalised_on_its_transcript() {
+    // n.3_4 of NR_XR.1 are TT
+    assert_eq!(
+        normalised(&normalising_provider(), "NR_XR.1:n.[3T>A;4T>G]"),
+        "NR_XR.1:n.3_4delinsAG"
+    );
+}
+
+#[test]
+fn an_rna_allele_is_normalised_as_its_coding_spelling() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:r.[4a>u;6a>u]"),
+        "NM_X.1:r.4_6delinsuau"
+    );
+}
+
+#[test]
+fn a_cancelling_allele_is_the_identity_of_the_bases_its_members_name() {
+    let hdp = normalising_provider();
+    assert_eq!(normalised(&hdp, "NM_X.1:c.[4_5insA;5del]"), "NM_X.1:c.4_5=");
+    // one place along the run of As: another statement
+    assert_eq!(normalised(&hdp, "NM_X.1:c.[5_6insA;6del]"), "NM_X.1:c.5_6=");
+}
+
+#[test]
+fn members_that_cancel_on_one_reference_change_a_base_on_another() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NC_T.1:g.[4_5insA;5del]"),
+        "NC_T.1:g.5T>A"
+    );
+}
+
+#[test]
+fn a_cancelling_group_beside_a_change_leaves_an_identity() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4_5insA;5del;13T>G]"),
+        "NM_X.1:c.[4_5=;13T>G]"
+    );
+}
+
+#[test]
+fn cancelling_members_that_would_meet_a_change_are_still_a_statement() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4_5insA;5del;6A>T]"),
+        "NM_X.1:c.[4_5=;6A>T]"
+    );
+}
+
+#[test]
+fn cancelling_members_around_a_change_are_part_of_it() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4del;5A>T;6_7insA]"),
+        "NM_X.1:c.4A>T"
+    );
+}
+
+#[test]
+fn a_single_member_that_makes_the_reference_beside_a_change_is_a_statement() {
+    // c.9_12 is GGCC, its own reverse complement
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[9_12inv;13T>G]"),
+        "NM_X.1:c.[9_12=;13T>G]"
+    );
+}
+
+#[test]
+fn a_change_is_cut_at_an_agreeing_identity() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[7=;7_8delinsCG]"),
+        "NM_X.1:c.[7=;8T>G]"
+    );
+}
+
+#[test]
+fn a_change_agreeing_with_an_identity_inside_it_is_cut_there() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[8=;7_9delinsTTA]"),
+        "NM_X.1:c.[7C>T;8=;9G>A]"
+    );
+}
+
+#[test]
+fn identities_that_meet_are_written_as_one() {
+    let hdp = normalising_provider();
+    assert_eq!(normalised(&hdp, "NM_X.1:c.[7_9=;8=]"), "NM_X.1:c.7_9=");
+    assert_eq!(normalised(&hdp, "NM_X.1:c.[7_9=;10=]"), "NM_X.1:c.7_10=");
+    assert_eq!(
+        normalised(&hdp, "NM_X.1:c.[4_5insA;5del;6=]"),
+        "NM_X.1:c.4_6="
+    );
+}
+
+#[test]
+fn identities_apart_stay_apart() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[10=;20=]"),
+        "NM_X.1:c.[10=;20=]"
+    );
+}
+
+#[test]
+fn an_identity_across_a_junction_is_not_merged_with_one_inside_an_exon() {
+    // c.4_6= across the junction projects over the intron; c.4_5= does not
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[4_6=;4_5=]"),
+        "NM_S.1:c.[4_5=;4_6=]"
+    );
+}
+
+#[test]
+fn identities_in_two_exons_stay_apart() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5=;6=]"),
+        "NM_S.1:c.[5=;6=]"
+    );
+}
+
+#[test]
+fn a_member_without_a_sequence_is_kept_as_written_in_its_place() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NC_X.1:g.[30_35copy3;19del]"),
+        "NC_X.1:g.[21del;30_35copy3]"
+    );
+}
+
+#[test]
+fn an_intronic_member_apart_from_the_exons_is_kept_as_written() {
+    // c.5+2 is g.21, inside the intron; c.4del shifts to c.5
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[7C>T;5+2T>A;4del]"),
+        "NM_S.1:c.[5del;5+2T>A;7C>T]"
+    );
+}
+
+#[test]
+fn an_intronic_member_that_meets_an_exon_is_not_yet_normalised() {
+    let err = normalise(&normalising_provider(), "NM_S.1:c.[5A>T;5+1G>C]").unwrap_err();
+    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+#[test]
+fn normalising_an_ambiguous_allele_raises_with_its_readings() {
+    let err = normalise(&normalising_provider(), "NM_X.1:c.[3_4insA;5del;6_7insA]").unwrap_err();
+    let HgvsError::Ambiguous { readings, .. } = err else {
+        panic!("{err}");
+    };
+    let readings: BTreeSet<String> = readings.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        readings,
+        set(&["NM_X.1:c.[3_5=;6dup]", "NM_X.1:c.[4dup;5_7=]"])
+    );
+}
+
+#[test]
+fn normalising_a_contradictory_allele_raises() {
+    let err = normalise(&normalising_provider(), "NM_X.1:c.[7C>T;7C>G]").unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains("has no reading")),
+        "{err}"
+    );
+}
+
+#[test]
+fn normalising_an_allele_whose_readings_are_not_listed_raises() {
+    let err = normalise(&normalising_provider(), "NM_X.1:c.[7_9inv;8_10inv]").unwrap_err();
+    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+// to_vrs renders the normalised allele: choices.md, "A cis allele is the
+// sequence its members make" and "CisPhasedBlock members are sorted before
+// digesting".
+
+fn vrs(hdp: &Provider, hgvs: &str) -> VrsVariation {
+    VariantMapper::with_refget(hdp, hdp)
+        .to_vrs_variation(&parse_hgvs_variant(hgvs).unwrap())
+        .unwrap_or_else(|e| panic!("{hgvs}: {e}"))
+}
+
+#[test]
+fn the_vrs_identifier_follows_the_description() {
+    let hdp = normalising_provider();
+    let touching = vrs(&hdp, "NM_X.1:c.[7C>T;8T>G]");
+    assert!(matches!(touching, VrsVariation::Allele(_)), "{touching:?}");
+    assert_eq!(touching.id(), vrs(&hdp, "NM_X.1:c.7_8delinsTG").id());
+    let apart = vrs(&hdp, "NM_X.1:c.[5A>G;9G>T]");
+    assert!(
+        matches!(apart, VrsVariation::CisPhasedBlock(_)),
+        "{apart:?}"
+    );
+    // the same change written as one delins: another identifier
+    assert_ne!(apart.id(), vrs(&hdp, "NM_X.1:c.5_9delinsGACTT").id());
+}
+
+#[test]
+fn members_justified_over_one_run_render_as_the_allele_they_make() {
+    // a block of the members justified one at a time would be one block for
+    // two different alleles
+    let hdp = normalising_provider();
+    let first = vrs(&hdp, "NC_K.1:g.[2del;4A>T]");
+    let second = vrs(&hdp, "NC_K.1:g.[6del;4A>T]");
+    assert_eq!(first.id(), vrs(&hdp, "NC_K.1:g.3_4delinsT").id());
+    assert_eq!(second.id(), vrs(&hdp, "NC_K.1:g.4_5delinsT").id());
+    assert_ne!(first.id(), second.id());
+}
+
+#[test]
+fn a_one_member_allele_renders_as_its_members_allele() {
+    let hdp = normalising_provider();
+    assert_eq!(
+        vrs(&hdp, "NM_X.1:c.[7C>T]").id(),
+        vrs(&hdp, "NM_X.1:c.7C>T").id()
+    );
+}
+
+#[test]
+fn a_cancelling_allele_renders_as_the_reference_over_the_bases_it_names() {
+    let hdp = normalising_provider();
+    assert_eq!(
+        vrs(&hdp, "NM_X.1:c.[4_5insA;5del]").id(),
+        vrs(&hdp, "NM_X.1:c.4_5=").id()
+    );
+}
+
+#[test]
+fn a_block_carries_its_members_in_the_normalised_order() {
+    let hdp = normalising_provider();
+    let (VrsVariation::CisPhasedBlock(forward), VrsVariation::CisPhasedBlock(reversed)) = (
+        vrs(&hdp, "NM_X.1:c.[7C>T;13T>G]"),
+        vrs(&hdp, "NM_X.1:c.[13T>G;7C>T]"),
+    ) else {
+        panic!("not blocks");
+    };
+    assert_eq!(forward.members, reversed.members);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        forward.members[0],
+        mapper
+            .to_vrs(&parse_hgvs_variant("NM_X.1:c.7C>T").unwrap())
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_block_is_only_for_an_allele_that_normalises_to_several_members() {
+    let hdp = normalising_provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let err = mapper
+        .to_vrs_cis_phased(&parse_hgvs_variant("NM_X.1:c.[7C>T;8T>G]").unwrap())
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("to_vrs_variation")),
+        "{err}"
+    );
 }

@@ -2143,3 +2143,273 @@ proptest! {
         }
     }
 }
+
+// Normalising an allele in cis: the members that meet written as one change.
+
+/// A gene and a `c.` allele of up to four members packed into twelve bases
+/// of its transcript, so that members meet, share codons and sit either side
+/// of exon junctions.
+fn gene_and_dense_cis() -> impl Strategy<Value = (Gene, Vec<PlacedHgvs>)> {
+    const WINDOW: usize = 12;
+    gene().prop_flat_map(|g| {
+        let len = g.transcript_seq.len();
+        let members = prop::collection::vec(cis_member(WINDOW), 1..=4);
+        (Just(g), 0..len - WINDOW, members).prop_map(|(g, offset, members)| {
+            let members = members
+                .into_iter()
+                .map(|mut p| {
+                    p.start += offset;
+                    p.end += offset;
+                    p
+                })
+                .collect();
+            (g, members)
+        })
+    })
+}
+
+fn coding_cis(g: &Gene, members: &[PlacedHgvs]) -> hgvs_weaver::CisPhasedVariant {
+    let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+    let position = |i: usize| CVariant::position_from_index(&am, i as i32).unwrap();
+    let members = members
+        .iter()
+        .map(|p| {
+            SequenceVariant::Coding(CVariant {
+                ac: g.ac.clone(),
+                gene: None,
+                posedit: PosEdit {
+                    pos: Some(BaseOffsetInterval {
+                        start: position(p.start),
+                        end: (p.end > p.start + 1).then(|| position(p.end - 1)),
+                        uncertain: false,
+                    }),
+                    edit: p.edit.clone(),
+                    uncertain: false,
+                    predicted: false,
+                },
+            })
+        })
+        .collect();
+    hgvs_weaver::CisPhasedVariant::new(g.ac.clone(), None, members).unwrap()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// Normalising a transcript allele keeps the sequence it makes on the
+    /// genome, since no change moves or is merged across an exon junction,
+    /// and the bases it states on its transcript; and normalising it again
+    /// changes nothing. (The bases an allele states are compared on the
+    /// transcript: a member written across a junction names the intron on the
+    /// genome, so the two readings of one allele can state different bases.)
+    #[test]
+    fn normalising_a_transcript_cis_allele_keeps_its_genomic_sequence((g, members) in gene_and_dense_cis()) {
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let cis = coding_cis(&g, &members);
+        let (Ok(on_transcript), Ok(before)) = (mapper.read_cis(&cis), mapper.read_cis_on_genome(&cis)) else {
+            return Ok(());
+        };
+        let normalised = match mapper.normalize_variant(SequenceVariant::CisPhased(cis.clone())) {
+            Ok(n) => as_allele_on(&g.ac, n),
+            // Refused as not yet normalised: an error, not a wrong answer.
+            Err(hgvs_weaver::HgvsError::UnsupportedOperation(_)) => return Ok(()),
+            Err(e) => {
+                return Err(TestCaseError::fail(format!("{cis} reads but does not normalise: {e}")))
+            }
+        };
+        let after = mapper
+            .read_cis_on_genome(&normalised)
+            .map_err(|e| TestCaseError::fail(format!("{cis} normalises to {normalised}, which does not read on the genome: {e}")))?;
+        let reference = mapper.refs.reference(before.accession(), before.kind());
+        prop_assert!(before.same_sequence(&after, &reference).unwrap(), "{} and {}", cis, normalised);
+        let after_on_transcript = mapper.read_cis(&normalised).unwrap();
+        prop_assert_eq!(on_transcript.stated(), after_on_transcript.stated(), "{} and {}", cis, normalised);
+        let twice = mapper
+            .normalize_variant(SequenceVariant::CisPhased(normalised.clone()))
+            .map_err(|e| TestCaseError::fail(format!("{normalised} does not normalise again: {e}")))?;
+        prop_assert_eq!(as_allele_on(&g.ac, twice).to_string(), normalised.to_string(), "{}", cis);
+    }
+}
+
+/// The transcript property is not vacuous: on a fixed sample, a good share
+/// of the dense alleles read on both the transcript and the genome, and some
+/// of them normalise to fewer members than they are written with.
+#[test]
+fn the_generated_transcript_alleles_are_mostly_read() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = gene_and_dense_cis();
+    let cases = 1000;
+    let (mut read, mut merged) = (0, 0);
+    for _ in 0..cases {
+        let (g, members) = strategy.new_tree(&mut runner).unwrap().current();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let cis = coding_cis(&g, &members);
+        if mapper.read_cis(&cis).is_ok() && mapper.read_cis_on_genome(&cis).is_ok() {
+            read += 1;
+            let n = mapper
+                .normalize_variant(SequenceVariant::CisPhased(cis.clone()))
+                .map(|n| as_allele_on(&g.ac, n).members.len());
+            merged += usize::from(n.is_ok_and(|n| n < cis.members.len()));
+        }
+    }
+    assert!(read * 10 >= cases * 3, "{read} of {cases} alleles read");
+    assert!(merged * 10 >= cases, "{merged} of {cases} alleles merged");
+}
+
+fn as_allele_on(ac: &str, v: SequenceVariant) -> hgvs_weaver::CisPhasedVariant {
+    match v {
+        SequenceVariant::CisPhased(c) => c,
+        one => hgvs_weaver::CisPhasedVariant::new(ac.into(), None, vec![one]).unwrap(),
+    }
+}
+
+/// A short sequence and an allele of up to four members on it, some of which
+/// no sequence can be built from.
+fn seq_and_allele() -> impl Strategy<Value = (String, Vec<PlacedHgvs>)> {
+    dna(8, 24).prop_flat_map(|seq| {
+        let len = seq.len();
+        (
+            Just(seq),
+            prop::collection::vec(cis_member_or_unapplied(len), 1..=4),
+        )
+    })
+}
+
+/// A description an allele normalises to, as an allele: a plain variant is
+/// the allele of its one member.
+fn as_allele(v: SequenceVariant) -> hgvs_weaver::CisPhasedVariant {
+    match v {
+        SequenceVariant::CisPhased(c) => c,
+        one => hgvs_weaver::CisPhasedVariant::new("X".into(), None, vec![one]).unwrap(),
+    }
+}
+
+/// The allele `members` normalised, where it reads; `None` where reading it
+/// refuses it, which normalising it must then do too, or where normalising
+/// refuses it as not yet normalised, which
+/// [`the_generated_alleles_mostly_normalise`] bounds.
+fn normalised_if_read(
+    mapper: &VariantMapper,
+    members: &[PlacedHgvs],
+) -> Result<Option<hgvs_weaver::CisPhasedVariant>, TestCaseError> {
+    let cis = genomic_cis(members);
+    let read = mapper.read_cis(&cis);
+    let normalised = mapper.normalize_variant(SequenceVariant::CisPhased(cis.clone()));
+    match (read, normalised) {
+        (Ok(_), Ok(n)) => Ok(Some(as_allele(n))),
+        (Ok(_), Err(hgvs_weaver::HgvsError::UnsupportedOperation(_))) => Ok(None),
+        (Ok(_), Err(e)) => Err(TestCaseError::fail(format!(
+            "{cis} reads but does not normalise: {e}"
+        ))),
+        (Err(_), Err(_)) => Ok(None),
+        (Err(e), Ok(n)) => Err(TestCaseError::fail(format!(
+            "{cis} is refused ({e}) but normalises to {n}"
+        ))),
+    }
+}
+
+/// Normalising refuses few of the alleles that read: on a fixed sample, all
+/// but one in fifty normalise.
+#[test]
+fn the_generated_alleles_mostly_normalise() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = seq_and_allele();
+    let (mut read, mut normalised) = (0, 0);
+    for _ in 0..2000 {
+        let (seq, members) = strategy.new_tree(&mut runner).unwrap().current();
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let cis = genomic_cis(&members);
+        if mapper.read_cis(&cis).is_ok() {
+            read += 1;
+            normalised += usize::from(
+                mapper
+                    .normalize_variant(SequenceVariant::CisPhased(cis))
+                    .is_ok(),
+            );
+        }
+    }
+    assert!(
+        normalised * 50 >= read * 49,
+        "{normalised} of {read} alleles that read normalise"
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// What an allele normalises to reads, and makes the sequence the allele
+    /// makes.
+    #[test]
+    fn normalising_a_cis_allele_keeps_its_sequence((seq, members) in seq_and_allele()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let Some(normalised) = normalised_if_read(&mapper, &members)? else {
+            return Ok(());
+        };
+        let cis = genomic_cis(&members);
+        let reference = mapper.refs.reference("X", G);
+        let before = mapper.read_cis(&cis).unwrap();
+        let after = mapper
+            .read_cis(&normalised)
+            .map_err(|e| TestCaseError::fail(format!("{cis} normalises to {normalised}, which does not read: {e}")))?;
+        prop_assert!(before.same_sequence(&after, &reference).unwrap(), "{} and {}", cis, normalised);
+    }
+
+    /// What an allele normalises to states the bases the allele states.
+    #[test]
+    fn normalising_a_cis_allele_keeps_its_stated_bases((seq, members) in seq_and_allele()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let Some(normalised) = normalised_if_read(&mapper, &members)? else {
+            return Ok(());
+        };
+        let cis = genomic_cis(&members);
+        let before = mapper.read_cis(&cis).unwrap();
+        let after = mapper
+            .read_cis(&normalised)
+            .map_err(|e| TestCaseError::fail(format!("{cis} normalises to {normalised}, which does not read: {e}")))?;
+        prop_assert_eq!(before.stated(), after.stated(), "{} and {}", cis, normalised);
+    }
+
+    /// Normalising what an allele normalises to changes nothing.
+    #[test]
+    fn normalising_a_cis_allele_twice_is_normalising_it_once((seq, members) in seq_and_allele()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let Some(once) = normalised_if_read(&mapper, &members)? else {
+            return Ok(());
+        };
+        let twice = mapper
+            .normalize_variant(SequenceVariant::CisPhased(once.clone()))
+            .map_err(|e| TestCaseError::fail(format!("{once} does not normalise again: {e}")))?;
+        prop_assert_eq!(as_allele(twice).to_string(), once.to_string(), "{}", genomic_cis(&members));
+    }
+
+    /// The order members are written in does not change what the allele
+    /// normalises to: its statements, its changes, or the error refusing it.
+    #[test]
+    fn a_cis_alleles_statements_do_not_depend_on_member_order(
+        (seq, members, shuffled) in seq_and_allele().prop_flat_map(|(seq, m)| {
+            (Just(seq), Just(m.clone()), Just(m).prop_shuffle())
+        })
+    ) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let normalise = |m: &[PlacedHgvs]| {
+            mapper
+                .normalize_variant(SequenceVariant::CisPhased(genomic_cis(m)))
+                .map(|n| n.to_string())
+                .map_err(|e| std::mem::discriminant(&e))
+        };
+        prop_assert_eq!(
+            normalise(&members),
+            normalise(&shuffled),
+            "{} and {}", genomic_cis(&members), genomic_cis(&shuffled)
+        );
+    }
+}

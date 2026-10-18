@@ -93,12 +93,12 @@ impl ExonBounds {
 
     /// Which exon holds `index`, counting from 0; the exon count for an index
     /// past the last.
-    fn exon(&self, index: usize) -> usize {
+    pub(crate) fn exon(&self, index: usize) -> usize {
         self.ends.partition_point(|&e| e <= index)
     }
 
     /// One past the last index of the exon holding `index`.
-    fn exon_end(&self, index: usize) -> usize {
+    pub(crate) fn exon_end(&self, index: usize) -> usize {
         self.ends
             .get(self.exon(index))
             .copied()
@@ -106,7 +106,7 @@ impl ExonBounds {
     }
 
     /// The first index of the exon holding `index`.
-    fn exon_start(&self, index: usize) -> usize {
+    pub(crate) fn exon_start(&self, index: usize) -> usize {
         match self.exon(index) {
             0 => 0,
             i => self.ends[i - 1],

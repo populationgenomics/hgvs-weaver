@@ -439,6 +439,11 @@ class VariantMapper:
 
         Normalization is performed in the coordinate space of the input variant.
 
+        An allele in cis of nucleotide members, c.[a;b], has its members that meet
+        written as the one change they make, statements as identities, and each
+        member that meets no other normalised as a single variant is, in order of
+        position; when one member is left, the result is that plain variant.
+
         Args:
             var: The Variant object to normalize.
 
@@ -447,6 +452,8 @@ class VariantMapper:
 
         Raises:
             HGVSError: If normalization fails due to reference sequence boundaries.
+            AmbiguousDescriptionError: If an allele in cis has several readings.
+            ValidationError: If an allele in cis has no reading.
         """
     def p_to_c(self, var_p: Variant, transcript_ac: str | None = ...) -> tuple[Variant, bool]:
         """
@@ -530,11 +537,15 @@ class VariantMapper:
         same over the deleted range. Unknown bases cannot slide, so neither is
         normalised.
 
-        An allele in cis, c.[145C>T;147C>G], becomes a CisPhasedBlock whose
-        ``members`` are the members' Alleles, each canonicalised on its own and
-        kept in the order written, with the shared sequence as
-        ``sequenceReference``. Its identifier (ga4gh:CPB.) does not depend on the
-        order of the members. The dict's ``type`` says which object was returned.
+        An allele in cis of nucleotide members is normalised first
+        (normalize_variant), so members that meet become one Allele. One that
+        normalises to a single change is that change's object; otherwise it becomes a
+        CisPhasedBlock whose ``members`` are the normalised members' Alleles, in
+        order of position, with the shared sequence as ``sequenceReference``. Its
+        identifier (ga4gh:CPB.) does not depend on the order of the members. An
+        allele of protein members becomes a block of its members as written.
+
+        The dict's ``type`` says which object was returned.
 
         Args:
             var: A g., m., c., n., r. or p. Variant, or an allele in cis of any of
