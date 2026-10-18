@@ -183,7 +183,6 @@ pub mod reference;
 pub mod refget;
 pub mod structs;
 pub mod transcript_mapper;
-pub mod transform;
 pub mod utils;
 pub mod vrs;
 
@@ -196,4 +195,3 @@ pub use mapper::VariantMapper;
 pub use structs::{
     CVariant, CisPhasedVariant, GVariant, MVariant, NVariant, PVariant, RVariant, Variant,
 };
-pub use transform::{transform_variant, StartCodonConvention, VariantTransformSettings};

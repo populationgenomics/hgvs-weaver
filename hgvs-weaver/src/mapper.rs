@@ -1012,7 +1012,7 @@ fn statement_about_transcript(
     transcript: &TranscriptData,
     protein_ac: &str,
 ) -> Option<PVariant> {
-    use crate::structs::{AAPosition, AaInterval, ProteinPos, ProteinStatement};
+    use crate::structs::{AaInterval, ProteinStatement};
     let pos = var_c.posedit.pos.as_ref()?;
     let statement = |pos: Option<AaInterval>, statement: ProteinStatement| {
         predicted_statement(var_c, protein_ac, pos, statement)
@@ -1044,15 +1044,7 @@ fn statement_about_transcript(
     Some(if covers_cds && deletes {
         statement(None, ProteinStatement::NoProtein { uncertain: true })
     } else if reaches_cds {
-        let met1 = AaInterval {
-            start: AAPosition {
-                base: ProteinPos(0).to_hgvs(),
-                aa: "Met".to_string(),
-            },
-            end: None,
-            uncertain: false,
-        };
-        statement(Some(met1), ProteinStatement::Unknown)
+        statement(Some(crate::protein::met1()), ProteinStatement::Unknown)
     } else {
         statement(None, ProteinStatement::Unknown)
     })
@@ -2335,8 +2327,8 @@ impl<'a> VariantMapper<'a> {
 
     /// What a coding variant does to the protein: a statement (`p.?`,
     /// `p.(Met1?)`, `p.0?`, `p.(=)`) when the edit lies outside or across the CDS
-    /// boundary or leaves no codon where the protein first changes, else the
-    /// resolved change to describe or read.
+    /// boundary, leaves no codon where the protein first changes, or changes
+    /// the first codon, else the resolved change to describe or read.
     fn coding_outcome(
         &self,
         var_c: &CVariant,
@@ -2412,6 +2404,12 @@ impl<'a> VariantMapper<'a> {
                 None,
                 crate::structs::ProteinStatement::Unknown,
             )));
+        }
+        if reading.changes_start() {
+            let mut var_p = reading.describe()?;
+            var_p.gene = var_c.gene.clone();
+            var_p.posedit.predicted = true;
+            return Ok(CodingOutcome::Statement(var_p));
         }
         Ok(CodingOutcome::Change(reading))
     }

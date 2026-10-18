@@ -659,11 +659,12 @@ proptest! {
     /// that codon's residue, and the whole protein unchanged, two that are
     /// each the same as a third are the same as each other. Statements that
     /// say only where a change starts, `p.Met1?`, are not generated: they
-    /// match changes that differ from each other.
+    /// match changes that differ from each other. So the start codon, whose
+    /// every change predicts `p.(Met1?)`, is not a site.
     #[test]
     fn protein_side_equivalence_is_transitive(
         g in gene(),
-        site in (0usize..3, 0usize..3, prop::sample::select(BASES.to_vec())),
+        site in (1usize..3, 0usize..3, prop::sample::select(BASES.to_vec())),
         picks in prop::collection::vec((0u8..9, prop::sample::select(RESIDUES.to_vec())), 3),
     ) {
         let am = TranscriptMapper::new(g.transcript_data()).unwrap();
@@ -958,7 +959,8 @@ fn leaves_unnamed(predicted: &PVariant) -> bool {
 
 proptest! {
     /// A single-base substitution in the CDS is described exactly as the codon
-    /// table says: silent, missense, nonsense or a stop-loss extension.
+    /// table says: silent, missense, nonsense or a stop-loss extension; in the
+    /// start codon, an unknown change from Met1.
     #[test]
     fn snv_effect_follows_the_codon_table(g in gene(), pick in 0usize..10_000, alt in prop::sample::select(BASES.to_vec())) {
         let cds_len = g.cds_end + 1 - g.cds_start;
@@ -979,7 +981,9 @@ proptest! {
         let alt_codon: String = alt_codon.into_iter().collect();
         let (r, a) = (translate_codon(codon).unwrap(), translate_codon(&alt_codon).unwrap());
         let n = ci + 1;
-        let expected = if r == a {
+        let expected = if ci == 0 {
+            "NP_PROP.1:p.(Met1?)".to_string()
+        } else if r == a {
             format!("NP_PROP.1:p.({}{}=)", aa1_to_aa3(r), n)
         } else if a == '*' {
             format!("NP_PROP.1:p.({}{}Ter)", aa1_to_aa3(r), n)
@@ -1174,7 +1178,8 @@ proptest! {
     /// The protein allele of a coding change, applied to the protein, is the
     /// protein the edited transcript encodes, to its first stop, for every
     /// kind of change: silent, missense, nonsense, in-frame, frameshift,
-    /// stop loss.
+    /// stop loss. A change to the start codon predicts no protein sequence,
+    /// so it has no allele.
     #[test]
     fn the_protein_allele_is_the_edited_translation(g in gene(), pick in 0usize..10_000, alt in prop::sample::select(BASES.to_vec()), kind in 0u8..3) {
         let am = TranscriptMapper::new(g.transcript_data()).unwrap();
@@ -1190,12 +1195,18 @@ proptest! {
         // An insertion is written between two bases; keep it inside the CDS.
         let (start, end) = if kind == 2 { if pos + 1 > g.cds_end { return Ok(()) } (pos, pos + 2) } else { (pos, end) };
         let vc = coding_variant(&g, &am, start, end, edit.clone());
+        let edited = apply(&g.transcript_seq, &PlacedHgvs { start, end, edit });
+        let first_codon = g.cds_start..g.cds_start + 3;
+        if edited.get(first_codon.clone()) != g.transcript_seq.get(first_codon) {
+            let allele = mapper.protein_allele(&vc, Some("NP_PROP.1"));
+            prop_assert!(matches!(allele, Err(hgvs_weaver::HgvsError::UnsupportedOperation(_))), "{}: {:?}", vc, allele);
+            return Ok(());
+        }
         let allele = mapper.protein_allele(&vc, Some("NP_PROP.1")).unwrap();
         let protein = hgvs_weaver::utils::translate(&g.transcript_seq[g.cds_start..=g.cds_end]);
         let protein = protein.trim_end_matches('*');
         prop_assert_eq!(&allele.accession, "NP_PROP.1");
         let applied = format!("{}{}{}", &protein[..allele.start], allele.alternate, &protein[allele.end..]);
-        let edited = apply(&g.transcript_seq, &PlacedHgvs { start, end, edit });
         let expected: String = hgvs_weaver::utils::translate(&edited[g.cds_start..]).split('*').next().unwrap().to_string();
         prop_assert_eq!(applied, expected, "{} ({})", vc, mapper.c_to_p(&vc, Some("NP_PROP.1")).map(|p| p.to_string()).unwrap_or_else(|e| e.to_string()));
     }

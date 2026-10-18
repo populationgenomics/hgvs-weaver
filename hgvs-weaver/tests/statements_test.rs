@@ -9,10 +9,7 @@ use hgvs_weaver::edits::{AaEdit, NaEdit, ProteinStatement, RnaStatement};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::{
-    parse_hgvs_variant, transform_variant, SequenceVariant, StartCodonConvention,
-    VariantTransformSettings,
-};
+use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
 use support::{exon, transcript, Provider};
 
 /// NM_W.1, CDS at transcript indices 5..=94 encoding NP_W.1, spliced from
@@ -441,24 +438,6 @@ fn the_mappers_probably_no_protein_reparses_to_itself() {
 #[test]
 fn the_mappers_unknown_effect_reparses_to_itself() {
     let p = c_to_p("NM_W.1:c.45+1C>A");
-    assert_eq!(parse(&p.to_string()), p);
-}
-
-#[test]
-fn the_start_codon_transform_of_a_one_letter_description_reparses_to_itself() {
-    let settings = VariantTransformSettings {
-        start_codon: StartCodonConvention::HgvsQuestion,
-    };
-    let p = transform_variant(&parse("NP_W.1:p.(M1V)"), &settings);
-    assert_eq!(parse(&p.to_string()), p);
-}
-
-#[test]
-fn the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself() {
-    let settings = VariantTransformSettings {
-        start_codon: StartCodonConvention::HgvsQuestion,
-    };
-    let p = transform_variant(&parse("NP_W.1:p.(Met1Val)"), &settings);
     assert_eq!(parse(&p.to_string()), p);
 }
 

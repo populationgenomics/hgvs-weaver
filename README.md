@@ -24,8 +24,8 @@ the Python package wraps it with typed exceptions and protocol-based data access
   genomic form); `c.` and `r.` to `p.`; `p.` back to `c.` for substitutions.
 - **Protein consequences read from codons**, not from a protein-string diff: silent, missense, nonsense, in-frame
   changes written 3'-most, frameshifts with the distance to the new stop, stop losses as extensions, a stop formed
-  inside inserted bases, selenocysteine `TGA` not read as a stop, the declared CDS end as the reference stop; an edit
-  across the start codon gives `p.(Met1?)`, a deleted CDS `p.0?`.
+  inside inserted bases, selenocysteine `TGA` not read as a stop, the declared CDS end as the reference stop; a change
+  to the start codon gives `p.(Met1?)`, a deleted CDS `p.0?`.
 - **Normalisation** by the 3' rule, cyclic over repeats, with insertions that repeat their neighbours written as
   duplications and a delins reduced to the edit it is first; on a transcript nothing moves across an exon junction; the
   bases an edit states are written bare; intronic edits and uncertain positions are left as written. **Stated bases and

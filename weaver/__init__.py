@@ -12,12 +12,10 @@ from weaver._weaver import (  # type: ignore[attr-defined]
     NoProteinStatementError,
     ParseError,
     ReferenceMismatchError,
-    StartCodonConvention,
     UnsupportedOperationError,
     ValidationError,
     Variant,
     VariantMapper,
-    VariantTransformSettings,
     parse,
 )
 
@@ -34,14 +32,12 @@ __all__ = [
     "ParseError",
     "ReferenceMismatchError",
     "Refget",
-    "StartCodonConvention",
     "TranscriptData",
     "TranscriptSearch",
     "UnsupportedOperationError",
     "ValidationError",
     "Variant",
     "VariantMapper",
-    "VariantTransformSettings",
     "parse",
 ]
 

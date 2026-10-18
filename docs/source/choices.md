@@ -26,7 +26,7 @@ The specification writes a `?` after a residue only at the start codon; weaver r
 change from that residue on of which nothing more is said, and records that reading as its own.
 
 Applied in: [a description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing),
-[a start-codon change is written specifically](#a-start-codon-change-is-written-specifically) (a departure),
+[a change to the start codon is an unknown change from Met1](#a-change-to-the-start-codon-is-an-unknown-change-from-met1),
 [CisPhasedBlock members are sorted before digesting](#cisphasedblock-members-are-sorted-before-digesting) (a departure),
 [a transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion),
 [mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery),
@@ -72,7 +72,8 @@ Applied in: [a description that says nothing matches nothing](#a-description-tha
 [edits outside the CDS are statements](#edits-outside-the-cds-are-statements),
 [the whole transcript unchanged is a statement](#the-whole-transcript-unchanged-is-a-statement-not-a-change),
 [protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change),
-[uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds).
+[uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds),
+[a change to the start codon is an unknown change from Met1](#a-change-to-the-start-codon-is-an-unknown-change-from-met1).
 
 ### Equality is the allele
 
@@ -140,7 +141,7 @@ the value it built.
 
 Applied in: [recommended spellings on output](#recommended-spellings-on-output),
 [a prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it),
-[a start-codon change is written specifically](#a-start-codon-change-is-written-specifically),
+[a change to the start codon is an unknown change from Met1](#a-change-to-the-start-codon-is-an-unknown-change-from-met1),
 [positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0).
 
 ### Bounds before bases
@@ -201,7 +202,7 @@ Representation Specification 2.0.1.
 | [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change)                           |                           agrees                           |        –         |                –                |        –         |
 | [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter)     |                           agrees                           |        –         |                –                |        –         |
 | [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |                           agrees                           |        –         |                –                | spelling differs |
-| [A start-codon change is written specifically](#a-start-codon-change-is-written-specifically)                                       |                        **differs**                         |     differs      |             differs             |        –         |
+| [A change to the start codon is an unknown change from Met1](#a-change-to-the-start-codon-is-an-unknown-change-from-met1)           |                           agrees                           |      agrees      |             agrees              |     differs      |
 | [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements)                                                       | **differs** on a new upstream ATG; silent on no codon left |      agrees      |             differs             |     differs      |
 | [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |             agrees; **differs** in equivalence             |     differs      |                –                |        –         |
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |                           agrees                           |        –         |                –                |        –         |
@@ -236,7 +237,7 @@ Representation Specification 2.0.1.
 
 **Spec** is the HGVS nomenclature, or VRS or refget where the choice is about them; a dash means it is silent, and a
 verdict silent on part of the choice names that part, given in full in the entry. For a tool, a dash means it was not
-checked or the choice does not apply to it. The four departures from a specification are in bold.
+checked or the choice does not apply to it. Departures from a specification are in bold.
 
 ## Projection between sequences
 
@@ -1695,28 +1696,29 @@ so every spelling of one change reads alike, and a copy of the Sec codon is Sec.
 `TGA>TAA` is `p.(Sec3Ter)`.
 
 The rule takes the annotation's word for where translation starts and does not second-guess the codon. A change that
-leaves the first codon as it is leaves Met; a change to the first codon is read as the codon it makes, so on a `CTG`
-start `c.1C>T` is `p.(Met1Leu)`, as `c.1A>T` is on an `ATG` start
-([start-codon changes](#a-start-codon-change-is-written-specifically)).
+leaves the first codon as it is leaves Met. A change to the first codon cannot change residue 1, which is Met whatever
+the codon; it changes whether and where translation starts, which is not predicted, so on a `CTG` start `c.1C>T` is
+`p.(Met1?)`, as `c.1A>T` is on an `ATG` start
+([changes to the start codon](#a-change-to-the-start-codon-is-an-unknown-change-from-met1)).
 
 **Example** (a toy CDS `CTG AAA CTG GCC TAT CGC TAA` whose record is `MKLAYR`; one with `TGA` at codon 3, `MKUAYR`):
 
 ```text
 CTG start c.6dup        →  protein left MKTGLSLTV, not LKTGLSLTV
-CTG start c.1C>T        →  p.(Met1Leu)
+CTG start c.1C>T        →  p.(Met1?)
 CTG start c.1_3=        →  p.(Met1=)
 TGA at 3  c.12dup       →  protein left MKUALSLTV, not MK*ALSLTV
 TGA at 3  c.7T>C        →  p.(Sec3Arg), not p.(Ter3Arg)
 TGA at 3  c.8G>A        →  p.(Sec3Ter)
 TGA at 3  c.7_9dup      →  p.(Sec3dup), as c.9_10insTGA
 AAA start c.6dup        →  protein left MKTGLSLTV: the annotated start is Met
-AAA start c.1_2delinsTA →  p.(Met1Ter)
 ```
 
 - **Others:** not checked.
 - **Spec (silent):** none on a start that is not `ATG`; the nomenclature numbers the initiating Met as residue 1.
 - **Tests:** `equivalence_test::a_non_aug_start_predicts_the_protein_the_record_names`,
-  `::a_selenoprotein_predicts_the_protein_the_record_names`, `::a_change_to_a_non_aug_start_codon_is_named_at_met1`,
+  `::a_selenoprotein_predicts_the_protein_the_record_names`,
+  `::a_change_to_a_non_aug_start_codon_is_an_unknown_change_from_met1`,
   `::a_non_aug_initiator_unchanged_is_met1_unchanged`, `::a_non_aug_start_has_a_protein_allele`,
   `::an_aaa_annotated_start_reads_as_met`, `::a_change_at_a_selenocysteine_is_named_at_sec`,
   `::a_change_at_a_selenocysteine_is_its_prediction_confirmed`, `::a_selenocysteine_unchanged_is_named_at_sec`,
@@ -1727,8 +1729,8 @@ AAA start c.1_2delinsTA →  p.(Met1Ter)
   `::a_duplicated_selenocysteine_codon_is_a_selenocysteine`,
   `::a_selenocysteine_codon_inserted_after_its_copy_is_the_same_duplication`,
   `::a_frameshift_from_a_non_aug_start_is_the_frameshift_written_without_its_length`,
-  `::a_frameshift_past_a_selenocysteine_is_the_frameshift_written_without_its_length`;
-  `equivalence_cases_test::test_immediate_stop_normalization`.
+  `::a_frameshift_past_a_selenocysteine_is_the_frameshift_written_without_its_length`,
+  `::a_non_aug_start_codon_made_atg_is_an_unknown_change_from_met1`.
 
 ### A frameshift that starts at the stop is an extension
 
@@ -1780,7 +1782,7 @@ frameshift.**
 ```text
 toy c.4_12delinsCTGTAA     →  p.Lys2_Ala4delinsLeuTer    in frame
 toy c.4_12delinsCTGTAAGG   →  p.Lys2_Ala4delinsLeuTer    9 bases out, 8 in: the frame breaks, but after the stop
-NM_1.1:c.1_2delinsTA       →  NP_1.1:p.(Lys1Ter)         not p.Lys1fsTer1
+NM_1.1:c.4_5delinsTAG      →  NP_1.1:p.(Gly2Ter)         not p.Gly2fsTer1
 ```
 
 - **Others:** not checked.
@@ -1788,7 +1790,7 @@ NM_1.1:c.1_2delinsTA       →  NP_1.1:p.(Lys1Ter)         not p.Lys1fsTer1
   which introduce an immediate translation termination (stop) codon are described as nonsense variant", not a
   frameshift.
 - **Tests:** `src/protein.rs::a_stop_inside_the_inserted_bases_is_a_delins_not_a_frameshift`;
-  `equivalence_cases_test::test_immediate_stop_normalization`.
+  `equivalence_cases_test::an_immediate_stop_from_a_delins_is_nonsense_not_a_frameshift`.
 
 ### In-frame changes are written 3'-most
 
@@ -1809,50 +1811,98 @@ c.4_6dup   →  p.Lys3dup
 - **Tests:** `src/protein.rs::in_frame_deletion_and_duplication_take_the_3_prime_position`;
   `protein_insertions_are_written_3_prime_most` and `in_frame_indels_describe_the_translated_protein` (properties).
 
-### A start-codon change is written specifically
+### A change to the start codon is an unknown change from Met1
 
-**`c.1A>G` is `p.(Met1Val)`, not `p.(Met1?)`, because the specific prediction carries more information.**
+**A change that alters the first codon is `p.(Met1?)`, unless it deletes the whole CDS or leaves no codon to read:
+`c.1A>G` is `p.(Met1?)`, not `p.(Met1Val)`. For an edit inside the CDS, whether the first codon changed is read from the
+sequences, the edited transcript's first codon against the reference's, not from where the edit is written.**
 
-This is the one choice on this page where weaver's default output departs from an explicit recommendation, and it is a
-contentious one. The nomenclature's reasoning is that translation may initiate elsewhere, so the consequence cannot be
-predicted; weaver's is that `p.(Met1Val)` says which codon changed and how, is written as a prediction, and can be
-reduced to `p.(Met1?)` but not recovered from it. `VariantTransformSettings` with `StartCodonConvention::HgvsQuestion`
-rewrites it on request, keeping whether it was a prediction: `p.(Met1Val)` becomes `p.(Met1?)`, a stated `p.Met1Val`
-becomes `p.Met1?`.
+Residue 1 is not read from its codon: the initiator tRNA brings Met whichever codon it pairs with
+([the protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)), so a change to the start
+codon cannot change residue 1. What it changes is whether translation starts there, and if not, where. It may leave the
+same protein, made less efficiently; a protein starting at a downstream Met, `p.Leu2_Met124del`; one starting upstream,
+an N-terminal extension or a delins; or none, `p.0?`. Which happens cannot be read from the sequence, so the
+nomenclature writes `p.(Met1?)`, a change from Met1 on of which nothing more is said, and rules out the alternative: "Do
+not use descriptions like `p.Met1Thr`, this is for sure **not** the consequence of the effect on protein translation". A
+substitution at Met1 would also contradict the initiator rule: a `CTG` start reads as Met, so `ATG>CTG` written
+`p.(Met1Leu)` would read one codon at residue 1 as Met on one transcript and as Leu on another.
+
+The question is asked of the sequences so that every spelling of one change reads alike, as the other rules about
+residues are ([the protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)). It follows
+that:
+
+- a `CTG` start made `ATG` is a change to the start codon, though both read as Met: translation may now start elsewhere,
+  or more often;
+- an edit whose result leaves the first three bases as they were is not one, and is predicted as usual: an identity,
+  `p.(Met1=)`; a delins that writes the codon back as itself, `p.(Met1=)`; an insertion between `c.3` and `c.4`,
+  `p.(Met1_Met2insGly)`;
+- a change that starts in the 5'UTR and reaches the CDS, short of deleting all of it, is `p.(Met1?)` by its positions,
+  whatever it leaves ([edits outside the CDS](#edits-outside-the-cds-are-statements));
+- one that leaves no codon where the protein first changes, such as a deletion from `c.1` to the end of the transcript,
+  is `p.?`, as it is anywhere in the CDS ([edits outside the CDS](#edits-outside-the-cds-are-statements));
+- a 5'UTR change that makes a new upstream start, which the nomenclature writes `p.(Met1ext-5)`, is not predicted
+  ([#88](https://github.com/populationgenomics/hgvs-weaver/issues/88)).
+
+`p.(Met1?)` names no protein sequence, so a change to the start codon has no protein allele and no predicted protein. In
+equivalence it is its own prediction confirmed ([below](#a-prediction-is-bracketed-as-hgvs-writes-it)), Identity with
+`p.Met1?`; against a description that changes the protein from residue 1, such as the `p.Met1Val` ClinVar writes, it is
+Analogous: the statement says a change starts at Met1 and that one does
+([a description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)).
 
 `p.Met1?` read from text is the same statement weaver writes: an unknown change from `Met1` on, not a substitution of
 `Met1` by an unknown residue, which would be `p.Met1Xaa`, the commitment the nomenclature declines to make. The
-bracketed `p.(Met1?)` the nomenclature writes is the same statement as a prediction, and is what `c_to_p` writes
-([below](#a-prediction-is-bracketed-as-hgvs-writes-it)). So what `c_to_p` and the transform write reads back as the
-value they built. The statement names one residue, certain: `p.Met1_Arg3?` and `p.(Met1)?` do not parse.
+bracketed `p.(Met1?)` is the same statement as a prediction, so what `c_to_p` writes reads back as the value it built.
+The statement names one residue, certain: `p.Met1_Arg3?` and `p.(Met1)?` do not parse.
 
-**Example:**
+**Example** (`NM_0001.3` starts `ATG ATG CAT`; the `CTG` start is the toy CDS `CTG AAA CTG GCC TAT CGC TAA`):
 
 ```text
-NM_0001.3:c.1A>T          →  NP_0001.1:p.(Met1Leu)
-NM_007199.2:c.1A>G        →  NP_009130.2:p.(Met1Val)     weaver
-                          →  NP_009130.2:p.Met1?         biocommons and VariantValidator
+NM_0001.3:c.1A>G             →  NP_0001.1:p.(Met1?)
+NM_0001.3:c.2del             →  NP_0001.1:p.(Met1?)
+NM_0001.3:c.1_2delinsCT      →  NP_0001.1:p.(Met1?)
+NM_0001.3:c.2_3insT          →  NP_0001.1:p.(Met1?)
+NM_0001.3:c.1_3delinsATG     →  NP_0001.1:p.(Met1=)               the codon written as itself
+NM_0001.3:c.3_4insGGG        →  NP_0001.1:p.(Met1_Met2insGly)     after the codon
+NM_0001.3:c.2_3insG          →  NP_0001.1:p.(Met2AspfsTer?)       inside the codon, but leaves it: c.3dup
+NM_0001.3:c.1_*62del         →  NP_0001.1:p.?                     nothing left to translate
+CTG start c.1C>A             →  p.(Met1?)                         CTG made ATG: still a start-codon change
+NM_007199.2:c.1A>G           →  NP_009130.2:p.(Met1?)             biocommons and VariantValidator: p.Met1?
 
-transform NP_000051.2:p.(Met1Val)  →  NP_000051.2:p.(Met1?)    with start_codon = HgvsQuestion
-transform NP_000051.2:p.Met1Val    →  NP_000051.2:p.Met1?
+c.1A>G  against  p.Met1?, p.(Met1?)   →  Identity
+c.1A>G  against  p.Met1Val            →  Analogous
 
 parse NP_W.1:p.(Met1?)    →  the unknown change from Met1 that c_to_p builds for NM_W.1:c.-3_4del
 parse NP_W.1:p.Met1?      →  the same, stated
 ```
 
-- **Differs:** biocommons and VariantValidator write `p.Met1?`, the nomenclature's `p.(Met1?)` without its parentheses.
-  A recorded difference. biocommons reads the `?` of `p.Met1?` as a substitution to an unknown residue (its grammar
-  table); weaver reads it as the statement.
-- **Spec (differs):**
-  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/): `p.(Met1?)` when
-  "the consequence, on the protein level, of a variant affecting the translation initiation codon can not be predicted".
-- **Tests:** `mapping_test::test_mapper_c_to_p_start_codon_subst`;
-  `real_transcripts_test::biocommons_real_transcript_cases` (INITMET01, recorded);
-  `src/transform.rs::test_transform_met1_to_question`, `::test_transform_stated_met1_to_stated_question`;
+- **Agrees:** biocommons (INITMET01 in its test table) and VariantValidator write `p.Met1?`, unbracketed
+  ([a prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)). biocommons reads the
+  `?` of `p.Met1?` as a substitution to an unknown residue (its grammar table); weaver reads it as the statement.
+- **Differs:** ClinVar writes a change to the start codon as a substitution, `p.Met1Thr`, `p.Met1Val`, or as a
+  frameshift, `p.Met1fs`: 128 rows in the 100,000-variant sample, none as `p.Met1?`.
+- **Spec (agrees):** [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/):
+  `p.(Met1?)` when "the consequence, on the protein level, of a variant affecting the translation initiation codon can
+  not be predicted", and "Do not use descriptions like `p.Met1Thr`, this is for sure **not** the consequence of the
+  effect on protein translation".
+- **Tests:** `mapping_test::a_substitution_in_the_atg_start_codon_is_an_unknown_change_from_met1`,
+  `::a_frameshift_in_the_start_codon_is_an_unknown_change_from_met1`,
+  `::a_two_base_delins_inside_the_start_codon_is_an_unknown_change_from_met1`,
+  `::an_insertion_inside_the_start_codon_is_an_unknown_change_from_met1`,
+  `::a_delins_that_rewrites_the_start_codon_as_itself_leaves_met1_unchanged`,
+  `::an_insertion_inside_the_start_codon_that_leaves_it_is_a_frameshift_from_met2`,
+  `::an_insertion_after_the_start_codon_is_predicted_as_an_insertion`,
+  `::a_deletion_from_the_start_codon_to_the_end_of_the_transcript_is_an_unknown_effect`;
+  `equivalence_test::a_change_to_a_non_aug_start_codon_is_an_unknown_change_from_met1`,
+  `::a_non_aug_start_codon_made_atg_is_an_unknown_change_from_met1`,
+  `::a_start_codon_change_is_identical_to_the_unknown_change_from_met1_stated`,
+  `::a_start_codon_change_is_identical_to_the_unknown_change_from_met1_predicted`,
+  `::a_start_codon_change_is_analogous_to_a_substitution_at_met1`;
+  `src/protein.rs::an_insertion_inside_the_first_codon_is_an_unknown_change_from_met1`,
+  `::a_lowercase_start_codon_written_back_as_itself_is_unchanged`;
+  `real_transcripts_test::biocommons_real_transcript_cases` (INITMET01); `snv_effect_follows_the_codon_table` and
+  `the_protein_allele_is_the_edited_translation` (properties);
   `statements_test::a_predicted_p_met1_unknown_parses_to_what_the_mapper_builds`,
-  `::the_start_codon_transforms_unknown_change_from_met1_reparses_to_itself`,
-  `::the_start_codon_transform_of_a_one_letter_description_reparses_to_itself`,
-  `::a_predicted_unknown_change_from_met1_prints_back_as_parsed`.
+  `::a_predicted_unknown_change_from_met1_prints_back_as_parsed`; `tests/test_api.py::test_c_to_p`.
 
 ### Edits outside the CDS are statements
 
@@ -1981,10 +2031,9 @@ An identity that covers no whole codon makes no statement about the protein, and
 description does not ([edits outside the CDS](#edits-outside-the-cds-are-statements)).
 
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
-parsed description keeps the parentheses it was written with, and the start-codon transform keeps whether its input was
-a prediction. A prediction's parentheses enclose the whole description; those of an uncertain residue or range,
-`p.(Gln18)[(70_80)]`, belong to the position, so a description that opens with one is not a prediction, and
-`p.((Gln18)[(70_80)])` is.
+parsed description keeps the parentheses it was written with. A prediction's parentheses enclose the whole description;
+those of an uncertain residue or range, `p.(Gln18)[(70_80)]`, belong to the position, so a description that opens with
+one is not a prediction, and `p.((Gln18)[(70_80)])` is.
 
 In equivalence a prediction is taken as its confirmation, so a prediction's parentheses are spelling and no other
 parentheses are. Between two `p.` descriptions `p.(Val600Glu)` and `p.Val600Glu` are Identity, as `p.(Met1?)` and
@@ -2010,8 +2059,8 @@ NM_W.1:c.-3_*2del     →  NP_W.1:p.0?
 NM_W.1:r.0            →  NP_W.1:p.0?
 ```
 
-- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET02/03). VariantValidator: not
-  checked. The ClinVar sample has no start-codon statement.
+- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET01/02/03). VariantValidator: not
+  checked. The ClinVar sample writes no `p.Met1?`; it writes start-codon changes as substitutions or frameshifts.
 - **Spec (agrees on what weaver writes; differs in equivalence):**
   [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) for `p.(Trp24Cys)`,
   `p.(Met1?)` and `p.0?`; [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/) for `p.(=)`,
@@ -2035,9 +2084,7 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `::a_start_loss_is_the_unknown_change_from_met1_stated`;
   `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
   `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
-  (INITMET02/03); `src/transform.rs::test_transform_met1_to_question`,
-  `::test_transform_stated_met1_to_stated_question`;
-  `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
+  (INITMET01/02/03); `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
   `::a_change_over_an_uncertain_residue_range_is_not_a_prediction`,
   `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`;
   `equivalence_test::a_predicted_protein_change_is_its_confirmation`,
@@ -2322,10 +2369,10 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 **`p.?` matches no other description; `p.Met1?` says only where the change starts and matches only a description whose
 change starts there.**
 
-A coding change that starts in the 5'UTR and reaches into the CDS is predicted `p.(Met1?)` and compared as that
-statement. It matches ClinVar's `Met1fs`, which starts its change there, and not `Leu3fs`, a commitment weaver did not
-make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place of Met1, are Analogous, not the same
-text.
+A coding change that alters the start codon, or starts in the 5'UTR and reaches into the CDS, is predicted `p.(Met1?)`
+and compared as that statement. It matches ClinVar's `Met1fs`, which starts its change there, and not `Leu3fs`, a
+commitment weaver did not make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place of Met1,
+are Analogous, not the same text.
 
 A `?` after any other residue, `p.Arg12?` or `p.(Arg12?)`, is a recorded extension beyond the specification, which
 writes the form only at the start codon. weaver reads it as `p.Met1?` is read, a change from that residue on of which
@@ -3212,9 +3259,9 @@ from_spdi NP_TEST.1:1:K:L       →  NP_TEST.1:p.Lys2Leu
 
 weaver accepts a terminator inside an amino acid sequence, which biocommons rejects and ClinVar writes. And biocommons
 takes the `?` of `p.Met1?` as a substitution; weaver reads it with its own rule, as the statement
-[above](#a-start-codon-change-is-written-specifically), so its substitution rule rejects a bare `?`. biocommons rejects
-`p.(?)`, which the protein alleles page writes for a variant expected but not yet identified; weaver reads it as the
-unknown effect, predicted.
+[above](#a-change-to-the-start-codon-is-an-unknown-change-from-met1), so its substitution rule rejects a bare `?`.
+biocommons rejects `p.(?)`, which the protein alleles page writes for a variant expected but not yet identified; weaver
+reads it as the unknown effect, predicted.
 
 **Example:**
 

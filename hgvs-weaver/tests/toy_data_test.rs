@@ -21,12 +21,12 @@ fn test_toy_plus_strand_mapping() {
         assert_eq!(var_c.to_string(), "NM_PLUS.1:c.1A>T");
     }
 
-    // c.1A>T changes ATG(Met) → TTG(Leu): predicts p.(Met1Leu)
-    let var_c = parse_hgvs_variant("NM_PLUS.1:c.1A>T").unwrap();
-    if let SequenceVariant::Coding(v) = var_c {
-        let var_p = mapper.c_to_p(&v, Some("NP_PLUS.1")).unwrap();
-        assert_eq!(var_p.to_string(), "NP_PLUS.1:p.(Met1Leu)");
-    }
+    // c.1A>T changes the start codon: p.(Met1?)
+    let SequenceVariant::Coding(v) = parse_hgvs_variant("NM_PLUS.1:c.1A>T").unwrap() else {
+        panic!("not c.");
+    };
+    let var_p = mapper.c_to_p(&v, Some("NP_PLUS.1")).unwrap();
+    assert_eq!(var_p.to_string(), "NP_PLUS.1:p.(Met1?)");
 }
 
 #[test]

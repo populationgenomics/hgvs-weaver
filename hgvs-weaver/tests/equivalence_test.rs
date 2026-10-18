@@ -931,16 +931,63 @@ fn a_selenoprotein_predicts_the_protein_the_record_names() {
 }
 
 #[test]
-fn a_change_to_a_non_aug_start_codon_is_named_at_met1() {
+fn a_change_to_a_non_aug_start_codon_is_an_unknown_change_from_met1() {
     // c.1C>T turns the initiator CTG into TTG.
     let hdp = record_provider(CUG_START, "MKLAYR");
     let mapper = VariantMapper::new(&hdp);
-    let SequenceVariant::Coding(c) = parse_hgvs_variant("NM_C.1:c.1C>T").unwrap() else {
-        panic!("not c.");
-    };
     assert_eq!(
-        mapper.c_to_p(&c, None).unwrap().to_string(),
-        "NP_C.1:p.(Met1Leu)"
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.1C>T"), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Met1?)"
+    );
+}
+
+#[test]
+fn a_non_aug_start_codon_made_atg_is_an_unknown_change_from_met1() {
+    // c.1C>A turns the initiator CTG into ATG: both read as Met, yet where
+    // translation starts is not predicted.
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.1C>A"), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Met1?)"
+    );
+}
+
+/// A CDS that starts at ATG, with the protein of [`CUG_START`].
+const AUG_START: &str = "ATGAAACTGGCCTATCGCTAA";
+
+#[test]
+fn a_start_codon_change_is_identical_to_the_unknown_change_from_met1_stated() {
+    let hdp = record_provider(AUG_START, "MKLAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.1A>G", "NP_C.1:p.Met1?"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_start_codon_change_is_identical_to_the_unknown_change_from_met1_predicted() {
+    let hdp = record_provider(AUG_START, "MKLAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.1A>G", "NP_C.1:p.(Met1?)"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_start_codon_change_is_analogous_to_a_substitution_at_met1() {
+    // p.Met1Val changes the protein from residue 1, where p.(Met1?) says a
+    // change starts.
+    let hdp = record_provider(AUG_START, "MKLAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.1A>G", "NP_C.1:p.Met1Val"),
+        EquivalenceLevel::Analogous
     );
 }
 

@@ -22,34 +22,67 @@ fn provider() -> Provider {
         .protein_for("NM_0001.3", "NP_0001.1")
 }
 
-#[test]
-fn test_mapper_c_to_p_start_codon_subst() {
+/// The prediction `c_to_p` writes for `c` on `NM_0001.3`.
+fn predicted(c: &str) -> String {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-
-    // c.1A>T changes ATG(Met) → TTG(Leu): predicts the specific amino acid change p.(Met1Leu)
-    let var_c = parse_hgvs_variant("NM_0001.3:c.1A>T").unwrap();
-    if let SequenceVariant::Coding(v) = var_c {
-        let var_p = mapper.c_to_p(&v, Some("NP_0001.1")).unwrap();
-        assert_eq!(var_p.to_string(), "NP_0001.1:p.(Met1Leu)");
-    }
+    let SequenceVariant::Coding(v) = parse_hgvs_variant(c).unwrap() else {
+        panic!("{c} is not c.");
+    };
+    mapper.c_to_p(&v, Some("NP_0001.1")).unwrap().to_string()
 }
 
 #[test]
-fn test_mapper_c_to_p_start_codon_del() {
-    let hdp = provider();
-    let mapper = VariantMapper::new(&hdp);
+fn a_substitution_in_the_atg_start_codon_is_an_unknown_change_from_met1() {
+    // ATG becomes GTG.
+    assert_eq!(predicted("NM_0001.3:c.1A>G"), "NP_0001.1:p.(Met1?)");
+}
 
-    // c.2del removes 'T' from ATG start codon → frameshift from position 1
-    let var_c = parse_hgvs_variant("NM_0001.3:c.2del").unwrap();
-    if let SequenceVariant::Coding(v) = var_c {
-        let var_p = mapper.c_to_p(&v, Some("NP_0001.1")).unwrap();
-        assert!(
-            var_p.to_string().contains("fsTer"),
-            "Expected frameshift annotation, got: {}",
-            var_p
-        );
-    }
+#[test]
+fn a_frameshift_in_the_start_codon_is_an_unknown_change_from_met1() {
+    // ATG ATG CAT becomes AGA TGC ATG.
+    assert_eq!(predicted("NM_0001.3:c.2del"), "NP_0001.1:p.(Met1?)");
+}
+
+#[test]
+fn a_two_base_delins_inside_the_start_codon_is_an_unknown_change_from_met1() {
+    // ATG becomes CTG.
+    assert_eq!(predicted("NM_0001.3:c.1_2delinsCT"), "NP_0001.1:p.(Met1?)");
+}
+
+#[test]
+fn an_insertion_inside_the_start_codon_is_an_unknown_change_from_met1() {
+    // ATG becomes ATT G..
+    assert_eq!(predicted("NM_0001.3:c.2_3insT"), "NP_0001.1:p.(Met1?)");
+}
+
+#[test]
+fn a_delins_that_rewrites_the_start_codon_as_itself_leaves_met1_unchanged() {
+    assert_eq!(predicted("NM_0001.3:c.1_3delinsATG"), "NP_0001.1:p.(Met1=)");
+}
+
+#[test]
+fn a_deletion_from_the_start_codon_to_the_end_of_the_transcript_is_an_unknown_effect() {
+    // Nothing is left to translate.
+    assert_eq!(predicted("NM_0001.3:c.1_*62del"), "NP_0001.1:p.?");
+}
+
+#[test]
+fn an_insertion_inside_the_start_codon_that_leaves_it_is_a_frameshift_from_met2() {
+    // c.2_3insG is c.3dup: ATG GAT GCA, the start codon as it was.
+    assert_eq!(
+        predicted("NM_0001.3:c.2_3insG"),
+        "NP_0001.1:p.(Met2AspfsTer?)"
+    );
+}
+
+#[test]
+fn an_insertion_after_the_start_codon_is_predicted_as_an_insertion() {
+    // ATG ATG becomes ATG GGG ATG.
+    assert_eq!(
+        predicted("NM_0001.3:c.3_4insGGG"),
+        "NP_0001.1:p.(Met1_Met2insGly)"
+    );
 }
 
 #[test]
