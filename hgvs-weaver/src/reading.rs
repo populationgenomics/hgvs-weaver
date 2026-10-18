@@ -37,6 +37,8 @@ use crate::SequenceVariant as SV;
 
 mod normalise;
 
+use normalise::Writing;
+
 /// Where the bases of a stretch of an allele's sequence come from. Only a
 /// reading builds one, so a range is never backwards.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -395,7 +397,7 @@ fn same_replacements(
 }
 
 /// What a base-by-base member puts at each base of its stretch.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Value {
     /// Nothing: the base is deleted.
     Delete,
@@ -406,7 +408,7 @@ enum Value {
 }
 
 /// A member read as the reference stretch it replaces and what it puts there.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Act {
     /// A substitution, deletion, delins that keeps the length, or identity:
     /// each base of `[start, end)` gets one base, or none.
@@ -508,7 +510,7 @@ enum Placed {
 }
 
 /// How a duplication or inversion reads bases another member changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Mode {
     /// The reference's bases; the other members' changes then land on their
     /// own positions.
@@ -589,6 +591,15 @@ struct Outer {
     index: usize,
     reach: Reach,
 }
+
+/// A choice described by what its members do: how many read edited bases,
+/// how many insertions are dropped, which, and the order at each junction.
+type ChoiceKey<'m> = (
+    usize,
+    usize,
+    Vec<(&'m Act, Mode, bool)>,
+    Vec<(usize, Vec<&'m Act>)>,
+);
 
 /// The most readings listed, and the most insertions ordered at one junction.
 const MAX_READINGS: usize = 1024;
@@ -1268,25 +1279,23 @@ impl<'x, 's, 'a> Allele<'x, 's, 'a> {
     /// What a choice does, described by the members' acts rather than their
     /// places in the allele: fewest readers of edited bases first, then
     /// fewest insertions dropped, then the acts themselves.
-    fn choice_key(&self, choice: &Choice) -> (usize, usize, Vec<String>) {
+    fn choice_key(&self, choice: &Choice) -> ChoiceKey<'_> {
         let edited = choice.mode.iter().filter(|&&m| m == Mode::Edited).count();
         let dropped = choice.dropped.iter().filter(|&&d| d).count();
-        let mut acts: Vec<String> = self
+        let mut acts: Vec<(&Act, Mode, bool)> = self
             .members
             .iter()
             .enumerate()
             .filter(|&(k, _)| choice.mode[k] == Mode::Edited || choice.dropped[k])
-            .map(|(k, (_, act))| format!("{act:?}{:?}{}", choice.mode[k], choice.dropped[k]))
+            .map(|(k, (_, act))| (act, choice.mode[k], choice.dropped[k]))
             .collect();
         acts.sort_unstable();
-        acts.extend(choice.order.iter().map(|(j, slots)| {
-            let order: Vec<String> = slots
-                .iter()
-                .map(|&k| format!("{:?}", self.members[k].1))
-                .collect();
-            format!("{j}:{}", order.join(","))
-        }));
-        (edited, dropped, acts)
+        let orders = choice
+            .order
+            .iter()
+            .map(|(&j, slots)| (j, slots.iter().map(|&k| &self.members[k].1).collect()))
+            .collect();
+        (edited, dropped, acts, orders)
     }
 
     fn too_many(&self) -> HgvsError {
@@ -1883,7 +1892,7 @@ impl VariantMapper<'_> {
             return Err(self.ambiguity(cis, write, || {
                 readings
                     .iter()
-                    .map(|(choice, _)| self.describe(frame, allele, choice, &[]))
+                    .map(|(choice, _)| self.describe(frame, allele, choice, &[], Writing::Reading))
                     .collect()
             }));
         }
@@ -1907,7 +1916,7 @@ impl VariantMapper<'_> {
             return Err(self.ambiguity(cis, write, || {
                 statements
                     .iter()
-                    .map(|s| self.describe_statement(frame, allele, s))
+                    .map(|s| self.describe_statement(frame, allele, s, Writing::Reading))
                     .collect()
             }));
         }
@@ -1942,7 +1951,9 @@ impl VariantMapper<'_> {
             .iter()
             .map(|&k| allele.members[k].1.named())
             .collect();
-        let stated = self.normal_form(frame, &sub, &choice, &set_aside)?.stated;
+        let stated = self
+            .normal_form(frame, &sub, &choice, &set_aside, Writing::Reading)?
+            .stated;
         Ok(Statement {
             stated,
             chosen,
@@ -1958,6 +1969,7 @@ impl VariantMapper<'_> {
         frame: &Frame,
         allele: &Allele,
         statement: &Statement,
+        writing: Writing,
     ) -> Result<SV, HgvsError> {
         let set_aside: Vec<(usize, usize)> = statement
             .chosen
@@ -1969,6 +1981,7 @@ impl VariantMapper<'_> {
             &allele.subset(&statement.rest),
             &statement.choice,
             &set_aside,
+            writing,
         )
     }
 
@@ -2311,7 +2324,9 @@ fn allele_on<'x, 's, 'a>(
     }
     // In order of position, so that nothing read from the allele depends on
     // the order its members are written in; each keeps its index for errors.
-    members.sort_by_cached_key(|(_, act)| (act.written(), act.junction(), format!("{act:?}")));
+    members.sort_by(|(_, a), (_, b)| {
+        (a.written(), a.junction(), a).cmp(&(b.written(), b.junction(), b))
+    });
     outer.sort_by_key(|o| (o.reach.bases(), o.reach.junctions()));
     let allele = Allele {
         reference,

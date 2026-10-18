@@ -1036,7 +1036,8 @@ members that together make the reference, no smaller set of them doing so, whose
 and which shares no member with another such set, two that share one making the allele ambiguous; each is written as an
 identity and grouped with nothing. A member that meets no other is normalised alone, as a single variant is. Identities
 that overlap or touch in one exon are written as one. Nothing is merged across an exon junction, and no shift crosses
-one or enters a positional identity.**
+one or enters a positional identity. Where the allele cannot be written so without saying something else, `normalize`
+raises rather than answer.**
 
 `normalize` produces the preferred spelling for interchange: what weaver hands to other tools, and what string matching
 uses. Parsing, validating, projecting and comparing keep the form as written, `to_vrs` normalises because it too hands
@@ -1102,13 +1103,11 @@ So weaver normalises by what the members do together, and keeps going until noth
    one.
 
 The result makes the sequence the allele makes, states the bases it states, passes the overlap rule, and normalising it
-again changes nothing. `normalize` checks the first three before it answers: where the form it would write does not read
-back as the allele does, it raises `UnsupportedOperation` rather than return another allele. The property tests bound
-how often that happens to one in fifty of the generated alleles that read; it takes members that overlap an identity and
-each other in the same few bases.
+again changes nothing. Where the form `normalize` would write does not read back as the allele does, on any of the first
+three, it refuses with `UnsupportedOperation` rather than hand on another allele: an error, not a guess.
 
-The bases an allele states, which equivalence compares, are those this rule writes: `read_cis` reports the statements of
-the allele normalised, so the reading and the normalised description agree on them.
+The bases an allele is read as stating, which equivalence compares, are the ones this rule writes, so a reading of the
+allele and its normalised description agree on them.
 
 Touching counts because of where a shift stops: once the neighbour has changed the base that stopped it, the member's
 change could run on, as the deletion in `c.[4del;7C>A]` runs on into c.7. Regions that only touch share no base, so the
@@ -1135,10 +1134,9 @@ apart, as the same page says. Grouping runs across both conditions: in `c.[4A>T;
 and the third touches the second, so all three are one change.
 
 The codon is a property of the coding sequence, so it applies only to `c.` members inside the CDS. A `g.` or `n.`
-member, or one in a UTR or an intron, has none, and neither has a member of a CDS the record carries open at its 5' end,
-whose codons are not known. A `g.` allele and its `c.` projection can therefore normalise to different shapes,
-`g.[19A>T;21A>T]` staying two members while `c.[4A>T;6A>T]` becomes one delins. Equivalence compares the sequences, so
-the two are still the same change.
+member, or one in a UTR or an intron, has none. A `g.` allele and its `c.` projection can therefore normalise to
+different shapes, `g.[19A>T;21A>T]` staying two members while `c.[4A>T;6A>T]` becomes one delins. Equivalence compares
+the sequences, so the two are still the same change.
 
 Two details of the codon condition:
 
@@ -1159,8 +1157,9 @@ members did not. It would also hide where each change is. On `NM_S.1`, which is 
 different genome; `c.[5A>T;6A>T]`, which touch across the junction, stay two members, while `c.[6A>T;7C>G]`, both in
 exon 2, become `c.6_7delinsTG`. The same holds for `r.`, which normalises as its `c.` or `n.` spelling, and to which the
 codon rule applies as it does to `c.`. A member written across a junction already names the intron on the genome, so it
-is merged with nothing; and where another member shares a base with it, so that the two can only be read as one change,
-the allele is refused with `UnsupportedOperation` rather than written as a change across the junction.
+is merged with nothing; and where another member shares a base with it, so that the two can only be written as one
+change, `normalize` refuses the allele with `UnsupportedOperation` rather than write a change across the junction. The
+allele still reads, and an ambiguity among such members still lists its readings.
 
 No shift crosses an exon junction either, as [a single variant's does not](#a-shift-stops-at-an-exonexon-junction), and
 a member's justified region stops there too. Shifted across it, `c.4del` in `NM_S.1`'s `AA|A` would become `c.6del`,
@@ -1176,10 +1175,10 @@ either side of the intron. A duplication's shift stops at the exon's last base, 
 the genome it is `g.20dup`, and no reader can put it in the other exon. An insertion written on a junction, `c.5_6insC`,
 is the ambiguity [issue #64](https://github.com/populationgenomics/hgvs-weaver/issues/64) records, and is left as
 written and merged with nothing. An intronic member's extent is computed on the genome, where it has bases. One that
-meets neither an exon nor another member there is carried as given, as a single intronic variant is, and the exonic
-members are normalised on the transcript; `c.[7C>T;5+2T>A;4del]` on `NM_S.1` becomes `c.[5del;5+2T>A;7C>T]`. How an
-intronic member is written together with what it meets is not yet decided, so an allele in which one does,
-`c.[5A>T;5+1G>C]`, is refused with `UnsupportedOperation`.
+meets no other member there is carried as given, as a single intronic variant is, and the exonic members are normalised
+on the transcript: `c.[7C>T;5+2T>A;4del]` on `NM_S.1` becomes `c.[5del;5+2T>A;7C>T]`, and `c.[5+1G>C;13T>G]` stays as
+written. How an intronic member is written together with a member it meets is not yet decided, so an allele in which one
+does, `c.[5A>T;5+1G>C]` or `c.[5+2T>A;5+3A>G]`, is refused with `UnsupportedOperation`.
 
 A positional identity, `c.6=`, is a barrier: it is merged with no change, and no shift enters it, since it says those
 bases are as they were. Identities that overlap or touch are written as one, `c.[7_9=;8=]` as `c.7_9=` and
@@ -1379,21 +1378,31 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::members_in_a_codon_split_by_an_intron_stay_apart`, `::members_touching_across_a_junction_stay_apart`,
   `::members_touching_in_one_exon_beside_a_junction_are_one_change`,
   `::a_deletion_in_an_allele_stops_at_its_exons_last_base`, `::a_duplication_in_an_allele_stops_at_its_exons_last_base`,
-  `::no_shift_enters_an_identity`, `::members_are_written_in_order_of_position`,
-  `::a_non_coding_allele_is_normalised_on_its_transcript`, `::an_rna_allele_is_normalised_as_its_coding_spelling`,
+  `::a_shift_stops_short_of_an_identity`, `::a_change_against_an_identity_does_not_move`,
+  `::members_are_written_in_order_of_position`, `::a_non_coding_allele_is_normalised_on_its_transcript`,
+  `::an_rna_allele_is_normalised_as_its_coding_spelling`,
   `::a_cancelling_allele_is_the_identity_of_the_bases_its_members_name`,
   `::members_that_cancel_on_one_reference_change_a_base_on_another`,
   `::a_cancelling_group_beside_a_change_leaves_an_identity`,
   `::cancelling_members_that_would_meet_a_change_are_still_a_statement`,
   `::cancelling_members_around_a_change_are_part_of_it`,
   `::a_single_member_that_makes_the_reference_beside_a_change_is_a_statement`,
-  `::a_change_is_cut_at_an_agreeing_identity`, `::identities_that_meet_are_written_as_one`,
+  `::a_change_is_cut_at_an_agreeing_identity`, `::a_part_cut_at_an_identity_that_changes_nothing_is_dropped`,
+  `::a_change_every_part_of_which_agrees_with_the_reference_is_a_statement`,
+  `::a_cut_member_that_makes_the_reference_states_its_bases_beside_a_change`,
+  `::identities_that_meet_are_written_as_one`, `::a_cancelling_group_beside_an_identity_is_written_as_one_statement`,
   `::identities_apart_stay_apart`, `::an_identity_across_a_junction_is_not_merged_with_one_inside_an_exon`,
-  `::identities_in_two_exons_stay_apart`, `::a_member_without_a_sequence_is_kept_as_written_in_its_place`,
+  `::identities_in_two_exons_stay_apart`, `::members_sharing_bases_across_an_exon_junction_are_refused`,
+  `::members_sharing_bases_across_an_exon_junction_still_read`,
+  `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
+  `::a_member_without_a_sequence_is_kept_as_written_in_its_place`,
+  `::a_merged_change_is_not_written_where_unstated_bases_are_inserted`,
   `::an_intronic_member_apart_from_the_exons_is_kept_as_written`,
-  `::an_intronic_member_that_meets_an_exon_is_not_yet_normalised`,
-  `::normalising_an_ambiguous_allele_raises_with_its_readings`, `::normalising_a_contradictory_allele_raises`,
-  `::normalising_an_allele_whose_readings_are_not_listed_raises`,
+  `::a_splice_site_member_that_meets_nothing_is_kept_as_written`,
+  `::an_allele_with_a_splice_site_member_renders_as_a_block`,
+  `::an_intronic_member_that_meets_an_exonic_member_is_not_yet_normalised`,
+  `::intronic_members_that_meet_are_not_yet_normalised`, `::normalising_an_ambiguous_allele_raises_with_its_readings`,
+  `::normalising_a_contradictory_allele_raises`, `::normalising_an_allele_whose_readings_are_not_listed_raises`,
   `::members_justified_over_one_run_render_as_the_allele_they_make`; `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
   share a member, which reading the allele already refuses;
@@ -1403,10 +1412,10 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `exon_junction_test::a_repeat_at_its_own_count_across_the_junction_is_not_written_as_an_identity`;
   `a_single_variant_that_makes_the_reference_normalises_to_its_statement`,
   `normalising_a_cis_allele_keeps_its_sequence`, `normalising_a_cis_allele_twice_is_normalising_it_once`,
-  `normalising_a_cis_allele_keeps_its_stated_bases`, `a_cis_alleles_statements_do_not_depend_on_member_order`,
+  `normalising_a_cis_allele_keeps_its_stated_bases`, `normalising_a_cis_allele_does_not_depend_on_member_order`,
   `normalising_a_transcript_cis_allele_keeps_its_genomic_sequence`, `the_generated_alleles_mostly_normalise` and
   `the_generated_transcript_alleles_are_mostly_read` (properties);
-  `tests/test_cis_phased.py::test_members_that_meet_normalise_to_the_one_change_they_make`.
+  `tests/test_cis_phased.py::test_an_allele_normalised_to_one_change_comes_back_as_a_plain_variant`.
 
 ## Protein consequences
 
@@ -2270,9 +2279,9 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::readings_on_different_sequences_are_not_compared`; the identifier `to_vrs` gives:
   `::the_vrs_identifier_follows_the_description`, `::a_one_member_allele_renders_as_its_members_allele`,
   `::a_cancelling_allele_renders_as_the_reference_over_the_bases_it_names`,
-  `::a_block_is_only_for_an_allele_that_normalises_to_several_members`;
-  `walking_two_readings_agrees_with_building_them`, `members_apart_make_what_each_makes_alone`,
-  `the_generated_alleles_are_mostly_read` (properties); planned:
+  `::a_block_is_only_for_an_allele_that_normalises_to_several_members`,
+  `::an_allele_rendered_as_one_allele_carries_the_allele_as_written`; `walking_two_readings_agrees_with_building_them`,
+  `members_apart_make_what_each_makes_alone`, `the_generated_alleles_are_mostly_read` (properties); planned:
   `cis_phased_test::adjacent_members_are_the_delins_they_make`, `::members_in_either_order_are_one_allele`,
   `::members_on_the_minus_strand_are_the_genomic_allele`, `::members_in_one_repeat_match_as_the_sequence_they_make`,
   `::a_cis_allele_is_not_one_of_its_members`, `::a_one_member_cis_allele_is_its_member`,
@@ -2680,8 +2689,9 @@ NM_X.1:c.[7C>T];[13T>G] →  UnsupportedOperation: describes two molecules (alle
   Set values"; [alleles](https://hgvs-nomenclature.org/stable/recommendations/DNA/alleles/) for cis `[a;b]` against
   trans `[a];[b]`.
 - **Tests:** `src/vrs.rs::cis_phased_block_digest_matches_the_spec_validation_data`,
-  `::a_cis_phased_block_carries_its_members_in_the_order_given`, to change to the normalised order;
-  `cis_phased_test::the_identifier_is_the_same_whichever_way_the_members_are_written`,
+  `::a_cis_phased_block_carries_its_members_in_the_order_given`, the block as it is handed its members;
+  `cis_phased_test::a_block_carries_its_members_in_the_normalised_order`,
+  `::the_identifier_is_the_same_whichever_way_the_members_are_written`,
   `::alleles_in_trans_are_two_molecules_and_are_refused`.
 
 ### Reading back gives the normalised variant

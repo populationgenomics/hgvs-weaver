@@ -454,6 +454,10 @@ class VariantMapper:
             HGVSError: If normalization fails due to reference sequence boundaries.
             AmbiguousDescriptionError: If an allele in cis has several readings.
             ValidationError: If an allele in cis has no reading.
+            UnsupportedOperationError: If an allele in cis has readings weaver does not
+                list, members that share bases across an exon junction, an intronic
+                member that meets another member on the genome, or a form it would be
+                written in that does not read as it does.
         """
     def p_to_c(self, var_p: Variant, transcript_ac: str | None = ...) -> tuple[Variant, bool]:
         """
@@ -561,6 +565,8 @@ class VariantMapper:
 
         Raises:
             HGVSError: If the variant cannot be resolved against the reference.
+            UnsupportedOperationError: If an allele in cis is not normalised, as
+                normalize_variant raises it, or a member has no Allele.
         """
 
     def vrs_id(self, var: Variant) -> str:

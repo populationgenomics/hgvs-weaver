@@ -2233,15 +2233,16 @@ proptest! {
 }
 
 /// The transcript property is not vacuous: on a fixed sample, a good share
-/// of the dense alleles read on both the transcript and the genome, and some
-/// of them normalise to fewer members than they are written with.
+/// of the dense alleles read on both the transcript and the genome, all but
+/// one in fifty of those normalise, and some normalise to fewer members than
+/// they are written with.
 #[test]
 fn the_generated_transcript_alleles_are_mostly_read() {
     use proptest::strategy::ValueTree;
     let mut runner = proptest::test_runner::TestRunner::deterministic();
     let strategy = gene_and_dense_cis();
     let cases = 1000;
-    let (mut read, mut merged) = (0, 0);
+    let (mut read, mut normalised, mut merged) = (0, 0, 0);
     for _ in 0..cases {
         let (g, members) = strategy.new_tree(&mut runner).unwrap().current();
         let hdp = g.provider();
@@ -2252,11 +2253,16 @@ fn the_generated_transcript_alleles_are_mostly_read() {
             let n = mapper
                 .normalize_variant(SequenceVariant::CisPhased(cis.clone()))
                 .map(|n| as_allele_on(&g.ac, n).members.len());
+            normalised += usize::from(n.is_ok());
             merged += usize::from(n.is_ok_and(|n| n < cis.members.len()));
         }
     }
     assert!(read * 10 >= cases * 3, "{read} of {cases} alleles read");
     assert!(merged * 10 >= cases, "{merged} of {cases} alleles merged");
+    assert!(
+        normalised * 50 >= read * 49,
+        "{normalised} of {read} alleles that read normalise"
+    );
 }
 
 fn as_allele_on(ac: &str, v: SequenceVariant) -> hgvs_weaver::CisPhasedVariant {
@@ -2343,7 +2349,9 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     /// What an allele normalises to reads, and makes the sequence the allele
-    /// makes.
+    /// makes. `normalize` checks this itself and refuses where it fails, so
+    /// the property guards that check; how rarely it refuses is
+    /// [`the_generated_alleles_mostly_normalise`]'s.
     #[test]
     fn normalising_a_cis_allele_keeps_its_sequence((seq, members) in seq_and_allele()) {
         let hdp = Provider::new().sequence("X", &seq);
@@ -2360,7 +2368,9 @@ proptest! {
         prop_assert!(before.same_sequence(&after, &reference).unwrap(), "{} and {}", cis, normalised);
     }
 
-    /// What an allele normalises to states the bases the allele states.
+    /// What an allele normalises to states the bases the allele states, as
+    /// `normalize` checks before it answers (see
+    /// `normalising_a_cis_allele_keeps_its_sequence`).
     #[test]
     fn normalising_a_cis_allele_keeps_its_stated_bases((seq, members) in seq_and_allele()) {
         let hdp = Provider::new().sequence("X", &seq);
@@ -2393,7 +2403,7 @@ proptest! {
     /// The order members are written in does not change what the allele
     /// normalises to: its statements, its changes, or the error refusing it.
     #[test]
-    fn a_cis_alleles_statements_do_not_depend_on_member_order(
+    fn normalising_a_cis_allele_does_not_depend_on_member_order(
         (seq, members, shuffled) in seq_and_allele().prop_flat_map(|(seq, m)| {
             (Just(seq), Just(m.clone()), Just(m).prop_shuffle())
         })

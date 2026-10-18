@@ -1387,7 +1387,8 @@ fn a_duplication_and_an_inversion_reading_each_others_changes_are_not_yet_listed
 
 /// `reading_provider` with short genomes whose runs the rule is about:
 /// `NC_D.1` is `TCTCT`, `NC_E.1` `CTCTT`, `NC_F.1` `TTCAGCAGTT`, `NC_G.1`
-/// `AAATAAAA`, `NC_H.1` `ACACCCCGC` and `NC_K.1` `GAAAAAG`.
+/// `AAATAAAA`, `NC_H.1` `ACACCCCGC`, `NC_K.1` `GAAAAAG` and `NC_L.1`
+/// nineteen As.
 fn normalising_provider() -> Provider {
     reading_provider()
         .sequence("NC_D.1", "TCTCT")
@@ -1396,6 +1397,7 @@ fn normalising_provider() -> Provider {
         .sequence("NC_G.1", "AAATAAAA")
         .sequence("NC_H.1", "ACACCCCGC")
         .sequence("NC_K.1", "GAAAAAG")
+        .sequence("NC_L.1", &"A".repeat(19))
 }
 
 fn normalise(hdp: &Provider, hgvs: &str) -> Result<SequenceVariant, HgvsError> {
@@ -1606,10 +1608,19 @@ fn a_duplication_in_an_allele_stops_at_its_exons_last_base() {
 }
 
 #[test]
-fn no_shift_enters_an_identity() {
-    let hdp = normalising_provider();
-    assert_eq!(normalised(&hdp, "NM_X.1:c.[4del;6=]"), "NM_X.1:c.[5del;6=]");
-    assert_eq!(normalised(&hdp, "NM_X.1:c.[4del;5=]"), "NM_X.1:c.[4del;5=]");
+fn a_shift_stops_short_of_an_identity() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4del;6=]"),
+        "NM_X.1:c.[5del;6=]"
+    );
+}
+
+#[test]
+fn a_change_against_an_identity_does_not_move() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[4del;5=]"),
+        "NM_X.1:c.[4del;5=]"
+    );
 }
 
 #[test]
@@ -1713,9 +1724,76 @@ fn identities_that_meet_are_written_as_one() {
     let hdp = normalising_provider();
     assert_eq!(normalised(&hdp, "NM_X.1:c.[7_9=;8=]"), "NM_X.1:c.7_9=");
     assert_eq!(normalised(&hdp, "NM_X.1:c.[7_9=;10=]"), "NM_X.1:c.7_10=");
+}
+
+#[test]
+fn a_cancelling_group_beside_an_identity_is_written_as_one_statement() {
     assert_eq!(
-        normalised(&hdp, "NM_X.1:c.[4_5insA;5del;6=]"),
+        normalised(&normalising_provider(), "NM_X.1:c.[4_5insA;5del;6=]"),
         "NM_X.1:c.4_6="
+    );
+}
+
+#[test]
+fn a_part_cut_at_an_identity_that_changes_nothing_is_dropped() {
+    // c.7_9 is CTG: the delins changes only c.9
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[8=;7_9delinsCTA]"),
+        "NM_X.1:c.[8=;9G>A]"
+    );
+}
+
+#[test]
+fn a_change_every_part_of_which_agrees_with_the_reference_is_a_statement() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[8=;7_9delinsCTG]"),
+        "NM_X.1:c.7_9="
+    );
+}
+
+#[test]
+fn members_sharing_bases_across_an_exon_junction_are_refused() {
+    // c.5_6 of NM_S.1 spans the junction; one change there deletes the intron
+    let err = normalise(&normalising_provider(), "NM_S.1:c.[5_6delinsTT;5A>T]").unwrap_err();
+    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+#[test]
+fn members_sharing_bases_across_an_exon_junction_still_read() {
+    let reading = read(&normalising_provider(), "NM_S.1:c.[4_6del;6del]").unwrap();
+    assert!(reading.stated().is_empty());
+}
+
+#[test]
+fn an_ambiguity_across_an_exon_junction_lists_its_readings() {
+    let hdp = normalising_provider();
+    for allele in ["NM_S.1:c.[4_6inv;5A>T]", "NM_S.1:c.[5_6del;5_6insAA]"] {
+        let err = read(&hdp, allele).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::Ambiguous { readings, .. } if readings.len() == 2),
+            "{allele}: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_cut_member_that_makes_the_reference_states_its_bases_beside_a_change() {
+    // c.6_8 is ACT: the delins changes nothing; c.5 touches it
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_X.1:c.[7=;6_8delinsACT;5A>T]"),
+        "NM_X.1:c.[5A>T;6_8=]"
+    );
+}
+
+#[test]
+fn a_merged_change_is_not_written_where_unstated_bases_are_inserted() {
+    // trimmed, the duplication and the substitution would insert at g.1_2,
+    // where the N[2] goes
+    let hdp = normalising_provider();
+    let normalised = normalised(&hdp, "NC_L.1:g.[3_6dup;2A>G;1_2insN[2]]");
+    assert!(
+        VariantMapper::new(&hdp).read_cis(&cis(&normalised)).is_ok(),
+        "{normalised}"
     );
 }
 
@@ -1762,9 +1840,33 @@ fn an_intronic_member_apart_from_the_exons_is_kept_as_written() {
 }
 
 #[test]
-fn an_intronic_member_that_meets_an_exon_is_not_yet_normalised() {
+fn an_intronic_member_that_meets_an_exonic_member_is_not_yet_normalised() {
+    // c.5 is g.20 and c.5+1 g.21: the two touch on the genome
     let err = normalise(&normalising_provider(), "NM_S.1:c.[5A>T;5+1G>C]").unwrap_err();
     assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+#[test]
+fn intronic_members_that_meet_are_not_yet_normalised() {
+    let err = normalise(&normalising_provider(), "NM_S.1:c.[5+2T>A;5+3A>G]").unwrap_err();
+    assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
+}
+
+#[test]
+fn a_splice_site_member_that_meets_nothing_is_kept_as_written() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5+1G>C;13T>G]"),
+        "NM_S.1:c.[5+1G>C;13T>G]"
+    );
+}
+
+#[test]
+fn an_allele_with_a_splice_site_member_renders_as_a_block() {
+    let hdp = normalising_provider();
+    assert!(matches!(
+        vrs(&hdp, "NM_S.1:c.[5+1G>C;13T>G]"),
+        VrsVariation::CisPhasedBlock(_)
+    ));
 }
 
 #[test]
@@ -1830,6 +1932,20 @@ fn members_justified_over_one_run_render_as_the_allele_they_make() {
     assert_eq!(first.id(), vrs(&hdp, "NC_K.1:g.3_4delinsT").id());
     assert_eq!(second.id(), vrs(&hdp, "NC_K.1:g.4_5delinsT").id());
     assert_ne!(first.id(), second.id());
+}
+
+#[test]
+fn an_allele_rendered_as_one_allele_carries_the_allele_as_written() {
+    let VrsVariation::Allele(allele) = vrs(&normalising_provider(), "NM_X.1:c.[7C>T;8T>G]") else {
+        panic!("not an Allele");
+    };
+    assert_eq!(
+        allele.expressions,
+        vec![VrsExpression {
+            syntax: "hgvs.c".into(),
+            value: "NM_X.1:c.[7C>T;8T>G]".into(),
+        }]
+    );
 }
 
 #[test]

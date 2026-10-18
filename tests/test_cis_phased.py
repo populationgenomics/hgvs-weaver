@@ -181,15 +181,10 @@ def test_protein_vrs_refuses_an_allele(mapper: weaver.VariantMapper) -> None:
         mapper.protein_vrs(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
 
 
-def test_members_that_meet_no_other_normalise_alone(mapper: weaver.VariantMapper) -> None:
-    # c.4 is the first A of AAA (c.4_6): the deletion shifts to c.6.
-    assert str(mapper.normalize_variant(weaver.parse("NM_X.1:c.[4del;13T>G]"))) == "NM_X.1:c.[6del;13T>G]"
-
-
-def test_members_that_meet_normalise_to_the_one_change_they_make(mapper: weaver.VariantMapper) -> None:
+def test_an_allele_normalised_to_one_change_comes_back_as_a_plain_variant(mapper: weaver.VariantMapper) -> None:
     normalised = mapper.normalize_variant(weaver.parse("NM_X.1:c.[7C>T;8T>G]"))
-    assert str(normalised) == "NM_X.1:c.7_8delinsTG"
     assert normalised.members is None
+    assert str(normalised) == "NM_X.1:c.7_8delinsTG"
 
 
 def test_validate_reads_the_allele_whole() -> None:
