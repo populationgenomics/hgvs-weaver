@@ -1169,13 +1169,6 @@ pub(crate) fn simple_position(i: usize) -> SimplePosition {
     }
 }
 
-/// Whether a bound of `pos` is known only to lie in a range, `(3_4)`, or is
-/// marked uncertain.
-pub(crate) fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
-    let uncertain = |p: &SimplePosition| p.uncertain || p.end.is_some();
-    pos.uncertain || uncertain(&pos.start) || pos.end.as_ref().is_some_and(uncertain)
-}
-
 /// The HGVS start index and optional end index to write for `after`: an end
 /// for an insertion, which names its two flanking bases, and for an edit of
 /// more than one base.
@@ -1247,6 +1240,11 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing genomic position".into()))?;
+        if !pos.is_exact() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_g} has an uncertain position, which a transcript interval cannot carry"
+            )));
+        }
         let run = self.repeat_run_g(var_g, pos)?;
         let run = match run {
             Some(run) => Some(self.transcript_run_g(&am, var_g, run)?),
@@ -1696,6 +1694,11 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        if !pos.is_exact() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_g} has an uncertain position, which a transcript interval cannot carry"
+            )));
+        }
         let start_0 = pos.start.index()?.0;
         let end_0 = match &pos.end {
             Some(e) => e.index()?.0 + 1,
@@ -2392,7 +2395,7 @@ impl<'a> VariantMapper<'a> {
         let Some(pos) = &mut v.posedit_mut().pos else {
             return Ok(v);
         };
-        if is_uncertain_linear(pos) {
+        if !pos.is_exact() {
             // A bound known only to lie in a range names no one placement to
             // shift or reduce from. Leave the variant as written.
             return Ok(v);

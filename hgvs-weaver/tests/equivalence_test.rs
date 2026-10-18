@@ -563,6 +563,37 @@ fn one_base_deleted_somewhere_in_a_range_has_no_spdi() {
 }
 
 #[test]
+fn a_deletion_between_parenthesised_single_bases_has_the_exact_ones_spdi() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let spdi = |s: &str| {
+        mapper
+            .to_spdi(&parse_hgvs_variant(s).unwrap(), false)
+            .unwrap()
+    };
+    assert_eq!(
+        spdi("NC_TEST.1:g.(1005)_(1012)del"),
+        spdi("NC_TEST.1:g.1005_1012del")
+    );
+}
+
+#[test]
+fn a_genomic_deletion_somewhere_in_a_range_has_no_transcript_form() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let hgvs_weaver::SequenceVariant::Genomic(g) =
+        parse_hgvs_variant("NC_X.1:g.(109_110)del").unwrap()
+    else {
+        panic!("not g.");
+    };
+    let result = mapper.g_to_c(&g, "NM_X.1");
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
 fn a_copy_number_between_parenthesised_single_bases_is_the_exact_one() {
     assert_eq!(
         genomic_level(

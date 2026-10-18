@@ -2094,20 +2094,22 @@ NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
 ### An uncertain position names no one change
 
 **A description whose position is uncertain is the same as itself and different from every other: it has no canonical
-allele and no SPDI, and a transcript position that is uncertain has no genomic form and predicts no protein.**
+allele and no SPDI, is not projected between the genome and a transcript, and predicts no protein.**
 
 `g.(3_4)del` deletes one base somewhere in g.3 to g.4; `g.3_4del` deletes both, and `g.3del` names one of the two
 candidates. Neither is what the uncertain description says, so comparing either against it on the genome would claim a
 knowledge the description disclaims. The same holds for breakpoints known only to ranges, `g.(1_3)_(10_12)del`, for an
 uncertain transcript interval, `c.(4_6)del`, and for an uncertain residue range, `p.(Lys2_Leu3)del`. Reading any of them
 at the first base of each range would turn the uncertainty into a definite change. A genomic interval cannot carry the
-uncertainty of a transcript one, so `c_to_g` refuses `c.(4_6)del` rather than write the exact `g.` interval it would
-otherwise give, and `c_to_p` refuses it rather than translate codons it does not name.
+uncertainty of a transcript one, nor the other way round, so `c_to_g` refuses `c.(4_6)del` rather than write the exact
+`g.` interval it would otherwise give, `g_to_c` refuses `g.(109_110)del`, and `c_to_p` refuses `c.(4_6)del` rather than
+translate codons it does not name.
 
 A parenthesised single position, `g.(5)_(12)del`, is exact ([Range bounds](#uncertain-breakpoints-become-range-bounds)):
-it is Analogous to `g.5_12del`, the same allele in another spelling, and a copy number written so is the one written
-bare. A deletion with uncertain breakpoints still has a VRS Allele with Range bounds; it is the canonical allele, the
-one value every exact spelling of a change shares, that an uncertain description lacks.
+it is Analogous to `g.5_12del`, the same allele in another spelling, normalises and has an SPDI as that does, and a copy
+number written so is the one written bare. A deletion with uncertain breakpoints still has a VRS Allele with Range
+bounds; it is the canonical allele, the one value every exact spelling of a change shares, that an uncertain description
+lacks.
 
 **Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`):
 
@@ -2122,6 +2124,7 @@ NM_X.1:c.(4_6)del                    vs  NP_X.1:p.(Lys2del)          Different: 
 NC_TEST.1:g.(1005)_(1012)del         vs  NC_TEST.1:g.1005_1012del    Analogous
 canonical_allele, to_spdi NC_TEST.1:g.(1003_1004)del  →  UnsupportedOperation
 c_to_g, c_to_p NM_X.1:c.(4_6)del                      →  UnsupportedOperation
+g_to_c NC_X.1:g.(109_110)del                           →  UnsupportedOperation
 ```
 
 - **Others:** not checked.
@@ -2142,7 +2145,9 @@ c_to_g, c_to_p NM_X.1:c.(4_6)del                      →  UnsupportedOperation
   `::a_coding_deletion_over_an_uncertain_range_predicts_no_protein`,
   `::one_base_deleted_somewhere_in_a_range_has_no_spdi`,
   `::a_copy_number_between_parenthesised_single_bases_is_the_exact_one`,
-  `::a_deletion_between_parenthesised_single_bases_is_the_exact_one`;
+  `::a_deletion_between_parenthesised_single_bases_is_the_exact_one`,
+  `::a_deletion_between_parenthesised_single_bases_has_the_exact_ones_spdi`,
+  `::a_genomic_deletion_somewhere_in_a_range_has_no_transcript_form`;
   `vrs_range_test::uncertain_breakpoints_become_ranges`.
 
 ### Judging with no protein sequence is an error
