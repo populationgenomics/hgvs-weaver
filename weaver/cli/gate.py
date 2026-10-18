@@ -211,7 +211,7 @@ def _load(path: pathlib.Path) -> tuple[list[str], dict[str, dict[str, str]]]:
 
 
 def _state(row: dict[str, str], column: str, truth: str | None) -> str:
-    """What a cell says, coarse enough that a change of wording in an error is not a moved row."""
+    """The kind of answer a cell holds, by which a moved row is counted: a verdict as itself, an error as error."""
     value = row[column]
     if not value:
         return "blank"

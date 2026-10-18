@@ -25,7 +25,7 @@ class Provider:
             "ac": transcript_ac,
             "gene": "TEST",
             "cds_start_index": 10,
-            "cds_end_index": 70,
+            "cds_end_index": 69,
             "strand": 1,
             "reference_accession": "NC_TEST.1",
             "exons": [
