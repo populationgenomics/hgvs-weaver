@@ -1650,7 +1650,9 @@ impl VariantMapper<'_> {
             unapplied.push(written);
             members.push((reach_key(reach), written.clone()));
         }
-        members.sort_by_key(|(k, _)| *k);
+        // By position, then by what is written, so that no order the members
+        // were given in shows through.
+        members.sort_by_cached_key(|(k, m)| (*k, m.to_string()));
         let members: Vec<SV> = members.into_iter().map(|(_, m)| m).collect();
         let description = match <[SV; 1]>::try_from(members) {
             Ok([one]) => one,
