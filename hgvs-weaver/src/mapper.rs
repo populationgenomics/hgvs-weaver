@@ -1975,6 +1975,11 @@ impl<'a> VariantMapper<'a> {
                 self.unchanged_protein(var_c, protein_ac)?,
             ));
         }
+        if var_c.posedit.pos.as_ref().is_some_and(|p| !p.is_exact()) {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_c} has an uncertain position, so it names no codons to translate"
+            )));
+        }
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         let transcript = self.provider().get_transcript(&var_c.ac, None)?;
         if transcript.cds_start_open {
@@ -2411,14 +2416,14 @@ impl<'a> VariantMapper<'a> {
         let Some(pos) = &v.posedit().pos else {
             return Ok(v);
         };
+        if !pos.is_exact() {
+            return Ok(v);
+        }
         if has_intronic_offset(pos) {
             // An intronic base has no transcript index; there is nothing to
             // normalise against in transcript space. Leave the variant as
             // written, once what it states is found on the genome.
             self.check_transcript_stated(&v)?;
-            return Ok(v);
-        }
-        if pos.uncertain || pos.start.uncertain || pos.end.as_ref().is_some_and(|e| e.uncertain) {
             return Ok(v);
         }
         let (start, end) = self.get_c_indices(pos, &am)?;
@@ -3282,6 +3287,10 @@ impl<'a> VariantMapper<'a> {
         // A protein has only the canonical form.
         if unambiguous || matches!(var, crate::SequenceVariant::Protein(_)) {
             self.to_spdi_unambiguous(var)
+        } else if !var.has_exact_position() {
+            Err(HgvsError::UnsupportedOperation(format!(
+                "{var} has an uncertain position, which SPDI cannot carry"
+            )))
         } else {
             // 1. Resolve to genomic if possible.
             let g_var_obj = self.as_genomic(var).ok_or_else(|| {

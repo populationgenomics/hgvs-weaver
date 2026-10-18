@@ -213,7 +213,16 @@ impl<'a> VariantEquivalence<'a> {
             Some(g) => g?,
         };
         if matches!(g.posedit.edit, NaEdit::NACopy { .. }) {
-            return Ok(Some(Comparand::Projection(g.ac, g.posedit.to_string())));
+            let mut posedit = g.posedit;
+            // A parenthesised single base, `(5)`, is exact: written bare, it
+            // compares as the base it names.
+            if let Some(pos) = posedit.pos.as_mut().filter(|p| p.is_exact()) {
+                pos.start.uncertain = false;
+                if let Some(end) = pos.end.as_mut() {
+                    end.uncertain = false;
+                }
+            }
+            return Ok(Some(Comparand::Projection(g.ac, posedit.to_string())));
         }
         Ok(self
             .nucleotide_allele(&SequenceVariant::Genomic(g))?
@@ -247,6 +256,10 @@ impl<'a> VariantEquivalence<'a> {
         nucleotide: &SequenceVariant,
         vp: &PVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
+        // An uncertain position names no codons, so it predicts no protein.
+        if !nucleotide.has_exact_position() {
+            return Ok(EquivalenceLevel::Different);
+        }
         let coding: Vec<CVariant> = match nucleotide {
             SequenceVariant::Coding(c) => vec![c.clone()],
             SequenceVariant::Genomic(g) => self.mapper.g_to_c_all(g, self.searcher)?,

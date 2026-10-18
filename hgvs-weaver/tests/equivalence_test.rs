@@ -527,6 +527,61 @@ fn a_coding_deletion_over_an_uncertain_range_has_no_genomic_form() {
 }
 
 #[test]
+fn a_coding_deletion_over_an_uncertain_range_is_not_a_protein_change() {
+    // c.4_6del, exact, would be p.(Lys2del).
+    assert_eq!(
+        placed_level("NM_X.1:c.(4_6)del", "NP_X.1:p.(Lys2del)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_coding_deletion_over_an_uncertain_range_predicts_no_protein() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let hgvs_weaver::SequenceVariant::Coding(c) = parse_hgvs_variant("NM_X.1:c.(4_6)del").unwrap()
+    else {
+        panic!("not c.");
+    };
+    let result = mapper.c_to_p(&c, None);
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn one_base_deleted_somewhere_in_a_range_has_no_spdi() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_TEST.1:g.(1003_1004)del").unwrap();
+    let result = mapper.to_spdi(&var, false);
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_copy_number_between_parenthesised_single_bases_is_the_exact_one() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.(1005)_(1012)copy3",
+            "NC_TEST.1:g.1005_1012copy3"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_deletion_between_parenthesised_single_bases_is_the_exact_one() {
+    assert_eq!(
+        genomic_level("NC_TEST.1:g.(1005)_(1012)del", "NC_TEST.1:g.1005_1012del"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
 fn a_protein_deletion_over_an_uncertain_range_is_not_the_exact_one() {
     assert_eq!(
         coding_level("NP_X.1:p.(Lys2_Leu3)del", "NP_X.1:p.Lys2_Leu3del"),
