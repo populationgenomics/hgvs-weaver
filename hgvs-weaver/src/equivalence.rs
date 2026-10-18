@@ -142,9 +142,9 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// The level when either side is an allele in cis, `None` when neither
-    /// is. Two cis alleles are `Analogous` when the sets of their members'
-    /// canonical alleles are equal, whatever the order written, and
-    /// `Different` otherwise. A cis allele of one member is that member; one
+    /// is. Two cis alleles are `Analogous` when the sets of their
+    /// [`MemberKey`]s are equal, whatever the order written, and `Different`
+    /// otherwise. A cis allele of one member is that member; one
     /// of several is `Different` from any plain variant. Nothing is projected
     /// to protein: what several changes on one molecule do to the protein is
     /// not the sum of what each does.
@@ -155,7 +155,7 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<Option<EquivalenceLevel>, HgvsError> {
         Ok(Some(match (var1, var2) {
             (SequenceVariant::CisPhased(a), SequenceVariant::CisPhased(b)) => {
-                match (self.member_alleles(a)?, self.member_alleles(b)?) {
+                match (self.member_keys(a)?, self.member_keys(b)?) {
                     (Some(x), Some(y)) if x == y => EquivalenceLevel::Analogous,
                     _ => EquivalenceLevel::Different,
                 }
@@ -170,19 +170,24 @@ impl<'a> VariantEquivalence<'a> {
         }))
     }
 
-    /// The canonical alleles of a cis allele's members, as a sorted set of
-    /// SPDI strings; `None` when a member has no canonical allele.
-    fn member_alleles(&self, cis: &CisPhasedVariant) -> Result<Option<Vec<String>>, HgvsError> {
-        let mut alleles = Vec::with_capacity(cis.members.len());
+    /// The [`MemberKey`]s of a cis allele's members, as a sorted set; `None`
+    /// when an exact member has no canonical allele.
+    fn member_keys(&self, cis: &CisPhasedVariant) -> Result<Option<Vec<MemberKey>>, HgvsError> {
+        let mut keys = Vec::with_capacity(cis.members.len());
         for m in &cis.members {
+            if !m.has_exact_position() {
+                let m = self.rna_as_transcript(mito_as_genomic(m))?;
+                keys.push(MemberKey::Uncertain(spelling(&m)));
+                continue;
+            }
             match self.nucleotide_allele(m)? {
-                Some(a) => alleles.push(a.spdi()),
+                Some(a) => keys.push(MemberKey::Allele(a.spdi())),
                 None => return Ok(None),
             }
         }
-        alleles.sort_unstable();
-        alleles.dedup();
-        Ok(Some(alleles))
+        keys.sort_unstable();
+        keys.dedup();
+        Ok(Some(keys))
     }
 
     /// Whether `tx` is a c. or n. variant whose projection onto `g`'s
@@ -527,9 +532,14 @@ impl<'a> VariantEquivalence<'a> {
 /// code. A prediction is taken as its confirmation, so `p.(Val600Glu)` is
 /// `p.Val600Glu` and `r.(=)` is `r.=`; every other parenthesis is part of
 /// what is said and stays, as in `g.(3_4)del`, `p.(Lys2_Leu3)del` and `r.(?)`.
+/// A cis allele's members are unordered, so `g.[(3_4)del;10G>A]` is
+/// `g.[10G>A;(3_4)del]`; a member written twice is still two members here.
 fn spelling(var: &SequenceVariant) -> String {
     let mut var = var.clone();
     as_confirmed(&mut var);
+    if let SequenceVariant::CisPhased(cis) = &mut var {
+        cis.members.sort_by_cached_key(spelling);
+    }
     let text = var.to_string();
     if var.coordinate_type() == "p" {
         one_letter(&text)
@@ -610,6 +620,16 @@ enum Comparand {
     /// A copy number, which has no bases to apply: its accession and edit as
     /// projected.
     Projection(String, String),
+}
+
+/// The value a member of a cis allele is compared by.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum MemberKey {
+    /// An exact member's canonical allele, as SPDI.
+    Allele(String),
+    /// A member at an uncertain position, which names no one change, by the
+    /// [`spelling`] of its `g.`, `c.` or `n.` form.
+    Uncertain(String),
 }
 
 /// What a protein description says of the protein; see `protein_outcome_on`.

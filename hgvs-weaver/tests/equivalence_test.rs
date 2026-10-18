@@ -691,3 +691,143 @@ fn a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_t
         normalised("NC_X.1:g.[105_112del;115G>A]")
     );
 }
+
+// --- Alleles in cis with an uncertain member ---
+//
+// The members of an allele are unordered: an uncertain member compares by its
+// spelling, an exact one by its canonical allele, and a member written twice
+// counts once. On `NC_TEST.1`, g.1001 is A and g.1007 G; on `NM_X.1`, c.10
+// is the G of GCC and c.13 the T of TAT; `NP_X.1` is MKLAYR.
+
+#[test]
+fn a_cis_allele_with_an_uncertain_member_is_itself_in_another_order() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A]",
+            "NC_TEST.1:g.[1007G>A;(1003_1004)del]"
+        ),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_coding_cis_allele_with_an_uncertain_member_is_itself_in_another_order() {
+    assert_eq!(
+        placed_level("NM_X.1:c.[(4_6)del;10G>A]", "NM_X.1:c.[10G>A;(4_6)del]"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_cis_allele_with_an_uncertain_member_in_another_order_is_not_the_exact_allele() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A]",
+            "NC_TEST.1:g.[1007G>A;1003del]"
+        ),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_coding_cis_allele_with_an_uncertain_member_is_not_the_exact_allele() {
+    assert_eq!(
+        placed_level("NM_X.1:c.[(4_6)del;10G>A]", "NM_X.1:c.[10G>A;4_6del]"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn cis_alleles_with_different_uncertain_members_differ() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A]",
+            "NC_TEST.1:g.[1007G>A;(1003_1005)del]"
+        ),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_uncertain_member_written_twice_counts_once() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A;(1003_1004)del]",
+            "NC_TEST.1:g.[1007G>A;(1003_1004)del]"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn the_exact_members_beside_an_uncertain_one_compare_by_their_alleles() {
+    // g.1001dup and g.1001_1002insA insert one A after g.1001.
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.[(1003_1004)del;1001_1002insA]",
+            "NC_TEST.1:g.[1001dup;(1003_1004)del]"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn the_exact_coding_members_beside_an_uncertain_one_compare_by_their_alleles() {
+    // c.13dup and c.13_14insT insert one T after c.13.
+    assert_eq!(
+        placed_level("NM_X.1:c.[(4_6)del;13dup]", "NM_X.1:c.[13_14insT;(4_6)del]"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_mitochondrial_uncertain_member_is_its_genomic_spelling() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:m.[(1003_1004)del;1007G>A]",
+            "NC_TEST.1:g.[1007G>A;(1003_1004)del]"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_rna_uncertain_member_is_its_coding_spelling() {
+    assert_eq!(
+        placed_level("NM_X.1:r.[(4_6)del;10g>a]", "NM_X.1:c.[10G>A;(4_6)del]"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_protein_cis_allele_with_an_uncertain_member_is_itself_in_another_order() {
+    assert_eq!(
+        coding_level(
+            "NP_X.1:p.[(Lys2_Leu3)del;Tyr5Asp]",
+            "NP_X.1:p.[Y5D;(K2_L3)del]"
+        ),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn the_exact_protein_members_beside_an_uncertain_one_compare_by_their_alleles() {
+    assert_eq!(
+        coding_level(
+            "NP_X.1:p.[(Lys2_Leu3)del;Tyr5Asp]",
+            "NP_X.1:p.[Tyr5delinsAsp;(Lys2_Leu3)del]"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn exact_members_that_differ_beside_an_uncertain_one_differ() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A]",
+            "NC_TEST.1:g.[(1003_1004)del;1007G>T]"
+        ),
+        EquivalenceLevel::Different
+    );
+}

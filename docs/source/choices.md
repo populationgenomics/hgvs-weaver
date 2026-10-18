@@ -1959,8 +1959,8 @@ match between two descriptions that both project to that text and are not the sa
 minus strand, is Analogous to `NM_X.1:c.10_12copy3`. `copy3` and `copy4` are Different.
 
 `Identity` is the same text after spelling normalisation, or a prediction written exactly as given; the parentheses of a
-prediction and the brackets of a one-member allele are spelling. Cis alleles are compared by
-[the sequence their members make](#a-cis-allele-is-the-sequence-its-members-make).
+prediction, the brackets of a one-member allele and the order of an allele's members are spelling. Cis alleles are
+compared by [the sequence their members make](#a-cis-allele-is-the-sequence-its-members-make).
 [How it decides](equivalence_logic.md) has the full rules.
 
 A protein description that leaves the protein unchanged is a statement in the same way, and is the same only as a
@@ -2094,7 +2094,8 @@ NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
 ### An uncertain position names no one change
 
 **A description whose position is uncertain is the same as itself and different from every other: it has no canonical
-allele and no SPDI, is not projected between the genome and a transcript, and predicts no protein.**
+allele and no SPDI, is not projected between the genome and a transcript, and predicts no protein. In a cis allele such
+a member is compared by its spelling, and the members, as everywhere, in any order.**
 
 `g.(3_4)del` deletes one base somewhere in g.3 to g.4; `g.3_4del` deletes both, and `g.3del` names one of the two
 candidates. Neither is what the uncertain description says, so comparing either against it on the genome would claim a
@@ -2112,6 +2113,14 @@ bounds; it is the canonical allele, the one value every exact spelling of a chan
 lacks. In an allele in cis the rule applies member by member: a `c.` allele with an uncertain member has no VRS on the
 genome, and the error names the member; a `g.` allele keeps that member's Range bounds.
 
+In equivalence the rule is also member by member. An uncertain member matches only a member spelled as it is, once an
+`m.` member is read as `g.` and an `r.` member as its `c.` or `n.` spelling, as a description alone is. The exact
+members beside it are compared by their canonical alleles, as an exact single variant is, so `g.[(3_4)del;10_11insA]` is
+`g.[(3_4)del;10dup]` wherever g.10 is an A: `10dup` and `10_11insA` are judged by one rule whatever stands beside them.
+The members of a `[;]` allele are unordered, so `g.[(3_4)del;10G>A]` is `g.[10G>A;(3_4)del]`, and a member written twice
+counts once, so `g.[(3_4)del;(3_4)del;10G>A]` is `g.[(3_4)del;10G>A]`. An uncertain member is still never an exact one:
+`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`.
+
 **Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`):
 
 ```text
@@ -2123,6 +2132,10 @@ NM_X.1:c.(4_6)del                    vs  NC_X.1:g.109_111del         Different
 NP_X.1:p.(Lys2_Leu3)del              vs  NP_X.1:p.Lys2_Leu3del       Different
 NM_X.1:c.(4_6)del                    vs  NP_X.1:p.(Lys2del)          Different: c.4_6del would predict it
 NC_TEST.1:g.(1005)_(1012)del         vs  NC_TEST.1:g.1005_1012del    Analogous
+NC_TEST.1:g.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;(1003_1004)del]  Identity: the members in another order
+NC_TEST.1:g.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;1003del]         Different
+NC_TEST.1:g.[(1003_1004)del;1001_1002insA] vs  NC_TEST.1:g.[1001dup;(1003_1004)del]  Analogous: insA and dup are one allele
+NM_X.1:c.[(4_6)del;10G>A]                  vs  NM_X.1:c.[10G>A;(4_6)del]             Identity
 canonical_allele, to_spdi NC_TEST.1:g.(1003_1004)del  →  UnsupportedOperation
 c_to_g, c_to_p NM_X.1:c.(4_6)del                      →  UnsupportedOperation
 g_to_c NC_X.1:g.(109_110)del                           →  UnsupportedOperation
@@ -2151,7 +2164,18 @@ g_to_c NC_X.1:g.(109_110)del                           →  UnsupportedOperation
   `::a_genomic_deletion_somewhere_in_a_range_has_no_transcript_form`,
   `::a_cis_allele_with_an_uncertain_coding_member_has_no_vrs_on_the_genome`,
   `::a_cis_allele_with_a_member_somewhere_in_a_range_is_not_the_exact_allele`,
-  `::a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_the_exact_one`;
+  `::a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_the_exact_one`,
+  `::a_cis_allele_with_an_uncertain_member_is_itself_in_another_order`,
+  `::a_coding_cis_allele_with_an_uncertain_member_is_itself_in_another_order`,
+  `::a_cis_allele_with_an_uncertain_member_in_another_order_is_not_the_exact_allele`,
+  `::a_coding_cis_allele_with_an_uncertain_member_is_not_the_exact_allele`,
+  `::cis_alleles_with_different_uncertain_members_differ`, `::an_uncertain_member_written_twice_counts_once`,
+  `::the_exact_members_beside_an_uncertain_one_compare_by_their_alleles`,
+  `::the_exact_coding_members_beside_an_uncertain_one_compare_by_their_alleles`,
+  `::exact_members_that_differ_beside_an_uncertain_one_differ`,
+  `::a_mitochondrial_uncertain_member_is_its_genomic_spelling`, `::an_rna_uncertain_member_is_its_coding_spelling`,
+  `::a_protein_cis_allele_with_an_uncertain_member_is_itself_in_another_order`,
+  `::the_exact_protein_members_beside_an_uncertain_one_compare_by_their_alleles`;
   `vrs_range_test::uncertain_breakpoints_become_ranges`.
 
 ### Judging with no protein sequence is an error
@@ -2242,7 +2266,8 @@ transcript reading makes and normalises to `g.28_29insCCTT`.
 
 A one-member allele makes what its member makes, so `c.[7C>T]` is `c.7C>T`, and an allele and a single variant are the
 same change when they make the same sequence. The brackets of a one-member allele are spelling, as the parentheses of a
-prediction are, so the two are Identity, as `c.=` and `c.[=]` are.
+prediction are, so the two are Identity, as `c.=` and `c.[=]` are. The order of the members is spelling too, so
+`c.[8T>G;7C>T]` and `c.[7C>T;8T>G]` are Identity.
 
 An allele says more than the sequence it makes when some of its members change nothing. An identity member, `c.10_12=`,
 states that its bases are unchanged, and members that cancel each other state the same of the bases they are written
@@ -2282,20 +2307,21 @@ change names that residue: `c.[4_5insA;5del;6A>T]` is `p.(Lys2Asn)`. Nor does a 
 codon read in a new frame or past a new stop; `p.(=)` is about the whole protein and does not stand beside a change.
 
 Some members cannot be applied to a sequence: a statement (the whole-sequence `=`, `?`, `spl`, `0`, `r.(?)`); a position
-that is uncertain or imprecise, `g.(?_5)_(10_?)del`; inserted bases that are not stated, `insN[20]`, or written `N`,
-which is a base not stated; a copy number; and a conversion, whose bases weaver does not model, and which is not an
-identity though it prints as one. A positional identity, `c.10_12=`, is not among them: it replaces its bases with
-themselves, so `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and states c.10 to c.12 besides. An allele with members that
-cannot be applied is compared in two parts: the members that can be applied by the sequence they make, as above, and the
-members that cannot as an unordered collection of their projections to the genome, identical members counting once, as
-an edit written twice is read once, so `g.[30_35copy3;30_35copy3]` is `g.30_35copy3`. Two alleles are the same change
-when both parts match. An applicable part that makes the reference is compared as the statement it makes, so
-`c.[4_5insA;5del;10_12copy3]` is `c.[4_5=;10_12copy3]` and not `c.[13=;10_12copy3]`. Order still does not matter, so
-`g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split of the applicable part still does not, so
-`c.[7C>T;8T>G;10_12copy3]` is `c.[7_8delinsTG;10_12copy3]`; a member that cannot be applied matches only its own
-projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as written, is compared, so
-`c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`, the same members on one genome, are one allele though `10_12copy3` and
-`25_27copy3` are different text. Such a member is still held to the
+that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either and is compared by its spelling
+([the uncertain position entry](#an-uncertain-position-names-no-one-change)); inserted bases that are not stated,
+`insN[20]`, or written `N`, which is a base not stated; a copy number; and a conversion, whose bases weaver does not
+model, and which is not an identity though it prints as one. A positional identity, `c.10_12=`, is not among them: it
+replaces its bases with themselves, so `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and states c.10 to c.12 besides. An
+allele with members that cannot be applied is compared in two parts: the members that can be applied by the sequence
+they make, as above, and the members that cannot as an unordered collection of their projections to the genome,
+identical members counting once, as an edit written twice is read once, so `g.[30_35copy3;30_35copy3]` is
+`g.30_35copy3`. Two alleles are the same change when both parts match. An applicable part that makes the reference is
+compared as the statement it makes, so `c.[4_5insA;5del;10_12copy3]` is `c.[4_5=;10_12copy3]` and not
+`c.[13=;10_12copy3]`. Order still does not matter, so `g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split of
+the applicable part still does not, so `c.[7C>T;8T>G;10_12copy3]` is `c.[7_8delinsTG;10_12copy3]`; a member that cannot
+be applied matches only its own projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as
+written, is compared, so `c.[7C>T;10_12copy3]` and `g.[22C>T;25_27copy3]`, the same members on one genome, are one
+allele though `10_12copy3` and `25_27copy3` are different text. Such a member is still held to the
 [overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so `g.[22C>T;20_30copy3]` is
 refused rather than compared in two parts.
 
@@ -2332,7 +2358,7 @@ it in `NC_S.1`, so c.4 is g.19 and c.6 is g.31):
 c.1_21 of NM_X.1                       ATG AAA CTG GCC TAT CGC TAA
 NM_X.1:c.[7C>T;8T>G]                   ATG AAA TGG GCC TAT CGC TAA
 NM_X.1:c.7_8delinsTG                   ATG AAA TGG GCC TAT CGC TAA    Analogous: the same sequence
-NM_X.1:c.[8T>G;7C>T]                   ATG AAA TGG GCC TAT CGC TAA    Analogous: order is how it is written
+NM_X.1:c.[8T>G;7C>T]                   ATG AAA TGG GCC TAT CGC TAA    Identity with c.[7C>T;8T>G]: order is spelling
 NM_X.1:c.7_8delinsTA                   ATG AAA TAG GCC TAT CGC TAA    Different from c.[7C>T;8T>G]
 
 NM_X.1:c.[7C>T;13T>G]                  ATG AAA TTG GCC GAT CGC TAA
@@ -2374,7 +2400,7 @@ NP_X.1:p.Lys2Gly                       MGLAYR                         Different
 NP_X.1:p.[Lys2Gly;Leu3ProfsTer3]       MGP, one residue, end
 NP_X.1:p.[Lys2Gly;Leu3delinsProAlaTer] MGPA, end                      Analogous: the unnamed residue matches A
 
-NC_X.1:g.[22C>T;30_35copy3]  vs  NC_X.1:g.[30_35copy3;22C>T]          Analogous: 22C>T by sequence, the copy number by projection
+NC_X.1:g.[22C>T;30_35copy3]  vs  NC_X.1:g.[30_35copy3;22C>T]          Identity: the same members in another order
 NC_X.1:g.[22C>T;30_35copy3]  vs  NC_X.1:g.[22C>T;30_35copy4]          Different: three copies, four copies
 NM_X.1:c.[7C>T;10_12copy3]   vs  NC_X.1:g.[22C>T;25_27copy3]          Analogous: the copy number projects to that text
 NC_X.1:g.[22C>T;20_30copy3]                                           refused: g.22 is inside the counted stretch
