@@ -87,6 +87,31 @@ fn exon_edge() -> Provider {
         ))
 }
 
+/// `NM_STRADDLE.1` on the plus strand of `NC_000092.1`: exon 1 is
+/// `ATGCAGTG` (c.1 to c.8, g.11 to g.18), exon 2 `CTAAGG` (c.9 to c.*3, g.30
+/// to g.35), and the intron between opens with T. From c.6 the transcript
+/// holds one `GT`, followed by `GC`; the genome holds two over g.16_19, the
+/// second straddling the exon's edge.
+fn straddling_edge() -> Provider {
+    let (exon_1, intron, exon_2) = ("ATGCAGTG", "TAAGCCCCCAG", "CTAAGG");
+    Provider::new()
+        .sequence(
+            "NC_000092.1",
+            &format!("{FLANK}{exon_1}{intron}{exon_2}{FLANK}"),
+        )
+        .sequence("NM_STRADDLE.1", &format!("{exon_1}{exon_2}"))
+        .transcript(transcript(
+            "NM_STRADDLE.1",
+            "NC_000092.1",
+            Strand::Plus,
+            Some((0, 11)),
+            vec![
+                exon((0, 8), (10, 17), Strand::Plus),
+                exon((8, 14), (29, 34), Strand::Plus),
+            ],
+        ))
+}
+
 /// `NM_DIFF.1`, [`TX`] on the plus strand of `NC_000096.1` at g.11 to g.33,
 /// except that the genome holds G where the record holds c.6's A: c.4_6 is
 /// `AAA` on the record and g.14_16 `AAG` on the genome.
@@ -261,6 +286,43 @@ fn a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continu
             .to_string(),
         "NM_EDGE.1:c.6GT[2]"
     );
+}
+
+#[test]
+fn a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_completes_a_copy() {
+    let hdp = straddling_edge();
+    let mapper = VariantMapper::new(&hdp);
+    // c.6_7 is the transcript's one GT; the genome's run, g.16_19, has a
+    // second, of c.8 and the intron's first base.
+    assert_eq!(
+        mapper
+            .normalize_variant(parse("NM_STRADDLE.1:c.6GT[1]"))
+            .unwrap()
+            .to_string(),
+        "NM_STRADDLE.1:c.6GT[1]"
+    );
+}
+
+#[test]
+fn a_repeat_whose_exon_ends_on_no_start_of_its_unit_normalises_without_the_genome() {
+    // NM_STRADDLE.1's exons with c.8 a C, and no NC_000092.1: the GT at c.6_7
+    // is followed by C, which begins no GT the intron could complete.
+    let hdp = Provider::new()
+        .sequence("NM_STRADDLE.1", "ATGCAGTCCTAAGG")
+        .transcript(transcript(
+            "NM_STRADDLE.1",
+            "NC_000092.1",
+            Strand::Plus,
+            Some((0, 11)),
+            vec![
+                exon((0, 8), (10, 17), Strand::Plus),
+                exon((8, 14), (29, 34), Strand::Plus),
+            ],
+        ));
+    let normalised = VariantMapper::new(&hdp)
+        .normalize_variant(parse("NM_STRADDLE.1:c.6GT[1]"))
+        .unwrap();
+    assert_eq!(normalised.to_string(), "NM_STRADDLE.1:c.6_7=");
 }
 
 #[test]
