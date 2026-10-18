@@ -50,11 +50,8 @@ fn is_insertion(edit: &NaEdit) -> bool {
 /// Whether a member is a duplication, whether an insertion, and whether its
 /// position is exact, as written.
 fn shape(member: &SV) -> (bool, bool, bool) {
-    let tx_exact = |pos: Option<&crate::structs::BaseOffsetInterval>| {
-        pos.is_some_and(|p| {
-            !p.uncertain && !p.start.uncertain && p.end.as_ref().is_none_or(|e| !e.uncertain)
-        })
-    };
+    let tx_exact =
+        |pos: Option<&crate::structs::BaseOffsetInterval>| pos.is_some_and(|p| p.is_exact());
     let (edit, exact) = match member {
         SV::Genomic(g) => (
             &g.posedit.edit,

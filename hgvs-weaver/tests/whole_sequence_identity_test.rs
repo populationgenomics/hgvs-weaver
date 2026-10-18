@@ -468,6 +468,15 @@ fn r_identity_is_its_one_member_cis_allele() {
 }
 
 #[test]
+fn the_rna_predicted_unchanged_is_the_rna_found_unchanged() {
+    // A prediction is taken as its confirmation, as p.(=) is p.=.
+    assert_eq!(
+        level("NM_W.1:r.(=)", "NM_W.1:r.=").unwrap(),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
 fn c_identity_is_not_r_identity() {
     // One says the DNA was analysed, the other the RNA.
     assert_eq!(

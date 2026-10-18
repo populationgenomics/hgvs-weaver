@@ -402,3 +402,292 @@ fn an_unknown_change_from_the_stop_is_not_the_protein_unchanged() {
         EquivalenceLevel::Different
     );
 }
+
+// --- Parentheses ---
+//
+// Only a prediction's parentheses, around a whole p. description, are
+// spelling; those of an uncertain position say the change is not known
+// exactly, so the description names no one change.
+
+/// The level of `a` against `b` on `NC_TEST.1`, `ACGT` repeated.
+fn genomic_level(a: &str, b: &str) -> EquivalenceLevel {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let parse = |s: &str| parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+    VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse(a), &parse(b))
+        .unwrap()
+}
+
+/// [`coding_provider`] with `NM_X.1` at genomic index 100 of `NC_X.1`, so
+/// c.1 is g.106.
+fn placed_provider() -> Provider {
+    let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    coding_provider().sequence(
+        "NC_X.1",
+        &format!("{}{transcript}{}", "T".repeat(100), "T".repeat(20)),
+    )
+}
+
+/// The level of `a` against `b` over [`placed_provider`].
+fn placed_level(a: &str, b: &str) -> EquivalenceLevel {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let parse = |s: &str| parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+    VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse(a), &parse(b))
+        .unwrap()
+}
+
+#[test]
+fn one_base_deleted_somewhere_in_a_range_is_not_the_range_deleted() {
+    assert_eq!(
+        genomic_level("NC_TEST.1:g.(1003_1004)del", "NC_TEST.1:g.1003_1004del"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn one_base_deleted_somewhere_in_a_range_is_not_its_first_base_deleted() {
+    assert_eq!(
+        genomic_level("NC_TEST.1:g.(1003_1004)del", "NC_TEST.1:g.1003del"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn one_base_deleted_somewhere_in_a_range_is_itself() {
+    assert_eq!(
+        genomic_level("NC_TEST.1:g.(1003_1004)del", "NC_TEST.1:g.(1003_1004)del"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_deletion_between_uncertain_breakpoints_is_not_one_from_their_first_bases() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.(1001_1003)_(1010_1012)del",
+            "NC_TEST.1:g.1001_1010del"
+        ),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_copy_number_somewhere_in_a_range_is_not_one_of_the_range() {
+    assert_eq!(
+        genomic_level("NC_TEST.1:g.(1001_1010)copy3", "NC_TEST.1:g.1001_1010copy3"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_coding_deletion_over_an_uncertain_range_is_not_the_exact_one() {
+    assert_eq!(
+        placed_level("NM_X.1:c.(4_6)del", "NM_X.1:c.4_6del"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_coding_deletion_over_an_uncertain_range_is_not_the_exact_genomic_one() {
+    // c.4_6 is g.109_111.
+    assert_eq!(
+        placed_level("NM_X.1:c.(4_6)del", "NC_X.1:g.109_111del"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn one_base_deleted_somewhere_in_a_range_has_no_canonical_allele() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_TEST.1:g.(1003_1004)del").unwrap();
+    let result = mapper.canonical_allele(&var);
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_coding_deletion_over_an_uncertain_range_has_no_genomic_form() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let hgvs_weaver::SequenceVariant::Coding(c) = parse_hgvs_variant("NM_X.1:c.(4_6)del").unwrap()
+    else {
+        panic!("not c.");
+    };
+    let result = mapper.c_to_g(&c, None);
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_coding_deletion_over_an_uncertain_range_is_not_a_protein_change() {
+    // c.4_6del, exact, would be p.(Lys2del).
+    assert_eq!(
+        placed_level("NM_X.1:c.(4_6)del", "NP_X.1:p.(Lys2del)"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_coding_deletion_over_an_uncertain_range_predicts_no_protein() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let hgvs_weaver::SequenceVariant::Coding(c) = parse_hgvs_variant("NM_X.1:c.(4_6)del").unwrap()
+    else {
+        panic!("not c.");
+    };
+    let result = mapper.c_to_p(&c, None);
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn one_base_deleted_somewhere_in_a_range_has_no_spdi() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_TEST.1:g.(1003_1004)del").unwrap();
+    let result = mapper.to_spdi(&var, false);
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_deletion_between_parenthesised_single_bases_has_the_exact_ones_spdi() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let spdi = |s: &str| {
+        mapper
+            .to_spdi(&parse_hgvs_variant(s).unwrap(), false)
+            .unwrap()
+    };
+    assert_eq!(
+        spdi("NC_TEST.1:g.(1005)_(1012)del"),
+        spdi("NC_TEST.1:g.1005_1012del")
+    );
+}
+
+#[test]
+fn a_genomic_deletion_somewhere_in_a_range_has_no_transcript_form() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let hgvs_weaver::SequenceVariant::Genomic(g) =
+        parse_hgvs_variant("NC_X.1:g.(109_110)del").unwrap()
+    else {
+        panic!("not g.");
+    };
+    let result = mapper.g_to_c(&g, "NM_X.1");
+    assert!(
+        matches!(result, Err(HgvsError::UnsupportedOperation(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_copy_number_between_parenthesised_single_bases_is_the_exact_one() {
+    assert_eq!(
+        genomic_level(
+            "NC_TEST.1:g.(1005)_(1012)copy3",
+            "NC_TEST.1:g.1005_1012copy3"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_deletion_between_parenthesised_single_bases_is_the_exact_one() {
+    assert_eq!(
+        genomic_level("NC_TEST.1:g.(1005)_(1012)del", "NC_TEST.1:g.1005_1012del"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_protein_deletion_over_an_uncertain_range_is_not_the_exact_one() {
+    assert_eq!(
+        coding_level("NP_X.1:p.(Lys2_Leu3)del", "NP_X.1:p.Lys2_Leu3del"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_predicted_protein_change_is_its_confirmation() {
+    assert_eq!(
+        coding_level("NP_X.1:p.(Lys2Asn)", "NP_X.1:p.Lys2Asn"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_cis_allele_of_predicted_protein_changes_is_its_confirmation() {
+    assert_eq!(
+        coding_level(
+            "NP_X.1:p.[(Lys2Asn);(Leu3Pro)]",
+            "NP_X.1:p.[Lys2Asn;Leu3Pro]"
+        ),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_coding_change_is_analogous_to_its_prediction_written_unbracketed() {
+    // c.7C>G turns CTG into GTG.
+    assert_eq!(
+        coding_level("NM_X.1:c.7C>G", "NP_X.1:p.Leu3Val"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_cis_allele_with_an_uncertain_coding_member_has_no_vrs_on_the_genome() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NM_X.1:c.[(4_6)del;10G>A]").unwrap();
+    let result = mapper.to_vrs_variation(&var);
+    assert!(
+        matches!(
+            &result,
+            Err(HgvsError::CisMember { index: 0, source, .. })
+                if matches!(**source, HgvsError::UnsupportedOperation(_))
+        ),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_cis_allele_with_a_member_somewhere_in_a_range_is_not_the_exact_allele() {
+    // g.115 is the G of CTG.
+    assert_eq!(
+        placed_level(
+            "NC_X.1:g.[(109_110)del;115G>A]",
+            "NC_X.1:g.[109_110del;115G>A]"
+        ),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_the_exact_one() {
+    let hdp = placed_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let normalised = |s: &str| {
+        mapper
+            .normalize_variant(parse_hgvs_variant(s).unwrap())
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        normalised("NC_X.1:g.[(105)_(112)del;115G>A]"),
+        normalised("NC_X.1:g.[105_112del;115G>A]")
+    );
+}

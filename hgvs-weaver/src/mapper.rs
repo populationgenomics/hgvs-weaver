@@ -1169,13 +1169,6 @@ pub(crate) fn simple_position(i: usize) -> SimplePosition {
     }
 }
 
-/// Whether a bound of `pos` is known only to lie in a range, `(3_4)`, or is
-/// marked uncertain.
-pub(crate) fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
-    let uncertain = |p: &SimplePosition| p.uncertain || p.end.is_some();
-    pos.uncertain || uncertain(&pos.start) || pos.end.as_ref().is_some_and(uncertain)
-}
-
 /// The HGVS start index and optional end index to write for `after`: an end
 /// for an insertion, which names its two flanking bases, and for an edit of
 /// more than one base.
@@ -1247,6 +1240,11 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing genomic position".into()))?;
+        if !pos.is_exact() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_g} has an uncertain position, which a transcript interval cannot carry"
+            )));
+        }
         let run = self.repeat_run_g(var_g, pos)?;
         let run = match run {
             Some(run) => Some(self.transcript_run_g(&am, var_g, run)?),
@@ -1550,6 +1548,14 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
+        if !pos.is_exact() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{}:{}.{} has an uncertain position, which a genomic interval cannot carry",
+                var_c.ac(),
+                var_c.coordinate_type(),
+                var_c.posedit()
+            )));
+        }
         let run = self.repeat_run_tx(&am, var_c, pos)?;
         let (pos, edit) = match &run {
             Some((interval, edit)) => (interval, edit),
@@ -1688,6 +1694,11 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        if !pos.is_exact() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_g} has an uncertain position, which a transcript interval cannot carry"
+            )));
+        }
         let start_0 = pos.start.index()?.0;
         let end_0 = match &pos.end {
             Some(e) => e.index()?.0 + 1,
@@ -1966,6 +1977,11 @@ impl<'a> VariantMapper<'a> {
             return Ok(CodingOutcome::Statement(
                 self.unchanged_protein(var_c, protein_ac)?,
             ));
+        }
+        if var_c.posedit.pos.as_ref().is_some_and(|p| !p.is_exact()) {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var_c} has an uncertain position, so it names no codons to translate"
+            )));
         }
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         let transcript = self.provider().get_transcript(&var_c.ac, None)?;
@@ -2379,7 +2395,7 @@ impl<'a> VariantMapper<'a> {
         let Some(pos) = &mut v.posedit_mut().pos else {
             return Ok(v);
         };
-        if is_uncertain_linear(pos) {
+        if !pos.is_exact() {
             // A bound known only to lie in a range names no one placement to
             // shift or reduce from. Leave the variant as written.
             return Ok(v);
@@ -2403,14 +2419,14 @@ impl<'a> VariantMapper<'a> {
         let Some(pos) = &v.posedit().pos else {
             return Ok(v);
         };
+        if !pos.is_exact() {
+            return Ok(v);
+        }
         if has_intronic_offset(pos) {
             // An intronic base has no transcript index; there is nothing to
             // normalise against in transcript space. Leave the variant as
             // written, once what it states is found on the genome.
             self.check_transcript_stated(&v)?;
-            return Ok(v);
-        }
-        if pos.uncertain || pos.start.uncertain || pos.end.as_ref().is_some_and(|e| e.uncertain) {
             return Ok(v);
         }
         let (start, end) = self.get_c_indices(pos, &am)?;
@@ -2490,7 +2506,8 @@ impl<'a> VariantMapper<'a> {
 
     /// The canonical allele of a nucleotide variant on its genomic reference:
     /// the one unambiguous statement of the change that SPDI, VRS and
-    /// equivalence all derive from. See [`CanonicalAllele`].
+    /// equivalence all derive from. See [`CanonicalAllele`]. A variant whose
+    /// position is uncertain names no one change, so it has none.
     pub fn canonical_allele(
         &self,
         var: &crate::SequenceVariant,
@@ -2500,6 +2517,11 @@ impl<'a> VariantMapper<'a> {
                 "A cis allele has one canonical allele per member, not one of its own; \
                  take canonical_allele of each of the {} members of {var}, or to_vrs_variation",
                 cis.members.len()
+            )));
+        }
+        if !var.has_exact_position() {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "{var} has an uncertain position, so it names no one change to make an allele of"
             )));
         }
         if let crate::SequenceVariant::Protein(vp) = var {
@@ -3268,6 +3290,10 @@ impl<'a> VariantMapper<'a> {
         // A protein has only the canonical form.
         if unambiguous || matches!(var, crate::SequenceVariant::Protein(_)) {
             self.to_spdi_unambiguous(var)
+        } else if !var.has_exact_position() {
+            Err(HgvsError::UnsupportedOperation(format!(
+                "{var} has an uncertain position, which SPDI cannot carry"
+            )))
         } else {
             // 1. Resolve to genomic if possible.
             let g_var_obj = self.as_genomic(var).ok_or_else(|| {

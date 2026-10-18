@@ -792,6 +792,13 @@ pub struct SimpleInterval {
 }
 
 impl SimpleInterval {
+    /// Whether every bound is one known base, `g.3_4` or `g.(3)_(4)`, rather
+    /// than a range, `g.(3_4)`, or unknown, `g.(?_10)`.
+    pub fn is_exact(&self) -> bool {
+        let exact = |p: &SimplePosition| p.end.is_none() && p.index().is_ok();
+        !self.uncertain && exact(&self.start) && self.end.as_ref().is_none_or(exact)
+    }
+
     pub fn length(&self) -> Result<i32, HgvsError> {
         match &self.end {
             Some(end) => Ok(end.index()?.0 - self.start.index()?.0 + 1),
@@ -827,6 +834,11 @@ pub struct BaseOffsetInterval {
 }
 
 impl BaseOffsetInterval {
+    /// Whether neither the interval, `c.(4_6)`, nor a bound is uncertain.
+    pub fn is_exact(&self) -> bool {
+        !self.uncertain && !self.start.uncertain && self.end.as_ref().is_none_or(|e| !e.uncertain)
+    }
+
     pub fn length(&self) -> Result<i32, HgvsError> {
         match &self.end {
             Some(end) => {

@@ -2157,10 +2157,7 @@ impl VariantMapper<'_> {
                         )));
                     }
                     let (start, end) = (n_start.0 as usize, n_end.0 as usize);
-                    let uncertain = pos.uncertain
-                        || pos.start.uncertain
-                        || pos.end.as_ref().is_some_and(|e| e.uncertain)
-                        || posedit.uncertain;
+                    let uncertain = !pos.is_exact() || posedit.uncertain;
                     edit = Some(PlacedEdit::from_hgvs_range(
                         start,
                         end,
@@ -2348,7 +2345,7 @@ fn place_linear(
     let Some(pos) = &posedit.pos else {
         return Ok((Placed::Unapplied(Reach::Stretch(0, usize::MAX)), None));
     };
-    let uncertain = crate::mapper::is_uncertain_linear(pos) || posedit.uncertain;
+    let uncertain = !pos.is_exact() || posedit.uncertain;
     if uncertain {
         let index =
             |b: crate::structs::GenomicBound| b.known().map(|p| p.to_index().0.max(0) as usize);
