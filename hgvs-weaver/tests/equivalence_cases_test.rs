@@ -206,8 +206,8 @@ fn test_immediate_stop_normalization() -> Result<(), HgvsError> {
     if let hgvs_weaver::coords::SequenceVariant::Coding(c) = var_c {
         let var_p = mapper.c_to_p(&c, None)?;
         let p_str = format!("{}", var_p);
-        // Should be p.Lys1Ter (nonsense) not p.Lys1fsTer1
-        assert_eq!(p_str, "NP_1.1:p.(Lys1Ter)");
+        // A nonsense substitution, not p.Met1fsTer1; the annotated start AAA reads as Met.
+        assert_eq!(p_str, "NP_1.1:p.(Met1Ter)");
     } else {
         panic!("Not a coding variant");
     }

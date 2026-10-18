@@ -198,18 +198,18 @@ fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
         .unwrap()
     };
     let same = |c: &str, p: &str| level(c, p).is_equivalent();
-    // The prediction as written is Identity; other spellings are Analogous.
+    // The prediction in any spelling, bracketed or not, is Identity.
     assert_eq!(
         level("NM_X.1:c.4A>C", "NP_X.1:p.(Lys2Gln)"),
         EquivalenceLevel::Identity
     );
     assert_eq!(
         level("NM_X.1:c.4A>C", "NP_X.1:p.Lys2Gln"),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
     assert_eq!(
         level("NM_X.1:c.4A>C", "NP_X.1:p.K2Q"),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
     // A stop loss written as a substitution of the stop (ClinVar's form).
     assert!(same("NM_X.1:c.19T>C", "NP_X.1:p.Ter7Gln"));

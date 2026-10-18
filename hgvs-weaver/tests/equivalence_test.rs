@@ -1,10 +1,10 @@
 mod support;
 
-use hgvs_weaver::data::Strand;
+use hgvs_weaver::data::{Strand, TranscriptData};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::parse_hgvs_variant;
+use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
 use support::{single_exon_transcript, Provider};
 
 /// ACGT repeated as the genome, and a protein NP_0001.1 with Trp2.
@@ -248,7 +248,7 @@ fn an_identity_is_the_whole_codons_it_covers_as_predicted() {
 fn an_identity_is_its_prediction_in_another_spelling() {
     assert_eq!(
         coding_level("NM_X.1:c.7_10=", "NP_X.1:p.L3="),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 }
 
@@ -304,7 +304,7 @@ fn a_three_prime_utr_change_is_not_the_stop_unchanged() {
 fn a_silent_change_in_the_stop_codon_is_the_stop_unchanged() {
     assert_eq!(
         coding_level("NM_X.1:c.21A>G", "NP_X.1:p.Ter7="),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 }
 
@@ -383,7 +383,7 @@ fn a_silent_prediction_is_not_read_again_on_the_protein() {
 fn an_identity_from_the_5_utr_into_the_cds_is_the_start_codon_unchanged() {
     assert_eq!(
         coding_level("NM_X.1:c.-2_3=", "NP_X.1:p.Met1="),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 }
 
@@ -640,11 +640,11 @@ fn a_cis_allele_of_predicted_protein_changes_is_its_confirmation() {
 }
 
 #[test]
-fn a_coding_change_is_analogous_to_its_prediction_written_unbracketed() {
-    // c.7C>G turns CTG into GTG.
+fn a_coding_change_is_its_prediction_written_unbracketed() {
+    // c.7C>G turns CTG into GTG: p.(Leu3Val), confirmed.
     assert_eq!(
         coding_level("NM_X.1:c.7C>G", "NP_X.1:p.Leu3Val"),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 }
 
@@ -771,6 +771,87 @@ fn the_exact_members_beside_an_uncertain_one_compare_by_their_alleles() {
     );
 }
 
+/// `NM_C.1` and `NP_C.1`: a five-base 5'UTR, then `cds`, then the fourteen-base
+/// 3'UTR of `NM_X.1`; `protein` is the protein the record names.
+fn record_provider(cds: &str, protein: &str) -> Provider {
+    let transcript = format!("GGGGG{cds}CCGTATAAGTAAGG");
+    Provider::new()
+        .sequence("NM_C.1", &transcript)
+        .sequence("NP_C.1", protein)
+        .transcript(single_exon_transcript(
+            "NM_C.1",
+            "NC_C.1",
+            100,
+            Strand::Plus,
+            5,
+            5 + cds.len() as i32 - 1,
+            transcript.len() as i32,
+        ))
+        .protein_for("NM_C.1", "NP_C.1")
+}
+
+/// The level at which `a` and `b` are judged the same over `hdp`.
+fn level_over(hdp: &Provider, a: &str, b: &str) -> EquivalenceLevel {
+    let mapper = VariantMapper::new(hdp);
+    let parse = |s: &str| parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+    VariantEquivalence::new(&mapper, hdp)
+        .equivalent_level(&parse(a), &parse(b))
+        .unwrap()
+}
+
+/// A CDS that starts at CTG, as some do; the record reads the initiator as Met,
+/// `MKLAYR`.
+const CUG_START: &str = "CTGAAACTGGCCTATCGCTAA";
+
+#[test]
+fn a_frameshift_from_a_non_aug_start_is_the_frameshift_written_without_its_length() {
+    // c.6dup reads CTG AAA ACT GGC CTA TCG CTA ACC GTA TAA: p.(Leu3ThrfsTer8).
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.6dup", "NP_C.1:p.Leu3fs"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_frameshift_from_a_non_aug_start_is_not_one_from_a_later_residue() {
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.6dup", "NP_C.1:p.Ala4fs"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_non_aug_start_predicts_the_protein_the_record_names() {
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    let mapper = VariantMapper::new(&hdp);
+    let SequenceVariant::Coding(c) = parse_hgvs_variant("NM_C.1:c.6dup").unwrap() else {
+        panic!("not c.");
+    };
+    assert_eq!(
+        mapper
+            .predicted_protein(&c, None)
+            .unwrap()
+            .map(|p| p.residues)
+            .as_deref(),
+        Some("MKTGLSLTV")
+    );
+}
+
+/// A selenoprotein: codon 3 is TGA, selenocysteine in the record, `MKUAYR`.
+const SEC_AT_3: &str = "ATGAAATGAGCCTATCGCTAA";
+
+#[test]
+fn a_frameshift_past_a_selenocysteine_is_the_frameshift_written_without_its_length() {
+    // c.12dup reads ATG AAA TGA GCC CTA TCG CTA ACC GTA TAA: p.(Tyr5LeufsTer6).
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.12dup", "NP_C.1:p.Tyr5fs"),
+        EquivalenceLevel::Analogous
+    );
+}
+
 #[test]
 fn the_exact_coding_members_beside_an_uncertain_one_compare_by_their_alleles() {
     // c.13dup and c.13_14insT insert one T after c.13.
@@ -829,5 +910,269 @@ fn exact_members_that_differ_beside_an_uncertain_one_differ() {
             "NC_TEST.1:g.[(1003_1004)del;1007G>T]"
         ),
         EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_selenoprotein_predicts_the_protein_the_record_names() {
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    let SequenceVariant::Coding(c) = parse_hgvs_variant("NM_C.1:c.12dup").unwrap() else {
+        panic!("not c.");
+    };
+    assert_eq!(
+        mapper
+            .predicted_protein(&c, None)
+            .unwrap()
+            .map(|p| p.residues)
+            .as_deref(),
+        Some("MKUALSLTV")
+    );
+}
+
+#[test]
+fn a_change_to_a_non_aug_start_codon_is_named_at_met1() {
+    // c.1C>T turns the initiator CTG into TTG.
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    let mapper = VariantMapper::new(&hdp);
+    let SequenceVariant::Coding(c) = parse_hgvs_variant("NM_C.1:c.1C>T").unwrap() else {
+        panic!("not c.");
+    };
+    assert_eq!(
+        mapper.c_to_p(&c, None).unwrap().to_string(),
+        "NP_C.1:p.(Met1Leu)"
+    );
+}
+
+/// The coding variant `c`.
+fn coding_on(c: &str) -> hgvs_weaver::CVariant {
+    match parse_hgvs_variant(c).unwrap() {
+        SequenceVariant::Coding(c) => c,
+        other => panic!("{other} is not c."),
+    }
+}
+
+#[test]
+fn a_change_at_a_selenocysteine_is_named_at_sec() {
+    // c.7T>C turns the TGA of codon 3 into CGA, Arg.
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.7T>C"), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Sec3Arg)"
+    );
+}
+
+#[test]
+fn a_change_at_a_selenocysteine_is_its_prediction_confirmed() {
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.7T>C", "NP_C.1:p.Sec3Arg"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_selenocysteine_unchanged_is_named_at_sec() {
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.7_9="), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Sec3=)"
+    );
+}
+
+#[test]
+fn a_non_aug_initiator_unchanged_is_met1_unchanged() {
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.1_3=", "NP_C.1:p.Met1="),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_non_aug_start_has_a_protein_allele() {
+    let hdp = record_provider(CUG_START, "MKLAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert!(mapper
+        .protein_allele(&coding_on("NM_C.1:c.6dup"), None)
+        .is_ok());
+}
+
+#[test]
+fn an_aaa_annotated_start_reads_as_met() {
+    // c.6dup reads AAA AAA ACT GGC CTA TCG CTA ACC GTA TAA; the record starts with M.
+    let hdp = record_provider("AAAAAACTGGCCTATCGCTAA", "MKLAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .predicted_protein(&coding_on("NM_C.1:c.6dup"), None)
+            .unwrap()
+            .map(|p| p.residues)
+            .as_deref(),
+        Some("MKTGLSLTV")
+    );
+}
+
+#[test]
+fn a_stop_made_of_a_selenocysteine_codon_is_a_stop() {
+    // c.8G>A turns the TGA of codon 3 into TAA.
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.8G>A"), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Sec3Ter)"
+    );
+}
+
+#[test]
+fn a_stop_inserted_over_a_selenocysteine_codon_ends_the_protein() {
+    // AAA TGA becomes GGG TAA.
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .predicted_protein(&coding_on("NM_C.1:c.4_9delinsGGGTAA"), None)
+            .unwrap()
+            .map(|p| p.residues)
+            .as_deref(),
+        Some("MG")
+    );
+}
+
+#[test]
+fn a_selenocysteine_after_an_in_frame_deletion_stays_one() {
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .predicted_protein(&coding_on("NM_C.1:c.4_6del"), None)
+            .unwrap()
+            .map(|p| p.residues)
+            .as_deref(),
+        Some("MUAYR")
+    );
+}
+
+#[test]
+fn a_description_that_does_not_read_on_its_protein_is_an_error() {
+    // Residue 3 of MKLAYR is Leu, not Arg; c.7C>G predicts p.(Leu3Val).
+    let hdp = coding_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &parse_hgvs_variant("NM_X.1:c.7C>G").unwrap(),
+        &parse_hgvs_variant("NP_X.1:p.Arg3Gly").unwrap(),
+    );
+    assert!(result.is_err(), "{result:?}");
+}
+
+/// `NC_E.1` holding `NM_X.1`'s sequence from g.1, with two transcripts on it:
+/// `NM_E.1`, and `NM_F.1`, the same with its CDS open at the 3' end, on which
+/// no frameshift is predicted. Both encode `NP_E.1`.
+fn two_transcript_provider() -> Provider {
+    let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    let len = transcript.len() as i32;
+    Provider::new()
+        .sequence("NC_E.1", transcript)
+        .sequence("NM_E.1", transcript)
+        .sequence("NM_F.1", transcript)
+        .sequence("NP_E.1", "MKLAYR")
+        .transcript(single_exon_transcript(
+            "NM_E.1",
+            "NC_E.1",
+            0,
+            Strand::Plus,
+            5,
+            25,
+            len,
+        ))
+        .transcript(TranscriptData {
+            cds_end_open: true,
+            ..single_exon_transcript("NM_F.1", "NC_E.1", 0, Strand::Plus, 5, 25, len)
+        })
+        .protein_for("NM_E.1", "NP_E.1")
+        .protein_for("NM_F.1", "NP_E.1")
+}
+
+#[test]
+fn a_transcript_that_cannot_predict_does_not_hide_one_that_agrees() {
+    // g.12del is c.7del on both: p.(Leu3TrpfsTer?) on NM_E.1, nothing on NM_F.1.
+    let hdp = two_transcript_provider();
+    assert_eq!(
+        level_over(&hdp, "NC_E.1:g.12del", "NP_E.1:p.Leu3fs"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_transcript_that_cannot_predict_is_the_error_when_none_agrees() {
+    let hdp = two_transcript_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let SequenceVariant::Genomic(g) = parse_hgvs_variant("NC_E.1:g.12del").unwrap() else {
+        panic!("not g.");
+    };
+    let on = mapper.g_to_c_all(&g, &hdp).unwrap();
+    assert_eq!(on.len(), 2, "g.12del lies on both transcripts: {on:?}");
+    let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &SequenceVariant::Genomic(g),
+        &parse_hgvs_variant("NP_E.1:p.Ala4fs").unwrap(),
+    );
+    assert!(result.is_err(), "{result:?}");
+}
+
+#[test]
+fn a_codon_deleted_before_a_selenocysteine_in_any_spelling_is_a_deletion() {
+    // In ATG TCT TGA, c.5_7del (CTT) and c.4_6del (TCT) leave the same ATG TGA.
+    let hdp = record_provider("ATGTCTTGAGCCTATCGCTAA", "MSUAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.5_7del", "NP_C.1:p.Ser2del"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_delins_that_rewrites_a_selenocysteine_codon_as_itself_keeps_it() {
+    // c.9_12delinsAGCT is c.12C>T: the codons it touches, Sec3 and Ala4, unchanged.
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.9_12delinsAGCT"), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Sec3_Ala4=)"
+    );
+}
+
+#[test]
+fn a_duplicated_selenocysteine_codon_is_a_selenocysteine() {
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .c_to_p(&coding_on("NM_C.1:c.7_9dup"), None)
+            .unwrap()
+            .to_string(),
+        "NP_C.1:p.(Sec3dup)"
+    );
+}
+
+#[test]
+fn a_selenocysteine_codon_inserted_after_its_copy_is_the_same_duplication() {
+    // c.9_10insTGA is c.7_9dup written at the other end of the copy.
+    let hdp = record_provider(SEC_AT_3, "MKUAYR");
+    assert_eq!(
+        level_over(&hdp, "NM_C.1:c.9_10insTGA", "NP_C.1:p.Sec3dup"),
+        EquivalenceLevel::Identity
     );
 }

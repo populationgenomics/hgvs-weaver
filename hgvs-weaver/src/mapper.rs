@@ -956,6 +956,18 @@ fn protein_variant(
     })
 }
 
+/// The protein a coding variant leaves, as
+/// [`VariantMapper::predicted_protein`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PredictedProtein {
+    /// The residues in 1-letter code, to the stop or to the end of the
+    /// edited transcript.
+    pub residues: String,
+    /// Whether translation reaches a stop. One that reads off the end of the
+    /// transcript leaves more residues, their number unknown.
+    pub stops: bool,
+}
+
 /// What a coding variant does to its protein.
 enum CodingOutcome {
     /// A statement rather than a change: `p.?`, `p.(Met1?)`, `p.0?`, `p.(=)`.
@@ -2273,22 +2285,29 @@ impl<'a> VariantMapper<'a> {
         CanonicalAllele::canonicalize(&np, &protein_ac, &edit)
     }
 
-    /// The protein a coding variant leaves, in 1-letter code up to its stop:
-    /// empty when the CDS is deleted, `None` when nothing can be said (an
-    /// intronic position, a disrupted start codon).
+    /// The protein a coding variant leaves: no residues when the CDS is
+    /// deleted, `None` when nothing can be said (an intronic position, a
+    /// disrupted start codon) or the prediction is a statement about residues
+    /// (`p.(=)`, `p.(Leu3=)`).
     pub fn predicted_protein(
         &self,
         var_c: &CVariant,
         protein_ac: Option<&str>,
-    ) -> Result<Option<String>, HgvsError> {
+    ) -> Result<Option<PredictedProtein>, HgvsError> {
         Ok(match self.coding_outcome(var_c, protein_ac)? {
             CodingOutcome::Statement(p) => match &p.posedit.edit {
                 crate::edits::AaEdit::Statement(crate::edits::ProteinStatement::NoProtein {
                     ..
-                }) => Some(String::new()),
+                }) => Some(PredictedProtein {
+                    residues: String::new(),
+                    stops: true,
+                }),
                 _ => None,
             },
-            CodingOutcome::Change(reading) => Some(reading.proteins()?.1),
+            CodingOutcome::Change(reading) => Some(PredictedProtein {
+                residues: reading.proteins()?.1,
+                stops: reading.alternate_stops(),
+            }),
         })
     }
 
@@ -2444,11 +2463,21 @@ impl<'a> VariantMapper<'a> {
                 ProteinStatement::Unchanged,
             ));
         }
+        let translated: Vec<char> = crate::utils::translate(&ref_seq[cds_start..])
+            .chars()
+            .collect();
+        let stop = crate::protein::reference_stop(&translated, cds_len as usize);
         let residue = |codon: i64| -> Result<AAPosition, HgvsError> {
             let at = cds_start + 3 * codon as usize;
-            let aa = crate::utils::translate_codon(&ref_seq[at..at + 3]).ok_or_else(|| {
-                HgvsError::ValidationError(format!("{}: no codon at {at}", var_c.ac))
-            })?;
+            let bases = &ref_seq[at..at + 3];
+            let aa = match crate::utils::translate_codon(bases) {
+                // The annotated first codon is the initiator, Met whatever it is.
+                _ if codon == 0 => Some('M'),
+                // A stop codon before the reference's stop is a selenocysteine.
+                Some('*') if (codon as usize) < stop => Some('U'),
+                aa => aa,
+            }
+            .ok_or_else(|| HgvsError::ValidationError(format!("{}: no codon at {at}", var_c.ac)))?;
             Ok(AAPosition {
                 base: ProteinPos(codon as i32).to_hgvs(),
                 aa: crate::utils::aa1_to_aa3(aa).to_string(),

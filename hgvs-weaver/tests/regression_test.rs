@@ -96,17 +96,14 @@ fn test_braf_identity() -> Result<(), HgvsError> {
     // c.1799T>A -> p.Val600Glu (predicted)
     let v1 = parse_hgvs_variant("NM_BRAF:c.1799T>A")?;
 
-    // Target 1: p.Val600Glu (Observed/Experimental)
-    // Comparisons of c. to p. (observed) are Analogous because c. implies p.(predicted).
-    // The notation differs (parens vs no parens), so it's not Strict Identity.
+    // A prediction is taken as its confirmation, so the prediction is Identity
+    // with or without its parentheses.
     let v2_observed = parse_hgvs_variant("NP_BRAF:p.Val600Glu")?;
     assert_eq!(
         eq.equivalent_level(&v1, &v2_observed)?,
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 
-    // Target 2: p.(Val600Glu) (Predicted)
-    // Comparisons of c. to p.(predicted) should be Identity because c. implies p.(predicted) exactly.
     let v2_predicted = parse_hgvs_variant("NP_BRAF:p.(Val600Glu)")?;
 
     assert_eq!(

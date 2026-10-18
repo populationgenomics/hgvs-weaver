@@ -418,21 +418,32 @@ fn discordant_at(g: &Gene, p: TxPoint, shift: usize) -> String {
 /// the transcript's; sometimes one exonic genome base under the edit then
 /// differs, so a projection has to rewrite the edit against the genome's.
 pub fn gene_and_edit() -> impl Strategy<Value = (Gene, TxEdit)> {
-    gene()
-        .prop_flat_map(|g| {
-            let n = g.points().len();
-            (
-                Just(g),
-                0..n,
-                // mostly short; sometimes long enough to cover the whole CDS
-                prop_oneof![4 => 0usize..=8, 1 => 0..n],
-                0u8..8,
-                dna(1, 6),
-                1usize..=3,
-                1i32..=6,
-                prop::option::weighted(0.25, (0usize..10_000, 1usize..=3)),
-            )
-        })
+    gene().prop_flat_map(edit_on)
+}
+
+/// A gene and two edits on it, each as [`gene_and_edit`] makes one; the
+/// genome may differ from the transcript under either.
+pub fn gene_and_two_edits() -> impl Strategy<Value = (Gene, TxEdit, TxEdit)> {
+    gene_and_edit().prop_flat_map(|(g, first)| {
+        edit_on(g).prop_map(move |(g, second)| (g, first.clone(), second))
+    })
+}
+
+/// An edit on `g` as [`gene_and_edit`] makes one, with `g`'s genome changed
+/// under it when the edit makes the two disagree.
+fn edit_on(g: Gene) -> impl Strategy<Value = (Gene, TxEdit)> {
+    let n = g.points().len();
+    (
+        Just(g),
+        0..n,
+        // mostly short; sometimes long enough to cover the whole CDS
+        prop_oneof![4 => 0usize..=8, 1 => 0..n],
+        0u8..8,
+        dna(1, 6),
+        1usize..=3,
+        1i32..=6,
+        prop::option::weighted(0.25, (0usize..10_000, 1usize..=3)),
+    )
         .prop_map(|(mut g, s, span, kind, alt, shift, copies, discord)| {
             let points = g.points();
             let last = points.len() - 1;

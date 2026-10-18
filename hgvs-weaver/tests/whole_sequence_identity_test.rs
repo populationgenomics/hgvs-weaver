@@ -494,10 +494,10 @@ fn c_identity_is_the_predicted_protein_unchanged_on_its_own_protein() {
 }
 
 #[test]
-fn c_identity_is_analogous_to_its_own_protein_unchanged() {
+fn c_identity_is_its_own_protein_unchanged_confirmed() {
     assert_eq!(
         level("NM_W.1:c.=", "NP_W.1:p.=").unwrap(),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 }
 
