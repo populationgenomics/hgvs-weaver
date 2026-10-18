@@ -1576,8 +1576,7 @@ impl VariantMapper<'_> {
         let statement = matches!(normalised.edit, NaEdit::RefAlt { alt: None, .. });
         if statement && matches!(written.edit, NaEdit::Repeat { .. }) {
             if let Some(am) = ctx.frame.mapper.as_ref() {
-                let (s, e) = crate::mapper::hgvs_positions(&normalised);
-                if crate::mapper::genome_may_count_more(am, s, e)?
+                if crate::mapper::genome_may_count_more(am, ctx.reference, &written)?
                     && self.genome_range(ctx.frame, &written)?
                         != self.genome_range(ctx.frame, &normalised)?
                 {

@@ -1423,9 +1423,11 @@ the A that c.4_6 already holds, names the run and is `c.4_6=`. The statement is 
 genome what the variant does. A run or range across an exon junction would name the intron, so `c.4A[3]` over `AA|A`
 stays as written. A transcript repeat can state more on the genome than its run on the transcript: on the minus strand
 the genome [counts the copies before the written start](#a-repeat-is-projected-as-its-whole-run), and on either strand
-an intron can continue a run that reaches its exon's edge. Such a repeat stays as written too, `c.5A[2]` where c.4_6 is
-`AAA` on the minus strand, since `c.5_6=` would not state c.4, which the repeat states on the genome. Telling this case
-apart reads the genome, which normalising a transcript variant otherwise does not need.
+an intron can continue a run past its exon's edge, with whole copies or by completing one the exon begins. Such a repeat
+stays as written too: `c.5A[2]` where c.4_6 is `AAA` on the minus strand, since `c.5_6=` would not state c.4, which the
+repeat states on the genome; and `c.6GT[1]` where exon 1 ends `GTG` and its intron opens with T, since the genome's run
+is two copies, the second straddling the edge, and `c.6_7=` would state only the first. Telling this case apart reads
+the genome, which normalising a transcript variant otherwise does not need.
 
 Cancelling members beside a change keep their statement as an identity member, since the statement is part of the allele
 ([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)): `c.[4_5insA;5del;13T>G]` becomes
@@ -1620,6 +1622,7 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   share a member, which reading the allele already refuses;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
   `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
+  `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_completes_a_copy`,
   `::a_repeat_that_makes_the_reference_inside_a_plus_strand_exon_normalises_without_the_genome`;
   `exon_junction_test::a_repeat_at_its_own_count_across_the_junction_is_not_written_as_an_identity`;
   `a_single_variant_that_makes_the_reference_normalises_to_its_statement`,

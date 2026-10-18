@@ -115,21 +115,30 @@ fn project_edit(
     normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt)
 }
 
-/// Whether the genome can count a longer run than a transcript repeat's run
-/// over indices `start..=last` (`last` `None` for one base): on the minus
-/// strand, where the genome reads the run on from its 5' end, and on the plus
-/// strand where the run reaches its exon's last base and the intron can
-/// continue it, or its exon is aligned with gaps. Otherwise the two runs are
+/// Whether the genome can count a longer run than the run `written`, a
+/// repeat on `record`, counts on the transcript: on the minus strand, where
+/// the genome reads the run on from its 5' end, and on the plus strand where
+/// the exon's bases after the run, if any, begin a copy the intron could
+/// complete, or its exon is aligned with gaps. Otherwise the two runs are
 /// one, and need no genome to tell.
 pub(crate) fn genome_may_count_more(
     am: &TranscriptMapper,
-    start: usize,
-    last: Option<usize>,
+    record: &crate::reference::Reference<'_, '_>,
+    written: &PlacedEdit,
 ) -> Result<bool, HgvsError> {
+    let Some(repeat) = Repeat::of(&written.edit) else {
+        return Err(HgvsError::Other(format!(
+            "{:?} is not a repeat, so it counts no run",
+            written.edit
+        )));
+    };
     if am.transcript.strand == crate::data::Strand::Minus {
         return Ok(true);
     }
-    let last = last.unwrap_or(start) as i32;
+    let (start, end) = (written.start, written.end);
+    let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| record.slice(s, e))?;
+    let run = written.edit.resolve(record, start, end)?;
+    let last = run.end as i32 - 1;
     let exon = am
         .transcript
         .exons
@@ -141,8 +150,15 @@ pub(crate) fn genome_may_count_more(
                 am.transcript.ac
             ))
         })?;
-    let gapped = exon.cigar.contains(['I', 'D', 'N', 'S']);
-    Ok(gapped || last + 1 == exon.transcript_end.0)
+    if exon.cigar.contains(['I', 'D', 'N', 'S']) {
+        return Ok(true);
+    }
+    let exon_end = exon.transcript_end.0 as usize;
+    if exon_end - run.end >= unit.len() {
+        return Ok(false);
+    }
+    let rest = record.slice(run.end, exon_end)?;
+    Ok(unit.as_bytes()[..rest.len()].eq_ignore_ascii_case(rest.as_bytes()))
 }
 
 /// The fields of an [`NaEdit::Repeat`](crate::edits::NaEdit::Repeat), for
@@ -2783,7 +2799,8 @@ impl<'a> VariantMapper<'a> {
         posedit.edit = after.edit;
         match written {
             Some(written)
-                if v.posedit().edit.is_identity() && genome_may_count_more(&am, s, e)? =>
+                if v.posedit().edit.is_identity()
+                    && genome_may_count_more(&am, &reference, &before)? =>
             {
                 self.repeat_statement_or_as_written(written, v)
             }
