@@ -1610,7 +1610,7 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   `::an_identity_of_every_codon_but_the_stop_names_its_residues`,
   `::an_identity_in_the_5_utr_makes_no_protein_statement`, `::an_intronic_identity_makes_no_protein_statement`;
   `test_regressions::test_regression_c_360_eq`; `tests/test_no_protein_statement.py`;
-  `equivalence_test::one_base_unchanged_is_its_residue_unchanged_read_outward`,
+  `equivalence_test::one_base_unchanged_is_not_its_residue_unchanged`,
   `::an_identity_across_the_whole_transcript_is_not_no_protein`,
   `::an_identity_inside_the_codons_is_written_silently_at_its_residues`,
   `::an_intronic_conversion_is_an_unknown_effect`, `::an_upstream_conversion_is_an_unknown_effect`;
@@ -1860,15 +1860,16 @@ residues are Different: `p.Arg6_Ter7insTer` names the two residues it is inserte
 counting the overlap as a match would make `p.(Arg6=)` and `p.(Ter7=)` each the same as `p.(Arg6_Ter7=)` but not as each
 other, so that equivalence would stop being transitive.
 
-An identity is read two ways. What it claims is the residues whose whole codon it covers, and that is what `c_to_p`
-writes ([edits outside the CDS](#edits-outside-the-cds-are-statements)); a protein description of exactly those residues
-is its prediction, Identity or Analogous by spelling. ClinVar reads it outward, naming every residue whose codon it
-touches: `c.1114=` as `p.Asn372=`, `c.949_952=` as `p.Ala317_Ala318=`. That reading is consistent with the description
-though not implied by it, and equivalence grades it Analogous, for an identity of no whole codon too, which `c_to_p`
-refuses. biocommons names only the first residue touched, `c.36_74=` as `p.(Leu12=)`; that is neither reading, and is
-Different, as any statement about other residues is. The two accepted readings are not the same as each other, so
-equivalence is not transitive through an identity that covers a codon in part: `c.7_10=` is `p.(Leu3=)` and is
-`p.Leu3_Ala4=`, which are Different.
+Between a coding identity and a protein description, equivalence asks whether the identity predicts the description, and
+its prediction is the residues whose whole codon it covers
+([edits outside the CDS](#edits-outside-the-cds-are-statements)): `c.7_10=` is `p.(Leu3=)`, Identity as written and
+Analogous in another spelling. ClinVar reads an identity outward, naming every residue whose codon it touches: `c.1114=`
+as `p.Asn372=`, `c.949_952=` as `p.Ala317_Ala318=`. biocommons names the first residue it touches, `c.36_74=` as
+`p.(Leu12=)`. Both are Different from the identity, unless they happen to be its prediction: Analogous would make them
+the same change, and `p.Leu3_Ala4=` claims that Ala4 is unchanged, which `c.7_10=` does not state. An identity that
+covers no whole codon makes no protein claim, so it is Different from every protein description, `p.(=)` included.
+Outward rounding as an optional prediction is proposed in
+[issue #83](https://github.com/populationgenomics/hgvs-weaver/issues/83).
 
 A coding change is compared as the statement it predicts: `c.9G>A`, silent in codon 3, predicts `p.(Leu3=)`, while
 `c.*3G>A`, in the 3'UTR, predicts `p.(=)` ([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the first
@@ -1888,9 +1889,8 @@ NP_X.1:p.Met1_Ter7=          vs  NP_X.1:p.(=)                              Analo
 NM_X.1:c.1_21=               vs  NP_X.1:p.(=)                              Identity: every codon predicts the whole protein
 NP_X.1:p.Arg6_Ter7insTer     vs  NP_X.1:p.(Ter7=)                          Different: Arg6 and Ter7, and Ter7 alone
 NM_X.1:c.7_10=               vs  NP_X.1:p.(Leu3=)                          Identity: the whole codon it covers
-NM_X.1:c.7_10=               vs  NP_X.1:p.Leu3_Ala4=                       Analogous: every codon it touches, read outward
-NM_X.1:c.9=                  vs  NP_X.1:p.Leu3=                            Analogous: read outward; c_to_p refuses it
-NM_X.1:c.8_10=               vs  NP_X.1:p.(Leu3=)                          Different: the first residue alone
+NM_X.1:c.7_10=               vs  NP_X.1:p.Leu3_Ala4=                       Different: it does not state Ala4
+NM_X.1:c.9=                  vs  NP_X.1:p.Leu3=                            Different: it covers no whole codon
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=)
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Leu3=)                          Identity: the prediction as weaver writes it
 NM_X.1:c.*3G>A               vs  NP_X.1:p.(=)                              Identity
@@ -1903,8 +1903,9 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValTer        equiv
 NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: one residue too many
 ```
 
-- **Differs:** biocommons compares normalised text, and names only the first residue an identity touches. ClinVar names
-  every residue an identity touches; weaver claims only whole codons in `c_to_p` and grades ClinVar's reading Analogous.
+- **Differs:** biocommons compares normalised text, and names the first residue an identity touches; ClinVar names every
+  residue an identity touches. weaver claims only the residues of whole codons covered, and grades both other readings
+  Different.
 - **Spec (silent):** none; HGVS describes, it does not compare.
 - **Tests:** `transcript_coordinates_test::canonical_alleles_make_spdi_vrs_and_equivalence_one_value`;
   `equivalence_cases_test::test_clinvar_regression_tyr165ter`, `::test_analogous_fs_wildcard_unification`;
@@ -1926,12 +1927,9 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
   `::a_stop_inserted_before_the_stop_is_not_the_stop_unchanged`,
   `::a_silent_change_in_the_stop_codon_is_not_a_stop_inserted_before_it`,
   `::an_insertion_before_the_stop_is_the_residue_added_before_it`,
-  `::a_silent_prediction_is_not_read_again_on_the_protein`, `::one_base_unchanged_is_not_another_residue_unchanged`,
-  `::an_identity_across_two_codons_is_both_residues_read_outward`,
-  `::an_identity_across_two_codons_is_not_the_first_residue_alone`,
-  `::an_identity_is_the_whole_codons_it_covers_as_predicted`, `::an_identity_is_also_every_residue_it_touches`,
-  `::an_identity_reaching_into_the_start_codon_is_it_read_outward`,
-  `::an_identity_in_the_3_utr_is_no_residue_unchanged`, `::an_identity_in_the_3_utr_is_not_the_whole_protein_unchanged`;
+  `::a_silent_prediction_is_not_read_again_on_the_protein`, `::one_base_unchanged_is_not_the_whole_protein_unchanged`,
+  `::an_identity_is_the_whole_codons_it_covers_as_predicted`, `::an_identity_is_its_prediction_in_another_spelling`,
+  `::an_identity_is_not_every_residue_it_touches`, `::an_identity_across_two_codons_is_not_the_first_residue_alone`;
   `equivalence_cases_test::one_copy_of_a_run_of_one_is_not_the_whole_protein_unchanged`;
   `equivalence_test::a_lone_copy_number_compares_by_projection`; `a_variant_agrees_with_its_projection`,
   `equivalence_of_single_variants_is_transitive`, `a_single_statement_never_equals_a_change`,

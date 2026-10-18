@@ -78,9 +78,10 @@ written exactly as given it is `Identity` (`c.1799T>A` against `p.(Val600Glu)`);
 spelling is `Analogous` (`p.Val600Glu`, `p.V600E`). Failing that, the **protein the variant leaves**
 (`predicted_protein`) is compared with the **protein the description leaves** (below); if they can be the same protein
 the pair is `Analogous`. A variant predicted to leave the protein as it is, `c.9G>A` silent in codon 3 or `c.*3G>A` in
-the 3'UTR, is compared as the statement it predicts, `p.(Leu3=)` or `p.(=)`. An identity is also read outward, at every
-residue whose codon it touches, as ClinVar writes it: `c.1114=` and `p.Asn372=` are `Analogous`, though `c_to_p` refuses
-`c.1114=`, which covers no whole codon.
+the 3'UTR, is compared as the statement it predicts, `p.(Leu3=)` or `p.(=)`. An identity that covers no whole codon,
+`c.1114=`, makes no statement about the protein, so it is `Different` from every protein description. An identity read
+outward, at every residue whose codon it touches, as ClinVar writes it, claims residues the identity does not state, so
+it is `Different` too ([the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind)).
 
 ### Protein against protein
 

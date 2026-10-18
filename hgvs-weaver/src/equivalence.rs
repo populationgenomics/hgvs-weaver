@@ -291,9 +291,9 @@ impl<'a> VariantEquivalence<'a> {
                     Ok(p) if p.posedit.edit.is_identity() => {
                         Some(silent_prediction(p, reference.len()))
                     }
-                    // An identity of no whole codon claims no residue; it is
-                    // read outward below.
-                    Err(HgvsError::NoProteinStatement(_)) => None,
+                    // An identity of no whole codon says nothing of the
+                    // protein, so it matches no protein description.
+                    Err(HgvsError::NoProteinStatement(_)) => continue,
                     // c_to_p refuses c.= named against another protein, of
                     // which it says nothing.
                     _ if matches!(c.posedit.edit, NaEdit::WholeIdentity) => continue,
@@ -308,16 +308,6 @@ impl<'a> VariantEquivalence<'a> {
                 };
                 if same_protein(candidate, outcome.clone()) {
                     analogous = true;
-                }
-                // An identity read outward, at every residue whose codon it
-                // touches, as ClinVar writes it: consistent with it, though not
-                // what it claims.
-                if c.posedit.edit.is_identity() {
-                    let touched = self
-                        .mapper
-                        .residues_touched(c)?
-                        .map(|r| Outcome::Unchanged(Stated::residues(r, reference.len())));
-                    analogous |= touched.is_some() && same_protein(touched, outcome.clone());
                 }
             }
         }
