@@ -113,6 +113,27 @@ impl ExonBounds {
         }
     }
 
+    /// These exons with each index in `cuts` also ending one, so that no
+    /// shift crosses it.
+    pub(crate) fn with_cuts(&self, cuts: impl IntoIterator<Item = usize>) -> Self {
+        let mut ends: Vec<usize> = self
+            .ends
+            .iter()
+            .copied()
+            .chain(cuts)
+            .filter(|&c| c > 0)
+            .collect();
+        ends.sort_unstable();
+        ends.dedup();
+        ExonBounds { ends }
+    }
+
+    /// Whether an exon ends in front of `index`, so that it and the base
+    /// before it are in different exons.
+    pub(crate) fn is_junction(&self, index: usize) -> bool {
+        index > 0 && !self.same_exon(index - 1, index)
+    }
+
     fn same_exon(&self, a: usize, b: usize) -> bool {
         self.exon(a) == self.exon(b)
     }

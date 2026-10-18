@@ -20,6 +20,13 @@ pyo3::create_exception!(
     "A base or residue a description states is not what its reference holds: the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases; Variant.validate answers False instead."
 );
 
+pyo3::create_exception!(
+    _weaver,
+    AmbiguousDescriptionError,
+    HGVSError,
+    "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."
+);
+
 fn map_hgvs_error(e: HgvsError) -> PyErr {
     py_error(e, String::new())
 }
@@ -43,6 +50,10 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             "{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"
         )),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
+        HgvsError::Ambiguous {
+            description,
+            readings,
+        } => ambiguity_error(context, description, readings),
         HgvsError::CisMember {
             allele,
             index,
@@ -53,6 +64,27 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             format!("{context}Member {} of {allele}, {member}: ", index + 1),
         ),
     }
+}
+
+/// An `AmbiguousDescriptionError` whose `readings` are the readings, as
+/// variants.
+fn ambiguity_error(context: String, description: String, readings: Vec<SequenceVariant>) -> PyErr {
+    let listed: Vec<String> = readings.iter().map(ToString::to_string).collect();
+    let err = AmbiguousDescriptionError::new_err(format!(
+        "{context}{description} reads as {}",
+        listed.join(" | ")
+    ));
+    Python::attach(|py| {
+        let variants = readings
+            .into_iter()
+            .map(|inner| Py::new(py, PyVariant { inner }))
+            .collect::<PyResult<Vec<_>>>()?;
+        let list = pyo3::types::PyList::new(py, variants)?;
+        err.value(py).setattr("readings", list)?;
+        Ok::<(), PyErr>(())
+    })
+    .err()
+    .unwrap_or(err)
 }
 
 #[pyclass(name = "IdentifierType", module = "weaver._weaver")]
@@ -309,7 +341,7 @@ impl PyVariant {
             .unbind())
     }
 
-    #[doc = "Validates the bases and residues the variant states against the provided DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every stated base is there, False where an operation reading the\n    variant would raise ReferenceMismatchError. c.= names no bases and is True\n    once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n    DataProviderError: If sequence data cannot be retrieved."]
+    #[doc = "Validates the bases and residues the variant states against the provided DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein. An allele in cis of nucleotide members must also have\none reading: members that reach for the same base are read every way the\ndescription allows.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every stated base is there, False where an operation reading the\n    variant would raise ReferenceMismatchError. c.= names no bases and is True\n    once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n        An allele in cis whose members leave it no reading is a ValidationError naming two.\n    AmbiguousDescriptionError: If an allele in cis has several readings; its readings\n        are each of them.\n    UnsupportedOperationError: If an allele in cis has readings weaver does not list.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
         VariantMapper::new(&bridge)
@@ -1015,6 +1047,10 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "ReferenceMismatchError",
         m.py().get_type::<ReferenceMismatchError>(),
+    )?;
+    m.add(
+        "AmbiguousDescriptionError",
+        m.py().get_type::<AmbiguousDescriptionError>(),
     )?;
     Ok(())
 }

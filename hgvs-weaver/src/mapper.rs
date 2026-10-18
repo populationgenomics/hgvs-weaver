@@ -1103,7 +1103,7 @@ fn relettered_posedit(
 }
 
 /// The 0-based half-open index range a g. interval names.
-fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsError> {
+pub(crate) fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsError> {
     let start_i = pos.start.index()?.0;
     if start_i < 0 {
         return Err(HgvsError::ValidationError(format!(
@@ -1138,7 +1138,7 @@ fn simple_interval_range(pos: &SimpleInterval) -> Result<(usize, usize), HgvsErr
 }
 
 /// The certain g. position of the 0-based index `i`.
-fn simple_position(i: usize) -> SimplePosition {
+pub(crate) fn simple_position(i: usize) -> SimplePosition {
     SimplePosition {
         base: GenomicPos(i as i32).to_hgvs().into(),
         end: None,
@@ -1148,7 +1148,7 @@ fn simple_position(i: usize) -> SimplePosition {
 
 /// Whether a bound of `pos` is known only to lie in a range, `(3_4)`, or is
 /// marked uncertain.
-fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
+pub(crate) fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
     let uncertain = |p: &SimplePosition| p.uncertain || p.end.is_some();
     pos.uncertain || uncertain(&pos.start) || pos.end.as_ref().is_some_and(uncertain)
 }
@@ -1156,13 +1156,13 @@ fn is_uncertain_linear(pos: &SimpleInterval) -> bool {
 /// The HGVS start index and optional end index to write for `after`: an end
 /// for an insertion, which names its two flanking bases, and for an edit of
 /// more than one base.
-fn hgvs_positions(after: &PlacedEdit) -> (usize, Option<usize>) {
+pub(crate) fn hgvs_positions(after: &PlacedEdit) -> (usize, Option<usize>) {
     let (s, e) = after.hgvs_range();
     let last = e - 1;
     (s, (after.is_insertion() || last > s).then_some(last))
 }
 
-fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
+pub(crate) fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
     pos.start.offset.is_some_and(|o| o.0 != 0)
         || pos
             .end
@@ -2104,11 +2104,19 @@ impl<'a> VariantMapper<'a> {
     /// holds: a `g.` or `m.` base on the genome, an exonic `c.` or `n.` base
     /// on the transcript record, an intronic one on the genome read on the
     /// transcript's strand, a `p.` residue on the protein. Every member of a
-    /// cis allele must hold.
+    /// cis allele must hold, and an allele of nucleotide members must have
+    /// one reading ([`read_cis`](Self::read_cis)).
     ///
     /// Returns `Ok(true)` when they hold, or when the edit states none (or
     /// only a length); `Ok(false)` where an operation reading the variant
     /// refuses it with [`HgvsError::ReferenceMismatch`].
+    ///
+    /// # Errors
+    ///
+    /// A contradictory allele is a [`HgvsError::ValidationError`] and an
+    /// ambiguous one [`HgvsError::Ambiguous`], raised rather than answered
+    /// `false`, as any description that cannot be read is; one whose readings
+    /// weaver does not list is [`HgvsError::UnsupportedOperation`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
         match self.check_stated(var) {
             Ok(()) => Ok(true),
@@ -2140,9 +2148,10 @@ impl<'a> VariantMapper<'a> {
             // r.=, r.0, r.spl and their kind state no base.
             crate::SequenceVariant::Rna(r) if r.posedit.edit.is_whole_transcript() => Ok(()),
             crate::SequenceVariant::Rna(r) => self.check_stated(&self.r_as_transcript(r)?),
-            crate::SequenceVariant::CisPhased(cis) => {
+            crate::SequenceVariant::CisPhased(cis) if cis.coordinate_type() == "p" => {
                 cis.members.iter().try_for_each(|m| self.check_stated(m))
             }
+            crate::SequenceVariant::CisPhased(cis) => self.read_cis(cis).map(|_| ()),
         }
     }
 
@@ -2649,6 +2658,10 @@ impl<'a> VariantMapper<'a> {
     /// own), which must all lie on one sequence, that sequence as
     /// `sequenceReference`, and the input HGVS as an expression. The
     /// identifier does not depend on the order of the members.
+    ///
+    /// A block's members are unordered, so an allele of nucleotide members
+    /// is read first ([`read_cis`](Self::read_cis)): a contradictory or
+    /// ambiguous one is refused before a block could conflate its readings.
     pub fn to_vrs_cis_phased(
         &self,
         var: &crate::SequenceVariant,
@@ -2658,6 +2671,9 @@ impl<'a> VariantMapper<'a> {
                 "Only an allele in cis, ac:c.[a;b], renders as a CisPhasedBlock, not {var}"
             )));
         };
+        if cis.coordinate_type() != "p" {
+            self.read_cis(cis)?;
+        }
         let members = cis
             .members
             .iter()

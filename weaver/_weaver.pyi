@@ -2,6 +2,15 @@
 
 from typing import Any, ClassVar, final
 
+class AmbiguousDescriptionError(HGVSError):
+    """A description with several readings that make different sequences or state different bases.
+
+    weaver does not pick one: readings holds each, as a Variant with one reading. A transcript
+    allele with an intronic member is read on the genome, and its readings are written in g.
+    """
+
+    readings: list[Variant]
+
 class CigarError(HGVSError): ...
 class DataProviderError(HGVSError): ...
 
@@ -122,7 +131,9 @@ class Variant:
 
         An exonic c., n. or r. base is read on the transcript record, an intronic one
         on the genome (on the transcript's strand), a g. or m. base on the genome and a
-        p. residue on the protein.
+        p. residue on the protein. An allele in cis of nucleotide members must also have
+        one reading: members that reach for the same base are read every way the
+        description allows.
 
         Args:
             provider: The data provider instance for sequence retrieval.
@@ -136,6 +147,10 @@ class Variant:
             ValidationError: If transcript sequence is too short or coordinates are out of bounds,
                 or c.= is on a transcript without a CDS. An intronic c. or n. variant
                 is projected to the genome to be read, so a projection's error is raised too.
+                An allele in cis whose members leave it no reading is a ValidationError naming two.
+            AmbiguousDescriptionError: If an allele in cis has several readings; its readings
+                are each of them.
+            UnsupportedOperationError: If an allele in cis has readings weaver does not list.
             DataProviderError: If sequence data cannot be retrieved.
         """
 
