@@ -1814,8 +1814,9 @@ c.4_6dup   →  p.Lys3dup
 ### A change to the start codon is an unknown change from Met1
 
 **A change that alters the first codon is `p.(Met1?)`, unless it deletes the whole CDS or leaves no codon to read:
-`c.1A>G` is `p.(Met1?)`, not `p.(Met1Val)`. For an edit inside the CDS, whether the first codon changed is read from the
-sequences, the edited transcript's first codon against the reference's, not from where the edit is written.**
+`c.1A>G` is `p.(Met1?)`, not `p.(Met1Val)`. Whether the first codon changed is read from the sequences, the edited
+transcript's first codon against the reference's, not from where the edit is written, save for the three cases listed
+below.**
 
 Residue 1 is not read from its codon: the initiator tRNA brings Met whichever codon it pairs with
 ([the protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)), so a change to the start
@@ -1836,10 +1837,18 @@ that:
 - an edit whose result leaves the first three bases as they were is not one, and is predicted as usual: an identity,
   `p.(Met1=)`; a delins that writes the codon back as itself, `p.(Met1=)`; an insertion between `c.3` and `c.4`,
   `p.(Met1_Met2insGly)`;
-- a change that starts in the 5'UTR and reaches the CDS, short of deleting all of it, is `p.(Met1?)` by its positions,
-  whatever it leaves ([edits outside the CDS](#edits-outside-the-cds-are-statements));
-- one that leaves no codon where the protein first changes, such as a deletion from `c.1` to the end of the transcript,
-  is `p.?`, as it is anywhere in the CDS ([edits outside the CDS](#edits-outside-the-cds-are-statements));
+- an edit written from the 5'UTR, or from `c.1` with the change before it, is read on its 3'-most spelling, found from
+  the two sequences ([edits outside the CDS](#edits-outside-the-cds-are-statements)):
+  - if that spelling lies wholly in the 5'UTR the change is `p.?`: `c.-1_1delinsCA` is `c.-1T>C`, and `c.-1_1insGCC` and
+    `c.1delinsGCCA` are one insertion before the ATG, which leaves the codon as it was;
+  - if it starts in the CDS the change is read on the codons: `c.-1_4delinsTATGA` is `c.4C>A`, and `c.-1_1insATA` is an
+    insertion inside the codon, which becomes `ATA`, so `p.(Met1?)`;
+  - if it still starts upstream and reaches into the CDS, as `c.-3_4del` does, it changes the first codon, `p.(Met1?)`;
+  - three are read by where they are written: a deletion from the 5'UTR of the whole CDS, `p.0?`; an edit whose bases
+    are not spelled out, `c.-3_4delinsN[10]`, which cannot be placed; and one that changes nothing, which has no
+    spelling to move to;
+- one that leaves no codon where the protein first changes is `p.?`, as it is anywhere in the CDS
+  ([edits outside the CDS](#edits-outside-the-cds-are-statements));
 - a 5'UTR change that makes a new upstream start, which the nomenclature writes `p.(Met1ext-5)`, is not predicted
   ([#88](https://github.com/populationgenomics/hgvs-weaver/issues/88)).
 
@@ -1865,6 +1874,11 @@ NM_0001.3:c.1_3delinsATG     →  NP_0001.1:p.(Met1=)               the codon wr
 NM_0001.3:c.3_4insGGG        →  NP_0001.1:p.(Met1_Met2insGly)     after the codon
 NM_0001.3:c.2_3insG          →  NP_0001.1:p.(Met2AspfsTer?)       inside the codon, but leaves it: c.3dup
 NM_0001.3:c.1_*62del         →  NP_0001.1:p.?                     nothing left to translate
+NM_W.1:c.-1_1delinsCA        →  NP_W.1:p.?                        as c.-1T>C
+NM_W.1:c.-1_4delinsTATGA     →  NP_W.1:p.(Arg2Ser)                as c.4C>A
+NM_W.1:c.1delinsGCCA         →  NP_W.1:p.?                        as c.-1_1insGCC
+NM_W.1:c.-1_1insATA          →  NP_W.1:p.(Met1?)                  3'-most, an insertion in the codon
+NM_W.1:c.-1delinsTA          →  NP_W.1:p.(Met1?)                  written upstream, 3'-most in the codon
 CTG start c.1C>A             →  p.(Met1?)                         CTG made ATG: still a start-codon change
 NM_007199.2:c.1A>G           →  NP_009130.2:p.(Met1?)             biocommons and VariantValidator: p.Met1?
 
@@ -1892,6 +1906,13 @@ parse NP_W.1:p.Met1?      →  the same, stated
   `::an_insertion_inside_the_start_codon_that_leaves_it_is_a_frameshift_from_met2`,
   `::an_insertion_after_the_start_codon_is_predicted_as_an_insertion`,
   `::a_deletion_from_the_start_codon_to_the_end_of_the_transcript_is_an_unknown_effect`;
+  `statements_test::a_change_written_into_the_cds_that_leaves_it_is_its_5_utr_spelling`,
+  `::a_change_written_from_the_5_utr_that_leaves_it_is_its_cds_spelling`,
+  `::an_insertion_before_the_cds_written_from_c1_is_a_5_utr_change`,
+  `::an_insertion_before_the_cds_whose_3_prime_spelling_is_in_the_start_codon_changes_it`,
+  `::a_change_written_upstream_whose_3_prime_spelling_is_in_the_start_codon_changes_it`,
+  `::an_upstream_insertion_of_unspelled_bases_is_an_unknown_effect`,
+  `::a_delins_of_unspelled_bases_into_the_cds_is_an_unknown_change_from_met1`;
   `equivalence_test::a_change_to_a_non_aug_start_codon_is_an_unknown_change_from_met1`,
   `::a_non_aug_start_codon_made_atg_is_an_unknown_change_from_met1`,
   `::a_start_codon_change_is_identical_to_the_unknown_change_from_met1_stated`,
@@ -1906,8 +1927,8 @@ parse NP_W.1:p.Met1?      →  the same, stated
 
 ### Edits outside the CDS are statements
 
-**A deletion of the whole CDS is `p.0?`; an edit that starts in the 5'UTR and reaches into the CDS is `p.(Met1?)`; an
-edit entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon where the
+**A deletion of the whole CDS is `p.0?`; a change that starts in the 5'UTR and reaches into the CDS is `p.(Met1?)`; a
+change entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon where the
 protein first changes is `p.?`.**
 
 weaver does not commit to a consequence upstream: a 5'UTR change can create an upstream start, and weaver does not read
@@ -1915,6 +1936,11 @@ the edited 5'UTR to find one, so it says it does not know. Downstream of the sto
 so the prediction is no change, and no residue past the end of the protein is named. An edit that runs to the end of the
 transcript can leave fewer than three bases after the last intact codon: translation runs off the edited transcript with
 no stop and no residue to name at the first change, so weaver says nothing rather than read the missing codon as a stop.
+Whether a change lies upstream, reaches into the CDS or starts in it is read from the sequences, on its 3'-most
+spelling, not from where it is written. Placing it needs the bases, so an edit from the 5'UTR that starts before the
+record's first base and has to be placed is refused rather than answered from its position. A deletion of the whole CDS,
+an edit whose bases are not spelled out, a repeat of uncertain count among them, and one that changes nothing are still
+read where they are written ([changes to the start codon](#a-change-to-the-start-codon-is-an-unknown-change-from-met1)).
 
 These statements are about a change, and a change predicts the whole protein, every base it does not name taken as the
 reference's: `c.*3G>A` leaves the protein as it is, `p.(=)`. An identity, `=`, is not a change but a statement, and
@@ -1955,10 +1981,13 @@ NM_W.1:c.1_90=             →  NP_W.1:p.(=)       every codon through the stop
 NM_W.1:c.1_87=             →  NP_W.1:p.(Met1_Val29=)   every codon but the stop
 
 NM_000249.3:c.-7_*46del    →  NP_000240.1:p.0?
-NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
+NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.?        an insertion just before c.1: biocommons writes p.Met1?
 ```
 
-- **Agrees:** biocommons, on `p.0?` and on the start codon, which it writes `p.Met1?`, unbracketed (its own test table).
+- **Agrees:** biocommons, on `p.0?` and on an edit that reaches into the start codon, which it writes `p.Met1?`,
+  unbracketed (its own test table, INITMET03).
+- **Differs:** biocommons writes an insertion just before `c.1` as `p.Met1?` (INITMET02); weaver reads it as the 5'UTR
+  change it is, since every base of the CDS is left as it was, and writes `p.?`. A recorded difference.
 - **Agrees:** VariantValidator, on `p.(=)` for the 3'UTR (older versions wrote `p.?`); ClinVar writes a 3'UTR change as
   silent at the stop, `p.Ter1648=`, which leaves the same protein; since silent statements are compared by the residues
   they name, that spelling is Different from weaver's `p.(=)`.
@@ -1976,7 +2005,8 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.(Met1?)
   for every change wholly upstream; predicting the extension, and what a 5'UTR change with no new start predicts, is
   [#88](https://github.com/populationgenomics/hgvs-weaver/issues/88).
 - *Not checked:* biocommons, VariantValidator and ClinVar on an edit that leaves no codon where the protein changes.
-- **Tests:** `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements`,
+- **Tests:** `stated_bases_test::c_to_p_of_an_edit_before_the_record_is_refused`;
+  `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements`,
   `::a_change_entirely_in_the_three_prime_utr_leaves_the_protein_unchanged`,
   `::a_silent_change_across_the_stop_names_no_residue_past_it`,
   `::an_edit_that_leaves_no_codon_where_the_protein_changes_says_nothing`,
@@ -2059,7 +2089,7 @@ NM_W.1:c.-3_*2del     →  NP_W.1:p.0?
 NM_W.1:r.0            →  NP_W.1:p.0?
 ```
 
-- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET01/02/03). VariantValidator: not
+- **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET01/03). VariantValidator: not
   checked. The ClinVar sample writes no `p.Met1?`; it writes start-codon changes as substitutions or frameshifts.
 - **Spec (agrees on what weaver writes; differs in equivalence):**
   [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) for `p.(Trp24Cys)`,
@@ -2084,7 +2114,7 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `::a_start_loss_is_the_unknown_change_from_met1_stated`;
   `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
   `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
-  (INITMET01/02/03); `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
+  (INITMET01/03); `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
   `::a_change_over_an_uncertain_residue_range_is_not_a_prediction`,
   `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`;
   `equivalence_test::a_predicted_protein_change_is_its_confirmation`,
@@ -2369,10 +2399,10 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 **`p.?` matches no other description; `p.Met1?` says only where the change starts and matches only a description whose
 change starts there.**
 
-A coding change that alters the start codon, or starts in the 5'UTR and reaches into the CDS, is predicted `p.(Met1?)`
-and compared as that statement. It matches ClinVar's `Met1fs`, which starts its change there, and not `Leu3fs`, a
-commitment weaver did not make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place of Met1,
-are Analogous, not the same text.
+A coding change that alters the start codon, including one that starts in the 5'UTR and reaches into the CDS, is
+predicted `p.(Met1?)` and compared as that statement. It matches ClinVar's `Met1fs`, which starts its change there, and
+not `Leu3fs`, a commitment weaver did not make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in
+place of Met1, are Analogous, not the same text.
 
 A `?` after any other residue, `p.Arg12?` or `p.(Arg12?)`, is a recorded extension beyond the specification, which
 writes the form only at the start codon. weaver reads it as `p.Met1?` is read, a change from that residue on of which

@@ -607,6 +607,66 @@ fn an_intronic_conversion_is_an_unknown_effect() {
 }
 
 #[test]
+fn a_change_written_into_the_cds_that_leaves_it_is_its_5_utr_spelling() {
+    // NM_W.1 reads GTCGT ATG C: c.-1_1delinsCA changes only the T at c.-1.
+    assert_eq!(
+        [c_to_p("NM_W.1:c.-1_1delinsCA"), c_to_p("NM_W.1:c.-1T>C")],
+        [parse("NP_W.1:p.?"), parse("NP_W.1:p.?")]
+    );
+}
+
+#[test]
+fn an_insertion_before_the_cds_written_from_c1_is_a_5_utr_change() {
+    // c.1delinsGCCA and c.-1_1insGCC both put GCC before the ATG.
+    assert_eq!(
+        [
+            c_to_p("NM_W.1:c.1delinsGCCA"),
+            c_to_p("NM_W.1:c.-1_1insGCC")
+        ],
+        [parse("NP_W.1:p.?"), parse("NP_W.1:p.?")]
+    );
+}
+
+#[test]
+fn an_insertion_before_the_cds_whose_3_prime_spelling_is_in_the_start_codon_changes_it() {
+    // T ATA ATG C is T AT AAT G C, an insertion inside the codon, which
+    // becomes ATA.
+    assert_eq!(c_to_p("NM_W.1:c.-1_1insATA"), parse("NP_W.1:p.(Met1?)"));
+}
+
+#[test]
+fn a_change_written_from_the_5_utr_that_leaves_it_is_its_cds_spelling() {
+    // c.-1_4delinsTATGA changes only the C at c.4.
+    assert_eq!(
+        [
+            c_to_p("NM_W.1:c.-1_4delinsTATGA").to_string(),
+            c_to_p("NM_W.1:c.4C>A").to_string()
+        ],
+        ["NP_W.1:p.(Arg2Ser)", "NP_W.1:p.(Arg2Ser)"]
+    );
+}
+
+#[test]
+fn a_change_written_upstream_whose_3_prime_spelling_is_in_the_start_codon_changes_it() {
+    // c.-1delinsTA makes T AATG C: an A inserted inside the codon, which
+    // becomes AAT.
+    assert_eq!(c_to_p("NM_W.1:c.-1delinsTA"), parse("NP_W.1:p.(Met1?)"));
+}
+
+#[test]
+fn an_upstream_insertion_of_unspelled_bases_is_an_unknown_effect() {
+    assert_eq!(c_to_p("NM_W.1:c.-3_-2insN[20]"), parse("NP_W.1:p.?"));
+}
+
+#[test]
+fn a_delins_of_unspelled_bases_into_the_cds_is_an_unknown_change_from_met1() {
+    assert_eq!(
+        c_to_p("NM_W.1:c.-3_4delinsN[10]"),
+        parse("NP_W.1:p.(Met1?)")
+    );
+}
+
+#[test]
 fn an_upstream_conversion_is_an_unknown_effect() {
     assert_eq!(
         c_to_p("NM_W.1:c.-5_-3conNM_W.1:c.10_12"),

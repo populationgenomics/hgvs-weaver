@@ -110,11 +110,13 @@ const CASES: &[(&str, &str, &str, &str)] = &[
         "NP_009130.2:p.Met1?",
         "NP_009130.2:p.(Met1?)",
     ),
+    // An insertion just before c.1 leaves every base of the CDS as it was:
+    // weaver reads it as a 5'UTR change, biocommons as a start-codon change.
     (
         "INITMET02",
         "NM_022051.2:c.-1_1insGCC",
         "NP_071334.1:p.Met1?",
-        "NP_071334.1:p.(Met1?)",
+        "NP_071334.1:p.?",
     ),
     (
         "INITMET03",
