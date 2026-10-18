@@ -473,13 +473,28 @@ fn a_start_loss_is_the_parsed_predicted_unknown_change_from_met1() {
 }
 
 #[test]
-fn a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated() {
-    let hdp = provider();
-    let mapper = VariantMapper::new(&hdp);
-    let level = VariantEquivalence::new(&mapper, &hdp)
-        .equivalent_level(&parse("NM_W.1:c.-3_4del"), &parse("NP_W.1:p.Met1?"))
-        .unwrap();
-    assert_eq!(level, EquivalenceLevel::Analogous);
+fn a_start_loss_is_the_unknown_change_from_met1_stated() {
+    assert_eq!(
+        level("NM_W.1:c.-3_4del", "NP_W.1:p.Met1?"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_start_loss_is_a_frameshift_from_met1() {
+    // p.(Met1?) says the change starts at Met1, and p.Met1fs starts there.
+    assert_eq!(
+        level("NM_W.1:c.-3_4del", "NP_W.1:p.Met1fs"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_start_loss_is_not_a_frameshift_from_a_later_residue() {
+    assert_eq!(
+        level("NM_W.1:c.-3_4del", "NP_W.1:p.Arg2fs"),
+        EquivalenceLevel::Different
+    );
 }
 
 #[test]

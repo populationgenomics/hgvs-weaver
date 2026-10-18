@@ -196,6 +196,7 @@ Representation Specification 2.0.1.
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                           agrees                           |        –         |                –                |      agrees      |
 | [Members of a cis allele that meet are written as one change](#members-of-a-cis-allele-that-meet-are-written-as-one-change)         |                        **differs**                         |        –         |                –                |        –         |
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                             –                              |     differs      |                –                |        –         |
+| [The protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)                                         |                           silent                           |        –         |                –                |        –         |
 | [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension)                       |                           agrees                           |      agrees      |                –                |      agrees      |
 | [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change)                           |                           agrees                           |        –         |                –                |        –         |
 | [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter)     |                           agrees                           |        –         |                –                |        –         |
@@ -732,8 +733,8 @@ what follows from the statement:
 - **Protein.** If nothing changed in the transcript, the protein it encodes is predicted unchanged, so `c.=` gives
   `p.(=)`. This holds even where the record lacks the start codon (a CDS open at its 5' end). The statement covers only
   the protein the provider pairs with the transcript: naming another protein is an error, and so is `c.=` on a
-  transcript without a CDS. In equivalence `c.=` is the same as `p.(=)` on that protein, analogous to `p.=`, and not
-  equivalent to either on any other protein. A `p.(=)` names no residues, so `c.=` has no protein allele.
+  transcript without a CDS. In equivalence `c.=` is the same as `p.(=)` and `p.=` on that protein, Identity with both,
+  and not equivalent to either on any other protein. A `p.(=)` names no residues, so `c.=` has no protein allele.
 - **No `r.` spelling.** `c.=` and `r.=` make different claims: one says the DNA was analysed, the other the RNA. So
   `c_to_r` refuses `c.=` and `r_to_c` refuses `r.=`, as both refuse `r.spl`. For the same reason the two are not
   equivalent. They do not contradict each other, but neither implies the other. `r.=` and `r.(=)` keep their own
@@ -768,7 +769,7 @@ NR_W.1:c.=   →  p.:          an error: no CDS
 NM_W.1:c.=   →  c_to_g, c_to_r, to_spdi, to_vrs: an error
 NM_W.1:c.=   vs NM_W.1:c.[=]     Identity
 NM_W.1:c.=   vs NP_W.1:p.(=)     Identity
-NM_W.1:c.=   vs NP_W.1:p.=       Analogous
+NM_W.1:c.=   vs NP_W.1:p.=       Identity
 NM_W.1:c.=   vs NM_W.1:r.=       Different: DNA analysed is not RNA analysed
 NM_W.1:c.=   vs NM_W.1:c.10=     Different: a statement about c.10 is not one about the whole transcript
 NM_W.1:c.[=;10C>G]               refused when parsed
@@ -793,7 +794,7 @@ NR_W.1:n.=, NC_W.1:g.=, NM_W.1:c.(=)   do not parse
   `::c_identity_on_a_transcript_without_a_cds_has_no_protein_consequence`,
   `::c_identity_predicts_the_protein_unchanged_on_a_cds_open_at_its_start`, `::c_identity_has_no_r_spelling`,
   `::c_identity_has_no_genomic_form`, `::c_identity_has_no_vrs_allele`, `::c_identity_on_a_coding_transcript_validates`,
-  `::c_identity_is_not_r_identity`, `::c_identity_is_analogous_to_its_own_protein_unchanged`,
+  `::c_identity_is_not_r_identity`, `::c_identity_is_its_own_protein_unchanged_confirmed`,
   `::c_identity_is_not_another_protein_unchanged`, `::c_identity_is_not_one_base_unchanged`,
   `::r_identity_on_a_transcript_without_a_cds_has_no_protein_consequence`, `::a_deserialised_g_identity_is_refused`;
   `tests/test_mavehgvs_compliance.py`, `tests/test_whole_identity.py`.
@@ -1674,6 +1675,61 @@ toy c.10C>G            →  p.Leu4Val                      codon 4 is after the 
 - **Tests:** `src/protein.rs::a_selenocysteine_codon_is_not_the_stop`;
   `real_transcripts_test::biocommons_real_transcript_cases` (MULTISTOP01, a recorded difference).
 
+### The protein is read as its record writes it
+
+**The codon the record annotates as the CDS start is read as Met, whatever it is, and a selenocysteine `TGA` before the
+stop as Sec, so a predicted description names the residues the protein record has and the protein a coding change leaves
+is the record with the change made.**
+
+Residue 1 is set by the initiator tRNA, Met-tRNAi, the only tRNA that can start translation, so the first residue of
+every protein is Met whichever codon it pairs with. Which codon is the start is a curated fact about each transcript,
+recorded by the annotation; nothing about the codon itself decides it. Some transcripts start at a codon other than
+`ATG`: WT1's `NM_000378.6` and VEGFA's `NM_001025366.3` at a `CTG`, and residue 1 of `NP_000369.4` is Met. Read codon by
+codon, the transcript would start with Leu. The protein a coding change leaves would then disagree with the record at
+residue 1, so a frameshift ClinVar writes `p.Leu299fs` would not begin it, and a description naming `Leu1` would not
+read back on the record. A selenoprotein's in-frame `TGA` is the same case: the record writes `U`, the stop rule
+([above](#the-declared-cds-end-is-the-stop)) already reads past it, and a change there is a change of `Sec3`, not of
+`Ter3`. In the protein a change leaves, a `TGA` is Sec where the change leaves the sequence as it was: before the
+change, or after an in-frame change. That is read from the two sequences rather than from where the change is written,
+so every spelling of one change reads alike, and a copy of the Sec codon is Sec. A `TGA` the change makes is a stop, so
+`TGA>TAA` is `p.(Sec3Ter)`.
+
+The rule takes the annotation's word for where translation starts and does not second-guess the codon. A change that
+leaves the first codon as it is leaves Met; a change to the first codon is read as the codon it makes, so on a `CTG`
+start `c.1C>T` is `p.(Met1Leu)`, as `c.1A>T` is on an `ATG` start
+([start-codon changes](#a-start-codon-change-is-written-specifically)).
+
+**Example** (a toy CDS `CTG AAA CTG GCC TAT CGC TAA` whose record is `MKLAYR`; one with `TGA` at codon 3, `MKUAYR`):
+
+```text
+CTG start c.6dup        →  protein left MKTGLSLTV, not LKTGLSLTV
+CTG start c.1C>T        →  p.(Met1Leu)
+CTG start c.1_3=        →  p.(Met1=)
+TGA at 3  c.12dup       →  protein left MKUALSLTV, not MK*ALSLTV
+TGA at 3  c.7T>C        →  p.(Sec3Arg), not p.(Ter3Arg)
+TGA at 3  c.8G>A        →  p.(Sec3Ter)
+TGA at 3  c.7_9dup      →  p.(Sec3dup), as c.9_10insTGA
+AAA start c.6dup        →  protein left MKTGLSLTV: the annotated start is Met
+AAA start c.1_2delinsTA →  p.(Met1Ter)
+```
+
+- **Others:** not checked.
+- **Spec (silent):** none on a start that is not `ATG`; the nomenclature numbers the initiating Met as residue 1.
+- **Tests:** `equivalence_test::a_non_aug_start_predicts_the_protein_the_record_names`,
+  `::a_selenoprotein_predicts_the_protein_the_record_names`, `::a_change_to_a_non_aug_start_codon_is_named_at_met1`,
+  `::a_non_aug_initiator_unchanged_is_met1_unchanged`, `::a_non_aug_start_has_a_protein_allele`,
+  `::an_aaa_annotated_start_reads_as_met`, `::a_change_at_a_selenocysteine_is_named_at_sec`,
+  `::a_change_at_a_selenocysteine_is_its_prediction_confirmed`, `::a_selenocysteine_unchanged_is_named_at_sec`,
+  `::a_stop_made_of_a_selenocysteine_codon_is_a_stop`, `::a_stop_inserted_over_a_selenocysteine_codon_ends_the_protein`,
+  `::a_selenocysteine_after_an_in_frame_deletion_stays_one`,
+  `::a_codon_deleted_before_a_selenocysteine_in_any_spelling_is_a_deletion`,
+  `::a_delins_that_rewrites_a_selenocysteine_codon_as_itself_keeps_it`,
+  `::a_duplicated_selenocysteine_codon_is_a_selenocysteine`,
+  `::a_selenocysteine_codon_inserted_after_its_copy_is_the_same_duplication`,
+  `::a_frameshift_from_a_non_aug_start_is_the_frameshift_written_without_its_length`,
+  `::a_frameshift_past_a_selenocysteine_is_the_frameshift_written_without_its_length`;
+  `equivalence_cases_test::test_immediate_stop_normalization`.
+
 ### A frameshift that starts at the stop is an extension
 
 **When the first changed residue is the stop, the protein is extended, not shifted.**
@@ -1937,10 +1993,11 @@ parentheses are. Between two `p.` descriptions `p.(Val600Glu)` and `p.Val600Glu`
 RNA analysed and found unchanged, for the same reason, and a predicted RNA change, `r.(10c>g)`, is compared as its `c.`
 spelling, which carries no prediction. The parentheses of an uncertain position say what is not known
 ([below](#an-uncertain-position-names-no-one-change)), and those of `r.(?)` are not a prediction but part of the
-statement ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)), so neither is dropped. Against a
-coding change the prediction written exactly is Identity and the same description in another spelling Analogous, so
-`c.-3_4del` is Identity with `p.(Met1?)` and Analogous with `p.Met1?`, as `c.10C>G` is with `p.(Arg4Gly)` and
-`p.Arg4Gly`; Identity is therefore not transitive across the two.
+statement ([above](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)), so neither is dropped. A coding change
+is compared with a `p.` description as its prediction is
+([judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)), so the same holds
+there: `c.-3_4del` is Identity with both `p.(Met1?)` and `p.Met1?`, as `c.10C>G` is with `p.(Arg4Gly)`, `p.Arg4Gly` and
+`p.R4G`.
 
 **Example:**
 
@@ -1966,7 +2023,8 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   region was analysed"; the uncertain page writes `r.(=)` for "no changes on the RNA level are expected (RNA not
   analysed)". To the specification a prediction and an observation are different claims. weaver takes a prediction as
   equivalent to its confirmation, since both name the same change and a search across descriptions wants the one to find
-  the other.
+  the other. The departure covers a coding change against the `p.` it predicts as well as two `p.` descriptions:
+  `c.1799T>A` is Identity with `p.Val600Glu`, as `p.(Val600Glu)` is.
 - **Tests:** `statements_test::a_predicted_change_is_written_bracketed`,
   `::a_start_loss_is_predicted_bracketed_as_hgvs_writes_it`,
   `::a_change_upstream_of_the_cds_is_an_unknown_effect_written_bare`,
@@ -1974,7 +2032,7 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `::predicted_p_unknown_does_not_match_a_coding_change`,
   `::a_3_utr_change_predicts_the_protein_unchanged_and_reparses_to_it`,
   `::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
-  `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`;
+  `::a_start_loss_is_the_unknown_change_from_met1_stated`;
   `protein_allele_from_coding_test::edits_around_the_cds_start_are_statements` (`p.?`, `p.(Met1?)`, `p.0?`);
   `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
   (INITMET02/03); `src/transform.rs::test_transform_met1_to_question`,
@@ -1984,7 +2042,7 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`;
   `equivalence_test::a_predicted_protein_change_is_its_confirmation`,
   `::a_cis_allele_of_predicted_protein_changes_is_its_confirmation`,
-  `::a_coding_change_is_analogous_to_its_prediction_written_unbracketed`;
+  `::a_coding_change_is_its_prediction_written_unbracketed`; `regression_test::test_braf_identity`;
   `whole_sequence_identity_test::the_rna_predicted_unchanged_is_the_rna_found_unchanged`.
 
 ### Frameshift length counts to the first new stop
@@ -2145,9 +2203,11 @@ allele. `NM_X.1:c.10_12copy3` projects to exactly `NC_X.1:g.25_27copy3`, so the 
 match between two descriptions that both project to that text and are not the same text: `NR_XR.1:n.24_26copy3`, on the
 minus strand, is Analogous to `NM_X.1:c.10_12copy3`. `copy3` and `copy4` are Different.
 
-`Identity` is the same text after spelling normalisation, or a prediction written exactly as given; the parentheses of a
-prediction, the brackets of a one-member allele and the order of an allele's members are spelling. Cis alleles are
-compared by [the sequence their members make](#a-cis-allele-is-the-sequence-its-members-make).
+`Identity` is the same text after spelling normalisation; the parentheses of a prediction, the brackets of a one-member
+allele and the order of an allele's members are spelling. A transcript variant is Identity with the genomic variant it
+projects to exactly, and a coding change with its prediction
+([below](#judged-by-allele-and-by-the-protein-left-behind)). Cis alleles are compared by
+[the sequence their members make](#a-cis-allele-is-the-sequence-its-members-make).
 [How it decides](equivalence_logic.md) has the full rules.
 
 A protein description that leaves the protein unchanged is a statement in the same way, and is the same only as a
@@ -2160,14 +2220,13 @@ other, so that equivalence would stop being transitive.
 
 Between a coding identity and a protein description, equivalence asks whether the identity predicts the description, and
 its prediction is the residues whose whole codon it covers
-([edits outside the CDS](#edits-outside-the-cds-are-statements)): `c.7_10=` is `p.(Leu3=)`, Identity as written and
-Analogous in another spelling. ClinVar reads an identity outward, naming every residue whose codon it touches: `c.1114=`
-as `p.Asn372=`, `c.949_952=` as `p.Ala317_Ala318=`. biocommons names the first residue it touches, `c.36_74=` as
-`p.(Leu12=)`. Both are Different from the identity, unless they happen to be its prediction: Analogous would make them
-the same change, and `p.Leu3_Ala4=` claims that Ala4 is unchanged, which `c.7_10=` does not state. An identity that
-covers no whole codon makes no protein claim, so it is Different from every protein description, `p.(=)` included.
-Outward rounding as an optional prediction is proposed in
-[issue #83](https://github.com/populationgenomics/hgvs-weaver/issues/83).
+([edits outside the CDS](#edits-outside-the-cds-are-statements)): `c.7_10=` is `p.(Leu3=)`, Identity in any spelling.
+ClinVar reads an identity outward, naming every residue whose codon it touches: `c.1114=` as `p.Asn372=`, `c.949_952=`
+as `p.Ala317_Ala318=`. biocommons names the first residue it touches, `c.36_74=` as `p.(Leu12=)`. Both are Different
+from the identity, unless they happen to be its prediction: Analogous would make them the same change, and
+`p.Leu3_Ala4=` claims that Ala4 is unchanged, which `c.7_10=` does not state. An identity that covers no whole codon
+makes no protein claim, so it is Different from every protein description, `p.(=)` included. Outward rounding as an
+optional prediction is proposed in [issue #83](https://github.com/populationgenomics/hgvs-weaver/issues/83).
 
 A coding change is compared as the statement it predicts: `c.9G>A`, silent in codon 3, predicts `p.(Leu3=)`, while
 `c.*3G>A`, in the 3'UTR, predicts `p.(=)` ([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the first
@@ -2175,8 +2234,21 @@ is the same as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that chang
 predicts both, `c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are
 those where the comparison by protein left behind answers otherwise today.
 
+A coding change and a `p.` description are compared by one rule with two `p.` descriptions: the change's prediction
+against the description, Identity as one spelling, Analogous when the two can leave the same protein. One thing differs.
+A prediction leaves residues it does not name: a frameshift those after its first, an extension those of its tail, a
+read-through that runs off the transcript all of what follows. Read from the description, they match any residue; read
+from the coding change, they are the residues the edited transcript encodes, and the comparison uses those. So a coding
+change is never less equivalent to a description than its prediction is, with one exception that is the point of reading
+the sequence: a description that names residues the prediction leaves unnamed matches the prediction whatever it names,
+and the coding change only when it names the residues that are there. The open forms ClinVar writes — a frameshift or an
+extension without its length, a stop loss as a substitution — name nothing past what they write, and match the encoded
+protein when it begins with them. Where the prediction names no sequence, `p.(Met1?)`, the coding change is compared as
+that statement ([below](#a-description-that-says-nothing-matches-nothing)).
+
 **Example** (`NM_X.1`, `NC_X.1`, `NR_XR.1` and `NP_X.1` as in
-[the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)):
+[the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make); `NM_C.1` is `NM_X.1` with a `CTG` start, its
+protein `NP_C.1` the same `MKLAYR`):
 
 ```text
 NM_X.1:c.10_12copy3          vs  NC_X.1:g.25_27copy3                       Identity: it projects exactly to it
@@ -2187,6 +2259,7 @@ NP_X.1:p.Met1_Ter7=          vs  NP_X.1:p.(=)                              Analo
 NM_X.1:c.1_21=               vs  NP_X.1:p.(=)                              Identity: every codon predicts the whole protein
 NP_X.1:p.Arg6_Ter7insTer     vs  NP_X.1:p.(Ter7=)                          Different: Arg6 and Ter7, and Ter7 alone
 NM_X.1:c.7_10=               vs  NP_X.1:p.(Leu3=)                          Identity: the whole codon it covers
+NM_X.1:c.7_10=               vs  NP_X.1:p.L3=                              Identity
 NM_X.1:c.7_10=               vs  NP_X.1:p.Leu3_Ala4=                       Different: it does not state Ala4
 NM_X.1:c.9=                  vs  NP_X.1:p.Leu3=                            Different: it covers no whole codon
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=)
@@ -2195,8 +2268,10 @@ NM_X.1:c.*3G>A               vs  NP_X.1:p.(=)                              Ident
 NM_X.1:c.[13T>G;10_12=]      vs  NP_X.1:p.(Tyr5Asp)                        Different: it predicts p.[(Ala4=;Tyr5Asp)] (planned)
 NP_001337263.1:p.Tyr165Ter   vs  NP_001337263.1:p.Ala164_Tyr165insTer      Analogous: both end the protein after 164
 NM_X.1:c.4A>C                vs  NP_X.1:p.(Lys2Gln)                        Identity: the prediction as weaver writes it
-NM_X.1:c.4A>C                vs  NP_X.1:p.Lys2Gln                          Analogous
-NM_X.1:c.4A>C                vs  NP_X.1:p.K2Q                              Analogous
+NM_X.1:c.4A>C                vs  NP_X.1:p.Lys2Gln                          Identity: the prediction, confirmed
+NM_X.1:c.4A>C                vs  NP_X.1:p.K2Q                              Identity
+NM_C.1:c.6dup                vs  NP_C.1:p.Leu3fs                           Analogous: p.(Leu3ThrfsTer8) begins so
+NM_C.1:c.6dup                vs  NP_C.1:p.Ala4fs                           Different
 NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValTer        equivalent: Pro Ala Val Ter is four residues
 NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: one residue too many
 ```
@@ -2212,6 +2287,13 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
   `::a_silent_residue_is_not_the_whole_protein_unchanged`, `::a_silent_residue_is_its_statement_in_any_spelling`,
   `::a_coding_change_predicted_silent_is_its_statement`,
   `::a_coding_change_predicted_silent_says_nothing_of_another_residue`,
+  `::a_coding_change_is_its_prediction_written_unbracketed`,
+  `::a_frameshift_from_a_non_aug_start_is_the_frameshift_written_without_its_length`,
+  `::a_frameshift_from_a_non_aug_start_is_not_one_from_a_later_residue`,
+  `::a_frameshift_past_a_selenocysteine_is_the_frameshift_written_without_its_length`,
+  `::a_description_that_does_not_read_on_its_protein_is_an_error`,
+  `::a_transcript_that_cannot_predict_does_not_hide_one_that_agrees`,
+  `::a_transcript_that_cannot_predict_is_the_error_when_none_agrees`,
   `::a_three_prime_utr_change_is_the_whole_protein_unchanged`, `::a_three_prime_utr_change_is_not_the_stop_unchanged`,
   `::a_stop_inserted_before_the_stop_states_its_two_flanks`,
   `::an_unknown_change_from_the_stop_is_not_the_protein_unchanged`,
@@ -2231,7 +2313,8 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
   `equivalence_cases_test::one_copy_of_a_run_of_one_is_not_the_whole_protein_unchanged`;
   `equivalence_test::a_lone_copy_number_compares_by_projection`; `a_variant_agrees_with_its_projection`,
   `equivalence_of_single_variants_is_transitive`, `a_single_statement_never_equals_a_change`,
-  `single_statements_are_the_same_when_they_name_the_same_bases` and `protein_side_equivalence_is_transitive`
+  `single_statements_are_the_same_when_they_name_the_same_bases`, `protein_side_equivalence_is_transitive`,
+  `a_coding_variant_is_at_least_as_equivalent_as_its_prediction` and `a_coding_variant_is_its_prediction_written_open`
   (properties).
 
 ### A description that says nothing matches nothing
@@ -2239,8 +2322,10 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 **`p.?` matches no other description; `p.Met1?` says only where the change starts and matches only a description whose
 change starts there.**
 
-It does not match ClinVar's `Met1fs`, a commitment weaver did not make. Two ClinVar rows judge Different for this
-reason, on purpose. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place of Met1, are Analogous, not the same text.
+A coding change that starts in the 5'UTR and reaches into the CDS is predicted `p.(Met1?)` and compared as that
+statement. It matches ClinVar's `Met1fs`, which starts its change there, and not `Leu3fs`, a commitment weaver did not
+make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place of Met1, are Analogous, not the same
+text.
 
 A `?` after any other residue, `p.Arg12?` or `p.(Arg12?)`, is a recorded extension beyond the specification, which
 writes the form only at the start codon. weaver reads it as `p.Met1?` is read, a change from that residue on of which
@@ -2254,6 +2339,7 @@ text might mean and never more.
 
 ```text
 NM_X.1:c.-3_2del     vs  NP_X.1:p.Leu3fs    not equivalent: the deletion is p.(Met1?), which promises nothing about Leu3
+NM_W.1:c.-3_4del     vs  NP_W.1:p.Met1fs    Analogous: p.(Met1?) and Met1fs both start at Met1
 NM_X.1:c.-5_*14del   vs  NP_X.1:p.0?        equivalent
 NM_X.1:c.-5_*14del   vs  NP_X.1:p.0         equivalent
 NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg12Gly  Analogous: the change starts at Arg12
@@ -2261,15 +2347,16 @@ NM_W.1:c.34C>G       vs  NP_W.1:p.Arg12?    Analogous: predicted p.(Arg12Gly)
 NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
 ```
 
-- **Differs:** ClinVar commits.
+- **Differs:** ClinVar commits to a frameshift at Met1 where weaver says only that the change starts there; the two are
+  Analogous.
 - **Spec (agrees; silent on a `?` after any residue but `Met1`):**
   [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/) defines `p.?` and
   `p.(Met1?)` as statements of what is not known. The reading of `p.Arg12?` is weaver's.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
   `statements_test::a_start_loss_is_the_parsed_predicted_unknown_change_from_met1`,
-  `::a_start_loss_is_analogous_to_the_unknown_change_from_met1_stated`,
-  `::an_unknown_change_from_a_residue_is_an_unknown_effect`, `::an_unknown_change_over_a_range_does_not_parse`,
-  `::an_unknown_change_from_an_uncertain_residue_does_not_parse`,
+  `::a_start_loss_is_the_unknown_change_from_met1_stated`, `::a_start_loss_is_a_frameshift_from_met1`,
+  `::a_start_loss_is_not_a_frameshift_from_a_later_residue`, `::an_unknown_change_from_a_residue_is_an_unknown_effect`,
+  `::an_unknown_change_over_a_range_does_not_parse`, `::an_unknown_change_from_an_uncertain_residue_does_not_parse`,
   `::an_unknown_change_from_met1_is_not_the_same_text_as_an_unknown_residue_there`,
   `::an_unknown_change_from_a_residue_prints_back_as_parsed`, `::an_unknown_change_from_a_residue_survives_json`,
   `::an_unknown_change_from_a_residue_matches_a_change_starting_there`,

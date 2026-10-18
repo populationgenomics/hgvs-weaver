@@ -3,12 +3,12 @@
 `VariantMapper.equivalent_level(a, b, searcher)` says whether two HGVS descriptions name the same change. It answers at
 one of four levels:
 
-| Level       | Meaning                                                                                                                                                                                             |
-| :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Identity`  | The same text after spelling normalisation, or a prediction written exactly as given. A prediction's parentheses, a one-member allele's brackets and the order of an allele's members are spelling. |
-| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                                                              |
-| `Different` | Both descriptions are understood and they name different changes.                                                                                                                                   |
-| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                                                            |
+| Level       | Meaning                                                                                                                                                                                                                |
+| :---------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Identity`  | The same text after spelling normalisation; a coding change is so with its prediction. A prediction's parentheses, one-letter codes, a one-member allele's brackets and the order of an allele's members are spelling. |
+| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                                                                                 |
+| `Different` | Both descriptions are understood and they name different changes.                                                                                                                                                      |
+| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                                                                               |
 
 `equivalent(a, b, searcher)` is `Identity` or `Analogous`.
 
@@ -30,20 +30,17 @@ flowchart TD
     Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
     Proj -- yes --> Identity
     Proj -- no --> Allele{"same sequence made and<br/>same bases stated?<br/>(on the genome)"}
-    Kind -- "nucleotide, protein" --> Pred{"prediction written<br/>exactly as given?"}
-    Pred -- yes --> Identity
-    Pred -- no --> Spell{"same description,<br/>other spelling?"}
-    Spell -- yes --> Analogous([Analogous])
-    Spell -- no --> Left{"protein the variant leaves<br/>= protein the description leaves?"}
-    Kind -- "protein, protein" --> Base{"same accession<br/>(any version)?"}
+    Kind -- "nucleotide, protein" --> Pred["its prediction on each<br/>coding transcript, leaving<br/>the protein encoded"]
+    Pred --> Prot
+    Kind -- "protein, protein" --> Prot{"same spelling?"}
+    Prot -- yes --> Identity
+    Prot -- no --> Base{"same accession<br/>(any version)?"}
     Base -- no --> Different([Different])
-    Base -- yes --> Left2{"same spelling, or<br/>same protein left?"}
-    Allele -- yes --> Analogous
+    Base -- yes --> Left{"same edit, or<br/>same protein left?"}
+    Allele -- yes --> Analogous([Analogous])
     Allele -- no --> Different
     Left -- yes --> Analogous
     Left -- no --> Different
-    Left2 -- yes --> Analogous
-    Left2 -- no --> Different
 ```
 
 ### Nucleotide against nucleotide
@@ -74,21 +71,36 @@ are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spellin
 ### Nucleotide against protein
 
 The nucleotide variant is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or `n.` is projected
-and the `searcher` names the transcripts). For each, the predicted `p.` description is compared with the given one:
-written exactly as given it is `Identity` (`c.1799T>A` against `p.(Val600Glu)`); the same description in another
-spelling is `Analogous` (`p.Val600Glu`, `p.V600E`). Failing that, the **protein the variant leaves**
-(`predicted_protein`) is compared with the **protein the description leaves** (below); if they can be the same protein
-the pair is `Analogous`. A variant predicted to leave the protein as it is, `c.9G>A` silent in codon 3 or `c.*3G>A` in
-the 3'UTR, is compared as the statement it predicts, `p.(Leu3=)` or `p.(=)`. An identity that covers no whole codon,
-`c.1114=`, makes no statement about the protein, so it is `Different` from every protein description. An identity read
-outward, at every residue whose codon it touches, as ClinVar writes it, claims residues the identity does not state, so
-it is `Different` too ([the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind)).
+and the `searcher` names the transcripts), and on each its predicted `p.` description is compared with the given one by
+the rule for two protein descriptions ([below](#protein-against-protein)). So a coding change is Identity with its
+prediction in any spelling (`c.1799T>A` against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise Analogous
+when the two can leave the same protein. The pair is as equivalent as the best transcript makes it; a transcript whose
+prediction fails makes the pair an error only when no transcript makes it equivalent, and a description that does not
+read on its protein is an error whatever the transcripts predict.
+
+The prediction stands for the change, with one difference: the protein it leaves is the one the edited transcript
+encodes (`predicted_protein`), not the one its description leaves. A description leaves residues unnamed — a
+frameshift's after its first, an extension's tail, a read-through that runs off the transcript — and those match any
+residue; the encoded protein has them, and only a description that names the residues that are there matches it. A
+coding change is therefore at least as equivalent to a description as its prediction is, except against a description
+naming residues the prediction does not, where the encoded protein can disagree. The protein is read as its record
+writes it: the annotated first codon as Met whatever it is, a `CTG` start included, and a selenocysteine as `U`
+([the choice](choices.md#the-protein-is-read-as-its-record-writes-it)). A frameshift written without its length,
+`p.Leu299fs`, matches the encoded protein when that begins with it.
+
+Where the prediction names no sequence, the coding change is compared as the statement it predicts. A start loss,
+`p.(Met1?)`, says the change starts at Met1, so it matches `p.Met1fs` and not `p.Leu5fs`. A change predicted to leave
+the protein as it is, `c.9G>A` silent in codon 3 or `c.*3G>A` in the 3'UTR, is compared as `p.(Leu3=)` or `p.(=)`. An
+identity that covers no whole codon, `c.1114=`, makes no statement about the protein, so it is `Different` from every
+protein description. An identity read outward, at every residue whose codon it touches, as ClinVar writes it, claims
+residues the identity does not state, so it is `Different` too
+([the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind)).
 
 ### Protein against protein
 
 Two `p.` descriptions must be on the same protein accession, any version (ClinVar often names an older `NP_` version).
-They are `Analogous` if they are the same description in another spelling, or if the proteins they leave can be the
-same.
+They are `Identity` as one spelling, and `Analogous` on two versions of the accession as one spelling, or when the
+proteins they leave can be the same.
 
 ### The protein a description leaves
 
@@ -131,13 +143,14 @@ or `ERR:` in the harness), not a guess from the residues the descriptions happen
 | `Identity`  | `c.123A>G`                        | `c.123A>G`                           | Same text.                                                |
 | `Identity`  | `NC_…:g.5000A>G`                  | `NM_…:c.123A>G`                      | The `c.` projects to exactly that `g.`.                   |
 | `Identity`  | `c.1799T>A`                       | `p.(Val600Glu)`                      | The prediction, written as predicted.                     |
-| `Analogous` | `c.1799T>A`                       | `p.Val600Glu`                        | The same description, observed rather than predicted.     |
+| `Identity`  | `c.1799T>A`                       | `p.Val600Glu`                        | The prediction, confirmed.                                |
 | `Analogous` | `c.4_6del`                        | `c.10_12del`                         | One allele: the same trinucleotide run, one unit shorter. |
 | `Analogous` | `g.10_11insA`                     | `g.10dup`                            | One allele.                                               |
 | `Analogous` | `NM_X.1:c.10_12copy3`             | `NR_XR.1:n.24_26copy3`               | Both project to `g.25_27copy3`.                           |
 | `Analogous` | `p.Tyr165Ter`                     | `p.Ala164_Tyr165insTer`              | Both leave the protein ended after 164.                   |
 | `Analogous` | `c.495_498del`                    | `p.Ala164_Tyr165insTer`              | The frameshift's first stop is at 165; same protein left. |
 | `Analogous` | `c.567delG`                       | `p.Ala190Profs`                      | The frameshift starts Ala190Pro; the rest is unknown.     |
+| `Analogous` | `c.-3_4del` (weaver `p.(Met1?)`)  | `p.Met1fs`                           | Both start the change at Met1.                            |
 | `Analogous` | `c.1796A>G`                       | `p.Ter599Trp`                        | A stop loss, written as ClinVar writes it.                |
 | `Analogous` | `p.490PRS[1]`                     | `p.Pro493_Ser495del`                 | One copy of a three-residue unit removed, either way.     |
 | `Different` | `c.123A>G`                        | `c.123A>T`                           | Different alleles.                                        |

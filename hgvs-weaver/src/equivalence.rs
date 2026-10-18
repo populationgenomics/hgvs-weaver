@@ -110,14 +110,7 @@ impl<'a> VariantEquivalence<'a> {
         }
         let same = match (var1, var2) {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
-                // Versions of one protein accession are compared on ours: the
-                // same description in another spelling, or the same protein left.
-                base_accession(&p1.ac) == base_accession(&p2.ac)
-                    && (posedit_spelling(&p1.posedit) == posedit_spelling(&p2.posedit)
-                        || same_protein(
-                            self.protein_outcome_on(p1, &p1.ac)?,
-                            self.protein_outcome_on(p2, &p1.ac)?,
-                        ))
+                return self.protein_level(p1, || self.protein_outcome_on(p1, &p1.ac), p2);
             }
             (SequenceVariant::Protein(p), nucleotide)
             | (nucleotide, SequenceVariant::Protein(p)) => {
@@ -253,9 +246,37 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
+    /// How the protein description `p1`, which leaves the protein `left`, and
+    /// `p2` compare: `Identity` as one spelling, `Analogous` on two versions of
+    /// one accession as one spelling or when they can leave the same protein,
+    /// read on `p1`'s accession. `left` is asked for only when the spellings
+    /// differ, since it needs the protein sequence.
+    fn protein_level(
+        &self,
+        p1: &PVariant,
+        left: impl FnOnce() -> Result<Option<Outcome>, HgvsError>,
+        p2: &PVariant,
+    ) -> Result<EquivalenceLevel, HgvsError> {
+        if protein_spelling(p1) == protein_spelling(p2) {
+            return Ok(EquivalenceLevel::Identity);
+        }
+        // Versions of one protein accession are compared on ours.
+        let same = base_accession(&p1.ac) == base_accession(&p2.ac)
+            && (posedit_spelling(&p1.posedit) == posedit_spelling(&p2.posedit)
+                || same_protein(left()?, self.protein_outcome_on(p2, &p1.ac)?));
+        Ok(if same {
+            EquivalenceLevel::Analogous
+        } else {
+            EquivalenceLevel::Different
+        })
+    }
+
     /// A nucleotide variant against a protein description: through every
-    /// transcript the variant lies on, `Identity` if the predicted description
-    /// is the same text, `Analogous` if the protein left is the same.
+    /// coding transcript the variant lies on, its prediction compared with the
+    /// description as two protein descriptions are, the prediction leaving
+    /// the protein the edited transcript encodes. The level through the best
+    /// transcript; a transcript whose prediction fails is the error only when
+    /// no transcript makes the two equivalent.
     fn nucleotide_vs_protein(
         &self,
         nucleotide: &SequenceVariant,
@@ -277,57 +298,61 @@ impl<'a> VariantEquivalence<'a> {
             }
             _ => vec![],
         };
-        // First by description: the prediction written exactly as given is
-        // Identity (c. implies p.(...) exactly); the same description in
-        // another spelling is Analogous. Neither needs the protein sequence.
-        let described = protein_spelling(vp);
-        let mut analogous = false;
-        let mut predictions = Vec::with_capacity(coding.len());
+        let mut best = EquivalenceLevel::Different;
+        let mut failed = None;
         for c in &coding {
-            let predicted = self.mapper.c_to_p(c, Some(&vp.ac));
-            if let Ok(predicted) = &predicted {
-                if predicted.to_string() == vp.to_string() {
-                    return Ok(EquivalenceLevel::Identity);
+            let level = match self.mapper.c_to_p(c, Some(&vp.ac)) {
+                Ok(predicted) => self.protein_level(&predicted, || self.left_by(c, &predicted), vp),
+                // An identity of no whole codon says nothing of the protein,
+                // so it matches no protein description; c_to_p refuses c.=
+                // named against another protein, of which it says nothing.
+                Err(HgvsError::NoProteinStatement(_)) => continue,
+                Err(HgvsError::ValidationError(_))
+                    if matches!(c.posedit.edit, NaEdit::WholeIdentity) =>
+                {
+                    continue
                 }
-                analogous |= protein_spelling(predicted) == described;
-            }
-            predictions.push(predicted);
-        }
-        // Then by the protein left behind, or, for a prediction that leaves
-        // the protein unchanged, by the residues it states.
-        if !analogous {
-            let outcome = self.protein_outcome_on(vp, &vp.ac)?;
-            let reference = self.reference_protein(&vp.ac)?;
-            for (c, predicted) in coding.iter().zip(&predictions) {
-                let candidate = match predicted {
-                    Ok(p) if p.posedit.edit.is_identity() => {
-                        Some(silent_prediction(p, reference.len()))
-                    }
-                    // An identity of no whole codon says nothing of the
-                    // protein, so it matches no protein description.
-                    Err(HgvsError::NoProteinStatement(_)) => continue,
-                    // c_to_p refuses c.= named against another protein, of
-                    // which it says nothing.
-                    _ if matches!(c.posedit.edit, NaEdit::WholeIdentity) => continue,
-                    _ => self
-                        .mapper
-                        .predicted_protein(c, Some(&vp.ac))?
-                        .map(|residues| Outcome::Leaves {
-                            changed_from: first_difference(&reference, &residues),
-                            residues,
-                            open: false,
-                        }),
-                };
-                if same_protein(candidate, outcome.clone()) {
-                    analogous = true;
+                Err(e) => Err(e),
+            };
+            match level {
+                Ok(EquivalenceLevel::Identity) => return Ok(EquivalenceLevel::Identity),
+                Ok(EquivalenceLevel::Analogous) => best = EquivalenceLevel::Analogous,
+                Ok(_) => {}
+                Err(e) => {
+                    failed.get_or_insert(e);
                 }
             }
         }
-        Ok(if analogous {
-            EquivalenceLevel::Analogous
-        } else {
-            EquivalenceLevel::Different
-        })
+        if best.is_equivalent() {
+            return Ok(best);
+        }
+        // A description that cannot be read on its protein is the error,
+        // whatever the transcripts predict.
+        self.protein_outcome_on(vp, &vp.ac)?;
+        failed.map_or(Ok(best), Err)
+    }
+
+    /// The protein the coding variant `c` leaves, whose prediction is
+    /// `predicted`: the residues the edited transcript encodes, exactly; for a
+    /// prediction that leaves the protein as it is, the residues it states;
+    /// and, where the prediction names no sequence (`p.(Met1?)`, `p.?`), what
+    /// the prediction says.
+    fn left_by(&self, c: &CVariant, predicted: &PVariant) -> Result<Option<Outcome>, HgvsError> {
+        if predicted.posedit.edit.is_identity() {
+            let reference = self.reference_protein(&predicted.ac)?;
+            return Ok(Some(silent_prediction(predicted, reference.len())));
+        }
+        match self.mapper.predicted_protein(c, Some(&predicted.ac))? {
+            Some(left) => {
+                let reference = self.reference_protein(&predicted.ac)?;
+                Ok(Some(Outcome::Leaves {
+                    changed_from: first_difference(&reference, &left.residues),
+                    residues: left.residues,
+                    open: !left.stops,
+                }))
+            }
+            None => self.protein_outcome_on(predicted, &predicted.ac),
+        }
     }
 
     /// The protein a p. description leaves: its residues in 1-letter code up

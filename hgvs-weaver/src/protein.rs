@@ -73,18 +73,59 @@ impl Reading {
         } = &change.edit;
         let (start, end) = (*start, *end);
         let alt_nt = splice(&change.coding, start, end, alt);
-        let ref_aa: Vec<char> = translate(&change.coding).chars().collect();
-        let alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
+        let mut ref_aa: Vec<char> = translate(&change.coding).chars().collect();
+        let mut alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
+        // The annotated first codon is the initiator, Met whatever it is; an
+        // edit that changes it is read as the codon it makes.
+        if let Some(first) = ref_aa.first_mut() {
+            *first = 'M';
+            if alt_nt.get(..3) == change.coding.get(..3) {
+                alt_aa[0] = 'M';
+            }
+        }
         let net = alt.len() as i64 - (end - start) as i64;
-        let declared = change.cds_len.saturating_sub(1) / 3;
-        let stop = if ref_aa.get(declared) == Some(&'*') {
-            declared
-        } else {
-            ref_aa
-                .iter()
-                .position(|&c| c == '*')
-                .unwrap_or(ref_aa.len())
+        let stop = reference_stop(&ref_aa, change.cds_len);
+        // A selenocysteine TGA is U in the reference before its stop, and in
+        // the alternate where a TGA the two sequences share reads one in
+        // frame: in their common prefix, or in their common suffix after an
+        // in-frame change. Read from the sequences, not the edit's
+        // coordinates, every spelling of one change reads alike.
+        let is_tga = |nt: &str, j: usize| {
+            nt.get(3 * j..3 * j + 3)
+                .is_some_and(|c| c.eq_ignore_ascii_case("TGA"))
         };
+        let (ref_nt, edited) = (change.coding.as_bytes(), alt_nt.as_bytes());
+        let prefix = ref_nt
+            .iter()
+            .zip(edited)
+            .take_while(|(a, b)| a == b)
+            .count();
+        let suffix = ref_nt
+            .iter()
+            .rev()
+            .zip(edited.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let ref_sec = |r: usize| r < stop && ref_aa.get(r) == Some(&'*');
+        let alt_sec: Vec<usize> = (0..alt_aa.len())
+            .filter(|&j| {
+                let r = if (j + 1) * 3 <= prefix {
+                    Some(j)
+                } else if net % 3 == 0 && j * 3 >= edited.len() - suffix {
+                    usize::try_from(j as i64 - net / 3).ok()
+                } else {
+                    None
+                };
+                alt_aa[j] == '*' && is_tga(&alt_nt, j) && r.is_some_and(ref_sec)
+            })
+            .collect();
+        let before_stop = stop.min(ref_aa.len());
+        for c in ref_aa[..before_stop].iter_mut().filter(|c| **c == '*') {
+            *c = 'U';
+        }
+        for j in alt_sec {
+            alt_aa[j] = 'U';
+        }
         let first_codon = start / 3;
         let last_codon = if end > start {
             (end - 1) / 3
@@ -163,33 +204,11 @@ impl Reading {
             .then(|| (self.stop as i64 + self.net / 3).max(0) as usize)
     }
 
-    /// The reference codon that alternate index `j` reads, when the frame
-    /// there is the reference's: before the first change it is `j` itself,
-    /// past the edit it is shifted by the net change, and in a shifted frame
-    /// there is none.
-    fn ref_index(&self, j: usize) -> Option<usize> {
-        if j < self.first_changed {
-            Some(j)
-        } else if !self.in_frame {
-            None
-        } else if j >= self.inserted_end().div_ceil(3) {
-            Some((j as i64 - self.net / 3).max(0) as usize)
-        } else {
-            Some(j)
-        }
-    }
-
-    /// Whether a `*` at alternate index `j` is one the reference already has
-    /// before its stop (a selenocysteine TGA), not a stop the edit made.
-    fn is_selenocysteine(&self, j: usize) -> bool {
-        self.ref_index(j)
-            .is_some_and(|r| r < self.stop && self.ref_aa.get(r) == Some(&'*'))
-    }
-
-    /// Where the alternate protein ends: its first `*` that is a stop.
+    /// Where the alternate protein ends: its first stop.
     fn alt_stop(&self) -> usize {
-        (0..self.alt_aa.len())
-            .find(|&j| self.alt_aa[j] == '*' && !self.is_selenocysteine(j))
+        self.alt_aa
+            .iter()
+            .position(|&c| c == '*')
             .unwrap_or(self.alt_aa.len())
     }
 
@@ -199,6 +218,12 @@ impl Reading {
         (self.last_codon + 1)
             .max(self.first_changed + 1)
             .min(self.ref_aa.len())
+    }
+
+    /// Whether the alternate protein ends at a stop rather than at the end of
+    /// the edited transcript.
+    pub(crate) fn alternate_stops(&self) -> bool {
+        self.alt_stop() < self.alt_aa.len()
     }
 
     /// [`proteins`](crate::protein::proteins) of the change read.
@@ -239,8 +264,25 @@ impl Reading {
     }
 }
 
+/// The index of the reference's stop in `ref_aa`, the translation of a CDS
+/// `cds_len` bases long and what follows it: the codon the CDS end declares,
+/// when that codon really is a stop; otherwise (a loosely marked CDS end)
+/// the first stop in the translation; otherwise the length.
+pub(crate) fn reference_stop(ref_aa: &[char], cds_len: usize) -> usize {
+    let declared = cds_len.saturating_sub(1) / 3;
+    if ref_aa.get(declared) == Some(&'*') {
+        declared
+    } else {
+        ref_aa
+            .iter()
+            .position(|&c| c == '*')
+            .unwrap_or(ref_aa.len())
+    }
+}
+
 /// The reference protein and the protein `change` produces, in 1-letter code
-/// without their stops: what a protein allele is made of.
+/// without their stops, as a protein record writes them (the initiator as Met,
+/// a selenocysteine as `U`): what a protein allele is made of.
 pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
     Reading::new(change.clone()).proteins()
 }
@@ -298,7 +340,7 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
     let search_end = original_stop_in_alt
         .unwrap_or(t.alt_aa.len())
         .min(t.alt_aa.len());
-    if let Some(j) = (i..search_end).find(|&j| t.alt_aa[j] == '*' && !t.is_selenocysteine(j)) {
+    if let Some(j) = (i..search_end).find(|&j| t.alt_aa[j] == '*') {
         alt_end = j + 1;
         ref_end = t.ref_end_at_new_stop();
     }

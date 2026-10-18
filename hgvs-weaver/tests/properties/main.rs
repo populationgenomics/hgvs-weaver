@@ -760,6 +760,202 @@ fn up_to_stop(s: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// A coding variant against a protein description
+//
+// Judged directly, a coding variant is read by the protein its edited
+// transcript encodes; judged through its prediction, by what c_to_p's
+// description says of that protein. The direct judgement uses the same rules
+// on more information, so it is never the less equivalent of the two.
+// ---------------------------------------------------------------------------
+
+/// How equivalent `level` says two descriptions are, from Different up.
+fn rank(level: EquivalenceLevel) -> u8 {
+    match level {
+        EquivalenceLevel::Identity => 3,
+        EquivalenceLevel::Analogous => 2,
+        EquivalenceLevel::Different => 1,
+        EquivalenceLevel::Unknown => 0,
+    }
+}
+
+/// A prediction's edit without its parentheses: `Leu3ThrfsTer8` of
+/// `NP_PROP.1:p.(Leu3ThrfsTer8)`.
+fn unbracketed(vp: &PVariant) -> String {
+    let mut vp = vp.clone();
+    vp.posedit.predicted = false;
+    vp.to_string().split_once(":p.").unwrap().1.to_string()
+}
+
+/// The spellings a description's open forms take in ClinVar: a frameshift
+/// without its length, or without its first new residue as well; an
+/// extension without its length, or as a substitution of the stop. `None`
+/// for a description with neither.
+fn open_spelling(edit: &str, which: u8) -> Option<String> {
+    if let Some(i) = edit.find("fs") {
+        return Some(match which % 2 {
+            0 => edit[..i + 2].to_string(),
+            _ => format!("{}fs", &edit[..i.checked_sub(3)?]),
+        });
+    }
+    let i = edit.find("ext")?;
+    Some(match which % 2 {
+        0 => format!("{}extTer?", &edit[..i]),
+        _ => edit[..i].to_string(),
+    })
+}
+
+/// A protein description on `NP_PROP.1`, whose residues before the stop are
+/// `protein`, of kind `kind`: 0 and 1 `other`, the prediction of another
+/// change, as written and unbracketed; 2 `own`, the prediction under test,
+/// unbracketed; 3 and 4 an open spelling of `own` and of `other`; then, at
+/// the residue `at` names, a substitution by `residues`' first (5), a
+/// deletion of `count + 1` residues (6), their replacement by `residues`
+/// (7), a frameshift to `residues`' first with `length` as its length (8), a
+/// stop loss to it (9), a change of unknown kind from there (10), statements
+/// about the whole protein (11), a duplication (12) and an insertion of
+/// `residues` after it (13). `None` where the kind names nothing.
+#[allow(clippy::too_many_arguments)]
+fn protein_description(
+    protein: &str,
+    own: &PVariant,
+    other: Option<&PVariant>,
+    kind: u8,
+    at: usize,
+    count: usize,
+    residues: &[char],
+    length: Option<usize>,
+) -> Option<String> {
+    let at = at % protein.len();
+    let end = (at + count).min(protein.len() - 1);
+    let name = |i: usize| format!("{}{}", aa1_to_aa3(protein.as_bytes()[i] as char), i + 1);
+    let new: String = residues.iter().map(|&r| aa1_to_aa3(r)).collect();
+    let first = aa1_to_aa3(residues[0]);
+    let range = if end > at {
+        format!("{}_{}", name(at), name(end))
+    } else {
+        name(at)
+    };
+    let length = length.map_or("?".to_string(), |n| n.to_string());
+    let edit = match kind {
+        0 => return Some(other?.to_string()),
+        1 => unbracketed(other?),
+        2 => unbracketed(own),
+        3 => open_spelling(&unbracketed(own), count as u8)?,
+        4 => open_spelling(&unbracketed(other?), count as u8)?,
+        5 => format!("{}{first}", name(at)),
+        6 => format!("{range}del"),
+        7 => format!("{range}delins{new}"),
+        8 => format!("{}{first}fsTer{length}", name(at)),
+        9 => format!("Ter{}{first}extTer{length}", protein.len() + 1),
+        10 => format!("{}?", name(at)),
+        11 => ["=", "?", "0", "(=)"][count % 4].to_string(),
+        12 => format!("{range}dup"),
+        _ if end + 1 < protein.len() => format!("{}_{}ins{new}", name(end), name(end + 1)),
+        _ => format!("{}_Ter{}ins{new}", name(end), end + 2),
+    };
+    Some(format!("NP_PROP.1:p.{edit}"))
+}
+
+proptest! {
+    /// A coding variant judged against a protein description is at least as
+    /// equivalent as its prediction judged against it, so the direct
+    /// judgement says Different only where the prediction's does; except
+    /// that a description naming residues a predicted frameshift, extension or
+    /// loss of the stop leaves unnamed may match the prediction and not the
+    /// protein.
+    #[test]
+    fn a_coding_variant_is_at_least_as_equivalent_as_its_prediction(
+        (g, e, other) in gene_and_two_edits(),
+        kind in 0u8..14,
+        at in 0usize..10_000,
+        count in 0usize..4,
+        residues in prop::collection::vec(prop::sample::select(RESIDUES.to_vec()), 1..=4),
+        length in prop::option::of(1usize..12),
+    ) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let eq = VariantEquivalence::new(&mapper, &hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(predicted) = mapper.c_to_p(&vc, Some("NP_PROP.1")) else { return Ok(()) };
+        let other = mapper.c_to_p(&tx_edit_variant(&g, &am, &other), Some("NP_PROP.1")).ok();
+        let protein = translate(&g.transcript_seq[g.cds_start..g.cds_end - 2]);
+        let Some(text) = protein_description(
+            &protein, &predicted, other.as_ref(), kind, at, count, &residues, length,
+        ) else { return Ok(()) };
+        let vp = parse_hgvs_variant(&text).unwrap_or_else(|e| panic!("{text}: {e}"));
+        let through_prediction = eq.equivalent_level(&SequenceVariant::Protein(predicted.clone()), &vp);
+        let direct = eq.equivalent_level(&SequenceVariant::Coding(vc.clone()), &vp);
+        // A prediction that does not read back on its own protein has no
+        // judgement to compare with: c_to_p names read-through residues past
+        // the stop for an in-frame change over it (issue #94).
+        let through_prediction = match through_prediction {
+            Ok(level) => level,
+            Err(hgvs_weaver::HgvsError::ReferenceMismatch { .. }) => return Ok(()),
+            Err(e) => return Err(TestCaseError::fail(format!("{predicted} against {vp}: {e}"))),
+        };
+        // A predicted frameshift or extension, or a change that removes the
+        // stop, leaves residues it does not name, which match any residue, so
+        // a description can match those through the prediction and not the
+        // residues the transcript encodes. There only Identity carries over.
+        let floor = match through_prediction {
+            EquivalenceLevel::Analogous if leaves_unnamed(&predicted) && names_residues(kind) => {
+                EquivalenceLevel::Different
+            }
+            level => level,
+        };
+        prop_assert!(
+            direct.as_ref().is_ok_and(|&d| rank(d) >= rank(floor)),
+            "{vc} against {vp}: {direct:?} directly, {through_prediction:?} through {predicted}"
+        );
+    }
+
+    /// A coding variant is equivalent to its predicted frameshift or
+    /// extension written open, as ClinVar writes them: without the length,
+    /// without the first new residue, or a stop loss as a substitution.
+    #[test]
+    fn a_coding_variant_is_its_prediction_written_open(
+        (g, e) in gene_and_edit(),
+        which in 0u8..2,
+    ) {
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let eq = VariantEquivalence::new(&mapper, &hdp);
+        let vc = tx_edit_variant(&g, &am, &e);
+        let Ok(predicted) = mapper.c_to_p(&vc, Some("NP_PROP.1")) else { return Ok(()) };
+        let Some(open) = open_spelling(&unbracketed(&predicted), which) else { return Ok(()) };
+        let vp = parse_hgvs_variant(&format!("NP_PROP.1:p.{open}")).unwrap_or_else(|e| panic!("{open}: {e}"));
+        let direct = eq.equivalent_level(&SequenceVariant::Coding(vc.clone()), &vp);
+        prop_assert!(
+            direct.as_ref().is_ok_and(EquivalenceLevel::is_equivalent),
+            "{vc} against {vp}: {direct:?}, predicted {predicted}"
+        );
+    }
+}
+
+/// Whether a [`protein_description`] of `kind` can name residues another
+/// change's prediction leaves unnamed: all but the prediction's own spellings.
+fn names_residues(kind: u8) -> bool {
+    !matches!(kind, 2 | 3)
+}
+
+/// Whether a prediction leaves residues it does not name: a frameshift or an
+/// extension, or a change over the stop.
+fn leaves_unnamed(predicted: &PVariant) -> bool {
+    let over_the_stop = predicted
+        .posedit
+        .pos
+        .as_ref()
+        .is_some_and(|p| p.start.aa == "Ter" || p.end.as_ref().is_some_and(|e| e.aa == "Ter"));
+    over_the_stop
+        || matches!(
+            predicted.posedit.edit,
+            AaEdit::Fs { .. } | AaEdit::Ext { .. }
+        )
+}
+
 proptest! {
     /// A single-base substitution in the CDS is described exactly as the codon
     /// table says: silent, missense, nonsense or a stop-loss extension.
