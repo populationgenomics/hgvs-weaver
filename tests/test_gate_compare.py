@@ -11,7 +11,7 @@ import pytest
 
 from weaver.cli import gate
 
-FIELDS = ("variant_nuc", "variant_prot", "spdi", "rs_p", "rs_spdi", "rs_equiv", "rs_nuc_equiv")
+FIELDS = ("variant_nuc", "variant_prot", "spdi", "rs_p", "rs_spdi", "rs_equiv", "rs_nuc_equiv", "ref_equiv")
 FIELDS_WITHOUT_NUC_EQUIV = tuple(f for f in FIELDS if f != "rs_nuc_equiv")
 
 
@@ -24,6 +24,7 @@ def output_row(**fields: str) -> dict[str, str]:
         "rs_spdi": "NC_TEST.1:1013:G:A",
         "rs_equiv": "Identity",
         "rs_nuc_equiv": "Identity",
+        "ref_equiv": "Identity",
     }
     row.update(fields)
     return row
@@ -96,3 +97,15 @@ def test_an_output_without_the_column_reports_it_absent_and_lists_no_disagreemen
     out = capsys.readouterr().out
     assert "rs_nuc_equiv: absent from new.tsv" in out
     assert "rs_equiv against rs_nuc_equiv" not in out
+
+
+def test_a_moved_verdict_on_biocommons_answer_is_counted(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline = write(tmp_path / "old.tsv", [output_row(ref_equiv="Analogous")])
+    gate.compare(baseline, write(tmp_path / "new.tsv", [output_row(ref_equiv="Different")]))
+    out = capsys.readouterr().out
+    assert "ref_equiv: 1 rows moved" in out
+    assert re.search(r"1  Analogous -> Different", out)
+    assert "rs_equiv: 0 rows moved" in out

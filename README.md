@@ -201,8 +201,9 @@ uv run --group gate weaver-gate --data data/gate \
 ```
 
 The comparison lists, for the SPDI, protein and equivalence columns, how many rows moved and in which direction (match
-to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row. A column the baseline
-predates is reported absent rather than compared.
+to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row. The equivalence columns
+include the verdict on biocommons' protein, since it is weaver's equivalence that judges it: a change to equivalence can
+move that column alone. A column the baseline predates is reported absent rather than compared.
 
 The validation judges ClinVar's protein description twice: against the protein weaver predicts from the nucleotide
 variant, and against the nucleotide variant itself, which is the comparison a search across coordinate systems makes. If
