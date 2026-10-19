@@ -68,8 +68,8 @@ judgement is that error. A one-member allele is its member, and its brackets are
 are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
 `c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members project to exactly.
 An allele with a member at an uncertain position, or a statement among several members, makes no one sequence; it is
-compared member by member ([below](#the-protein-a-description-leaves)), and protein alleles are compared member by
-member too.
+compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)), and protein alleles
+are compared member by member too.
 
 ### Nucleotide against protein
 

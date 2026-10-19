@@ -2718,7 +2718,7 @@ NM_X.1:c.7_8delinsTA                   ATG AAA TAG GCC TAT CGC TAA    Different 
 
 NM_X.1:c.[7C>T;13T>G]                  ATG AAA TTG GCC GAT CGC TAA
 NC_X.1:g.[22C>T;28T>G]                 the same bases                 Identity: the members project exactly to it
-NR_XR.1:n.[23A>C;29G>A]                the same bases                 Identity: the members project exactly to it
+NR_XR.1:n.[23A>C;29G>A]                the same bases                 Analogous: the same sequence on the genome
 NM_X.1:c.7C>T                          ATG AAA TTG GCC TAT CGC TAA    Different from c.[7C>T;13T>G]: a member short
 NM_X.1:c.[7C>T]                        ATG AAA TTG GCC TAT CGC TAA    Identity with c.7C>T
 NM_X.1:c.[7C>T;10_12=]                 ATG AAA TTG GCC TAT CGC TAA    Different from c.7C>T: it also states c.10_12

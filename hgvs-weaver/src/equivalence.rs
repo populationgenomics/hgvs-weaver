@@ -109,9 +109,10 @@ impl<'a> VariantEquivalence<'a> {
         for var in [var1, var2] {
             if let SequenceVariant::CisPhased(cis) = var {
                 if reads_as_a_sequence(cis) {
-                    match self.mapper.read_cis(cis) {
-                        Ok(_) | Err(HgvsError::UnsupportedOperation(_)) => {}
-                        Err(e) => return Err(e),
+                    if let Err(e @ (HgvsError::ValidationError(_) | HgvsError::Ambiguous { .. })) =
+                        self.mapper.read_cis(cis)
+                    {
+                        return Err(e);
                     }
                 }
             }
