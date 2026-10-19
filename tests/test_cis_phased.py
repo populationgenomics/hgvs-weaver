@@ -258,18 +258,14 @@ def test_a_block_stating_its_sequence_once_reads_back(mapper: weaver.VariantMapp
         mapper.from_vrs(block)
 
 
-def test_equivalence_compares_the_sets_of_members(mapper: weaver.VariantMapper) -> None:
-    searcher = Provider()
-    a = weaver.parse("NM_X.1:c.[7C>T;13T>G]")
-
-    def level(other: str) -> weaver.EquivalenceLevel:
-        return mapper.equivalent_level(a, weaver.parse(other), searcher)
-
-    assert level("NM_X.1:c.[13T>G;7C>T]") == weaver.EquivalenceLevel.Identity
-    assert level("NC_X.1:g.[22C>T;28T>G]") == weaver.EquivalenceLevel.Analogous
-    assert level("NM_X.1:c.[7C>T;13T>A]") == weaver.EquivalenceLevel.Different
-    assert level("NM_X.1:c.7C>T") == weaver.EquivalenceLevel.Different
-    assert mapper.equivalent(weaver.parse("NM_X.1:c.[7C>T]"), weaver.parse("NC_X.1:g.22C>T"), searcher)
+def test_judging_an_ambiguous_allele_raises_its_readings(mapper: weaver.VariantMapper) -> None:
+    with pytest.raises(weaver.AmbiguousDescriptionError) as raised:
+        mapper.equivalent_level(
+            weaver.parse("NM_X.1:c.[7_8insA;7_8insG]"),
+            weaver.parse("NM_X.1:c.7_8insAG"),
+            Provider(),
+        )
+    assert sorted(str(r) for r in raised.value.readings) == ["NM_X.1:c.7_8insAG", "NM_X.1:c.7_8insGA"]
 
 
 def test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings() -> None:

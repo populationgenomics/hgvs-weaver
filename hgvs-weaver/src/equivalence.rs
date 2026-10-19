@@ -3,6 +3,7 @@ use crate::data::{IdentifierKind, TranscriptSearch};
 use crate::edits::{AaEdit, NaEdit, StopDistance};
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
+use crate::reading::CisReading;
 use crate::structs::{
     AaInterval, CVariant, CisPhasedVariant, LinearVariant, PVariant, PosEdit, SequenceVariant,
     Variant,
@@ -36,6 +37,17 @@ fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVarian
     match var {
         SequenceVariant::Mitochondrial(m) => {
             std::borrow::Cow::Owned(SequenceVariant::Genomic(m.to_genomic()))
+        }
+        SequenceVariant::CisPhased(cis) if cis.coordinate_type() == "m" => {
+            std::borrow::Cow::Owned(SequenceVariant::CisPhased(CisPhasedVariant {
+                ac: cis.ac.clone(),
+                gene: cis.gene.clone(),
+                members: cis
+                    .members
+                    .iter()
+                    .map(|m| mito_as_genomic(m).into_owned())
+                    .collect(),
+            }))
         }
         other => std::borrow::Cow::Borrowed(other),
     }
@@ -102,6 +114,20 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
+        // An allele whose exact members are contradictory or ambiguous is
+        // refused before any spelling can match it; one whose readings are not
+        // listed still matches its own spelling.
+        for var in [var1, var2] {
+            if let SequenceVariant::CisPhased(cis) = var {
+                if let Some(exact) = exact_members(cis)? {
+                    if let Err(e @ (HgvsError::ValidationError(_) | HgvsError::Ambiguous { .. })) =
+                        self.mapper.read_cis(&exact)
+                    {
+                        return Err(e);
+                    }
+                }
+            }
+        }
         if spelling(var1) == spelling(var2) {
             return Ok(EquivalenceLevel::Identity);
         }
@@ -135,32 +161,146 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// The level when either side is an allele in cis, `None` when neither
-    /// is. Two cis alleles are `Analogous` when the sets of their
-    /// [`MemberKey`]s are equal, whatever the order written, and `Different`
-    /// otherwise. A cis allele of one member is that member; one
-    /// of several is `Different` from any plain variant. Nothing is projected
-    /// to protein: what several changes on one molecule do to the protein is
-    /// not the sum of what each does.
+    /// is. A cis allele of one member is that member. Otherwise the two are
+    /// compared by the [`AlleleComparand`] each makes on the genome, a plain
+    /// variant read as an allele of one member: `Identity` when a transcript
+    /// allele projects to the genomic one's text, `Analogous` when the
+    /// comparands are equal, `Different` otherwise. An allele that cannot be
+    /// read into a sequence, of protein members or with a member that is
+    /// uncertain or a statement, is compared by the set of its members'
+    /// [`MemberKey`]s, and against a plain variant is `Different`. Nothing is
+    /// projected to protein.
+    ///
+    /// # Errors
+    ///
+    /// The error reading either allele on the genome gives: a contradictory
+    /// allele's [`HgvsError::ValidationError`], an ambiguous one's
+    /// [`HgvsError::Ambiguous`], a member that does not project.
     fn cis_phased_level(
         &self,
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<Option<EquivalenceLevel>, HgvsError> {
-        Ok(Some(match (var1, var2) {
-            (SequenceVariant::CisPhased(a), SequenceVariant::CisPhased(b)) => {
-                match (self.member_keys(a)?, self.member_keys(b)?) {
-                    (Some(x), Some(y)) if x == y => EquivalenceLevel::Analogous,
-                    _ => EquivalenceLevel::Different,
-                }
-            }
+        let (cis, other) = match (var1, var2) {
             (SequenceVariant::CisPhased(cis), other) | (other, SequenceVariant::CisPhased(cis)) => {
-                match cis.members.as_slice() {
-                    [member] => return self.equivalent_level_single(member, other).map(Some),
-                    _ => EquivalenceLevel::Different,
-                }
+                (cis, other)
             }
             _ => return Ok(None),
+        };
+        if let [member] = cis.members.as_slice() {
+            return self
+                .equivalent_level_single(&mito_as_genomic(member), other)
+                .map(Some);
+        }
+        if let SequenceVariant::CisPhased(one) = other {
+            if let [member] = one.members.as_slice() {
+                return self
+                    .equivalent_level_single(
+                        &SequenceVariant::CisPhased(cis.clone()),
+                        &mito_as_genomic(member),
+                    )
+                    .map(Some);
+            }
+        }
+        let as_allele = |var: &SequenceVariant| -> Result<Option<CisPhasedVariant>, HgvsError> {
+            Ok(match var {
+                SequenceVariant::CisPhased(c) => Some(c.clone()),
+                SequenceVariant::Protein(_) => None,
+                one => Some(CisPhasedVariant::new(
+                    one.ac().to_string(),
+                    one.gene().map(str::to_string),
+                    vec![one.clone()],
+                )?),
+            })
+        };
+        let (Some(a), Some(b)) = (as_allele(var1)?, as_allele(var2)?) else {
+            return Ok(Some(EquivalenceLevel::Different));
+        };
+        if !(reads_as_a_sequence(&a) && reads_as_a_sequence(&b)) {
+            let both = matches!(
+                (var1, var2),
+                (SequenceVariant::CisPhased(_), SequenceVariant::CisPhased(_))
+            );
+            let same = both
+                && matches!(
+                    (self.member_keys(&a)?, self.member_keys(&b)?),
+                    (Some(x), Some(y)) if x == y
+                );
+            return Ok(Some(if same {
+                EquivalenceLevel::Analogous
+            } else {
+                EquivalenceLevel::Different
+            }));
+        }
+        if self.exact_cis_projection(&a, &b)? || self.exact_cis_projection(&b, &a)? {
+            return Ok(Some(EquivalenceLevel::Identity));
+        }
+        let same = self
+            .allele_comparand(&a)?
+            .same(&self.allele_comparand(&b)?, self)?;
+        Ok(Some(if same {
+            EquivalenceLevel::Analogous
+        } else {
+            EquivalenceLevel::Different
         }))
+    }
+
+    /// Whether `tx`, a transcript allele, projected member by member onto
+    /// `g`'s genome, is `g`'s text, in any order of the members.
+    fn exact_cis_projection(
+        &self,
+        g: &CisPhasedVariant,
+        tx: &CisPhasedVariant,
+    ) -> Result<bool, HgvsError> {
+        if g.coordinate_type() != "g" {
+            return Ok(false);
+        }
+        let projected = match tx.coordinate_type() {
+            "c" => self.mapper.c_to_g_cis(tx, Some(&g.ac)),
+            "n" => self.mapper.n_to_g_cis(tx, Some(&g.ac)),
+            "r" => self.mapper.r_to_g_cis(tx, Some(&g.ac)),
+            _ => return Ok(false),
+        };
+        Ok(projected.is_ok_and(|p| {
+            spelling(&SequenceVariant::CisPhased(p))
+                == spelling(&SequenceVariant::CisPhased(g.clone()))
+        }))
+    }
+
+    /// What an allele of nucleotide members is compared by, read on the
+    /// genome.
+    ///
+    /// # Errors
+    ///
+    /// As [`read_cis_on_genome`](VariantMapper::read_cis_on_genome).
+    fn allele_comparand(&self, cis: &CisPhasedVariant) -> Result<AlleleComparand, HgvsError> {
+        let reading = self.mapper.read_cis_on_genome(cis)?;
+        let mut unapplied = reading
+            .unapplied()
+            .iter()
+            .map(|m| self.unapplied_key(m))
+            .collect::<Result<Vec<_>, _>>()?;
+        unapplied.sort_unstable();
+        unapplied.dedup();
+        Ok(AlleleComparand { reading, unapplied })
+    }
+
+    /// The value a member no sequence is built from is compared by: a copy
+    /// number by its projection to the genome, as alone; anything else by
+    /// the [`spelling`] of its genomic form.
+    fn unapplied_key(&self, member: &SequenceVariant) -> Result<MemberKey, HgvsError> {
+        match self.mapper.as_genomic(member) {
+            None => Ok(MemberKey::Spelling(spelling(member))),
+            Some(g) => {
+                let g = SequenceVariant::Genomic(g?);
+                match self.comparand(&g)? {
+                    Some(Comparand::Projection(ac, posedit)) => {
+                        Ok(MemberKey::Projection(ac, posedit))
+                    }
+                    _ => Ok(MemberKey::Spelling(spelling(&g))),
+                }
+            }
+        }
     }
 
     /// The [`MemberKey`]s of a cis allele's members, as a sorted set; `None`
@@ -170,7 +310,7 @@ impl<'a> VariantEquivalence<'a> {
         for m in &cis.members {
             if !m.has_exact_position() {
                 let m = self.rna_as_transcript(mito_as_genomic(m))?;
-                keys.push(MemberKey::Uncertain(spelling(&m)));
+                keys.push(MemberKey::Spelling(spelling(&m)));
                 continue;
             }
             match self.nucleotide_allele(m)? {
@@ -647,14 +787,78 @@ enum Comparand {
     Projection(String, String),
 }
 
-/// The value a member of a cis allele is compared by.
+/// The value a member of a cis allele is compared by, where the allele is
+/// compared member by member or the member is not applied to a sequence.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum MemberKey {
     /// An exact member's canonical allele, as SPDI.
     Allele(String),
-    /// A member at an uncertain position, which names no one change, by the
-    /// [`spelling`] of its `g.`, `c.` or `n.` form.
-    Uncertain(String),
+    /// A copy number's accession and edit, projected to the genome.
+    Projection(String, String),
+    /// A member compared by its text: an uncertain one by the [`spelling`] of
+    /// its `g.`, `c.` or `n.` form; one that is applied to no sequence, a
+    /// conversion or unstated inserted bases, by that of its genomic form.
+    Spelling(String),
+}
+
+/// Whether a member of a nucleotide allele has an exact position. A
+/// statement, which has no position, makes no sequence.
+fn is_exact_member(m: &SequenceVariant) -> bool {
+    m.has_exact_position()
+        && match m {
+            SequenceVariant::Genomic(v) => v.posedit.pos.is_some(),
+            SequenceVariant::Mitochondrial(v) => v.posedit.pos.is_some(),
+            SequenceVariant::Coding(v) => v.posedit.pos.is_some(),
+            SequenceVariant::NonCoding(v) => v.posedit.pos.is_some(),
+            SequenceVariant::Rna(v) => v.posedit.pos.is_some(),
+            SequenceVariant::Protein(_) | SequenceVariant::CisPhased(_) => false,
+        }
+}
+
+/// Whether every member of a nucleotide allele has an exact position, so
+/// that the allele can be read into the one sequence its members make.
+fn reads_as_a_sequence(cis: &CisPhasedVariant) -> bool {
+    cis.coordinate_type() != "p" && cis.members.iter().all(is_exact_member)
+}
+
+/// The allele of a nucleotide allele's members at exact positions; `None`
+/// for a protein allele or one with no such member.
+fn exact_members(cis: &CisPhasedVariant) -> Result<Option<CisPhasedVariant>, HgvsError> {
+    if cis.coordinate_type() == "p" {
+        return Ok(None);
+    }
+    let members: Vec<SequenceVariant> = cis
+        .members
+        .iter()
+        .filter(|m| is_exact_member(m))
+        .cloned()
+        .collect();
+    if members.is_empty() {
+        return Ok(None);
+    }
+    CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), members).map(Some)
+}
+
+/// The value an allele of nucleotide members is the same change by, on the
+/// genome: the sequence its members make, the bases it states unchanged, and
+/// the members no sequence is built from, as a set.
+struct AlleleComparand {
+    reading: CisReading,
+    unapplied: Vec<MemberKey>,
+}
+
+impl AlleleComparand {
+    fn same(&self, other: &AlleleComparand, eq: &VariantEquivalence) -> Result<bool, HgvsError> {
+        let (a, b) = (&self.reading, &other.reading);
+        if (a.accession(), a.kind()) != (b.accession(), b.kind())
+            || a.stated() != b.stated()
+            || self.unapplied != other.unapplied
+        {
+            return Ok(false);
+        }
+        let genome = eq.mapper.refs.reference(a.accession(), a.kind());
+        a.same_sequence(b, &genome)
+    }
 }
 
 /// What a protein description says of the protein; see `protein_outcome_on`.

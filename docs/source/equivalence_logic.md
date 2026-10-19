@@ -53,20 +53,22 @@ the genomic reference, trimmed to what it alters, then widened over the whole re
 written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
 `g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. A copy
 number has no allele, and written alone is compared by its projection to the genome; as members of a cis allele, copy
-numbers and conversions are to be compared by their projections too (planned,
-[the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)). A conversion alone is `Different` unless the
+numbers and conversions are compared by their projections too, beside the sequence the other members make
+([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)). A conversion alone is `Different` unless the
 text matches.
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
-them. Where the provider has no genome, the transcript is used only if nothing the comparison reads reaches outside the
-exons or crosses a junction or gap; otherwise the comparison is an error (`Unknown` or `ERR:` in the harness).
-[The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make) has the reasoning and the members that cannot be
-applied. An allele whose members are
+them. Where the provider has no genome sequence, the comparison is the provider's error (`Unknown` or `ERR:` in the
+harness), even when every member is in an exon. [The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)
+has the reasoning and the members that cannot be applied. An allele whose members are
 [contradictory or ambiguous](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not compared: the
 judgement is that error. A one-member allele is its member, and its brackets are spelling, as a prediction's parentheses
 are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
-`c.[7C>T;13T>G]` are `Identity`.
+`c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members project to exactly.
+An allele with a member at an uncertain position, or a statement among several members, makes no one sequence; it is
+compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)), and protein alleles
+are compared member by member too.
 
 ### Nucleotide against protein
 
