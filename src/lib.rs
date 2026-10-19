@@ -85,6 +85,9 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             *source,
             format!("{context}Member {} of {allele}, {member}: ", index + 1),
         ),
+        // HgvsError is non_exhaustive; a variant added without its own arm is
+        // still raised, as the base class, with its message.
+        other => HGVSError::new_err(context + &other.to_string()),
     }
 }
 

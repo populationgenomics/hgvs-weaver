@@ -278,6 +278,7 @@ use crate::structs::{
 /// A complete HGVS variant spanning any coordinate system.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(tag = "variant_type")]
+#[non_exhaustive]
 pub enum SequenceVariant {
     Genomic(GVariant),
     Coding(CVariant),
