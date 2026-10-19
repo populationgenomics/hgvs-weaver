@@ -103,12 +103,16 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // An allele with no one reading is refused before any spelling can
-        // match it.
+        // A contradictory or ambiguous allele is refused before any spelling
+        // can match it; one whose readings are not listed still matches its
+        // own spelling.
         for var in [var1, var2] {
             if let SequenceVariant::CisPhased(cis) = var {
                 if reads_as_a_sequence(cis) {
-                    self.mapper.read_cis(cis)?;
+                    match self.mapper.read_cis(cis) {
+                        Ok(_) | Err(HgvsError::UnsupportedOperation(_)) => {}
+                        Err(e) => return Err(e),
+                    }
                 }
             }
         }
@@ -271,12 +275,10 @@ impl<'a> VariantEquivalence<'a> {
 
     /// The value a member no sequence is built from is compared by: a copy
     /// number by its projection to the genome, as alone; anything else by
-    /// the [`spelling`] of its genomic form, or as written where it has none.
+    /// the [`spelling`] of its genomic form.
     fn unapplied_key(&self, member: &SequenceVariant) -> Result<MemberKey, HgvsError> {
         match self.mapper.as_genomic(member) {
-            None | Some(Err(HgvsError::UnsupportedOperation(_))) => {
-                Ok(MemberKey::Spelling(spelling(member)))
-            }
+            None => Ok(MemberKey::Spelling(spelling(member))),
             Some(g) => {
                 let g = SequenceVariant::Genomic(g?);
                 match self.comparand(&g)? {

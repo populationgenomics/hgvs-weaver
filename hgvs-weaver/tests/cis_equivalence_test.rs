@@ -577,6 +577,36 @@ fn a_contradictory_allele_is_refused_against_itself_in_another_order() {
 }
 
 #[test]
+fn an_allele_whose_readings_are_not_listed_is_its_own_spelling() {
+    // Each inversion changes bases the other reads (#84).
+    assert_eq!(
+        level(
+            "NC_X.1:g.[20_25inv;22_28inv]",
+            "NC_X.1:g.[22_28inv;20_25inv]"
+        ),
+        Identity
+    );
+}
+
+#[test]
+fn an_allele_whose_readings_are_not_listed_is_not_compared_with_another() {
+    assert!(matches!(
+        judge("NC_X.1:g.[20_25inv;22_28inv]", "NC_X.1:g.[20_25inv]"),
+        Err(HgvsError::UnsupportedOperation(_))
+    ));
+}
+
+#[test]
+fn an_allele_with_no_reading_on_the_genome_is_refused() {
+    // Read on the transcript, c.5_6insG inserts at the exon junction, which
+    // has no one place on the genome.
+    assert!(matches!(
+        judge("NM_S.1:c.[5_6insG;6A>T]", "NM_S.1:c.6delinsGT"),
+        Err(HgvsError::CisMember { .. })
+    ));
+}
+
+#[test]
 fn an_allele_against_a_contradictory_one_is_refused() {
     assert!(matches!(
         judge("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T;7C>G]"),
