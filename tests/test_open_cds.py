@@ -72,7 +72,7 @@ def test_a_position_numbered_from_an_open_end_is_refused_in_both_directions() ->
 
 
 def test_a_protein_consequence_that_depends_on_an_open_end_is_refused() -> None:
-    """A 5'-open CDS predicts nothing; a 3'-open one predicts only an in-frame change inside what it carries."""
+    """A 5'-open CDS predicts nothing; a 3'-open one only what needs no base past its codons."""
     mapper = weaver.VariantMapper(Provider())
     with pytest.raises(weaver.ValidationError, match="no protein consequence"):
         mapper.c_to_p(weaver.parse("TX_OPEN5.1:c.5C>T"), None)

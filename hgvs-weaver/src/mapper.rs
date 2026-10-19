@@ -1337,26 +1337,60 @@ pub(crate) fn cds_bounds(
     Ok((cds_start, cds_end))
 }
 
-/// On a transcript whose CDS runs off the 3' end, a change has a protein
-/// consequence only if it is in frame and lies wholly within the whole codons
-/// the record carries, short of the last: anything else reads into coding
-/// sequence the record does not have, or shifts the frame into it.
+/// On a transcript whose CDS runs off the 3' end, refuses a change whose
+/// protein consequence needs a base past the last whole codon the record
+/// carries: a change or insertion past that codon; a frameshift, or a lost
+/// stop, that reads to it with no new stop; or an in-frame change whose
+/// protein, aligned with the reference from the start, first differs past the
+/// last residue of either, which the unseen next residue would settle. A
+/// change to the first codon is the unknown change from Met1, whatever
+/// follows.
 pub(crate) fn check_within_open_cds(
     ac: &str,
-    resolved: &crate::edits::ResolvedEdit,
-    cds_start: usize,
-    cds_end: usize,
+    change: &crate::protein::CodingChange,
 ) -> Result<(), HgvsError> {
-    let whole_codons = (cds_end + 1 - cds_start) / 3;
-    let last_whole_codon_start = cds_start + whole_codons.saturating_sub(1) * 3;
-    let in_frame = (resolved.alt.len() as i64 - (resolved.end - resolved.start) as i64) % 3 == 0;
-    if in_frame && resolved.end <= last_whole_codon_start {
+    let refuse = || {
+        Err(HgvsError::ValidationError(format!(
+            "{ac}: its CDS is open at the 3' end, so the record carries no stop codon; a protein consequence \
+             is predicted only where it needs no base past the last whole codon the record carries"
+        )))
+    };
+    let carried = change.cds_len / 3 * 3;
+    let edit = &change.edit;
+    if edit.start >= carried || edit.end > carried {
+        return refuse();
+    }
+    let reference = &change.coding[..carried];
+    let edited = format!(
+        "{}{}{}",
+        &reference[..edit.start],
+        edit.alt,
+        &reference[edit.end..]
+    );
+    if !edited
+        .get(..3)
+        .is_some_and(|c| c.eq_ignore_ascii_case(&reference[..3]))
+    {
         return Ok(());
     }
-    Err(HgvsError::ValidationError(format!(
-        "{ac}: its CDS is open at the 3' end, so the record carries no stop codon; a protein consequence is \
-         predicted only for an in-frame change wholly inside the coding bases it carries"
-    )))
+    let ref_aa: Vec<char> = crate::utils::translate(reference).chars().collect();
+    let alt_aa: Vec<char> = crate::utils::translate(&edited).chars().collect();
+    let first = ref_aa
+        .iter()
+        .zip(&alt_aa)
+        .take_while(|(r, a)| r == a)
+        .count();
+    if ref_aa == alt_aa || ref_aa[..first.min(ref_aa.len())].contains(&'*') {
+        return Ok(());
+    }
+    if first >= ref_aa.len() || first >= alt_aa.len() {
+        return refuse();
+    }
+    let in_frame = (edit.alt.len() as i64 - (edit.end - edit.start) as i64) % 3 == 0;
+    if (!in_frame || ref_aa[first] == '*') && !alt_aa[first..].contains(&'*') {
+        return refuse();
+    }
+    Ok(())
 }
 
 /// The change `var_c` names on the transcript `record`, over 0-based indices:
@@ -2641,9 +2675,6 @@ impl<'a> VariantMapper<'a> {
                 )))
             }
         };
-        if transcript.cds_end_open {
-            check_within_open_cds(&var_c.ac, &resolved, cds_start, cds_end)?;
-        }
         let rel = |i: usize| {
             i.checked_sub(cds_start).ok_or_else(|| {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
@@ -2661,6 +2692,9 @@ impl<'a> VariantMapper<'a> {
             protein_ac,
             initiates,
         };
+        if transcript.cds_end_open {
+            check_within_open_cds(&var_c.ac, &change)?;
+        }
         let reading = crate::protein::Reading::new(change);
         if reading.runs_off() {
             return Ok(CodingOutcome::Statement(predicted_statement(

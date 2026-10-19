@@ -406,14 +406,7 @@ impl VariantMapper<'_> {
             return statement(None, s);
         }
         if cds.end_open {
-            let whole = combined(&cds.ref_seq[cds.start..], &placed);
-            let at = |i: usize| i + cds.start;
-            let absolute = ResolvedEdit {
-                start: at(whole.start),
-                end: at(whole.end),
-                ..whole
-            };
-            check_within_open_cds(&cds.cis.ac, &absolute, cds.start, cds.start + cds.len - 1)?;
+            check_within_open_cds(&cds.cis.ac, &cds.change(&placed))?;
         }
         let (reading, read) = read_through(cds, &placed)?;
         if reading.runs_off() {
@@ -648,7 +641,11 @@ fn groups(edits: &[ResolvedEdit]) -> Vec<Vec<ResolvedEdit>> {
 /// starts, so that nothing can be said from there on.
 fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVariant>>, HgvsError> {
     let describe = |group: &[ResolvedEdit]| {
-        let reading = Reading::new(cds.change(group));
+        let change = cds.change(group);
+        if cds.end_open {
+            check_within_open_cds(&cds.cis.ac, &change)?;
+        }
+        let reading = Reading::new(change);
         match reading.runs_off() {
             true => Ok(None),
             false => reading.describe().map(Some),
