@@ -272,6 +272,11 @@ fn an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins() {
 }
 
 #[test]
+fn an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication() {
+    assert_eq!(from_spdi("NC_000099.1:9:T:TT"), "NC_000099.1:g.10dup");
+}
+
+#[test]
 fn an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue() {
     assert_eq!(
         from_spdi("NP_000099.1:6::Q"),

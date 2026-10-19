@@ -234,8 +234,9 @@ pub fn normalize(
 }
 
 /// [`normalize`] for an edit placed by interbase coordinates, as SPDI and VRS
-/// place one. These can put an insertion after the last base, which HGVS
-/// cannot name: it is written as [`insertion_in_exon`] writes it.
+/// place one and as the members of a cis allele merge into one. These can put
+/// an insertion after the last base, which HGVS cannot name: it is written as a
+/// delins of the last base, or as the duplication it is.
 pub(crate) fn normalize_interbase(
     reference: &Reference<'_, '_>,
     placed: PlacedEdit,

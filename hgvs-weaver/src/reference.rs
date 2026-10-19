@@ -301,7 +301,15 @@ impl<'s, 'a> Reference<'s, 'a> {
                 break probe;
             }
             full = probe + 1;
-            probe = probe.checked_mul(2).map_or(usize::MAX, |p| p.max(1));
+            // A provider numbers positions in an i32: no block starts past it.
+            let last = i32::MAX as usize / bs;
+            if probe >= last {
+                return Err(HgvsError::ValidationError(format!(
+                    "{} has more bases than a position can number",
+                    self.ac
+                )));
+            }
+            probe = (probe * 2).clamp(1, last);
         };
         while full < past {
             let mid = full + (past - full) / 2;

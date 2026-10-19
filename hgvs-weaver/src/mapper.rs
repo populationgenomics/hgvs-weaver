@@ -662,7 +662,6 @@ pub(crate) fn residue_range(
         .as_ref()
         .ok_or_else(|| HgvsError::ValidationError("Missing protein position".into()))?;
     let (start, end) = aa_interval_range(pos)?;
-    // A protein served without its stop has the stop one past its last residue.
     match reference.check_range(start, end) {
         Err(HgvsError::PositionOutsideSequence { length, .. })
             if length > 0
@@ -1609,6 +1608,18 @@ pub(crate) fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
             .is_some_and(|e| e.offset.is_some_and(|o| o.0 != 0))
 }
 
+/// Whether the genomic `[lo, hi)` lies between the first and last genome
+/// base the transcript's exons align to, which the alignment vouches the
+/// genome has.
+fn within_alignment(am: &TranscriptMapper, lo: usize, hi: usize) -> bool {
+    let first = am.exons.iter().map(|e| e.reference_start.0).min();
+    let last = am.exons.iter().map(|e| e.reference_end.0).max();
+    match (first, last) {
+        (Some(first), Some(last)) => lo as i64 >= first as i64 && hi as i64 <= last as i64 + 1,
+        _ => false,
+    }
+}
+
 fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
     if val < 0 {
         Err(HgvsError::ValidationError(format!(
@@ -1696,8 +1707,8 @@ impl<'a> VariantMapper<'a> {
         }
         // A g. variant names positions and states bases on the genome,
         // intronic or not.
-        {
-            let (s, e) = simple_interval_range(pos)?;
+        let (s, e) = simple_interval_range(pos)?;
+        if var_g.posedit.edit.states_bases() || !within_alignment(&am, s, e) {
             let genome = self
                 .refs
                 .reference(&var_g.ac, IdentifierType::GenomicAccession);
@@ -2248,7 +2259,10 @@ impl<'a> VariantMapper<'a> {
             match self.g_to_c(var_g, &tx_ac) {
                 Ok(vc) => results.push(vc),
                 // A base the genome lacks fails on every transcript alike.
-                Err(e @ HgvsError::ReferenceMismatch { .. }) => return Err(e),
+                Err(
+                    e @ (HgvsError::ReferenceMismatch { .. }
+                    | HgvsError::PositionOutsideSequence { .. }),
+                ) => return Err(e),
                 Err(e) => errors.push(format!("{}: {}", tx_ac, e)),
             }
         }
@@ -2851,6 +2865,11 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        // An uncertain position names no one range to find, only the bases
+        // it states.
+        if !pos.is_exact() && !edit.states_bases() {
+            return Ok(());
+        }
         let (start, end) = simple_interval_range(pos)?;
         let reference = self
             .refs
@@ -2858,16 +2877,16 @@ impl<'a> VariantMapper<'a> {
         edit.check_against(&reference, start, end, crate::data::Strand::Plus)
     }
 
-    /// The bases a c. or n. variant states, on the record where it is exonic
-    /// and on the genome, through the projection, where it is not.
+    /// The positions a c. or n. variant names and the bases it states, on the
+    /// record where it is exonic and on the genome, through the projection,
+    /// where it is not.
     fn check_transcript_stated<V: TranscriptVariant>(&self, v: &V) -> Result<(), HgvsError> {
         let am = TranscriptMapper::new(self.provider().get_transcript(v.ac(), None)?)?;
         self.check_transcript_stated_on(v, &am)
     }
 
     /// [`check_transcript_stated`](Self::check_transcript_stated) with the
-    /// transcript's mapper in hand: an exonic range is found on the record,
-    /// and any bases it states there.
+    /// transcript's mapper in hand.
     fn check_transcript_stated_on<V: TranscriptVariant>(
         &self,
         v: &V,
@@ -2880,10 +2899,24 @@ impl<'a> VariantMapper<'a> {
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
         if has_intronic_offset(pos) {
-            if !edit.states_bases() {
+            if edit.states_bases() {
+                return self.tx_to_g(v, None).map(|_| ());
+            }
+            let (lo, hi) = am.interval_to_g(pos)?;
+            let (lo, hi) = (
+                checked_usize(lo.0, "genomic start index")?,
+                checked_usize(hi.0, "genomic end index")?,
+            );
+            if within_alignment(am, lo, hi) {
                 return Ok(());
             }
-            return self.tx_to_g(v, None).map(|_| ());
+            return self
+                .refs
+                .reference(
+                    &am.transcript.reference_accession,
+                    IdentifierType::GenomicAccession,
+                )
+                .check_range(lo, hi);
         }
         let (n_start, n_end) = am.interval_to_n(pos)?;
         let start = checked_usize(n_start.0, "transcript start index")?;

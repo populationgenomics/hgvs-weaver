@@ -133,7 +133,8 @@ class Variant:
             and is True once its transcript is found to have a CDS.
 
         Raises:
-            ValidationError: If c.= is on a transcript without a CDS. An intronic c. or n. variant
+            ValidationError: If the variant names no position or a range that runs
+                backwards, or c.= is on a transcript without a CDS. An intronic c. or n. variant
                 is projected to the genome to be read, so a projection's error is raised too.
                 An allele in cis whose members leave it no reading is a ValidationError naming two.
             AmbiguousDescriptionError: If an allele in cis has several readings; its readings

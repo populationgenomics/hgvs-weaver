@@ -588,12 +588,12 @@ NC_000095.1:g.15A[3]          →  UnsupportedOperation               NM_JX.1's 
 
 ### A position outside every exon is an error
 
-**Transcript positions resolve through the exon structure only; a position past the last exon is a `ValidationError`,
-not an extrapolated coordinate.**
-
-A silently extrapolated coordinate is wrong without saying so. An operation that reads the position on the record
-instead, `validate`, `normalize` or `c_to_p`, finds it past the record's end
+**A transcript position projects through the exon structure only; projecting a position past the last exon is a
+`ValidationError`, not an extrapolated coordinate.** An operation that reads the position on the record instead finds it
+past the record's end
 ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
+
+A silently extrapolated coordinate is wrong without saying so.
 
 **Example** (`NM_PLUS10.1` is one exon of 100 bases; c.\*60 is its last base):
 
@@ -945,6 +945,7 @@ on TTCAGCAGTT:  NC_…:9:T:TA    →  g.10delinsTA                   g.10_11insA
   [#87](https://github.com/populationgenomics/hgvs-weaver/issues/87)).
 - **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`,
   `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
+  `::an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication`,
   `::an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue`;
   `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
   `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
@@ -2298,15 +2299,14 @@ yields positions just past the end.
 
 The sequence a position is checked against is the one it numbers, as for stated bases
 ([A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)): the genome for `g.`
-and `m.`, the transcript record for an exonic `c.`, `n.` or `r.` position, the protein for `p.`. A protein served
-without its stop has the stop one past its last residue, so an extension or a change at the stop still reads, and the
-position after the stop is past the end. Projecting a transcript position past the last exon is refused earlier, by the
-exon structure ([A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)).
+and `m.`, the transcript record for an exonic `c.`, `n.` or `r.` position, the genome for an intronic one, the protein
+for `p.`. A protein served without its stop has the stop one past its last residue, so an extension or a change at the
+stop still reads, and the position after the stop is past the end. Projecting a transcript position past the last exon
+is refused earlier, by the exon structure
+([A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)).
 
-weaver learns where a sequence ends from the data provider's own answers: a window that runs past the end comes back
-short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)). Checking a variant reads
-the block holding its last position, which reading the variant reads anyway, so no provider call is added for a variant
-inside the sequence. Only the error, which names the length, may read more.
+weaver learns where a sequence ends from the data provider's own answers, with no method added to it: a window that runs
+past the end comes back short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)).
 
 SPDI and VRS place a change by interbase coordinates, which can name the point after the last base; an insertion read
 there is not refused, and is written as HGVS can write it
@@ -2328,12 +2328,19 @@ validate  NP_000099.1:p.Ter7Gln       →  true                             the 
 normalize NP_000099.1:p.Gln8del       →  PositionOutsideSequenceError
 ```
 
-- *Not checked:* biocommons, VariantValidator and ClinVar.
+- **Others:** not checked.
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not allowed to
   describe variants in nucleotides beyond the boundaries of a reference sequence".
-- **Tests:** `position_outside_sequence_test` (every row above, and the same at the end of a minus-strand record, for
-  `m.`, `n.` and `r.`, and from `canonical_allele`, `to_vrs`, `g_to_c` and `equivalent_level`);
-  `reference_length_agrees_with_the_sequence` (property);
+- **Tests:** `position_outside_sequence_test::a_deletion_of_the_last_base_normalises`,
+  `::normalize_refuses_a_deletion_one_past_the_last_base`, `::to_spdi_refuses_a_range_ending_one_past_the_last_base`,
+  `::an_insertion_between_the_last_two_bases_normalises`, `::normalize_refuses_an_insertion_after_the_last_base`,
+  `::a_stated_base_past_the_end_is_refused_for_its_position_not_its_base`,
+  `::validate_answers_false_for_a_deletion_wholly_past_the_end`,
+  `::c_to_p_refuses_a_three_prime_utr_position_past_the_records_end`,
+  `::a_protein_served_without_its_stop_has_the_stop_after_its_last_residue`,
+  `::normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_without` (the rows above), and the file's other
+  tests: the minus-strand record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c`
+  and `equivalent_level`; `reference_length_agrees_with_the_sequence` (property);
   `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
 
 ## Equivalence

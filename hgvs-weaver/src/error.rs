@@ -97,7 +97,7 @@ impl fmt::Display for HgvsError {
                 length,
             } => write!(
                 f,
-                "Position outside the sequence: {accession} is {length} long, and indices {start}..{end} run past its end"
+                "Position outside the sequence: {accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
             ),
             HgvsError::NoProteinStatement(msg) => write!(f, "No protein statement: {msg}"),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),

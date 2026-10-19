@@ -250,11 +250,29 @@ fn normalize_refuses_a_mitochondrial_position_one_past_the_last_base() {
 
 #[test]
 fn g_to_c_refuses_a_position_past_the_end_of_the_genome() {
-    // g.42 would be c.*5+7 had the genome a base there.
+    // g.42 would be c.*5+6 had the genome a base there.
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     assert_outside(
         mapper.g_to_c(&genomic("NC_000098.1:g.42del"), "NM_000099.1"),
+        "NC_000098.1",
+        (41, 42),
+        41,
+    );
+}
+
+#[test]
+fn validate_answers_false_for_an_intronic_position_past_the_end_of_the_genome() {
+    // c.*5+6 is g.42, one past the genome's last base.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(!mapper.validate(&parse("NM_000099.1:c.*5+6del")).unwrap());
+}
+
+#[test]
+fn normalize_refuses_an_intronic_position_past_the_end_of_the_genome() {
+    assert_outside(
+        normalized("NM_000099.1:c.*5+6del"),
         "NC_000098.1",
         (41, 42),
         41,
