@@ -80,11 +80,9 @@ when the two can leave the same protein. The pair is as equivalent as the best t
 prediction fails makes the pair an error only when no transcript makes it equivalent, and a description that does not
 read on its protein is an error whatever the transcripts predict.
 
-A nucleotide allele in cis is taken to each coding transcript the same way, and predicted from the sequence its members
-make together, as one change: `c.[4A>T;6A>T]` predicts `p.(Lys2Tyr)`, so it is Identity with `p.Lys2Tyr`. An allele that
-also states residues unchanged predicts a protein allele, `c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, which is
-compared as protein alleles are, and is `Different` from the single `p.(Tyr5Asp)`
-([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+A nucleotide allele in cis (`c.`, or `g.`, `n.` or `r.` taken to its coding transcripts) is compared the same way, by
+the prediction read from the sequence its members make together; where that prediction is a protein allele, it is
+compared as protein alleles are ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
 
 The prediction stands for the change, with one difference: the protein it leaves is the one the edited transcript
 encodes (`predicted_protein`), not the one its description leaves. A description leaves residues unnamed — a

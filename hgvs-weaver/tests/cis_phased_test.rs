@@ -13,7 +13,7 @@ use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::reading::CisReading;
 use hgvs_weaver::vrs::VrsBound::Exact;
 use hgvs_weaver::vrs::{refget_accession, VrsExpression, VrsVariation};
-use hgvs_weaver::{parse_hgvs_variant, SequenceVariant, Variant};
+use hgvs_weaver::{parse_hgvs_variant, SequenceVariant, TranscriptData, Variant};
 use support::{single_exon_transcript, Provider};
 
 /// The transcript sits at genomic indices 10..50; c.1 is index 5 of it, so
@@ -2341,7 +2341,8 @@ fn a_block_is_only_for_an_allele_that_normalises_to_several_members() {
 /// transcripts: `NM_XM.1` reads `NM_X.1`'s forty bases on the minus strand
 /// of `NC_XM.1`, so its c. numbering is `NM_X.1`'s; `NM_C.1` is `NM_X.1`
 /// with a `CTG` start, `NP_C.1` the same `MKLAYR`; `NM_U.1` is `NM_X.1` with
-/// codon 3 a selenocysteine `TGA`, `NP_U.1` `MKUAYR`.
+/// codon 3 a selenocysteine `TGA`, `NP_U.1` `MKUAYR`; `NM_O.1` is `NM_X.1`
+/// with its CDS marked open at the 5' end.
 fn protein_provider() -> Provider {
     let transcript = transcript();
     let len = transcript.len() as i32;
@@ -2370,6 +2371,12 @@ fn protein_provider() -> Provider {
         .sequence("NP_U.1", "MKUAYR")
         .transcript(on("NM_U.1", "NC_SEC.1", Strand::Plus))
         .protein_for("NM_U.1", "NP_U.1")
+        .sequence("NM_O.1", &transcript)
+        .transcript(TranscriptData {
+            cds_start_open: true,
+            ..on("NM_O.1", "NC_X.1", Strand::Plus)
+        })
+        .protein_for("NM_O.1", "NP_X.1")
 }
 
 fn predict(hgvs: &str) -> Result<SequenceVariant, HgvsError> {
@@ -2387,22 +2394,6 @@ fn predicted(hgvs: &str) -> String {
 fn members_in_one_codon_predict_one_residue() {
     // AAA becomes TAT, Tyr; alone the members would be Lys2Ter and Lys2Asn.
     assert_eq!(predicted("NM_X.1:c.[4A>T;6A>T]"), "NP_X.1:p.(Lys2Tyr)");
-}
-
-#[test]
-fn members_in_one_codon_predict_what_the_delins_they_make_predicts() {
-    let hdp = protein_provider();
-    let SequenceVariant::Coding(delins) = parse_hgvs_variant("NM_X.1:c.4_6delinsTAT").unwrap()
-    else {
-        panic!("not a c. variant");
-    };
-    assert_eq!(
-        predicted("NM_X.1:c.[4A>T;6A>T]"),
-        VariantMapper::new(&hdp)
-            .c_to_p(&delins, None)
-            .unwrap()
-            .to_string()
-    );
 }
 
 #[test]
@@ -2590,7 +2581,21 @@ fn an_uncertain_member_is_refused_and_named() {
 }
 
 #[test]
-fn a_contradictory_allele_predicts_nothing() {
+fn a_member_whose_bases_are_not_stated_is_refused_and_named() {
+    match predict("NM_X.1:c.[13T>G;7_8insN[3]]") {
+        Err(HgvsError::CisMember { index, source, .. }) => {
+            assert_eq!(index, 1);
+            assert!(
+                matches!(*source, HgvsError::UnsupportedOperation(ref m) if m.contains("no bases")),
+                "{source}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn c_to_p_refuses_a_contradictory_allele() {
     assert!(matches!(
         predict("NM_X.1:c.[7C>T;7C>G]"),
         Err(HgvsError::ValidationError(_))
@@ -2598,11 +2603,86 @@ fn a_contradictory_allele_predicts_nothing() {
 }
 
 #[test]
-fn an_ambiguous_allele_predicts_nothing() {
+fn c_to_p_refuses_an_ambiguous_allele() {
     assert!(matches!(
         predict("NM_X.1:c.[7_8insA;7_8insG]"),
         Err(HgvsError::Ambiguous { .. })
     ));
+}
+
+#[test]
+fn c_to_p_refuses_an_allele_on_a_cds_open_at_its_start() {
+    assert!(matches!(
+        predict("NM_O.1:c.[4A>T;6A>T]"),
+        Err(HgvsError::ValidationError(m)) if m.contains("open at the 5' end")
+    ));
+}
+
+#[test]
+fn a_silent_change_beside_a_statement_is_one_run_of_residues() {
+    // GCC becomes GCT, still Ala.
+    assert_eq!(
+        predicted("NM_X.1:c.[12C>T;13_15=]"),
+        "NP_X.1:p.(Ala4_Tyr5=)"
+    );
+}
+
+#[test]
+fn statements_of_every_codon_through_the_stop_predict_the_protein_unchanged() {
+    assert_eq!(predicted("NM_X.1:c.[1_9=;10_21=]"), "NP_X.1:p.(=)");
+}
+
+#[test]
+fn identities_either_side_of_an_intron_state_the_codon_they_cover_together() {
+    // c.4_5 ends exon 1 and c.6 begins exon 2: together they cover codon 2.
+    assert_eq!(predicted("NM_S.1:c.[4_5+3=;6-2_7=]"), "NP_X.1:p.(Lys2=)");
+}
+
+#[test]
+fn intronic_identities_alone_make_no_protein_statement() {
+    assert!(matches!(
+        predict("NM_S.1:c.[5+1=;5+3=]"),
+        Err(HgvsError::NoProteinStatement(_))
+    ));
+}
+
+#[test]
+fn members_leaving_no_codon_where_the_protein_changes_say_nothing() {
+    // c.7C>T is silent; c.16_*14 deletes from Arg6 to the end of the transcript.
+    assert_eq!(predicted("NM_X.1:c.[7C>T;16_*14del]"), "NP_X.1:p.?");
+}
+
+#[test]
+fn a_member_deleting_the_whole_cds_predicts_no_protein() {
+    assert_eq!(predicted("NM_X.1:c.[-5_*12del;*14G>A]"), "NP_X.1:p.0?");
+}
+
+#[test]
+fn a_member_deleting_the_whole_cds_leaves_no_residues() {
+    let hdp = protein_provider();
+    let left = VariantMapper::new(&hdp)
+        .predicted_protein_cis(&cis("NM_X.1:c.[-5_*12del;*14G>A]"), None)
+        .unwrap()
+        .expect("a deleted CDS leaves a protein of no residues");
+    assert_eq!((left.residues.as_str(), left.stops), ("", true));
+}
+
+#[test]
+fn a_member_past_the_stop_that_shifts_the_read_through_is_refused() {
+    // The stop becomes CAA, and the read-through loses c.*2.
+    assert!(matches!(
+        predict("NM_X.1:c.[19T>C;*2del]"),
+        Err(HgvsError::UnsupportedOperation(m)) if m.contains("read-through")
+    ));
+}
+
+#[test]
+fn a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension() {
+    // TAA CCG TAT becomes TAC CAG TAT AAG TAA: Tyr Gln Tyr Lys, then a stop.
+    assert_eq!(
+        predicted("NM_X.1:c.[20del;*2_*3insA]"),
+        "NP_X.1:p.(Ter7TyrextTer4)"
+    );
 }
 
 #[test]
@@ -2618,4 +2698,17 @@ fn a_predicted_protein_allele_is_written_with_its_parentheses_inside_the_bracket
             .to_string(),
         "NP_X.1:p.[(Lys2Asn;Leu3Pro)]"
     );
+}
+
+#[test]
+fn a_predicted_protein_allele_parses_with_every_member_predicted() {
+    let SequenceVariant::CisPhased(allele) =
+        parse_hgvs_variant("NP_X.1:p.[(Ala4=;Tyr5Asp)]").unwrap()
+    else {
+        panic!("not an allele");
+    };
+    assert!(allele
+        .members
+        .iter()
+        .all(|m| matches!(m, SequenceVariant::Protein(p) if p.posedit.predicted)));
 }

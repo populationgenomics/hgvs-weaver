@@ -223,17 +223,19 @@ class VariantMapper:
             allele in cis of p. members.
 
         Raises:
-            ValueError: If var_c is not a coding or RNA variant, or an allele in
-                cis of c. members.
+            ValueError: If var_c is none of a coding variant, an RNA variant or an
+                allele in cis of c. members.
             UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own,
                 or an allele with a member at an uncertain position or whose bases
-                are not stated.
+                are not stated, two members whose 3'-most spellings overlap, or a
+                member past the stop that shifts the frame of the read-through.
             NoProteinStatementError: If var_c is an identity that covers no whole codon,
                 which states bases and no residue, or an allele that changes
                 nothing and states no whole codon.
             AmbiguousDescriptionError: If an allele in cis has several readings.
-            HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates,
-                or an allele in cis has no reading.
+            ValidationError: If an allele in cis has no reading, or the
+                transcript's CDS is open at the 5' end.
+            HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
         """

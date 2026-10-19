@@ -561,7 +561,49 @@ fn a_coding_allele_is_another_description_of_the_protein_it_leaves() {
 
 #[test]
 fn a_frameshifting_allele_is_the_frameshift_written_without_its_length() {
-    assert_eq!(level("NM_X.1:c.[5del;13T>G]", "NP_X.1:p.Lys2fs"), Analogous);
+    // AAA becomes CA, read as CAC: His, which neither member gives alone.
+    assert_eq!(
+        level("NM_X.1:c.[4A>C;5del]", "NP_X.1:p.Lys2Hisfs"),
+        Analogous
+    );
+}
+
+#[test]
+fn a_protein_description_against_a_coding_allele_is_judged_the_same_either_way() {
+    assert_eq!(
+        level("NP_X.1:p.[Ala4=;Tyr5Asp]", "NM_X.1:c.[13T>G;10_12=]"),
+        Identity
+    );
+}
+
+#[test]
+fn a_single_change_is_not_a_protein_allele_stating_more() {
+    assert_eq!(
+        level("NM_X.1:c.13T>G", "NP_X.1:p.[Ala4=;Tyr5Asp]"),
+        Different
+    );
+}
+
+#[test]
+fn a_non_coding_allele_is_judged_by_its_prediction_on_the_coding_transcript() {
+    // NR_XR.1's n.30 and n.32 are c.6 and c.4 of NM_X.1, on the other strand.
+    assert_eq!(
+        level("NR_XR.1:n.[30T>A;32T>A]", "NP_X.1:p.Lys2Tyr"),
+        Identity
+    );
+}
+
+#[test]
+fn an_rna_allele_is_judged_by_its_coding_prediction() {
+    assert_eq!(level("NM_X.1:r.[4a>u;6a>u]", "NP_X.1:p.Lys2Tyr"), Identity);
+}
+
+#[test]
+fn a_protein_allele_naming_a_residue_its_protein_lacks_is_an_error() {
+    assert!(matches!(
+        judge("NM_X.1:c.[4A>T;6A>T]", "NP_X.1:p.[Leu2Ile;Ala4=]"),
+        Err(HgvsError::ReferenceMismatch { .. })
+    ));
 }
 
 #[test]
@@ -590,7 +632,7 @@ fn an_allele_stating_residues_beside_a_change_is_its_predicted_protein_allele() 
 }
 
 #[test]
-fn an_allele_with_an_uncertain_member_predicts_no_protein() {
+fn an_allele_with_an_uncertain_member_matches_no_protein_description() {
     assert_eq!(
         level("NM_X.1:c.[(4_9)del;13T>G]", "NP_X.1:p.Tyr5Asp"),
         Different

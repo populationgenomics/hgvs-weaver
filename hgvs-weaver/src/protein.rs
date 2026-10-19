@@ -259,6 +259,11 @@ impl Reading {
         self.in_frame
     }
 
+    /// Whether the first residue that differs lies before the reference's stop.
+    pub(crate) fn changes_before_stop(&self) -> bool {
+        self.first_changed < self.stop
+    }
+
     /// Where translation of the edited sequence ends, as an index into the
     /// reference coding sequence: one past the alternate stop codon, mapped
     /// back over the bases the edit adds or removes; `None` when translation

@@ -1054,10 +1054,10 @@ pub(crate) enum CodingOutcome {
     Statement(PVariant),
     Change(crate::protein::Reading),
 }
-/// The protein statement `statement` predicted from a variant of `gene`, bracketed as
-/// The protein statement `statement` predicted from `var_c`, bracketed as
-/// HGVS writes each prediction: `p.(=)` and `p.(Met1?)`, but `p.?` and `p.0?`
-/// bare.
+
+/// The protein statement `statement` predicted from a variant of `gene`,
+/// bracketed as HGVS writes each prediction: `p.(=)` and `p.(Met1?)`, but
+/// `p.?` and `p.0?` bare.
 pub(crate) fn predicted_statement(
     gene: Option<String>,
     protein_ac: &str,

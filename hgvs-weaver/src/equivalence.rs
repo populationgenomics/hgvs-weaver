@@ -33,6 +33,13 @@ pub struct VariantEquivalence<'a> {
     pub searcher: &'a dyn TranscriptSearch,
 }
 
+/// A coding variant, or an allele in cis of coding members, whose prediction
+/// is compared with a protein description.
+enum Coding {
+    One(CVariant),
+    Cis(CisPhasedVariant),
+}
+
 fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVariant> {
     match var {
         SequenceVariant::Mitochondrial(m) => {
@@ -475,8 +482,18 @@ impl<'a> VariantEquivalence<'a> {
         }
         // A description that cannot be read on its protein is the error,
         // whatever the transcripts predict.
-        if let SequenceVariant::Protein(vp) = described {
-            self.protein_outcome_on(vp, &vp.ac)?;
+        match described {
+            SequenceVariant::Protein(vp) => {
+                self.protein_outcome_on(vp, &vp.ac)?;
+            }
+            SequenceVariant::CisPhased(allele) => {
+                for member in &allele.members {
+                    if let SequenceVariant::Protein(vp) = member {
+                        self.protein_outcome_on(vp, &vp.ac)?;
+                    }
+                }
+            }
+            _ => {}
         }
         failed.map_or(Ok(best), Err)
     }
@@ -774,13 +791,6 @@ impl<'a> VariantEquivalence<'a> {
 /// what is said and stays, as in `g.(3_4)del`, `p.(Lys2_Leu3)del` and `r.(?)`.
 /// A cis allele's members are unordered, so `g.[(3_4)del;10G>A]` is
 /// `g.[10G>A;(3_4)del]`; a member written twice is still two members here.
-/// A coding variant, or an allele in cis of coding members, whose prediction
-/// is compared with a protein description.
-enum Coding {
-    One(CVariant),
-    Cis(CisPhasedVariant),
-}
-
 fn spelling(var: &SequenceVariant) -> String {
     let mut var = var.clone();
     as_confirmed(&mut var);

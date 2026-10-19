@@ -110,8 +110,10 @@ impl VariantMapper<'_> {
     /// [`HgvsError::NoProteinStatement`] for an allele that makes the
     /// reference and states no whole codon; [`HgvsError::CisMember`] naming
     /// a member no sequence can be built from, an uncertain position among
-    /// them; and what [`read_cis`](Self::read_cis) raises for a
-    /// contradictory or ambiguous allele.
+    /// them; [`HgvsError::UnsupportedOperation`] for two members whose
+    /// 3'-most spellings overlap, or a member past the stop that shifts the
+    /// frame of the read-through; and what [`read_cis`](Self::read_cis)
+    /// raises for a contradictory or ambiguous allele.
     pub fn c_to_p_cis(
         &self,
         cis: &CisPhasedVariant,
@@ -253,7 +255,20 @@ impl VariantMapper<'_> {
         match self.read_changes(&cds, edits)? {
             CodingOutcome::Statement(p) => Ok(Prediction::Statement(p)),
             CodingOutcome::Change(reading) => {
-                let beside = residues_beside(&reading.describe()?, &codons)
+                let change = reading.describe()?;
+                // A silent change names the residues of the codons it touches
+                // unchanged, as a statement does: the two are one run.
+                if let (AaEdit::Identity { .. }, Some(pos), false) =
+                    (&change.posedit.edit, &change.posedit.pos, codons.is_empty())
+                {
+                    let index = |a: &crate::structs::AAPosition| a.base.to_index().0 as usize;
+                    let first = index(&pos.start);
+                    let end = pos.end.as_ref().map_or(first, index) + 1;
+                    let mut all = codons;
+                    all.push((first, end));
+                    return stated_only(&cds, &merged(all));
+                }
+                let beside = residues_beside(&change, &codons)
                     .into_iter()
                     .map(|c| cds.unchanged(c))
                     .collect::<Result<_, _>>()?;
@@ -387,7 +402,9 @@ impl VariantMapper<'_> {
 /// [`HgvsError::UnsupportedOperation`] when an edit translation reaches
 /// past the stop codon changes the frame the edits before it leave: the
 /// read-through is then neither the frameshift nor the in-frame change those
-/// edits make, and is not predicted.
+/// edits make, and is not predicted. The one exception is a frame those
+/// edits shift at the stop itself and the later edit restores: that is an
+/// extension, read in frame.
 fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<Reading, HgvsError> {
     let in_cds = placed.iter().take_while(|e| e.start < cds.len).count();
     if in_cds == 0 {
@@ -404,7 +421,7 @@ fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<Reading, HgvsError
         return Ok(early);
     }
     let all = Reading::new(cds.change(placed));
-    if all.in_frame() != early.in_frame() {
+    if all.in_frame() != early.in_frame() && (all.changes_before_stop() || !all.in_frame()) {
         return Err(HgvsError::UnsupportedOperation(format!(
             "{}: a member past the stop codon changes the frame the read-through is translated in, \
              so the protein it makes is not predicted",
@@ -460,22 +477,26 @@ fn intronic_statements(
         .collect()
 }
 
-/// The whole codons the stated coding bases cover, sorted, with codon ranges
-/// that overlap or touch made one.
-fn stated_codons(stated: Vec<(i64, i64)>, codons: i64) -> Vec<(usize, usize)> {
-    let mut whole: Vec<(usize, usize)> = stated
-        .into_iter()
-        .filter_map(|(first, end)| whole_codons(first, end, codons))
-        .collect();
-    whole.sort_unstable();
-    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(whole.len());
-    for (from, to) in whole {
+/// The ranges, sorted, with those that overlap or touch made one.
+fn merged<T: Ord + Copy>(mut ranges: Vec<(T, T)>) -> Vec<(T, T)> {
+    ranges.sort_unstable();
+    let mut merged: Vec<(T, T)> = Vec::with_capacity(ranges.len());
+    for (from, to) in ranges {
         match merged.last_mut() {
             Some(last) if from <= last.1 => last.1 = last.1.max(to),
             _ => merged.push((from, to)),
         }
     }
     merged
+}
+
+/// The whole codons the stated coding bases cover: the stretches of bases
+/// made one first, so that statements which together cover a codon state it.
+fn stated_codons(stated: Vec<(i64, i64)>, codons: i64) -> Vec<(usize, usize)> {
+    merged(stated)
+        .into_iter()
+        .filter_map(|(first, end)| whole_codons(first, end, codons))
+        .collect()
 }
 
 /// What an allele that makes the reference predicts: the residues of the
