@@ -1843,7 +1843,11 @@ that:
     `c.1delinsGCCA` are one insertion before the ATG, which leaves the codon as it was;
   - if it starts in the CDS the change is read on the codons: `c.-1_4delinsTATGA` is `c.4C>A`, and `c.-1_1insATA` is an
     insertion inside the codon, which becomes `ATA`, so `p.(Met1?)`;
-  - if it still starts upstream and reaches into the CDS, as `c.-3_4del` does, it changes the first codon, `p.(Met1?)`;
+  - if it still starts upstream and reaches into the CDS, it changes the first codon, `p.(Met1?)`, as `c.-3_4del` does,
+    unless the edited sequence still holds that codon at the same distance from the transcript's start or from its end:
+    then the change alters the 5'UTR and leaves the codon in place, and is `p.?` as any 5'UTR change is.
+    `c.-3_13delinsAGGATGAAACTGGCCG` on `NM_X.1` changes c.-3 and c.13 and keeps the ATG between them, so it is `p.?`, as
+    the allele `c.[-3G>A;13T>G]` is ([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make));
   - three are read by where they are written: a deletion from the 5'UTR of the whole CDS, `p.0?`; an edit whose bases
     are not spelled out, `c.-3_4delinsN[10]`, which cannot be placed; and one that changes nothing, which has no
     spelling to move to;
@@ -1879,6 +1883,7 @@ NM_W.1:c.-1_4delinsTATGA     →  NP_W.1:p.(Arg2Ser)                as c.4C>A
 NM_W.1:c.1delinsGCCA         →  NP_W.1:p.?                        as c.-1_1insGCC
 NM_W.1:c.-1_1insATA          →  NP_W.1:p.(Met1?)                  3'-most, an insertion in the codon
 NM_W.1:c.-1delinsTA          →  NP_W.1:p.(Met1?)                  written upstream, 3'-most in the codon
+NM_X.1:c.-3_13delinsAGGATGAAACTGGCCG  →  NP_X.1:p.?               the 5'UTR changed, the ATG in place
 CTG start c.1C>A             →  p.(Met1?)                         CTG made ATG: still a start-codon change
 NM_007199.2:c.1A>G           →  NP_009130.2:p.(Met1?)             biocommons and VariantValidator: p.Met1?
 
@@ -1913,6 +1918,8 @@ parse NP_W.1:p.Met1?      →  the same, stated
   `::a_change_written_upstream_whose_3_prime_spelling_is_in_the_start_codon_changes_it`,
   `::an_upstream_insertion_of_unspelled_bases_is_an_unknown_effect`,
   `::a_delins_of_unspelled_bases_into_the_cds_is_an_unknown_change_from_met1`;
+  `cis_phased_test::a_5_utr_member_beside_a_cds_change_and_the_delins_they_make_are_one_unknown_effect`,
+  `::a_delins_shortening_the_5_utr_beside_a_cds_change_is_an_unknown_effect`;
   `equivalence_test::a_change_to_a_non_aug_start_codon_is_an_unknown_change_from_met1`,
   `::a_non_aug_start_codon_made_atg_is_an_unknown_change_from_met1`,
   `::a_start_codon_change_is_identical_to_the_unknown_change_from_met1_stated`,
@@ -1927,9 +1934,9 @@ parse NP_W.1:p.Met1?      →  the same, stated
 
 ### Edits outside the CDS are statements
 
-**A deletion of the whole CDS is `p.0?`; a change that starts in the 5'UTR and reaches into the CDS is `p.(Met1?)`; a
-change entirely upstream is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon where the
-protein first changes is `p.?`.**
+**A deletion of the whole CDS is `p.0?`; a change that starts in the 5'UTR and changes the first codon is `p.(Met1?)`;
+any other change that alters the 5'UTR is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon
+where the protein first changes is `p.?`.**
 
 weaver does not commit to a consequence upstream: a 5'UTR change can create an upstream start, and weaver does not read
 the edited 5'UTR to find one, so it says it does not know. Downstream of the stop codon nothing can change the protein,
@@ -2425,10 +2432,10 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
 **`p.?` matches no other description; `p.Met1?` says only where the change starts and matches only a description whose
 change starts there.**
 
-A coding change that alters the start codon, including one that starts in the 5'UTR and reaches into the CDS, is
-predicted `p.(Met1?)` and compared as that statement. It matches ClinVar's `Met1fs`, which starts its change there, and
-not `Leu3fs`, a commitment weaver did not make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in
-place of Met1, are Analogous, not the same text.
+A coding change that alters the start codon, including one that starts in the 5'UTR and reaches into it, is predicted
+`p.(Met1?)` and compared as that statement. It matches ClinVar's `Met1fs`, which starts its change there, and not
+`Leu3fs`, a commitment weaver did not make about a later residue. `p.Met1?` and `p.Met1Xaa`, an unknown residue in place
+of Met1, are Analogous, not the same text.
 
 A `?` after any other residue, `p.Arg12?` or `p.(Arg12?)`, is a recorded extension beyond the specification, which
 writes the form only at the start codon. weaver reads it as `p.Met1?` is read, a change from that residue on of which
@@ -2700,22 +2707,20 @@ Where the members lie is read as it is for one change. Each member is placed on 
 [a single change is](#a-change-to-the-start-codon-is-an-unknown-change-from-met1), and if the change then alters the
 first codon the prediction is `p.(Met1?)`. A member wholly in the 5'UTR, beside changes that leave the first codon,
 makes the protein `p.?`, as it does alone, since weaver does not read the 5'UTR for a new start: `c.[-3G>A;13T>G]` is
-`p.?`. Here the allele and the single delins over the same stretch part. The delins `c.-3_13delins…` starts upstream and
-reaches into the CDS, which the start-codon entry reads as `p.(Met1?)`; the allele's members show the first codon
-untouched, and the allele is answered from them. Two members whose 3'-most spellings overlap are not read together, and
-the allele is refused. A change in an intron is read on no codon, so an allele with one predicts `p.?`, while identities
-state the whole codons they cover between them, an intron between them or not. A member past the stop codon enters the
-reading only where translation of the edited sequence reaches it: `c.[13T>G;*3G>A]` is `p.(Tyr5Asp)`, while
-`c.[19T>C;*6T>A]` loses the stop and finds a new one two codons on, `p.(Ter7GlnextTer2)`. Where a member past the stop
-turns the members before it from in frame to out of frame, or back, the read-through is neither their frameshift nor
-their in-frame change, and the allele is refused: `c.[19T>C;*2del]`. The exception is a frame shifted at the stop itself
-and restored past it, which reads in frame as an extension, `c.[20del;*2_*3insA]` giving `p.(Ter7TyrextTer4)`. A
-frameshift that a later member shifts again stays a frameshift, read from the sequence. A deletion of the whole CDS,
-apart from the other members, is `p.0?`; merged with a member beside it, it is the delins they make together, as for one
-change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing is stated beside them. A member at an uncertain
-position, or one whose bases are not stated, leaves no codons to read, so `c_to_p` refuses the allele naming it, even
-where that member alone, in a UTR or an intron, would answer; a contradictory or ambiguous allele is refused as it is
-everywhere.
+`p.?`, the same as the delins `c.-3_13delinsAGGATGAAACTGGCCG` it makes, which keeps the ATG in place. Two members whose
+3'-most spellings overlap are not read together, and the allele is refused. A change in an intron is read on no codon,
+so an allele with one predicts `p.?`, while identities state the whole codons they cover between them, an intron between
+them or not. A member past the stop codon enters the reading only where translation of the edited sequence reaches it:
+`c.[13T>G;*3G>A]` is `p.(Tyr5Asp)`, while `c.[19T>C;*6T>A]` loses the stop and finds a new one two codons on,
+`p.(Ter7GlnextTer2)`. Where a member past the stop turns the members before it from in frame to out of frame, or back,
+the read-through is neither their frameshift nor their in-frame change, and the allele is refused: `c.[19T>C;*2del]`.
+The exception is a frame shifted at the stop itself and restored past it, which reads in frame as an extension,
+`c.[20del;*2_*3insA]` giving `p.(Ter7TyrextTer4)`. A frameshift that a later member shifts again stays a frameshift,
+read from the sequence. A deletion of the whole CDS, apart from the other members, is `p.0?`; merged with a member
+beside it, it is the delins they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone:
+nothing is stated beside them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to
+read, so `c_to_p` refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a
+contradictory or ambiguous allele is refused as it is everywhere.
 
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement (the whole-sequence

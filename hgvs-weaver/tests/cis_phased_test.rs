@@ -2495,6 +2495,39 @@ fn a_member_in_the_5_utr_beside_a_cds_change_makes_the_protein_unknown() {
 }
 
 #[test]
+fn a_5_utr_member_beside_a_cds_change_and_the_delins_they_make_are_one_unknown_effect() {
+    let hdp = protein_provider();
+    let SequenceVariant::Coding(delins) =
+        parse_hgvs_variant("NM_X.1:c.-3_13delinsAGGATGAAACTGGCCG").unwrap()
+    else {
+        panic!("not a c. variant");
+    };
+    let single = VariantMapper::new(&hdp).c_to_p(&delins, None).unwrap();
+    assert_eq!(
+        (predicted("NM_X.1:c.[-3G>A;13T>G]"), single.to_string()),
+        ("NP_X.1:p.?".to_string(), "NP_X.1:p.?".to_string())
+    );
+}
+
+#[test]
+fn a_delins_shortening_the_5_utr_beside_a_cds_change_is_an_unknown_effect() {
+    // Two of the 5'UTR's Gs go and c.13 becomes G; ATG stays, two bases nearer the start.
+    let hdp = protein_provider();
+    let SequenceVariant::Coding(delins) =
+        parse_hgvs_variant("NM_X.1:c.-3_13delinsGATGAAACTGGCCG").unwrap()
+    else {
+        panic!("not a c. variant");
+    };
+    assert_eq!(
+        VariantMapper::new(&hdp)
+            .c_to_p(&delins, None)
+            .unwrap()
+            .to_string(),
+        "NP_X.1:p.?"
+    );
+}
+
+#[test]
 fn a_member_in_the_3_utr_beside_a_cds_change_adds_nothing() {
     assert_eq!(predicted("NM_X.1:c.[13T>G;*3G>A]"), "NP_X.1:p.(Tyr5Asp)");
 }

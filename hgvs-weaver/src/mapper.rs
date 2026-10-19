@@ -1148,12 +1148,16 @@ fn statement_about_transcript(
 /// read on its 3'-most spelling, found from the reference and the edited
 /// sequence, so every spelling of one change lies in one place.
 pub(crate) enum Placement {
-    /// The change is wholly in the 5'UTR; an insertion just before the CDS
-    /// that cannot move into it is one.
+    /// The change starts in the 5'UTR and leaves the first codon as it was:
+    /// it lies wholly upstream (an insertion just before the CDS that cannot
+    /// move into it is one), or it reaches into the CDS and the edited
+    /// sequence still holds the first codon at the same distance from the
+    /// transcript's start or from its end.
     FivePrimeUtr,
     /// The change starts in the CDS, as this edit.
     Cds(crate::edits::ResolvedEdit),
-    /// The change starts in the 5'UTR and reaches into the CDS.
+    /// The change starts in the 5'UTR and reaches into the CDS, changing the
+    /// first codon.
     AcrossStart,
 }
 
@@ -1207,9 +1211,27 @@ pub(crate) fn place_on_coding(
             ref_: ref_seq[prefix..end].to_string(),
             alt: edited[prefix..a.len() - suffix].to_string(),
         })
+    } else if keeps_first_codon(r, a, cds_start) {
+        Placement::FivePrimeUtr
     } else {
         Placement::AcrossStart
     }
+}
+
+/// Whether `edited`, a change of `reference` that starts in the 5'UTR and
+/// reaches into the CDS starting at `cds_start`, holds the reference's first
+/// codon at the same distance from its start, or from its end, as the
+/// reference does: the 5'UTR changed and the codon left in place.
+fn keeps_first_codon(reference: &[u8], edited: &[u8], cds_start: usize) -> bool {
+    let Some(codon) = reference.get(cds_start..cds_start + 3) else {
+        return false;
+    };
+    let from_end = (edited.len() + cds_start).checked_sub(reference.len());
+    [Some(cds_start), from_end].into_iter().flatten().any(|at| {
+        edited
+            .get(at..at + 3)
+            .is_some_and(|bases| bases.eq_ignore_ascii_case(codon))
+    })
 }
 
 /// The first (`from_start`) or last coding base a range end covers, as a
