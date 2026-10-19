@@ -1337,62 +1337,6 @@ pub(crate) fn cds_bounds(
     Ok((cds_start, cds_end))
 }
 
-/// On a transcript whose CDS runs off the 3' end, refuses a change whose
-/// protein consequence needs a base past the last whole codon the record
-/// carries: a change or insertion past that codon; a frameshift, or a lost
-/// stop, that reads to it with no new stop; or an in-frame change whose
-/// protein, aligned with the reference from the start, first differs past the
-/// last residue of either, which the unseen next residue would settle. A
-/// change to the first codon is the unknown change from Met1, whatever
-/// follows.
-pub(crate) fn check_within_open_cds(
-    ac: &str,
-    change: &crate::protein::CodingChange,
-) -> Result<(), HgvsError> {
-    let refuse = || {
-        Err(HgvsError::ValidationError(format!(
-            "{ac}: its CDS is open at the 3' end, so the record carries no stop codon; a protein consequence \
-             is predicted only where it needs no base past the last whole codon the record carries"
-        )))
-    };
-    let carried = change.cds_len / 3 * 3;
-    let edit = &change.edit;
-    if edit.start >= carried || edit.end > carried {
-        return refuse();
-    }
-    let reference = &change.coding[..carried];
-    let edited = format!(
-        "{}{}{}",
-        &reference[..edit.start],
-        edit.alt,
-        &reference[edit.end..]
-    );
-    if !edited
-        .get(..3)
-        .is_some_and(|c| c.eq_ignore_ascii_case(&reference[..3]))
-    {
-        return Ok(());
-    }
-    let ref_aa: Vec<char> = crate::utils::translate(reference).chars().collect();
-    let alt_aa: Vec<char> = crate::utils::translate(&edited).chars().collect();
-    let first = ref_aa
-        .iter()
-        .zip(&alt_aa)
-        .take_while(|(r, a)| r == a)
-        .count();
-    if ref_aa == alt_aa || ref_aa[..first.min(ref_aa.len())].contains(&'*') {
-        return Ok(());
-    }
-    if first >= ref_aa.len() || first >= alt_aa.len() {
-        return refuse();
-    }
-    let in_frame = (edit.alt.len() as i64 - (edit.end - edit.start) as i64) % 3 == 0;
-    if (!in_frame || ref_aa[first] == '*') && !alt_aa[first..].contains(&'*') {
-        return refuse();
-    }
-    Ok(())
-}
-
 /// The change `var_c` names on the transcript `record`, over 0-based indices:
 /// the range checked against the sequence, and the stated bases against what
 /// is there.
@@ -2683,6 +2627,7 @@ impl<'a> VariantMapper<'a> {
         let change = crate::protein::CodingChange {
             coding: ref_seq[cds_start..].to_string(),
             cds_len: cds_end + 1 - cds_start,
+            end_open: transcript.cds_end_open,
             edit: crate::edits::ResolvedEdit {
                 start: rel(resolved.start)?,
                 end: rel(resolved.end)?,
@@ -2692,10 +2637,8 @@ impl<'a> VariantMapper<'a> {
             protein_ac,
             initiates,
         };
-        if transcript.cds_end_open {
-            check_within_open_cds(&var_c.ac, &change)?;
-        }
         let reading = crate::protein::Reading::new(change);
+        reading.check_within_record(&var_c.ac)?;
         if reading.runs_off() {
             return Ok(CodingOutcome::Statement(predicted_statement(
                 var_c.gene.clone(),

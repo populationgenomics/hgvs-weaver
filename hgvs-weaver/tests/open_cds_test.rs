@@ -385,17 +385,94 @@ fn a_3_open_cds_predicts_a_frameshift_that_stops_inside_it() {
 }
 
 #[test]
-fn a_closed_cds_predicts_what_a_3_open_one_refuses() {
+fn a_3_open_cds_refuses_a_frameshift_that_leaves_its_last_residue_as_it_was() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
+    // GGA becomes GGT and an A: Gly10 is unchanged, and the shifted frame
+    // reads on past the record
+    assert!(refused_as_open(c_to_p(&mapper, "NM_FRAG.1:c.29_30insT")));
+}
+
+#[test]
+fn a_3_open_cds_refuses_losing_a_stop_its_record_carries_with_no_stop_after() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // c.28_30 is TAA, the last codon the record carries; TCA reads on past it
+    assert!(refused_as_open(c_to_p(&mapper, "NM_OPEN3.1:c.29A>C")));
+}
+
+#[test]
+fn a_3_open_cds_predicts_a_change_to_its_start_codon_as_unknown_from_met1() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        c_to_p(&mapper, "NM_FRAG.1:c.1A>G").unwrap(),
+        "NP_FRAG.1:p.(Met1?)"
+    );
+}
+
+/// A selenoprotein fragment, MUAEQPLSEG: `NM_SECFRAG.1` is ten codons, the
+/// second a TGA read as selenocysteine, its CDS open at the 3' end.
+fn selenoprotein_fragment() -> Provider {
+    let coding = "ATGTGAGCTGAACAACCACTTTCTGAAGGA";
+    let mut model: TranscriptData = transcript(
+        "NM_SECFRAG.1",
+        GENOME_AC,
+        Strand::Plus,
+        Some((0, 29)),
+        vec![exon((0, 30), (0, 29), Strand::Plus)],
+    );
+    model.cds_end_open = true;
+    Provider::new()
+        .sequence(GENOME_AC, coding)
+        .sequence("NM_SECFRAG.1", coding)
+        .sequence("NP_SECFRAG.1", "MUAEQPLSEG")
+        .transcript(model)
+        .protein_for("NM_SECFRAG.1", "NP_SECFRAG.1")
+}
+
+#[test]
+fn a_3_open_cds_reads_an_in_frame_tga_as_selenocysteine_not_its_end() {
+    let hdp = selenoprotein_fragment();
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        c_to_p(&mapper, "NM_SECFRAG.1:c.8C>T").unwrap(),
+        "NP_SECFRAG.1:p.(Ala3Val)"
+    );
+}
+
+#[test]
+fn a_3_open_cds_refuses_a_frameshift_after_a_selenocysteine() {
+    let hdp = selenoprotein_fragment();
+    let mapper = VariantMapper::new(&hdp);
+    // ATG TGA GCT GAA CAA CCA CTT TCT AAG GA: no stop in the new frame
+    assert!(refused_as_open(c_to_p(&mapper, "NM_SECFRAG.1:c.20del")));
+}
+
+#[test]
+fn a_closed_cds_predicts_deleting_its_last_residue() {
     let hdp = fragment();
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.28_30del").unwrap(),
         "NP_SHUT.1:p.(Gly10del)"
     );
+}
+
+#[test]
+fn a_closed_cds_predicts_duplicating_its_last_residue() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.28_30dup").unwrap(),
         "NP_SHUT.1:p.(Gly10dup)"
     );
+}
+
+#[test]
+fn a_closed_cds_predicts_a_frameshift_that_reads_past_its_codons() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.5del").unwrap(),
         "NP_SHUT.1:p.(Ala2ValfsTer?)"
@@ -403,17 +480,29 @@ fn a_closed_cds_predicts_what_a_3_open_one_refuses() {
 }
 
 #[test]
-fn a_closed_cds_predicts_what_a_3_open_one_does_alike() {
+fn a_closed_cds_predicts_a_missense_in_its_last_codon() {
     let hdp = fragment();
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.29G>A").unwrap(),
         "NP_SHUT.1:p.(Gly10Glu)"
     );
+}
+
+#[test]
+fn a_closed_cds_predicts_a_nonsense_change_in_its_last_codon() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.28G>T").unwrap(),
         "NP_SHUT.1:p.(Gly10Ter)"
     );
+}
+
+#[test]
+fn a_closed_cds_predicts_deleting_a_residue_before_its_last() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.25_27del").unwrap(),
         "NP_SHUT.1:p.(Ala9del)"
@@ -483,16 +572,49 @@ fn a_3_open_cds_predicts_an_allele_whose_frameshifts_cancel() {
 }
 
 #[test]
-fn a_closed_cds_predicts_an_allele_alike() {
+fn a_closed_cds_predicts_an_allele_with_a_member_in_its_last_codon() {
     let hdp = fragment();
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p_cis(&mapper, "NM_SHUT.1:c.[5C>T;29G>A]").unwrap(),
         "NP_SHUT.1:p.[(Ala2Val;Gly10Glu)]"
     );
+}
+
+#[test]
+fn a_closed_cds_predicts_an_allele_that_deletes_its_last_residue() {
+    let hdp = fragment();
+    let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p_cis(&mapper, "NM_SHUT.1:c.[5C>T;28_30del]").unwrap(),
         "NP_SHUT.1:p.[(Ala2Val;Gly10del)]"
+    );
+}
+
+#[test]
+fn a_3_open_cds_predicts_an_allele_whose_changes_meet_once_described() {
+    // MAEQPLGGGG: the deletion of codon 7, alone, shifts 3' to the last Gly
+    // and would need the residue after it; with Gly10 made Glu the two meet
+    // as one delins that does not.
+    let record = "ATGGCTGAACAACCACTTGGTGGCGGAGGG";
+    let mut model: TranscriptData = transcript(
+        "NM_GLYFRAG.1",
+        GENOME_AC,
+        Strand::Plus,
+        Some((0, 29)),
+        vec![exon((0, 30), (0, 29), Strand::Plus)],
+    );
+    model.cds_end_open = true;
+    let hdp = Provider::new()
+        .sequence(GENOME_AC, record)
+        .sequence("NM_GLYFRAG.1", record)
+        .sequence("NP_GLYFRAG.1", "MAEQPLGGGG")
+        .transcript(model)
+        .protein_for("NM_GLYFRAG.1", "NP_GLYFRAG.1");
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        c_to_p_cis(&mapper, "NM_GLYFRAG.1:c.[19_21del;29G>A]").unwrap(),
+        "NP_GLYFRAG.1:p.(Gly9_Gly10delinsGlu)"
     );
 }
 

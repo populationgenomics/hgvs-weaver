@@ -623,20 +623,26 @@ start.
 
 With a 3' end open the record holds every base of every whole codon it carries, the last one included, so a change
 inside them is predicted, and only an answer that needs a base past the last whole codon is refused. Three kinds of
-answer need one. A change or an insertion past that codon names bases the record lacks. A frameshift reads its new frame
-to the end of the record, and a lost stop reads on; either is answered only if a new stop turns up in the codons the
-record carries. And an in-frame change whose protein, after the 3' shift HGVS asks for, reaches past the last residue is
-refused, because the unseen next residue could repeat the one it moves onto: deleting the last residue, duplicating it,
-or inserting a copy of it before it. Whether the change reaches that far is read from the protein sequences, not from
-where the `c.` change is written, so deleting codon 4 of `MKLAA` is refused although codon 4 is not the last: shifted
-3', it is the deletion of Ala5. A substitution, a silent change or a nonsense change in the last codon reads nothing
-past it, and is predicted. A cis allele is held to the same rule as the change its members make together, and as each
-change it is written as, so `c.[5C>T;28_30del]` is refused for the deletion of the last residue. `predicted_protein` and
-the comparison of a coding change with a `p.` description follow `c_to_p`.
+answer need one. A change or an insertion past that codon names a residue the record does not hold whole. A frameshift
+reads its new frame to the end of the record, and a lost stop reads on; either is answered only if a new stop turns up
+in the bases the record carries, and a frameshift is refused even where the residues it reaches in the record are
+unchanged, since the frame past them is not. And an in-frame change whose protein, after the 3' shift HGVS asks for,
+reaches past the last residue is refused, because the unseen next residue could repeat the one it moves onto: deleting
+the last residue, duplicating it, or inserting a copy of it before it. Whether the change reaches that far is read from
+the protein sequences, not from where the `c.` change is written, so deleting codon 4 of `MKLAA` is refused although
+codon 4 is not the last: shifted 3', it is the deletion of Ala5. A substitution, a silent change or a nonsense change in
+the last codon reads nothing past it, and is predicted. With no stop declared, an in-frame TGA is selenocysteine, as it
+is before a declared stop, and the protein ends at the first other stop codon in frame, if the record carries one.
+
+A cis allele is held to the same rule as the change its members make together, and as each change it is finally written
+as, after the changes whose descriptions meet are joined: `c.[5C>T;28_30del]` is refused for the deletion of the last
+residue, while on `MAEQPLGGGG` the deletion of codon 7, which alone shifts to the last Gly, meets the change to Gly10
+and the two are one delins that needs nothing past the record. `predicted_protein` and the comparison of a coding change
+with a `p.` description follow `c_to_p`.
 
 **Example** (`NM_FRAG.1` carries ten codons, `ATG GCT GAA CAA CCA CTT TCT GAA GCT GGA`, MAEQPLSEAG, and nothing more;
-`NM_SHUT.1` is the same codons followed by TAA; `NM_OPEN3.1` and `NM_OPEN5.1` carry a CDS whose 3' and 5' end the record
-does not hold):
+`NM_SHUT.1` is the same codons followed by TAA; `NM_GLYFRAG.1` carries MAEQPLGGGG and `NM_SECFRAG.1` MUAEQPLSEG, both
+open at the 3' end; `NM_OPEN3.1` and `NM_OPEN5.1` carry a CDS whose 3' and 5' end the record does not hold):
 
 ```text
 NM_FRAG.1:c.29G>A           →  NP_FRAG.1:p.(Gly10Glu)            the last codon, every base of it carried
@@ -647,10 +653,13 @@ NM_FRAG.1:c.28_30del        →  ValidationError                   the next resi
 NM_SHUT.1:c.28_30del        →  NP_SHUT.1:p.(Gly10del)            the stop follows
 NM_FRAG.1:c.28_30dup        →  ValidationError
 NM_FRAG.1:c.5del            →  ValidationError                   the new frame meets no stop in the record
+NM_FRAG.1:c.29_30insT       →  ValidationError                   Gly10 stays Gly, the frame after it does not
 NM_FRAG.1:c.14dup           →  NP_FRAG.1:p.(Leu6ThrfsTer3)       it meets one at codon 8
 NM_FRAG.1:c.[5C>T;29G>A]    →  NP_FRAG.1:p.[(Ala2Val;Gly10Glu)]
 NM_FRAG.1:c.[5C>T;30A>G]    →  NP_FRAG.1:p.(Ala2Val)
 NM_FRAG.1:c.[5C>T;28_30del] →  ValidationError
+NM_GLYFRAG.1:c.[19_21del;29G>A]  →  NP_GLYFRAG.1:p.(Gly9_Gly10delinsGlu)
+NM_SECFRAG.1:c.8C>T         →  NP_SECFRAG.1:p.(Ala3Val)          after a TGA, read as selenocysteine
 NM_OPEN3.1:c.*1G>T          →  ValidationError                   no stop codon to number from
 NM_OPEN5.1:c.1A>T           →  ValidationError                   no start codon to number from
 NM_OPEN5.1:c.*1G>T          →  NC_…:g.33G>T                      the stop codon is there
@@ -658,9 +667,9 @@ NM_OPEN5.1:n.3A>T           →  NC_…:g.3A>T                       n. numberin
 ```
 
 - **Agrees:** MaveDB, whose protein-fragment targets are served this way, on a change in the last codon, checked over
-  its score sets: `c.101G>A` on a 34-codon target is `p.Arg34His`.
+  its score sets: `c.101G>A` on a 34-codon target (urn:mavedb:00000002-a-1) is `p.Arg34His`.
 - **Differs:** MaveDB names the deletion of a fragment's last residue, `p.Glu100del` for `c.298_300del` on a 100-codon
-  target, where weaver refuses it, since the residue after it is not in the record.
+  target (urn:mavedb:00000093-a-1), where weaver refuses it, since the residue after it is not in the record.
 - **Not checked:** biocommons, VariantValidator.
 - **Spec (agrees; silent on a consequence that needs a residue the record lacks):**
   [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): `c.` positions are numbered from the A of the
@@ -671,7 +680,10 @@ NM_OPEN5.1:n.3A>T           →  NC_…:g.3A>T                       n. numberin
   `::a_3_open_cds_deleting_a_residue_whose_3_prime_spelling_reaches_its_last_is_refused`,
   `::a_3_open_cds_leaves_the_residues_of_an_allele_inside_it`,
   `::a_3_open_cds_allele_is_equivalent_to_the_protein_allele_it_predicts`,
-  `::a_3_open_cds_allele_that_needs_a_base_past_it_is_judged_against_no_protein`); `tests/test_open_cds.py`.
+  `::a_3_open_cds_allele_that_needs_a_base_past_it_is_judged_against_no_protein`,
+  `::a_3_open_cds_refuses_a_frameshift_after_a_selenocysteine`,
+  `::a_3_open_cds_refuses_losing_a_stop_its_record_carries_with_no_stop_after`,
+  `::a_3_open_cds_predicts_a_change_to_its_start_codon_as_unknown_from_met1`); `tests/test_open_cds.py`.
 
 ### Intronic positions are carried as given
 
@@ -2909,8 +2921,8 @@ beside it, it is the delins they make together, as for one change. `p.?`, `p.(Me
 nothing is stated beside them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to
 read, so `c_to_p` refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a
 contradictory or ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is predicted
-unless the change its members make, or one of the changes it is written as, needs a base past the last whole codon the
-record carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is
+unless the change its members make, or one of the changes it is finally written as, needs a base past the last whole
+codon the record carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is
 `p.[(Ala2Val;Gly10Glu)]` on a ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
 
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
@@ -3164,7 +3176,9 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::a_3_open_cds_predicts_an_allele_with_a_silent_member_in_its_last_codon`,
   `::a_3_open_cds_refuses_an_allele_that_deletes_its_last_residue`,
   `::a_3_open_cds_refuses_an_allele_with_a_frameshift_member_as_it_does_the_member`,
-  `::a_3_open_cds_predicts_an_allele_whose_frameshifts_cancel`, `::a_closed_cds_predicts_an_allele_alike`;
+  `::a_3_open_cds_predicts_an_allele_whose_frameshifts_cancel`,
+  `::a_3_open_cds_predicts_an_allele_whose_changes_meet_once_described`,
+  `::a_closed_cds_predicts_an_allele_that_deletes_its_last_residue`;
   `cis_phased_test::a_silent_change_beside_a_statement_is_one_run_of_residues`,
   `::statements_of_every_codon_through_the_stop_predict_the_protein_unchanged`,
   `::identities_either_side_of_an_intron_state_the_codon_they_cover_together`,

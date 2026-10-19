@@ -14,8 +14,8 @@ use crate::data::IdentifierType;
 use crate::edits::{AaEdit, ProteinStatement, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::mapper::{
-    cds_bounds, check_within_open_cds, covered_cds_index, has_intronic_offset, place_on_coding,
-    predicted_statement, whole_codons, CdsResidues, Placement, PredictedProtein, VariantMapper,
+    cds_bounds, covered_cds_index, has_intronic_offset, place_on_coding, predicted_statement,
+    whole_codons, CdsResidues, Placement, PredictedProtein, VariantMapper,
 };
 use crate::protein::{CodingChange, Reading};
 use crate::reading::CisReading;
@@ -80,6 +80,7 @@ impl Cds<'_> {
         CodingChange {
             coding: coding.to_string(),
             cds_len: self.len,
+            end_open: self.end_open,
             edit: combined(coding, edits),
             protein_ac: self.protein_ac.clone(),
             initiates: self.initiates,
@@ -405,9 +406,7 @@ impl VariantMapper<'_> {
             };
             return statement(None, s);
         }
-        if cds.end_open {
-            check_within_open_cds(&cds.cis.ac, &cds.change(&placed))?;
-        }
+        Reading::new(cds.change(&placed)).check_within_record(&cds.cis.ac)?;
         let (reading, read) = read_through(cds, &placed)?;
         if reading.runs_off() {
             return statement(None, ProteinStatement::Unknown);
@@ -641,11 +640,7 @@ fn groups(edits: &[ResolvedEdit]) -> Vec<Vec<ResolvedEdit>> {
 /// starts, so that nothing can be said from there on.
 fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVariant>>, HgvsError> {
     let describe = |group: &[ResolvedEdit]| {
-        let change = cds.change(group);
-        if cds.end_open {
-            check_within_open_cds(&cds.cis.ac, &change)?;
-        }
-        let reading = Reading::new(change);
+        let reading = Reading::new(cds.change(group));
         match reading.runs_off() {
             true => Ok(None),
             false => reading.describe().map(Some),
@@ -676,6 +671,9 @@ fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVari
             continue;
         }
         described.push((group, change));
+    }
+    for (group, _) in &described {
+        Reading::new(cds.change(group)).check_within_record(&cds.cis.ac)?;
     }
     Ok(Some(described.into_iter().map(|(_, p)| p).collect()))
 }

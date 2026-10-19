@@ -26,6 +26,10 @@ pub struct CodingChange {
     /// where the protein ends: a selenoprotein has an in-frame TGA that codes
     /// selenocysteine and translates here as `*`.
     pub cds_len: usize,
+    /// The CDS runs off the 3' end of the record: `cds_len` bases are all it
+    /// carries and no stop codon is declared, so the protein ends at the
+    /// first in-frame TAA or TAG, or where the bases do.
+    pub end_open: bool,
     /// The edit, with `start` and `end` relative to `coding`.
     pub edit: ResolvedEdit,
     pub protein_ac: String,
@@ -74,7 +78,10 @@ pub(crate) struct Reading {
 }
 
 impl Reading {
-    pub(crate) fn new(change: CodingChange) -> Self {
+    pub(crate) fn new(mut change: CodingChange) -> Self {
+        if change.end_open {
+            change.coding.truncate(change.cds_len);
+        }
         let ResolvedEdit {
             start, end, alt, ..
         } = &change.edit;
@@ -95,7 +102,16 @@ impl Reading {
             }
         }
         let net = alt.len() as i64 - (end - start) as i64;
-        let stop = reference_stop(&ref_aa, change.cds_len);
+        // An open CDS has no declared stop: a TGA in frame is selenocysteine,
+        // and any other stop codon ends the protein.
+        let stop = match change.end_open {
+            true => (0..ref_aa.len())
+                .find(|&j| {
+                    ref_aa[j] == '*' && !change.coding[3 * j..3 * j + 3].eq_ignore_ascii_case("TGA")
+                })
+                .unwrap_or(ref_aa.len()),
+            false => reference_stop(&ref_aa, change.cds_len),
+        };
         // A selenocysteine TGA is U in the reference before its stop, and in
         // the alternate where a TGA the two sequences share reads one in
         // frame: in their common prefix, or in their common suffix after an
@@ -201,6 +217,42 @@ impl Reading {
             ));
         }
         Ok(())
+    }
+
+    /// On a CDS open at its 3' end, refuses a change whose protein needs a
+    /// base past the last whole codon the record carries: an edit reaching
+    /// past it; an out-of-frame edit, or one losing a stop the record
+    /// carries, whose new frame meets no stop within the record; an in-frame
+    /// change whose first difference lies past the end
+    /// of the reference or the edited protein, where the residue that
+    /// follows decides how far HGVS shifts it 3'.
+    pub(crate) fn check_within_record(&self, ac: &str) -> Result<(), HgvsError> {
+        if !self.change.end_open {
+            return Ok(());
+        }
+        let carried = self.change.cds_len / 3 * 3;
+        let edit = &self.change.edit;
+        let needs_more = if edit.start >= carried || edit.end > carried {
+            true
+        } else if self.start_changed || self.first_changed > self.stop {
+            false
+        } else if !self.in_frame
+            || (self.first_changed == self.stop && self.stop < self.ref_aa.len())
+        {
+            !self.alt_aa[self.first_changed.min(self.alt_aa.len())..].contains(&'*')
+        } else {
+            self.ref_aa != self.alt_aa
+                && (self.first_changed >= self.ref_aa.len()
+                    || self.first_changed >= self.alt_aa.len())
+        };
+        match needs_more {
+            false => Ok(()),
+            true => Err(HgvsError::ValidationError(format!(
+                "{ac}: its CDS is open at the 3' end, so the record carries no stop codon; a protein \
+                 consequence is predicted only where it needs no base past the last whole codon the \
+                 record carries"
+            ))),
+        }
     }
 
     /// Refuses a change that [runs off](Self::runs_off) the edited transcript.
@@ -639,6 +691,7 @@ mod tests {
         describe(&CodingChange {
             coding: coding.clone(),
             cds_len: cds.len(),
+            end_open: false,
             edit: resolved,
             protein_ac: "NP".into(),
             initiates: true,
