@@ -1337,28 +1337,6 @@ pub(crate) fn cds_bounds(
     Ok((cds_start, cds_end))
 }
 
-/// On a transcript whose CDS runs off the 3' end, a change has a protein
-/// consequence only if it is in frame and lies wholly within the whole codons
-/// the record carries, short of the last: anything else reads into coding
-/// sequence the record does not have, or shifts the frame into it.
-pub(crate) fn check_within_open_cds(
-    ac: &str,
-    resolved: &crate::edits::ResolvedEdit,
-    cds_start: usize,
-    cds_end: usize,
-) -> Result<(), HgvsError> {
-    let whole_codons = (cds_end + 1 - cds_start) / 3;
-    let last_whole_codon_start = cds_start + whole_codons.saturating_sub(1) * 3;
-    let in_frame = (resolved.alt.len() as i64 - (resolved.end - resolved.start) as i64) % 3 == 0;
-    if in_frame && resolved.end <= last_whole_codon_start {
-        return Ok(());
-    }
-    Err(HgvsError::ValidationError(format!(
-        "{ac}: its CDS is open at the 3' end, so the record carries no stop codon; a protein consequence is \
-         predicted only for an in-frame change wholly inside the coding bases it carries"
-    )))
-}
-
 /// The change `var_c` names on the transcript `record`, over 0-based indices:
 /// the range checked against the sequence, and the stated bases against what
 /// is there.
@@ -2641,9 +2619,6 @@ impl<'a> VariantMapper<'a> {
                 )))
             }
         };
-        if transcript.cds_end_open {
-            check_within_open_cds(&var_c.ac, &resolved, cds_start, cds_end)?;
-        }
         let rel = |i: usize| {
             i.checked_sub(cds_start).ok_or_else(|| {
                 HgvsError::ValidationError(format!("Position {} before the CDS start", i))
@@ -2652,6 +2627,7 @@ impl<'a> VariantMapper<'a> {
         let change = crate::protein::CodingChange {
             coding: ref_seq[cds_start..].to_string(),
             cds_len: cds_end + 1 - cds_start,
+            end_open: transcript.cds_end_open,
             edit: crate::edits::ResolvedEdit {
                 start: rel(resolved.start)?,
                 end: rel(resolved.end)?,
@@ -2662,6 +2638,7 @@ impl<'a> VariantMapper<'a> {
             initiates,
         };
         let reading = crate::protein::Reading::new(change);
+        reading.check_within_record(&var_c.ac)?;
         if reading.runs_off() {
             return Ok(CodingOutcome::Statement(predicted_statement(
                 var_c.gene.clone(),

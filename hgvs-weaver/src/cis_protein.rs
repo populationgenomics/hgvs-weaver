@@ -14,8 +14,8 @@ use crate::data::IdentifierType;
 use crate::edits::{AaEdit, ProteinStatement, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::mapper::{
-    cds_bounds, check_within_open_cds, covered_cds_index, has_intronic_offset, place_on_coding,
-    predicted_statement, whole_codons, CdsResidues, Placement, PredictedProtein, VariantMapper,
+    cds_bounds, covered_cds_index, has_intronic_offset, place_on_coding, predicted_statement,
+    whole_codons, CdsResidues, Placement, PredictedProtein, VariantMapper,
 };
 use crate::protein::{CodingChange, Reading};
 use crate::reading::CisReading;
@@ -80,6 +80,7 @@ impl Cds<'_> {
         CodingChange {
             coding: coding.to_string(),
             cds_len: self.len,
+            end_open: self.end_open,
             edit: combined(coding, edits),
             protein_ac: self.protein_ac.clone(),
             initiates: self.initiates,
@@ -405,15 +406,8 @@ impl VariantMapper<'_> {
             };
             return statement(None, s);
         }
-        if cds.end_open {
-            let whole = combined(&cds.ref_seq[cds.start..], &placed);
-            let at = |i: usize| i + cds.start;
-            let absolute = ResolvedEdit {
-                start: at(whole.start),
-                end: at(whole.end),
-                ..whole
-            };
-            check_within_open_cds(&cds.cis.ac, &absolute, cds.start, cds.start + cds.len - 1)?;
+        if cds.end_open && !upstream {
+            Reading::new(cds.change(&placed)).check_within_record(&cds.cis.ac)?;
         }
         let (reading, read) = read_through(cds, &placed)?;
         if reading.runs_off() {
@@ -679,6 +673,11 @@ fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVari
             continue;
         }
         described.push((group, change));
+    }
+    if cds.end_open {
+        for (group, _) in &described {
+            Reading::new(cds.change(group)).check_within_record(&cds.cis.ac)?;
+        }
     }
     Ok(Some(described.into_iter().map(|(_, p)| p).collect()))
 }
