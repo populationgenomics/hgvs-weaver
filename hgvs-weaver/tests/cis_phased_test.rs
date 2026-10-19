@@ -2405,6 +2405,143 @@ fn members_in_adjacent_codons_predict_one_delins() {
     );
 }
 
+fn protein_level(a: &str, b: &str) -> Result<EquivalenceLevel, HgvsError> {
+    let hdp = protein_provider();
+    let mapper = VariantMapper::new(&hdp);
+    VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &parse_hgvs_variant(a).unwrap(),
+        &parse_hgvs_variant(b).unwrap(),
+    )
+}
+
+#[test]
+fn protein_members_are_the_delins_they_make() {
+    assert_eq!(
+        protein_level(
+            "NP_X.1:p.[Lys2Gly;Leu3Val]",
+            "NP_X.1:p.Lys2_Leu3delinsGlyVal"
+        )
+        .unwrap(),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_protein_allele_is_not_one_of_its_members() {
+    assert_eq!(
+        protein_level("NP_X.1:p.[Lys2Gly;Leu3Val]", "NP_X.1:p.Lys2Gly").unwrap(),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_frameshift_member_leaves_residues_it_does_not_name_open_to_any() {
+    // MGP, one residue unnamed, then the end; the delins leaves MGPA.
+    assert_eq!(
+        protein_level(
+            "NP_X.1:p.[Lys2Gly;Leu3ProfsTer3]",
+            "NP_X.1:p.[Lys2Gly;Leu3delinsProAlaTer]"
+        )
+        .unwrap(),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn protein_alleles_split_differently_leave_one_protein() {
+    assert_eq!(
+        protein_level(
+            "NP_X.1:p.[Lys2_Leu3delinsGlyVal;Tyr5Asp]",
+            "NP_X.1:p.[Lys2Gly;Leu3Val;Tyr5Asp]"
+        )
+        .unwrap(),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn a_protein_allele_stating_a_residue_is_not_its_change_alone() {
+    assert_eq!(
+        protein_level("NP_X.1:p.[Ala4=;Tyr5Asp]", "NP_X.1:p.Tyr5Asp").unwrap(),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn protein_statements_that_meet_are_one_statement() {
+    assert_eq!(
+        protein_level("NP_X.1:p.[Ala4=;Tyr5=]", "NP_X.1:p.Ala4_Tyr5=").unwrap(),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn protein_members_reaching_for_one_residue_are_refused() {
+    assert!(matches!(
+        protein_level("NP_X.1:p.[Lys2Gly;Lys2Val]", "NP_X.1:p.Lys2Gly"),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn a_protein_member_after_a_frameshift_is_refused() {
+    assert!(matches!(
+        protein_level("NP_X.1:p.[Lys2fs;Tyr5Asp]", "NP_X.1:p.Lys2fs"),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn a_prediction_split_otherwise_than_a_stated_protein_allele_is_its_protein() {
+    // c.[4A>C;13T>G] predicts p.[(Lys2Gln;Tyr5Asp)].
+    assert_eq!(
+        protein_level(
+            "NM_X.1:c.[4A>C;13T>G]",
+            "NP_X.1:p.Lys2_Tyr5delinsGlnLeuAlaAsp"
+        )
+        .unwrap(),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn changes_separated_by_an_unchanged_residue_are_separate_members() {
+    // Lys2 and Tyr5 change; Leu3 and Ala4 between them do not.
+    assert_eq!(
+        predicted("NM_X.1:c.[4A>C;13T>G]"),
+        "NP_X.1:p.[(Lys2Gln;Tyr5Asp)]"
+    );
+}
+
+#[test]
+fn a_silent_change_apart_from_a_change_is_stated_beside_it() {
+    // TAT becomes TAC, still Tyr.
+    assert_eq!(
+        predicted("NM_X.1:c.[4A>C;15T>C]"),
+        "NP_X.1:p.[(Lys2Gln;Tyr5=)]"
+    );
+}
+
+#[test]
+fn a_change_ending_the_protein_holds_the_changes_after_it() {
+    // AAA becomes TAA, a stop: Tyr5 is never read.
+    assert_eq!(predicted("NM_X.1:c.[4A>T;13T>G]"), "NP_X.1:p.(Lys2Ter)");
+}
+
+#[test]
+fn a_frameshift_apart_from_an_earlier_change_is_a_member_of_its_own() {
+    // ATG CAA CTG CCT ATC GCT AAC CGT ATA AGT AAG G: Lys2Gln, then from Ala4 a new frame.
+    assert_eq!(
+        predicted("NM_X.1:c.[4A>C;10del]"),
+        "NP_X.1:p.[(Lys2Gln;Ala4ProfsTer?)]"
+    );
+}
+
+#[test]
+fn a_change_apart_from_one_leaving_no_codon_says_nothing() {
+    assert_eq!(predicted("NM_X.1:c.[4A>C;16_*14del]"), "NP_X.1:p.?");
+}
+
 #[test]
 fn frameshifts_that_restore_the_frame_predict_the_residues_between() {
     // ATG AA CTG GGCC TAT reads ATG AAC TGG GCC TAT: Asn Trp.

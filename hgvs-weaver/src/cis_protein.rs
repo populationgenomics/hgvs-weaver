@@ -3,18 +3,19 @@
 //! The members are applied to the transcript together and the protein is
 //! read from the sequence they make, as a single variant's is from its own,
 //! so `c.[4A>T;6A>T]` predicts what `c.4_6delinsTAT` predicts, not what each
-//! member predicts alone. The bases the allele states unchanged, by an
+//! member predicts alone. The change is then written as HGVS writes changes
+//! in cis, those apart as separate members of a protein allele,
+//! `p.[(Lys2Gln;Tyr5Asp)]`. The bases the allele states unchanged, by an
 //! identity or by members that cancel, add the residues whose whole codon
-//! they cover and the change leaves as it was; written beside the change,
-//! they make the prediction a protein allele, `p.[(Ala4=;Tyr5Asp)]`.
+//! they cover and the changes leave as they were, as members beside them,
+//! `p.[(Ala4=;Tyr5Asp)]`.
 
 use crate::data::IdentifierType;
 use crate::edits::{AaEdit, ProteinStatement, ResolvedEdit};
 use crate::error::HgvsError;
 use crate::mapper::{
     cds_bounds, check_within_open_cds, covered_cds_index, has_intronic_offset, place_on_coding,
-    predicted_statement, whole_codons, CdsResidues, CodingOutcome, Placement, PredictedProtein,
-    VariantMapper,
+    predicted_statement, whole_codons, CdsResidues, Placement, PredictedProtein, VariantMapper,
 };
 use crate::protein::{CodingChange, Reading};
 use crate::reading::CisReading;
@@ -26,10 +27,12 @@ enum Prediction {
     /// A statement about the whole protein, which nothing stands beside:
     /// `p.?`, `p.(Met1?)`, `p.0?`, `p.(=)`.
     Statement(PVariant),
-    /// The change the members make together, and the residues stated
-    /// unchanged beside it.
+    /// The change the members make together, read as one; the changes
+    /// HGVS writes as separate members, each described; and the residues
+    /// stated unchanged beside them.
     Change {
         reading: Reading,
+        changes: Vec<PVariant>,
         beside: Vec<PVariant>,
     },
     /// The allele makes the reference: the residues it states unchanged.
@@ -99,10 +102,12 @@ impl VariantMapper<'_> {
     /// members are applied to the transcript together and the protein is
     /// read from the sequence they make, by the rules
     /// [`c_to_p`](Self::c_to_p) reads one change by: `c.[4A>T;6A>T]` is
-    /// `p.(Lys2Tyr)`, as `c.4_6delinsTAT` is. Residues whose whole codon the
-    /// allele states unchanged, and the change leaves as it was, are written
-    /// beside it as a protein allele, `c.[13T>G;10_12=]` giving
-    /// `p.[(Ala4=;Tyr5Asp)]`; one prediction alone is written as a single
+    /// `p.(Lys2Tyr)`, as `c.4_6delinsTAT` is. Changes apart, an untouched
+    /// codon between them, are the members of a protein allele,
+    /// `c.[4A>C;13T>G]` giving `p.[(Lys2Gln;Tyr5Asp)]`; residues whose whole
+    /// codon the allele states unchanged, and the changes leave as they were,
+    /// are members beside them, `c.[13T>G;10_12=]` giving
+    /// `p.[(Ala4=;Tyr5Asp)]`. One prediction alone is written as a single
     /// variant. An allele of one member predicts what its member does.
     ///
     /// # Errors
@@ -126,12 +131,15 @@ impl VariantMapper<'_> {
         let mut members = match self.cis_prediction(cis, protein_ac)? {
             Prediction::Statement(p) => return Ok(SV::Protein(p)),
             Prediction::Stated(stated) => stated,
-            Prediction::Change { reading, beside } => {
-                let mut change = reading.describe()?;
-                change.gene = cis.gene.clone();
-                change.posedit.predicted = true;
+            Prediction::Change {
+                changes, beside, ..
+            } => {
                 let mut members = beside;
-                members.push(change);
+                for mut change in changes {
+                    change.gene = cis.gene.clone();
+                    change.posedit.predicted = true;
+                    members.push(change);
+                }
                 members
             }
         };
@@ -154,8 +162,9 @@ impl VariantMapper<'_> {
 
     /// The protein an allele in cis of `c.` members leaves, as
     /// [`predicted_protein`](Self::predicted_protein) reads one variant's:
-    /// no residues when it deletes the CDS, `None` when its prediction is a
-    /// statement (`p.?`, `p.(Met1?)`) or names residues unchanged.
+    /// no residues when it deletes the CDS, those its changes leave whatever
+    /// it states beside them, and `None` when its prediction is a statement
+    /// (`p.?`, `p.(Met1?)`) or it changes no base.
     pub fn predicted_protein_cis(
         &self,
         cis: &CisPhasedVariant,
@@ -177,7 +186,7 @@ impl VariantMapper<'_> {
                     stops: true,
                 })
             }
-            Prediction::Change { reading, beside } if beside.is_empty() => Some(PredictedProtein {
+            Prediction::Change { reading, .. } => Some(PredictedProtein {
                 residues: reading.proteins()?.1,
                 stops: reading.alternate_stops(),
             }),
@@ -253,29 +262,52 @@ impl VariantMapper<'_> {
         if edits.is_empty() {
             return stated_only(&cds, &codons);
         }
-        match self.read_changes(&cds, edits)? {
-            CodingOutcome::Statement(p) => Ok(Prediction::Statement(p)),
-            CodingOutcome::Change(reading) => {
-                let change = reading.describe()?;
-                // A silent change names the residues of the codons it touches
-                // unchanged, as a statement does: the two are one run.
-                if let (AaEdit::Identity { .. }, Some(pos), false) =
-                    (&change.posedit.edit, &change.posedit.pos, codons.is_empty())
-                {
-                    let index = |a: &crate::structs::AAPosition| a.base.to_index().0 as usize;
-                    let first = index(&pos.start);
-                    let end = pos.end.as_ref().map_or(first, index) + 1;
-                    let mut all = codons;
-                    all.push((first, end));
-                    return stated_only(&cds, &merged(all));
-                }
-                let beside = residues_beside(&change, &codons)
-                    .into_iter()
-                    .map(|c| cds.unchanged(c))
-                    .collect::<Result<_, _>>()?;
-                Ok(Prediction::Change { reading, beside })
+        let (reading, edits) = match self.read_changes(&cds, edits)? {
+            Changes::Statement(p) => return Ok(Prediction::Statement(p)),
+            Changes::Change { reading, edits } => (reading, edits),
+        };
+        let Some(described) = described_apart(&cds, &edits)? else {
+            return Ok(Prediction::Statement(
+                cds.statement(None, ProteinStatement::Unknown),
+            ));
+        };
+        let (silent, changes): (Vec<PVariant>, Vec<PVariant>) = described
+            .into_iter()
+            .filter(|p| p.posedit.pos.is_some())
+            .partition(is_silent);
+        if changes.is_empty() {
+            // A silent change names the residues of the codons it touches
+            // unchanged, as a statement does: the two are one run.
+            let mut all = codons;
+            all.extend(silent.iter().filter_map(named_residues));
+            if all.is_empty() {
+                let only = reading.describe()?;
+                return Ok(Prediction::Change {
+                    reading,
+                    changes: vec![only],
+                    beside: Vec::new(),
+                });
             }
+            return Ok(match stated_only(&cds, &merged(all))? {
+                Prediction::Stated(beside) => Prediction::Change {
+                    reading,
+                    changes: Vec::new(),
+                    beside,
+                },
+                other => other,
+            });
         }
+        let mut stated = codons;
+        stated.extend(silent.iter().filter_map(named_residues));
+        let beside = residues_beside(&changes, &merged(stated))
+            .into_iter()
+            .map(|c| cds.unchanged(c))
+            .collect::<Result<_, _>>()?;
+        Ok(Prediction::Change {
+            reading,
+            changes,
+            beside,
+        })
     }
 
     /// The reading on the transcript of the members not in an intron, which
@@ -326,12 +358,8 @@ impl VariantMapper<'_> {
     /// changes that leave the first codon makes the protein `p.?`. An edit
     /// past the stop codon enters the reading only where translation of the
     /// edited sequence reaches it.
-    fn read_changes(
-        &self,
-        cds: &Cds,
-        edits: Vec<ResolvedEdit>,
-    ) -> Result<CodingOutcome, HgvsError> {
-        let statement = |pos, s| Ok(CodingOutcome::Statement(cds.statement(pos, s)));
+    fn read_changes(&self, cds: &Cds, edits: Vec<ResolvedEdit>) -> Result<Changes, HgvsError> {
+        let statement = |pos, s| Ok(Changes::Statement(cds.statement(pos, s)));
         if edits
             .iter()
             .any(|e| e.start < cds.start && e.end >= cds.start + cds.len && e.alt.is_empty())
@@ -377,7 +405,7 @@ impl VariantMapper<'_> {
             };
             check_within_open_cds(&cds.cis.ac, &absolute, cds.start, cds.start + cds.len - 1)?;
         }
-        let reading = read_through(cds, &placed)?;
+        let (reading, read) = read_through(cds, &placed)?;
         if reading.runs_off() {
             return statement(None, ProteinStatement::Unknown);
         }
@@ -385,13 +413,28 @@ impl VariantMapper<'_> {
             let mut var_p = reading.describe()?;
             var_p.gene = cds.cis.gene.clone();
             var_p.posedit.predicted = true;
-            return Ok(CodingOutcome::Statement(var_p));
+            return Ok(Changes::Statement(var_p));
         }
         if upstream {
             return statement(None, ProteinStatement::Unknown);
         }
-        Ok(CodingOutcome::Change(reading))
+        Ok(Changes::Change {
+            reading,
+            edits: placed[..read].to_vec(),
+        })
     }
+}
+
+/// What the edits an allele makes predict together.
+enum Changes {
+    /// A statement about the whole protein: `p.?`, `p.(Met1?)`, `p.0?`, `p.(=)`.
+    Statement(PVariant),
+    /// The change the edits make, read together, and the edits, relative to
+    /// the first CDS base, that the reading holds.
+    Change {
+        reading: Reading,
+        edits: Vec<ResolvedEdit>,
+    },
 }
 
 /// The reading of the edits `placed`, relative to the first CDS base: those
@@ -407,20 +450,20 @@ impl VariantMapper<'_> {
 /// edits make, and is not predicted. The one exception is a frame those
 /// edits shift at the stop itself and the later edit restores: that is an
 /// extension, read in frame.
-fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<Reading, HgvsError> {
+fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<(Reading, usize), HgvsError> {
     let in_cds = placed.iter().take_while(|e| e.start < cds.len).count();
     if in_cds == 0 {
-        return Ok(Reading::new(cds.change(placed)));
+        return Ok((Reading::new(cds.change(placed)), placed.len()));
     }
     let early = Reading::new(cds.change(&placed[..in_cds]));
     let Some(late) = placed.get(in_cds) else {
-        return Ok(early);
+        return Ok((early, in_cds));
     };
     if early
         .translation_end()
         .is_some_and(|end| end <= late.start as i64)
     {
-        return Ok(early);
+        return Ok((early, in_cds));
     }
     let all = Reading::new(cds.change(placed));
     if all.in_frame() != early.in_frame() && (all.changes_before_stop() || !all.in_frame()) {
@@ -430,7 +473,7 @@ fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<Reading, HgvsError
             cds.cis
         )));
     }
-    Ok(all)
+    Ok((all, placed.len()))
 }
 
 /// Refuses an allele with a member no sequence can be built from: an
@@ -523,15 +566,12 @@ fn stated_only(cds: &Cds, codons: &[(usize, usize)]) -> Result<Prediction, HgvsE
         .map(Prediction::Stated)
 }
 
-/// The parts of the stated codon ranges `codons` that the predicted
-/// `change` leaves as they were: outside the residues it names, and before
-/// it when it shifts the frame or ends the protein, where every residue
-/// after its first is read anew or not at all. A change that names no
-/// residue, `p.(=)`, has nothing beside it.
-fn residues_beside(change: &PVariant, codons: &[(usize, usize)]) -> Vec<(usize, usize)> {
-    let Some(pos) = &change.posedit.pos else {
-        return Vec::new();
-    };
+/// The residues a described change names, as a 0-based half-open range:
+/// those its position names, and every residue after its first when it
+/// shifts the frame or ends the protein, since those are read anew or not at
+/// all. `None` for a description that names no residue, `p.(=)`.
+fn named_residues(change: &PVariant) -> Option<(usize, usize)> {
+    let pos = change.posedit.pos.as_ref()?;
     let index = |a: &crate::structs::AAPosition| a.base.to_index().0 as usize;
     let first = index(&pos.start);
     let ends_protein = match &change.posedit.edit {
@@ -539,15 +579,97 @@ fn residues_beside(change: &PVariant, codons: &[(usize, usize)]) -> Vec<(usize, 
         AaEdit::Subst { alt, .. } | AaEdit::DelIns { alt, .. } | AaEdit::Ins { alt, .. } => {
             alt.contains("Ter")
         }
+        AaEdit::Statement(_) => true,
         _ => false,
     };
-    let after = match ends_protein {
-        true => usize::MAX,
-        false => pos.end.as_ref().map_or(first, index) + 1,
+    Some(match ends_protein {
+        true => (first, usize::MAX),
+        false => (first, pos.end.as_ref().map_or(first, index) + 1),
+    })
+}
+
+/// The parts of the stated codon ranges `codons` that none of the predicted
+/// `changes` names.
+fn residues_beside(changes: &[PVariant], codons: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    let mut left: Vec<(usize, usize)> = codons.to_vec();
+    for (first, after) in changes.iter().filter_map(named_residues) {
+        left = left
+            .into_iter()
+            .flat_map(|(from, to)| [(from, to.min(first)), (from.max(after), to)])
+            .filter(|(from, to)| from < to)
+            .collect();
+    }
+    left
+}
+
+/// Whether a described change is silent: it names residues and leaves them
+/// as they are.
+fn is_silent(change: &PVariant) -> bool {
+    matches!(change.posedit.edit, AaEdit::Identity { .. }) && change.posedit.pos.is_some()
+}
+
+/// The edits `edits`, sorted and apart and relative to the first CDS base,
+/// grouped into the changes HGVS writes as separate members: a group ends
+/// where the frame is as the reference's and at least one codon between it
+/// and the next edit is untouched.
+fn groups(edits: &[ResolvedEdit]) -> Vec<Vec<ResolvedEdit>> {
+    let mut groups: Vec<Vec<ResolvedEdit>> = Vec::new();
+    let mut net: i64 = 0;
+    for e in edits {
+        let last_codon = groups
+            .last()
+            .and_then(|g| g.last())
+            .map(|l| (l.end.max(l.start + 1) - 1) / 3);
+        let apart = last_codon.is_some_and(|c| e.start / 3 > c + 1);
+        match groups.last_mut() {
+            Some(g) if !(apart && net % 3 == 0) => g.push(e.clone()),
+            _ => groups.push(vec![e.clone()]),
+        }
+        net += e.alt.len() as i64 - (e.end - e.start) as i64;
+    }
+    groups
+}
+
+/// The changes `edits` make, each group of them read on its own and
+/// described, as the members HGVS writes for changes in cis: a group that
+/// shifts the frame or ends the protein is read with every edit after it,
+/// since what follows is read anew, and groups whose descriptions meet are
+/// read as one. `None` when a group leaves no codon where its change
+/// starts, so that nothing can be said from there on.
+fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVariant>>, HgvsError> {
+    let describe = |group: &[ResolvedEdit]| {
+        let reading = Reading::new(cds.change(group));
+        match reading.runs_off() {
+            true => Ok(None),
+            false => reading.describe().map(Some),
+        }
     };
-    codons
-        .iter()
-        .flat_map(|&(from, to)| [(from, to.min(first)), (from.max(after), to)])
-        .filter(|(from, to)| from < to)
-        .collect()
+    let mut pending = groups(edits);
+    let mut described: Vec<(Vec<ResolvedEdit>, PVariant)> = Vec::new();
+    while !pending.is_empty() {
+        let mut group = pending.remove(0);
+        let Some(mut change) = describe(&group)? else {
+            return Ok(None);
+        };
+        if named_residues(&change).is_some_and(|(_, after)| after == usize::MAX) {
+            group.extend(pending.drain(..).flatten());
+            let Some(whole) = describe(&group)? else {
+                return Ok(None);
+            };
+            change = whole;
+        }
+        let meets = |previous: &PVariant| match (named_residues(previous), named_residues(&change))
+        {
+            (Some((_, after)), Some((first, _))) => first <= after,
+            _ => false,
+        };
+        if let Some((previous, _)) = described.pop_if(|(_, p)| meets(p)) {
+            let mut joined = previous;
+            joined.extend(group);
+            pending.insert(0, joined);
+            continue;
+        }
+        described.push((group, change));
+    }
+    Ok(Some(described.into_iter().map(|(_, p)| p).collect()))
 }

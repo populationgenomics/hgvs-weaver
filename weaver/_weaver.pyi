@@ -209,9 +209,10 @@ class VariantMapper:
 
         An allele in cis of c. members, c.[a;b], is predicted from the sequence
         its members make together, as one change: c.[4A>T;6A>T] predicts what
-        c.4_6delinsTAT does. Residues whose whole codon the allele states
-        unchanged, and the change leaves as they were, are written beside the
-        change as a predicted protein allele, p.[(Ala4=;Tyr5Asp)].
+        c.4_6delinsTAT does. Changes apart are written as the members of a
+        predicted protein allele, c.[4A>C;13T>G] as p.[(Lys2Gln;Tyr5Asp)], and
+        residues whose whole codon the allele states unchanged, and the
+        changes leave as they were, as members beside them, p.[(Ala4=;Tyr5Asp)].
 
         Args:
             var_c: The coding or RNA Variant to project, or an allele in cis of

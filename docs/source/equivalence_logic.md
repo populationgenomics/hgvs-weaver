@@ -67,8 +67,13 @@ judgement is that error. A one-member allele is its member, and its brackets are
 are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
 `c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members project to exactly.
 An allele with a member at an uncertain position, or a statement among several members, makes no one sequence; it is
-compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)), and protein alleles
-are compared member by member too.
+compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+
+A protein allele `p.[a;b]` is compared the same way, by what it leaves and what it states: the protein its changes
+leave, read as [single descriptions are](#the-protein-a-description-leaves), and the residues its statements name. So
+`p.[Lys2Gly;Leu3Val]` is `Analogous` with `p.Lys2_Leu3delinsGlyVal`, however the change is split between members, and
+`p.[Ala4=;Tyr5Asp]` is not `p.Tyr5Asp`. Members that reach for one residue are refused; an allele with a member that
+names no stretch of residues to replace (an uncertain range, `p.Met1?`, `p.?`) is compared member by member.
 
 ### Nucleotide against protein
 
