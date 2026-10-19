@@ -29,6 +29,10 @@ pub struct CodingChange {
     /// The edit, with `start` and `end` relative to `coding`.
     pub edit: ResolvedEdit,
     pub protein_ac: String,
+    /// Whether translation initiates at the first codon. Residue 1 is then
+    /// Met whatever the codon, and a change to the codon is `p.(Met1?)`;
+    /// otherwise the codon is read by the standard table, as any other is.
+    pub initiates: bool,
 }
 
 /// `seq` with `[start, end)` replaced by `insert`. Indices past the end clamp.
@@ -64,7 +68,8 @@ pub(crate) struct Reading {
     first_changed: usize,
     /// Whether the edit left the reference's own stop codon intact.
     stop_intact: bool,
-    /// Whether the edited sequence's first codon differs from the reference's.
+    /// Whether translation initiates at the first codon and the edited
+    /// sequence's first codon differs from the reference's.
     start_changed: bool,
 }
 
@@ -77,12 +82,13 @@ impl Reading {
         let alt_nt = splice(&change.coding, start, end, alt);
         let mut ref_aa: Vec<char> = translate(&change.coding).chars().collect();
         let mut alt_aa: Vec<char> = translate(&alt_nt).chars().collect();
-        // The annotated first codon is the initiator, Met whatever it is.
-        let start_changed = match (alt_nt.get(..3), change.coding.get(..3)) {
-            (Some(a), Some(r)) => !a.eq_ignore_ascii_case(r),
-            (a, r) => a != r,
-        };
-        if let Some(first) = ref_aa.first_mut() {
+        // An initiator is Met whatever its codon.
+        let start_changed = change.initiates
+            && match (alt_nt.get(..3), change.coding.get(..3)) {
+                (Some(a), Some(r)) => !a.eq_ignore_ascii_case(r),
+                (a, r) => a != r,
+            };
+        if let Some(first) = ref_aa.first_mut().filter(|_| change.initiates) {
             *first = 'M';
             if !start_changed {
                 alt_aa[0] = 'M';
@@ -419,12 +425,12 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
         if i >= ins.len() && t.ref_aa[i - ins.len()..i] == *ins {
             return out.duplication(i - ins.len(), i - 1);
         }
-        let before = i.checked_sub(1).ok_or_else(|| {
-            HgvsError::Other(
-                "residue 1 differs only where the start codon changed, which describe answers first"
-                    .into(),
-            )
-        })?;
+        // No residue precedes residue 1 to insert after, so residue 1 is
+        // replaced by the inserted residues and itself.
+        let Some(before) = i.checked_sub(1) else {
+            let with_first: Vec<char> = ins.iter().chain(&t.ref_aa[..1]).copied().collect();
+            return out.delins(0, 0, &with_first);
+        };
         return out.insertion(before, i, ins);
     }
     if del.len() == 1 && ins.len() == 1 {
@@ -635,6 +641,7 @@ mod tests {
             cds_len: cds.len(),
             edit: resolved,
             protein_ac: "NP".into(),
+            initiates: true,
         })
         .map(|v| v.to_string())
         .unwrap_or_else(|e| format!("ERR:{e}"))

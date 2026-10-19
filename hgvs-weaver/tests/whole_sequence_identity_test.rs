@@ -50,7 +50,7 @@ fn provider() -> Provider {
         ))
         .transcript(transcript("NR_W.1", "NC_W.1", Strand::Plus, None, exons()))
         .transcript(hgvs_weaver::data::TranscriptData {
-            cds_start_open: true,
+            cds_start: hgvs_weaver::data::CdsStart::Open,
             ..transcript("NM_OPEN.1", "NC_W.1", Strand::Plus, Some((5, 94)), exons())
         })
         .protein_for("NM_W.1", "NP_W.1")

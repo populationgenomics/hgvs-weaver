@@ -78,17 +78,26 @@ class TranscriptData(_TranscriptRecord, total=False):
     """Represents a full transcript model.
 
     Coordinates are 0-based:
-    - cds_start_index: inclusive index of the first base of the start codon.
+    - cds_start_index: inclusive index of the first base of the start codon, or
+      of the codon c.1 is numbered from where cds_start_initiates is False.
     - cds_end_index: inclusive index of the last base of the stop codon.
 
     A CDS that runs off an end of the record has no start or stop codon there;
     say so with cds_start_open or cds_end_open, and weaver refuses the positions
     numbered from that end rather than number them from a codon the record lacks.
     Both default to False.
+
+    cds_start_initiates, default True, says translation initiates at the codon
+    cds_start_index names, so residue 1 is Met whatever the codon. A coding
+    sequence numbered from a first codon translation does not initiate at, as
+    MAVE-HGVS numbers a target that is part of a protein, sets it False: codon 1
+    is then read by the standard table, as any other codon is. It cannot be
+    True on a CDS whose start is open.
     """
 
     cds_start_open: bool
     cds_end_open: bool
+    cds_start_initiates: bool
 
 
 class TranscriptSearch(Protocol):

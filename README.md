@@ -96,15 +96,16 @@ When implementing a `DataProvider`, you must provide coordinates in the followin
 
 - **Transcript Models**:
 
-  - `cds_start_index`: The 0-based inclusive index of the first base of the start codon (A of ATG) relative to the
-    transcript start.
+  - `cds_start_index`: The 0-based inclusive index of the first base of the start codon (A of ATG), or of the codon
+    `c.1` is numbered from where `cds_start_initiates` is false, relative to the transcript start.
   - `cds_end_index`: The 0-based inclusive index of the last base of the stop codon relative to the transcript start.
   - `cds_start_open`, `cds_end_open` (optional, default false): the CDS runs off that end of the record, so the index
     there is the first or last coding base the record carries, not a start or stop codon. weaver refuses to number a
     position from an open end, and predicts no protein consequence that depends on it.
-  - `cds_start_open`, `cds_end_open` (optional, default false): the CDS runs off that end of the record, so the index
-    there is the first or last coding base the record carries, not a start or stop codon. weaver refuses to number a
-    position from an open end, and predicts no protein consequence that depends on it.
+  - `cds_start_initiates` (optional, default true): translation initiates at the codon `cds_start_index` names, so
+    residue 1 is Met whatever the codon. False for a coding sequence numbered from a first codon translation does not
+    initiate at, as [MAVE-HGVS](https://www.mavedb.org/docs/mavehgvs/spec.html) numbers a target that is part of a
+    protein: codon 1 is then read by the standard table. It cannot be true where `cds_start_open` is, nor `null`.
   - **Exons**:
     - `transcript_start`: 0-based inclusive start index in the transcript.
     - `transcript_end`: 0-based **exclusive** end index in the transcript.

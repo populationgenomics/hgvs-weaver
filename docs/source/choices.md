@@ -171,8 +171,9 @@ Every choice has the same shape.
 | **Tests**                | The tests that assert it, as `file::function`. Files are under `hgvs-weaver/tests/` unless written as `src/…` (unit tests) or `tests/…py` (Python); property tests live in `hgvs-weaver/tests/properties/main.rs`.                                                                                                                          |
 
 The tools referred to: **biocommons** is the Python `hgvs` package weaver was originally a port of; **VariantValidator**
-is the web service; **ClinVar** is the descriptions in its variant summary; **VRS** is the GA4GH Variation
-Representation Specification 2.0.1.
+is the web service; **ClinVar** is the descriptions in its variant summary; **MaveDB** is the descriptions in its score
+sets of multiplexed assays, which have no column here and are named in the entries they bear on; **VRS** is the GA4GH
+Variation Representation Specification 2.0.1.
 
 ## At a glance
 
@@ -203,6 +204,7 @@ Representation Specification 2.0.1.
 | [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter)     |                           agrees                           |        –         |                –                |        –         |
 | [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |                           agrees                           |        –         |                –                | spelling differs |
 | [A change to the start codon is an unknown change from Met1](#a-change-to-the-start-codon-is-an-unknown-change-from-met1)           |                           agrees                           |      agrees      |             agrees              |     differs      |
+| [A first codon that does not initiate is read as any codon](#a-first-codon-that-does-not-initiate-is-read-as-any-codon)             |                           silent                           |        –         |                –                |        –         |
 | [Edits outside the CDS are statements](#edits-outside-the-cds-are-statements)                                                       | **differs** on a new upstream ATG; silent on no codon left |      agrees      |             differs             |     differs      |
 | [A prediction is bracketed as HGVS writes it](#a-prediction-is-bracketed-as-hgvs-writes-it)                                         |             agrees; **differs** in equivalence             |     differs      |                –                |        –         |
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |                           agrees                           |        –         |                –                |        –         |
@@ -1682,9 +1684,9 @@ toy c.10C>G            →  p.Leu4Val                      codon 4 is after the 
 
 ### The protein is read as its record writes it
 
-**The codon the record annotates as the CDS start is read as Met, whatever it is, and a selenocysteine `TGA` before the
-stop as Sec, so a predicted description names the residues the protein record has and the protein a coding change leaves
-is the record with the change made.**
+**The codon the record annotates as the start codon is read as Met, whatever it is, and a selenocysteine `TGA` before
+the stop as Sec, so a predicted description names the residues the protein record has and the protein a coding change
+leaves is the record with the change made.**
 
 Residue 1 is set by the initiator tRNA, Met-tRNAi, the only tRNA that can start translation, so the first residue of
 every protein is Met whichever codon it pairs with. Which codon is the start is a curated fact about each transcript,
@@ -1817,7 +1819,7 @@ c.4_6dup   →  p.Lys3dup
 
 ### A change to the start codon is an unknown change from Met1
 
-**A change that alters the first codon is `p.(Met1?)`, unless it deletes the whole CDS or leaves no codon to read:
+**A change that alters the start codon is `p.(Met1?)`, unless it deletes the whole CDS or leaves no codon to read:
 `c.1A>G` is `p.(Met1?)`, not `p.(Met1Val)`. Whether the first codon changed is read from the sequences, the edited
 transcript's first codon against the reference's, not from where the edit is written, save for the three cases listed
 below.**
@@ -1936,11 +1938,85 @@ parse NP_W.1:p.Met1?      →  the same, stated
   `statements_test::a_predicted_p_met1_unknown_parses_to_what_the_mapper_builds`,
   `::a_predicted_unknown_change_from_met1_prints_back_as_parsed`; `tests/test_api.py::test_c_to_p`.
 
+### A first codon that does not initiate is read as any codon
+
+**A transcript model whose CDS is numbered from a codon at which translation does not initiate says so, and codon 1 is
+then read by the standard table: residue 1 is the codon's own residue, and a change to it is a substitution, deletion,
+insertion or delins like a change to any other codon. Residue 1 is not read as Met, and a change to codon 1 is not
+`p.(Met1?)`. Frame and `c.` numbering are as for any CDS.**
+
+The two entries before this one take the annotation's word that translation starts at the first codon: residue 1 is Met
+whatever the codon, and a change to the codon is `p.(Met1?)`. A sequence assayed in a multiplexed experiment is often
+part of a protein, a domain or a stretch of residues, and MAVE-HGVS numbers its variants from the target's own first
+base: `c.1` is the first base of a codon in frame, and the protein numbered from it starts at that codon's residue.
+1,589 of the 2,001 DNA targets in MaveDB do not start `ATG`. Read with an initiator, a target starting `GAT` makes
+`c.1G>A` `p.(Met1?)` where MaveDB writes `p.Asp1Asn`, and every cis allele with a member in codon 1 collapses the same
+way.
+
+The provider says which case a CDS is with `cds_start_initiates`, true unless it says otherwise, so a provider that says
+nothing gets the initiator. A CDS open at its 5' end ([above](#an-open-cds-end-numbers-no-position)) is a different
+case: there the record lacks the start codon that numbering is defined from, so nothing is numbered; here the first
+codon is where numbering is defined to start, and only the initiator is missing. An open start that initiates says two
+contrary things, and the model is refused.
+
+Translation does not start at codon 1, so it reaches codon 1 from upstream, through bases the record may not carry and
+residues the protein record does not number. A change is placed on its 3'-most spelling, as from an initiator, and then:
+
+- an insertion just before `c.1` adds residues before residue 1, which has none before it to write the insertion after,
+  so residue 1 is replaced by the inserted residues and itself, `p.(Asp1delinsPheAsp)`; one of a length that is not a
+  multiple of three shifts the frame from residue 1. Every spelling of one insertion reads alike: `TTT` and `GGT` before
+  `GAT` are both read on the codons, though only the second has a 3'-most spelling inside codon 1. An insertion whose
+  bases are not spelled out, `c.-1_1ins(10)`, cannot be read on the codons, and is the unknown change from residue 1,
+  `p.(Asp1?)`;
+- any other change wholly before `c.1` changes residues the protein record does not number, if any, and is `p.?`;
+- a change from before `c.1` into codon 1 that does not leave the codon in place, `c.-1_2del` or `c.-1_4delinsN[10]`,
+  moves the base the numbering starts from, so what follows is not known: it is the unknown change from residue 1,
+  `p.(Asp1?)`, as `p.(Met1?)` is from an initiator.
+
+**Example** (`NM_FRAG.1` is the CDS `GAT GCT GAA CAA CCA CTT TCT GAA GCT TAA`, Asp Ala Glu Gln Pro Leu Ser Glu Ala,
+numbered from `GAT` without an initiator; `NM_INIT.1` is the same record with `GAT` its start codon; `NM_FRAGUTR.1` is
+`NM_FRAG.1` with two bases before `c.1`):
+
+```text
+NM_FRAG.1:c.1G>A                →  NP_FRAG.1:p.(Asp1Asn)
+NM_FRAG.1:c.1_3delinsTGG        →  NP_FRAG.1:p.(Asp1Trp)
+NM_FRAG.1:c.1_3del              →  NP_FRAG.1:p.(Asp1del)
+NM_FRAG.1:c.1_3dup              →  NP_FRAG.1:p.(Asp1dup)
+NM_FRAG.1:c.1del                →  NP_FRAG.1:p.(Asp1MetfsTer?)
+NM_FRAG.1:c.1_3=                →  NP_FRAG.1:p.(Asp1=)
+NM_FRAG.1:c.[1G>A;7G>C]         →  NP_FRAG.1:p.[(Asp1Asn;Glu3Gln)]
+NM_FRAG.1:c.1_3delinsGGTGAT     →  NP_FRAG.1:p.(Asp1delinsGlyAsp)    c.1_2insGTG, in the codon
+NM_FRAG.1:c.1_3delinsTTTGAT     →  NP_FRAG.1:p.(Asp1delinsPheAsp)    TTT before c.1
+NM_INIT.1:c.1G>A                →  NP_INIT.1:p.(Met1?)               the same bases, from an initiator
+NM_FRAGUTR.1:c.-1_1insTTT       →  NP_FRAGUTR.1:p.(Asp1delinsPheAsp)
+NM_FRAGUTR.1:c.-1_1insT         →  NP_FRAGUTR.1:p.(Asp1Ter)          T GAT GCT reads TGA
+NM_FRAGUTR.1:c.-1_1ins(10)      →  NP_FRAGUTR.1:p.(Asp1?)            bases not spelled out
+NM_FRAGUTR.1:c.-1G>T            →  NP_FRAGUTR.1:p.?
+NM_FRAGUTR.1:c.-1_2del          →  NP_FRAGUTR.1:p.(Asp1?)
+
+NM_FRAG.1:c.1G>A  against  NP_FRAG.1:p.Asp1Asn   →  Identity
+```
+
+- **Agrees:** MaveDB, on its DNA score sets whose target does not start `ATG`, served with `cds_start_initiates` false:
+  of the 717 single variants and 357,956 cis alleles with a member in codon 1 that read as `p.(Met1?)` with an
+  initiator, 656 and 351,516 agree. The rest differ in how MaveDB writes an allele, not in codon 1: a silent member as
+  `p.=` (61 and 6,090), a member repeated once per base changed (274), and members after a stop or merged into one
+  change (76).
+- **Others:** not checked.
+- **Spec (silent):** the HGVS nomenclature numbers from a start codon and does not describe a coding sequence without
+  one. [MAVE-HGVS](https://www.mavedb.org/docs/mavehgvs/spec.html) agrees: it numbers positions "relative to the target
+  sequence".
+- **Tests:** `cds_start_codon_test` (every row above; the key as a provider writes it, read back, and refused as `null`
+  or beside an open start); `tests/test_cds_start_initiates.py`.
+
 ### Edits outside the CDS are statements
 
-**A deletion of the whole CDS is `p.0?`; a change that starts in the 5'UTR and changes the first codon is `p.(Met1?)`;
+**A deletion of the whole CDS is `p.0?`; a change that starts in the 5'UTR and changes the start codon is `p.(Met1?)`;
 any other change that alters the 5'UTR is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon
 where the protein first changes is `p.?`.**
+
+A CDS numbered from a codon at which translation does not initiate reads the bases before it as its own entry says
+([a first codon that does not initiate](#a-first-codon-that-does-not-initiate-is-read-as-any-codon)).
 
 weaver does not commit to a consequence upstream: a 5'UTR change can create an upstream start, and weaver does not read
 the edited 5'UTR to find one, so it says it does not know. Downstream of the stop codon nothing can change the protein,

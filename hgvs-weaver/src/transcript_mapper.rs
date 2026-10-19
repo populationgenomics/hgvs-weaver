@@ -317,7 +317,7 @@ impl TranscriptMapper {
     /// numbered from a start or stop codon the record does not carry.
     pub fn check_anchor(&self, anchor: Anchor) -> Result<(), HgvsError> {
         let open = match anchor {
-            Anchor::CdsStart if self.transcript.cds_start_open => "5'",
+            Anchor::CdsStart if self.transcript.cds_start == crate::data::CdsStart::Open => "5'",
             Anchor::CdsEnd if self.transcript.cds_end_open => "3'",
             _ => return Ok(()),
         };
@@ -488,7 +488,7 @@ mod tests {
             gene: "TEST".to_string(),
             cds_start_index: None,
             cds_end_index: None,
-            cds_start_open: false,
+            cds_start: crate::data::CdsStart::Initiator,
             cds_end_open: false,
             strand,
             reference_accession: "NC_000001.1".to_string(),

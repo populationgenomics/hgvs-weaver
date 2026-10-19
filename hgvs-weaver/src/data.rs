@@ -59,22 +59,121 @@ pub struct ExonData {
     pub cigar: String,
 }
 
+/// What the codon at a transcript's `cds_start_index` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum CdsStart {
+    /// The start codon: translation initiates there, so residue 1 is Met
+    /// whatever the codon, and a change to the codon is `p.(Met1?)`.
+    #[default]
+    Initiator,
+    /// A codon inside the protein, from which the coding sequence is
+    /// numbered without translation initiating there: a target that is part
+    /// of a protein, as MAVE-HGVS numbers it. Residue 1 is the codon's own
+    /// residue, and a change to it is read as a change to any other codon is.
+    Internal,
+    /// The CDS runs off the transcript's 5' end: `cds_start_index` is the
+    /// first coding base the record carries, not the A of a start codon. No
+    /// position is numbered from the start codon, and no protein consequence
+    /// is predicted.
+    Open,
+}
+
+/// A transcript model as a provider writes it. `cds_start` is two optional
+/// keys, `cds_start_open` (default false) and `cds_start_initiates` (default
+/// true), and a start that is open and initiates is refused.
+#[derive(Serialize, Deserialize)]
+struct TranscriptRecord {
+    ac: String,
+    gene: String,
+    cds_start_index: Option<TranscriptPos>,
+    cds_end_index: Option<TranscriptPos>,
+    #[serde(default)]
+    cds_start_open: bool,
+    #[serde(
+        default,
+        deserialize_with = "present_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    cds_start_initiates: Option<bool>,
+    #[serde(default)]
+    cds_end_open: bool,
+    strand: Strand,
+    reference_accession: String,
+    exons: Vec<ExonData>,
+}
+
+/// A key that, when present, holds a boolean: `null` is refused, not read as absent.
+fn present_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
+}
+
+impl TryFrom<TranscriptRecord> for TranscriptData {
+    type Error = String;
+
+    fn try_from(r: TranscriptRecord) -> Result<Self, Self::Error> {
+        let cds_start = match (r.cds_start_open, r.cds_start_initiates) {
+            (true, Some(true)) => {
+                return Err(format!(
+                    "{}: cds_start_open and cds_start_initiates are both true, but a CDS that runs \
+                     off the record's 5' end has no codon there for translation to initiate at",
+                    r.ac
+                ))
+            }
+            (true, _) => CdsStart::Open,
+            (false, Some(false)) => CdsStart::Internal,
+            (false, _) => CdsStart::Initiator,
+        };
+        Ok(TranscriptData {
+            ac: r.ac,
+            gene: r.gene,
+            cds_start_index: r.cds_start_index,
+            cds_end_index: r.cds_end_index,
+            cds_start,
+            cds_end_open: r.cds_end_open,
+            strand: r.strand,
+            reference_accession: r.reference_accession,
+            exons: r.exons,
+        })
+    }
+}
+
+impl From<TranscriptData> for TranscriptRecord {
+    fn from(t: TranscriptData) -> Self {
+        let (cds_start_open, cds_start_initiates) = match t.cds_start {
+            CdsStart::Initiator => (false, None),
+            CdsStart::Internal => (false, Some(false)),
+            CdsStart::Open => (true, None),
+        };
+        TranscriptRecord {
+            ac: t.ac,
+            gene: t.gene,
+            cds_start_index: t.cds_start_index,
+            cds_end_index: t.cds_end_index,
+            cds_start_open,
+            cds_start_initiates,
+            cds_end_open: t.cds_end_open,
+            strand: t.strand,
+            reference_accession: t.reference_accession,
+            exons: t.exons,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "TranscriptRecord", into = "TranscriptRecord")]
 pub struct TranscriptData {
     pub ac: String,
     pub gene: String,
     pub cds_start_index: Option<TranscriptPos>,
     pub cds_end_index: Option<TranscriptPos>,
-    /// The CDS runs off the transcript's 5' end: `cds_start_index` is the first
-    /// coding base the record carries, not the A of a start codon. No position
-    /// is numbered from the start codon, and no protein consequence is predicted.
-    #[serde(default)]
-    pub cds_start_open: bool,
+    /// What the codon at `cds_start_index` is: the start codon, a codon
+    /// inside the protein, or a codon past a 5' end the CDS runs off.
+    pub cds_start: CdsStart,
     /// The CDS runs off the transcript's 3' end: `cds_end_index` is the last
     /// coding base the record carries, not the last base of a stop codon. No
     /// position is numbered from the stop codon, and only an in-frame change
     /// wholly inside the coding bases the record carries has a protein consequence.
-    #[serde(default)]
     pub cds_end_open: bool,
     pub strand: Strand,
     pub reference_accession: String,
