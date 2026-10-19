@@ -273,7 +273,7 @@ impl Gene {
             gene: "PROP".into(),
             cds_start_index: Some(hgvs_weaver::coords::TranscriptPos(self.cds_start as i32)),
             cds_end_index: Some(hgvs_weaver::coords::TranscriptPos(self.cds_end as i32)),
-            cds_start_open: false,
+            cds_start: hgvs_weaver::data::CdsStart::Initiator,
             cds_end_open: false,
             strand: self.strand,
             reference_accession: self.reference_ac.clone(),

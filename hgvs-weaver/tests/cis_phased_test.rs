@@ -2373,7 +2373,7 @@ fn protein_provider() -> Provider {
         .protein_for("NM_U.1", "NP_U.1")
         .sequence("NM_O.1", &transcript)
         .transcript(TranscriptData {
-            cds_start_open: true,
+            cds_start: hgvs_weaver::data::CdsStart::Open,
             ..on("NM_O.1", "NC_X.1", Strand::Plus)
         })
         .protein_for("NM_O.1", "NP_X.1")

@@ -974,19 +974,27 @@ pub(crate) fn whole_codons(first: i64, end: i64, codons: i64) -> Option<(usize, 
 }
 
 /// The reference residues of a CDS, named as the protein record writes them:
-/// the annotated first codon as Met whatever it is, and a stop codon before
-/// the reference's stop as Sec.
+/// an initiator as Met whatever its codon, and a stop codon before the
+/// reference's stop as Sec.
 pub(crate) struct CdsResidues<'s> {
     ac: &'s str,
     ref_seq: &'s str,
     cds_start: usize,
     stop: usize,
+    initiates: bool,
 }
 
 impl<'s> CdsResidues<'s> {
     /// The residues of the CDS of `ref_seq`, the sequence of the transcript
-    /// `ac`, that starts at `cds_start` and is `cds_len` bases long.
-    pub(crate) fn new(ac: &'s str, ref_seq: &'s str, cds_start: usize, cds_len: usize) -> Self {
+    /// `ac`, that starts at `cds_start` and is `cds_len` bases long, and at
+    /// whose first codon translation `initiates` or not.
+    pub(crate) fn new(
+        ac: &'s str,
+        ref_seq: &'s str,
+        cds_start: usize,
+        cds_len: usize,
+        initiates: bool,
+    ) -> Self {
         let translated: Vec<char> = crate::utils::translate(&ref_seq[cds_start..])
             .chars()
             .collect();
@@ -995,7 +1003,21 @@ impl<'s> CdsResidues<'s> {
             ref_seq,
             cds_start,
             stop: crate::protein::reference_stop(&translated, cds_len),
+            initiates,
         }
+    }
+
+    /// Residue 1, as the unknown change from it names it: `p.(Met1?)` from
+    /// an initiator.
+    pub(crate) fn first(&self) -> Result<crate::structs::AaInterval, HgvsError> {
+        if self.initiates {
+            return Ok(crate::protein::met1());
+        }
+        Ok(crate::structs::AaInterval {
+            start: self.residue(0)?,
+            end: None,
+            uncertain: false,
+        })
     }
 
     /// The residue whose codon is the `codon`th, from 0.
@@ -1006,7 +1028,7 @@ impl<'s> CdsResidues<'s> {
             .get(at..at + 3)
             .map(crate::utils::translate_codon)
         {
-            Some(_) if codon == 0 => Some('M'),
+            Some(_) if codon == 0 && self.initiates => Some('M'),
             Some(Some('*')) if codon < self.stop => Some('U'),
             Some(aa) => aa,
             None => None,
@@ -1095,14 +1117,17 @@ pub(crate) fn predicted_statement(
 /// out, read by where it is written, or an edit entirely in the 3'UTR, which
 /// cannot change the protein. `None` when the edit is to be read on the
 /// sequence; one that starts in the 5'UTR is [placed](place_on_coding) there
-/// first.
+/// first. `first` names residue 1, for an unknown change from it.
 fn statement_about_transcript(
     var_c: &CVariant,
     transcript: &TranscriptData,
     protein_ac: &str,
-) -> Option<PVariant> {
+    first: impl FnOnce() -> Result<crate::structs::AaInterval, HgvsError>,
+) -> Result<Option<PVariant>, HgvsError> {
     use crate::structs::{AaInterval, ProteinStatement};
-    let pos = var_c.posedit.pos.as_ref()?;
+    let Some(pos) = var_c.posedit.pos.as_ref() else {
+        return Ok(None);
+    };
     let statement = |pos: Option<AaInterval>, statement: ProteinStatement| {
         predicted_statement(var_c.gene.clone(), protein_ac, pos, statement)
     };
@@ -1111,7 +1136,7 @@ fn statement_about_transcript(
     let in_5_utr = pos.start.anchor == Anchor::CdsStart && pos.start.base.0 < 0;
     let intronic = has_intronic_offset(pos);
     if !(intronic || in_3_utr || in_5_utr) {
-        return None;
+        return Ok(None);
     }
     let cds_len = transcript
         .cds_start_index
@@ -1123,17 +1148,17 @@ fn statement_about_transcript(
             || (e.anchor == Anchor::CdsStart && cds_len.is_some_and(|n| e.base.0 >= n))
     });
     if intronic {
-        return Some(statement(None, ProteinStatement::Unknown));
+        return Ok(Some(statement(None, ProteinStatement::Unknown)));
     }
     if in_3_utr {
-        return Some(statement(None, ProteinStatement::Unchanged));
+        return Ok(Some(statement(None, ProteinStatement::Unchanged)));
     }
     use crate::edits::NaEdit;
     if matches!(var_c.posedit.edit, NaEdit::Del { .. }) && covers_cds {
-        return Some(statement(
+        return Ok(Some(statement(
             None,
             ProteinStatement::NoProtein { uncertain: true },
-        ));
+        )));
     }
     // Bases the edit does not spell out cannot be placed: it lies where it
     // is written.
@@ -1146,10 +1171,13 @@ fn statement_about_transcript(
             | NaEdit::Ins { alt: None, .. }
     ) || matches!(var_c.posedit.edit, NaEdit::Repeat { min, max, .. } if min != max);
     let reaches_cds = end.is_some_and(|e| e.anchor == Anchor::CdsEnd || e.base.0 > 0);
-    unspelled.then(|| match reaches_cds {
-        true => statement(Some(crate::protein::met1()), ProteinStatement::Unknown),
+    if !unspelled {
+        return Ok(None);
+    }
+    Ok(Some(match reaches_cds {
+        true => statement(Some(first()?), ProteinStatement::Unknown),
         false => statement(None, ProteinStatement::Unknown),
-    })
+    }))
 }
 
 /// Where the change an edit makes to a transcript lies relative to the CDS:
@@ -1173,11 +1201,15 @@ pub(crate) enum Placement {
 /// base of the CDS is kept as written. One starting at it is kept too, unless
 /// its 3'-most spelling lies wholly upstream; one starting in the 5'UTR
 /// becomes its 3'-most spelling. An edit that changes nothing has no
-/// spelling to move to, and lies where it is written.
+/// spelling to move to, and lies where it is written. Where translation
+/// does not `initiate` at the first codon it reaches that codon from
+/// upstream, so an insertion just before the CDS adds residues before
+/// residue 1 and lies in the CDS.
 pub(crate) fn place_on_coding(
     ref_seq: &str,
     edit: crate::edits::ResolvedEdit,
     cds_start: usize,
+    initiates: bool,
 ) -> Placement {
     if edit.start > cds_start {
         return Placement::Cds(edit);
@@ -1208,7 +1240,14 @@ pub(crate) fn place_on_coding(
         .count()
         .min(r.len().min(a.len()) - prefix);
     let end = r.len() - suffix;
-    if end <= cds_start {
+    if !initiates && prefix == cds_start && end == cds_start {
+        Placement::Cds(crate::edits::ResolvedEdit {
+            start: cds_start,
+            end: cds_start,
+            ref_: String::new(),
+            alt: edited[prefix..a.len() - suffix].to_string(),
+        })
+    } else if end <= cds_start {
         Placement::FivePrimeUtr
     } else if edit.start >= cds_start {
         Placement::Cds(edit)
@@ -2535,7 +2574,7 @@ impl<'a> VariantMapper<'a> {
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
         let am = TranscriptMapper::new(self.provider().get_transcript(&var_c.ac, None)?)?;
         let transcript = &am.transcript;
-        if transcript.cds_start_open {
+        if transcript.cds_start == crate::data::CdsStart::Open {
             return Err(HgvsError::ValidationError(format!(
                 "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \
                  consequence can be predicted",
@@ -2548,21 +2587,41 @@ impl<'a> VariantMapper<'a> {
                 self.identity_prediction(var_c, transcript, protein_ac)?,
             ));
         }
-        if let Some(statement) = statement_about_transcript(var_c, transcript, &protein_ac) {
+        let record = self
+            .refs
+            .reference(&var_c.ac, IdentifierType::TranscriptAccession);
+        let initiates = transcript.cds_start == crate::data::CdsStart::Initiator;
+        // Residue 1, for the unknown change from it.
+        let first = || -> Result<crate::structs::AaInterval, HgvsError> {
+            // An initiator is Met1 without reading the record.
+            if initiates {
+                return Ok(crate::protein::met1());
+            }
+            let ref_seq = record.whole()?;
+            let (cds_start, cds_end) = cds_bounds(transcript, ref_seq.len())?;
+            CdsResidues::new(
+                &var_c.ac,
+                &ref_seq,
+                cds_start,
+                cds_end + 1 - cds_start,
+                initiates,
+            )
+            .first()
+        };
+        if let Some(statement) = statement_about_transcript(var_c, transcript, &protein_ac, first)?
+        {
             // A statement reads no codon, but the positions the edit names
             // and the bases it states must still be there.
             self.check_transcript_stated_on(var_c, &am)?;
             return Ok(CodingOutcome::Statement(statement));
         }
-        let record = self
-            .refs
-            .reference(&var_c.ac, IdentifierType::TranscriptAccession);
         let ref_seq = record.whole()?;
         let (cds_start, cds_end) = cds_bounds(transcript, ref_seq.len())?;
         let resolved = match place_on_coding(
             &ref_seq,
             resolve_in_transcript(var_c, &am, &record)?,
             cds_start,
+            initiates,
         ) {
             Placement::Cds(edit) => edit,
             Placement::FivePrimeUtr => {
@@ -2577,7 +2636,7 @@ impl<'a> VariantMapper<'a> {
                 return Ok(CodingOutcome::Statement(predicted_statement(
                     var_c.gene.clone(),
                     &protein_ac,
-                    Some(crate::protein::met1()),
+                    Some(first()?),
                     crate::structs::ProteinStatement::Unknown,
                 )))
             }
@@ -2600,6 +2659,7 @@ impl<'a> VariantMapper<'a> {
                 alt: resolved.alt,
             },
             protein_ac,
+            initiates,
         };
         let reading = crate::protein::Reading::new(change);
         if reading.runs_off() {
@@ -2662,12 +2722,14 @@ impl<'a> VariantMapper<'a> {
                 ProteinStatement::Unchanged,
             ));
         }
-        CdsResidues::new(&var_c.ac, &ref_seq, cds_start, cds_len as usize).unchanged(
-            protein_ac,
-            var_c.gene.clone(),
-            from,
-            to,
+        CdsResidues::new(
+            &var_c.ac,
+            &ref_seq,
+            cds_start,
+            cds_len as usize,
+            transcript.cds_start == crate::data::CdsStart::Initiator,
         )
+        .unchanged(protein_ac, var_c.gene.clone(), from, to)
     }
 
     /// `p.(=)` for `c.=`: the whole transcript unchanged predicts the protein

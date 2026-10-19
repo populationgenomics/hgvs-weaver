@@ -4,7 +4,7 @@
 
 mod support;
 
-use hgvs_weaver::data::{Strand, TranscriptData};
+use hgvs_weaver::data::{CdsStart, Strand, TranscriptData};
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::SequenceVariant;
@@ -43,7 +43,9 @@ fn provider() -> Provider {
             Some((2, 31)),
             vec![exon((0, 43), (0, 42), Strand::Plus)],
         );
-        model.cds_start_open = start_open;
+        if start_open {
+            model.cds_start = CdsStart::Open;
+        }
         model.cds_end_open = end_open;
         provider = provider
             .sequence(ac, &record)
@@ -310,5 +312,5 @@ fn a_provider_that_says_nothing_about_open_ends_means_both_are_whole() {
         r#"{"ac":"NM_X.1","gene":"X","cds_start_index":2,"cds_end_index":31,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,
     )
     .unwrap();
-    assert!(!model.cds_start_open && !model.cds_end_open);
+    assert!(model.cds_start == CdsStart::Initiator && !model.cds_end_open);
 }

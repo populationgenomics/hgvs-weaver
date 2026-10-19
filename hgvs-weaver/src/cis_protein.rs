@@ -49,6 +49,8 @@ struct Cds<'c> {
     /// Bases from the first CDS base through the stop codon.
     len: usize,
     end_open: bool,
+    /// Whether translation initiates at the first codon.
+    initiates: bool,
 }
 
 impl Cds<'_> {
@@ -57,7 +59,13 @@ impl Cds<'_> {
     }
 
     fn residues(&self) -> CdsResidues<'_> {
-        CdsResidues::new(&self.cis.ac, &self.ref_seq, self.start, self.len)
+        CdsResidues::new(
+            &self.cis.ac,
+            &self.ref_seq,
+            self.start,
+            self.len,
+            self.initiates,
+        )
     }
 
     /// The prediction that the residues of the codons `[from, to)` are unchanged.
@@ -74,6 +82,7 @@ impl Cds<'_> {
             cds_len: self.len,
             edit: combined(coding, edits),
             protein_ac: self.protein_ac.clone(),
+            initiates: self.initiates,
         }
     }
 }
@@ -201,7 +210,7 @@ impl VariantMapper<'_> {
     ) -> Result<Prediction, HgvsError> {
         let protein_ac = self.protein_accession(&cis.ac, protein_ac)?;
         let transcript = self.provider().get_transcript(&cis.ac, None)?;
-        if transcript.cds_start_open {
+        if transcript.cds_start == crate::data::CdsStart::Open {
             return Err(HgvsError::ValidationError(format!(
                 "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \
                  consequence can be predicted",
@@ -222,6 +231,7 @@ impl VariantMapper<'_> {
             start,
             len: end + 1 - start,
             end_open: transcript.cds_end_open,
+            initiates: transcript.cds_start == crate::data::CdsStart::Initiator,
         };
         let coding: Vec<&CVariant> = cis
             .members
@@ -354,7 +364,7 @@ impl VariantMapper<'_> {
     /// What the edits an allele makes on its transcript, sorted and apart,
     /// predict together: each placed on its 3'-most spelling as a single
     /// change is, then the ones in the CDS read as one change. A change to
-    /// the first codon is `p.(Met1?)`, and one wholly in the 5'UTR beside
+    /// an initiator is `p.(Met1?)`, and one wholly in the 5'UTR beside
     /// changes that leave the first codon makes the protein `p.?`. An edit
     /// past the stop codon enters the reading only where translation of the
     /// edited sequence reaches it.
@@ -369,9 +379,9 @@ impl VariantMapper<'_> {
         let mut upstream = false;
         let mut placed: Vec<ResolvedEdit> = Vec::new();
         for edit in edits {
-            match place_on_coding(&cds.ref_seq, edit, cds.start) {
+            match place_on_coding(&cds.ref_seq, edit, cds.start, cds.initiates) {
                 Placement::AcrossStart => {
-                    return statement(Some(crate::protein::met1()), ProteinStatement::Unknown)
+                    return statement(Some(cds.residues().first()?), ProteinStatement::Unknown)
                 }
                 Placement::FivePrimeUtr => upstream = true,
                 Placement::Cds(e) => placed.push(ResolvedEdit {
