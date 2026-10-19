@@ -7,6 +7,7 @@ use std::num::NonZeroU32;
 /// Nucleic acid edits (substitutions, deletions, insertions, etc.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum NaEdit {
     /// Substitution, deletion, or insertion represented by reference and alternate sequences.
     RefAlt {
@@ -108,6 +109,7 @@ impl NaEdit {
 /// Amino acid edits (substitutions, frameshifts, extensions, etc.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum AaEdit {
     /// Simple substitution.
     Subst {

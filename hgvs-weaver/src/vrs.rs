@@ -741,6 +741,7 @@ impl VrsCisPhasedBlock {
 /// or loss without a count, a `CisPhasedBlock` for alleles in cis. The JSON
 /// `type` tells them apart.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VrsVariation {
     Allele(VrsAllele),
     CopyNumberCount(VrsCopyNumberCount),

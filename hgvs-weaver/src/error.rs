@@ -14,6 +14,7 @@ use crate::coords::SequenceVariant;
 
 /// Error types for HGVS operations.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum HgvsError {
     /// Failure during parsing of an HGVS string or CIGAR string.
     PestError(String),
