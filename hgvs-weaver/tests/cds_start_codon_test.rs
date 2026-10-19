@@ -4,9 +4,12 @@
 
 mod support;
 
+use hgvs_weaver::coords::TranscriptPos;
 use hgvs_weaver::data::{CdsStart, Strand, TranscriptData};
+use hgvs_weaver::edits::ResolvedEdit;
 use hgvs_weaver::equivalence::EquivalenceLevel;
 use hgvs_weaver::mapper::VariantMapper;
+use hgvs_weaver::protein::{describe, CodingChange};
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant, VariantEquivalence};
 use support::{exon, transcript, Provider};
 
@@ -312,4 +315,69 @@ fn a_model_whose_first_codon_does_not_initiate_reads_back_as_written() {
     let again: TranscriptData =
         serde_json::from_str(&serde_json::to_string(&model).unwrap()).unwrap();
     assert_eq!(again.cds_start, CdsStart::Internal);
+}
+
+/// `model` as a provider's dict would give it.
+fn as_dict(model: &TranscriptData) -> serde_json::Value {
+    serde_json::to_value(model).unwrap()
+}
+
+#[test]
+fn a_model_built_in_rust_is_the_model_a_dict_without_the_optional_keys_gives() {
+    let built = TranscriptData::new(
+        "NM_X.1",
+        "X",
+        Some(TranscriptPos(0)),
+        Some(TranscriptPos(29)),
+        Strand::Plus,
+        GENOME_AC,
+        vec![],
+    );
+    let read: TranscriptData = serde_json::from_str(
+        r#"{"ac":"NM_X.1","gene":"X","cds_start_index":0,"cds_end_index":29,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(as_dict(&built), as_dict(&read));
+}
+
+#[test]
+fn a_model_built_in_rust_with_an_internal_start_is_one_whose_first_codon_does_not_initiate() {
+    let built = TranscriptData::new(
+        "NM_X.1",
+        "X",
+        Some(TranscriptPos(0)),
+        Some(TranscriptPos(29)),
+        Strand::Plus,
+        GENOME_AC,
+        vec![],
+    )
+    .with_cds_start(CdsStart::Internal);
+    let read: TranscriptData = serde_json::from_str(
+        r#"{"ac":"NM_X.1","gene":"X","cds_start_index":0,"cds_end_index":29,"cds_start_initiates":false,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(as_dict(&built), as_dict(&read));
+}
+
+/// Codon 1 of [`CDS`], GAT, changed to AAT.
+fn codon_1_changed() -> ResolvedEdit {
+    ResolvedEdit {
+        start: 0,
+        end: 1,
+        ref_: "G".into(),
+        alt: "A".into(),
+    }
+}
+
+#[test]
+fn a_coding_change_built_in_rust_initiates_at_its_first_codon() {
+    let change = CodingChange::new(CDS, CDS.len(), codon_1_changed(), "NP_X.1");
+    assert_eq!(describe(&change).unwrap().to_string(), "NP_X.1:p.Met1?");
+}
+
+#[test]
+fn a_coding_change_built_in_rust_that_does_not_initiate_reads_codon_1_by_the_table() {
+    let change =
+        CodingChange::new(CDS, CDS.len(), codon_1_changed(), "NP_X.1").with_initiates(false);
+    assert_eq!(describe(&change).unwrap().to_string(), "NP_X.1:p.Asp1Asn");
 }

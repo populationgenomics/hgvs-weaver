@@ -1,13 +1,12 @@
 //! Copy-number edits, `g.1000_2000copy3`, rendered as VRS `CopyNumberCount`
 //! objects and read back.
 
-use hgvs_weaver::allele::CanonicalAllele;
 use hgvs_weaver::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::vrs::VrsBound::{Exact, Range};
-use hgvs_weaver::vrs::{VrsAllele, VrsMolecule, VrsVariation};
+use hgvs_weaver::vrs::VrsVariation;
 
 const GENOME: &str = "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
 
@@ -82,19 +81,12 @@ fn the_location_is_the_one_an_allele_over_the_same_range_has() {
     let mapper = VariantMapper::new(&hdp);
     let var = parse_hgvs_variant("NC_TEST.1:g.5_12copy3").unwrap();
     let count = mapper.to_vrs_copy_number(&var).unwrap();
-    let allele = VrsAllele::new(
-        &CanonicalAllele {
-            accession: "NC_TEST.1".into(),
-            start: 4,
-            end: 12,
-            reference: GENOME[4..12].into(),
-            alternate: String::new(),
-            repeat_subunit: None,
-        },
-        &count.location.sequence_reference.refget_accession,
-        VrsMolecule::Genomic,
-        None,
-    );
+    // GENOME[4..12] is ACGTACGT: no base of CCCCCCCA matches at either end,
+    // so the allele stays over [4, 12).
+    let delins = parse_hgvs_variant("NC_TEST.1:g.5_12delinsCCCCCCCA").unwrap();
+    let VrsVariation::Allele(allele) = mapper.to_vrs_variation(&delins).unwrap() else {
+        panic!("not an Allele");
+    };
     assert_eq!(count.location.id, allele.location.id);
     assert_eq!(count.location, allele.location);
 }

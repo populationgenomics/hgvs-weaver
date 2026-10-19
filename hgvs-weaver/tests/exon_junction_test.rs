@@ -3,6 +3,7 @@
 
 mod support;
 
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{ExonData, Strand};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
@@ -74,10 +75,14 @@ fn plus() -> Provider {
             Strand::Plus,
             None,
             vec![
-                ExonData {
-                    cigar: "3=1D1=".to_string(),
-                    ..exon((0, 4), (15, 19), Strand::Plus)
-                },
+                ExonData::new(
+                    TranscriptPos(0),
+                    TranscriptPos(4),
+                    GenomicPos(15),
+                    GenomicPos(19),
+                    Strand::Plus,
+                    "3=1D1=",
+                ),
                 exon((4, 16), (30, 41), Strand::Plus),
             ],
         ))
@@ -88,10 +93,14 @@ fn plus() -> Provider {
             Strand::Plus,
             None,
             vec![
-                ExonData {
-                    cigar: "4=1I1=".to_string(),
-                    ..exon((0, 6), (15, 19), Strand::Plus)
-                },
+                ExonData::new(
+                    TranscriptPos(0),
+                    TranscriptPos(6),
+                    GenomicPos(15),
+                    GenomicPos(19),
+                    Strand::Plus,
+                    "4=1I1=",
+                ),
                 exon((6, 18), (30, 41), Strand::Plus),
             ],
         ))

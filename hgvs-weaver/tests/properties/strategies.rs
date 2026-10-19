@@ -235,14 +235,14 @@ pub fn gene() -> impl Strategy<Value = Gene> {
                         genome.push_str(piece);
                     }
                     let g_end = genome.len() - 1;
-                    exons.push(ExonData {
-                        transcript_start: hgvs_weaver::coords::TranscriptPos(ts as i32),
-                        transcript_end: hgvs_weaver::coords::TranscriptPos(te as i32),
-                        reference_start: hgvs_weaver::coords::GenomicPos(g_start as i32),
-                        reference_end: hgvs_weaver::coords::GenomicPos(g_end as i32),
-                        alt_strand: strand,
-                        cigar: format!("{}M", te - ts),
-                    });
+                    exons.push(ExonData::new(
+                        hgvs_weaver::coords::TranscriptPos(ts as i32),
+                        hgvs_weaver::coords::TranscriptPos(te as i32),
+                        hgvs_weaver::coords::GenomicPos(g_start as i32),
+                        hgvs_weaver::coords::GenomicPos(g_end as i32),
+                        strand,
+                        format!("{}M", te - ts),
+                    ));
                     if k + 1 < order.len() {
                         // the intron following this exon in genomic order
                         let intron_index = if minus { order[k + 1] } else { ei };
@@ -268,17 +268,15 @@ pub fn gene() -> impl Strategy<Value = Gene> {
 
 impl Gene {
     pub fn transcript_data(&self) -> TranscriptData {
-        TranscriptData {
-            ac: self.ac.clone(),
-            gene: "PROP".into(),
-            cds_start_index: Some(hgvs_weaver::coords::TranscriptPos(self.cds_start as i32)),
-            cds_end_index: Some(hgvs_weaver::coords::TranscriptPos(self.cds_end as i32)),
-            cds_start: hgvs_weaver::data::CdsStart::Initiator,
-            cds_end_open: false,
-            strand: self.strand,
-            reference_accession: self.reference_ac.clone(),
-            exons: self.exons.clone(),
-        }
+        TranscriptData::new(
+            self.ac.clone(),
+            "PROP",
+            Some(hgvs_weaver::coords::TranscriptPos(self.cds_start as i32)),
+            Some(hgvs_weaver::coords::TranscriptPos(self.cds_end as i32)),
+            self.strand,
+            self.reference_ac.clone(),
+            self.exons.clone(),
+        )
     }
     /// The gene's transcript, genome and protein, served by one provider.
     pub fn provider(&self) -> Provider {

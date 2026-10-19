@@ -1069,6 +1069,7 @@ impl<'s> CdsResidues<'s> {
 /// The protein a coding variant leaves, as
 /// [`VariantMapper::predicted_protein`] reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PredictedProtein {
     /// The residues in 1-letter code, to the stop or to the end of the
     /// edited transcript.
@@ -1649,6 +1650,7 @@ fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
 }
 
 /// High-level mapper for transforming variants between coordinate systems.
+#[non_exhaustive]
 pub struct VariantMapper<'a> {
     /// Cached, random-access view of every sequence the provider serves; the
     /// provider itself is behind it.

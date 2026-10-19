@@ -461,6 +461,7 @@ checked_na_variant!(RVariant, BaseOffsetInterval, "r");
 /// Represents a genomic variant (g.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<SimpleInterval>")]
+#[non_exhaustive]
 pub struct GVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -472,6 +473,7 @@ impl_linear_variant!(GVariant);
 /// Represents a coding cDNA variant (c.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
+#[non_exhaustive]
 pub struct CVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -483,6 +485,7 @@ impl_transcript_variant!(CVariant, Anchor::CdsStart, coding_position_from_index)
 /// Represents a protein variant (p.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "PVariantFields")]
+#[non_exhaustive]
 pub struct PVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -493,6 +496,7 @@ impl_variant!(PVariant, "p");
 /// Represents a mitochondrial variant (m.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<SimpleInterval>")]
+#[non_exhaustive]
 pub struct MVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -504,6 +508,7 @@ impl_linear_variant!(MVariant);
 /// Represents a non-coding transcript variant (n.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
+#[non_exhaustive]
 pub struct NVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -519,6 +524,7 @@ impl_transcript_variant!(
 /// Represents an RNA variant (r.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
+#[non_exhaustive]
 pub struct RVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -532,6 +538,7 @@ impl_variant!(RVariant, "r");
 /// `c.[145C>T];[147C>G]`, describes two molecules and is not a variant.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CisPhasedFields")]
+#[non_exhaustive]
 pub struct CisPhasedVariant {
     pub ac: String,
     pub gene: Option<String>,
@@ -618,6 +625,7 @@ impl Variant for CisPhasedVariant {
 
 /// Combines an interval and an edit (e.g., `123A>G`).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PosEdit<I, E> {
     /// The location of the variant.
     pub pos: Option<I>,
@@ -785,6 +793,7 @@ pub fn strip_common_prefix_suffix(
 
 /// An interval spanning simple genomic or mitochondrial coordinates.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SimpleInterval {
     pub start: SimplePosition,
     pub end: Option<SimplePosition>,
@@ -810,6 +819,7 @@ impl SimpleInterval {
 /// A position in genomic or mitochondrial coordinates: a base, or with `end`
 /// the range `(base_end)` it lies somewhere in.
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SimplePosition {
     pub base: GenomicBound,
     pub end: Option<GenomicBound>,
@@ -827,6 +837,7 @@ impl SimplePosition {
 
 /// An interval spanning cDNA, n. or r. coordinates.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BaseOffsetInterval {
     pub start: BaseOffsetPosition,
     pub end: Option<BaseOffsetPosition>,
@@ -859,6 +870,7 @@ impl BaseOffsetInterval {
 
 /// A position in cDNA, n. or r. coordinates.
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BaseOffsetPosition {
     pub base: HgvsTranscriptPos,
     pub offset: Option<IntronicOffset>,
@@ -883,6 +895,7 @@ impl BaseOffsetPosition {
 
 /// An interval spanning amino acid positions.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AaInterval {
     pub start: AAPosition,
     pub end: Option<AAPosition>,
@@ -902,6 +915,7 @@ impl AaInterval {
 /// interval's, `p.(Arg2_Gly5)`; a residue alone is never uncertain.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "AAPositionFields")]
+#[non_exhaustive]
 pub struct AAPosition {
     pub base: HgvsProteinPos,
     pub aa: String,

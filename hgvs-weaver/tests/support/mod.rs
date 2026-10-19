@@ -112,14 +112,14 @@ pub fn identifier_type_from_prefix(ac: &str) -> IdentifierType {
 /// An exon aligning transcript indices `[transcript.0, transcript.1)` to
 /// reference indices `reference.0..=reference.1` with a match-only cigar.
 pub fn exon(transcript: (i32, i32), reference: (i32, i32), strand: Strand) -> ExonData {
-    ExonData {
-        transcript_start: TranscriptPos(transcript.0),
-        transcript_end: TranscriptPos(transcript.1),
-        reference_start: GenomicPos(reference.0),
-        reference_end: GenomicPos(reference.1),
-        alt_strand: strand,
-        cigar: format!("{}M", transcript.1 - transcript.0),
-    }
+    ExonData::new(
+        TranscriptPos(transcript.0),
+        TranscriptPos(transcript.1),
+        GenomicPos(reference.0),
+        GenomicPos(reference.1),
+        strand,
+        format!("{}M", transcript.1 - transcript.0),
+    )
 }
 
 /// A transcript on `reference_ac` with the given exons; `cds` is the 0-based
@@ -132,17 +132,15 @@ pub fn transcript(
     cds: Option<(i32, i32)>,
     exons: Vec<ExonData>,
 ) -> TranscriptData {
-    TranscriptData {
-        ac: ac.to_string(),
-        gene: "TEST".to_string(),
-        cds_start_index: cds.map(|(start, _)| TranscriptPos(start)),
-        cds_end_index: cds.map(|(_, end)| TranscriptPos(end)),
-        cds_start: hgvs_weaver::data::CdsStart::Initiator,
-        cds_end_open: false,
+    TranscriptData::new(
+        ac.to_string(),
+        "TEST",
+        cds.map(|(start, _)| TranscriptPos(start)),
+        cds.map(|(_, end)| TranscriptPos(end)),
         strand,
-        reference_accession: reference_ac.to_string(),
+        reference_ac.to_string(),
         exons,
-    }
+    )
 }
 
 /// A `length`-base transcript that is one exon at reference indices

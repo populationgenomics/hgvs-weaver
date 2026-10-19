@@ -139,6 +139,16 @@ class DataProvider(Protocol):
         ...
 ```
 
+### Rust
+
+A provider written in Rust implements the `hgvs_weaver::DataProvider` trait and builds its models with constructors.
+`ExonData::new` takes an exon's coordinates and cigar. `TranscriptData::new` takes the fields every model has, and reads
+the CDS, where there is one, as starting at a start codon and ending at a stop codon the record carries;
+`.with_cds_start(...)` and `.with_cds_end_open(true)` say otherwise, as `cds_start_initiates`, `cds_start_open` and
+`cds_end_open` do in a dict. The model structs, like the crate's other public structs, are `#[non_exhaustive]`, so a
+later release can add a field with a default without breaking a provider that builds them this way. The example is on
+[`TranscriptData::new`](hgvs-weaver/src/data.rs).
+
 ### Refget
 
 VRS identifies a sequence by its refget accession (`SQ.` + the sha512t24u digest of its bases). Pass a `Refget` lookup

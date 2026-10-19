@@ -83,6 +83,7 @@ pub enum Projected {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CigarMapper {
     pub cigar: Cigar,
     pub ref_pos: Vec<i32>,

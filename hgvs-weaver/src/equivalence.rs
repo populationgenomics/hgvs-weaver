@@ -27,6 +27,7 @@ impl EquivalenceLevel {
     }
 }
 
+#[non_exhaustive]
 pub struct VariantEquivalence<'a> {
     /// The mapper whose provider, cache and refget lookup the comparison uses.
     pub mapper: &'a VariantMapper<'a>,

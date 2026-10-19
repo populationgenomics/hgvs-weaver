@@ -50,6 +50,7 @@ impl<'de> Deserialize<'de> for Strand {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ExonData {
     pub transcript_start: TranscriptPos,
     pub transcript_end: TranscriptPos,
@@ -57,6 +58,29 @@ pub struct ExonData {
     pub reference_end: GenomicPos,
     pub alt_strand: Strand,
     pub cigar: String,
+}
+
+impl ExonData {
+    /// An exon over the transcript indices `[transcript_start, transcript_end)`
+    /// and the genomic indices `[reference_start, reference_end]`, aligned by
+    /// `cigar` on `alt_strand`.
+    pub fn new(
+        transcript_start: TranscriptPos,
+        transcript_end: TranscriptPos,
+        reference_start: GenomicPos,
+        reference_end: GenomicPos,
+        alt_strand: Strand,
+        cigar: impl Into<String>,
+    ) -> Self {
+        ExonData {
+            transcript_start,
+            transcript_end,
+            reference_start,
+            reference_end,
+            alt_strand,
+            cigar: cigar.into(),
+        }
+    }
 }
 
 /// What the codon at a transcript's `cds_start_index` is.
@@ -162,6 +186,7 @@ impl From<TranscriptData> for TranscriptRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "TranscriptRecord", into = "TranscriptRecord")]
+#[non_exhaustive]
 pub struct TranscriptData {
     pub ac: String,
     pub gene: String,
@@ -178,6 +203,75 @@ pub struct TranscriptData {
     pub strand: Strand,
     pub reference_accession: String,
     pub exons: Vec<ExonData>,
+}
+
+impl TranscriptData {
+    /// A transcript model whose CDS, where it has one, starts at a start codon
+    /// and ends at a stop codon the record carries. `cds_start_index` and
+    /// `cds_end_index` are `None` for a non-coding transcript;
+    /// [`with_cds_start`](Self::with_cds_start) and
+    /// [`with_cds_end_open`](Self::with_cds_end_open) set the other cases.
+    ///
+    /// ```
+    /// use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
+    /// use hgvs_weaver::data::{CdsStart, ExonData, Strand, TranscriptData};
+    ///
+    /// // One 40-base exon; the CDS is transcript indices 5 to 34 and runs on
+    /// // past the record's 3' end.
+    /// let model = TranscriptData::new(
+    ///     "NM_000001.1",
+    ///     "GENE",
+    ///     Some(TranscriptPos(5)),
+    ///     Some(TranscriptPos(34)),
+    ///     Strand::Plus,
+    ///     "NC_000001.11",
+    ///     vec![ExonData::new(
+    ///         TranscriptPos(0),
+    ///         TranscriptPos(40),
+    ///         GenomicPos(1000),
+    ///         GenomicPos(1039),
+    ///         Strand::Plus,
+    ///         "40=",
+    ///     )],
+    /// )
+    /// .with_cds_end_open(true);
+    /// assert_eq!(model.cds_start, CdsStart::Initiator);
+    /// assert!(model.cds_end_open);
+    /// ```
+    pub fn new(
+        ac: impl Into<String>,
+        gene: impl Into<String>,
+        cds_start_index: Option<TranscriptPos>,
+        cds_end_index: Option<TranscriptPos>,
+        strand: Strand,
+        reference_accession: impl Into<String>,
+        exons: Vec<ExonData>,
+    ) -> Self {
+        TranscriptData {
+            ac: ac.into(),
+            gene: gene.into(),
+            cds_start_index,
+            cds_end_index,
+            cds_start: CdsStart::Initiator,
+            cds_end_open: false,
+            strand,
+            reference_accession: reference_accession.into(),
+            exons,
+        }
+    }
+
+    /// The same model with the codon at `cds_start_index` read as `cds_start`.
+    pub fn with_cds_start(self, cds_start: CdsStart) -> Self {
+        TranscriptData { cds_start, ..self }
+    }
+
+    /// The same model with the CDS running off the record's 3' end, or not.
+    pub fn with_cds_end_open(self, cds_end_open: bool) -> Self {
+        TranscriptData {
+            cds_end_open,
+            ..self
+        }
+    }
 }
 
 /// Interface for retrieving transcript and sequence data.

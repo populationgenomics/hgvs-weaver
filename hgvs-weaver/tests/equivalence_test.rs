@@ -1,6 +1,6 @@
 mod support;
 
-use hgvs_weaver::data::{Strand, TranscriptData};
+use hgvs_weaver::data::Strand;
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
@@ -1143,10 +1143,10 @@ fn two_transcript_provider() -> Provider {
             25,
             len,
         ))
-        .transcript(TranscriptData {
-            cds_end_open: true,
-            ..single_exon_transcript("NM_F.1", "NC_E.1", 0, Strand::Plus, 5, 25, len)
-        })
+        .transcript(
+            single_exon_transcript("NM_F.1", "NC_E.1", 0, Strand::Plus, 5, 25, len)
+                .with_cds_end_open(true),
+        )
         .protein_for("NM_E.1", "NP_E.1")
         .protein_for("NM_F.1", "NP_E.1")
 }

@@ -16,6 +16,7 @@ use crate::utils::{aa1_to_aa3, translate};
 
 /// A nucleotide edit placed on a coding sequence.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CodingChange {
     /// Reference transcript bases from the first base of the CDS to the end
     /// of the transcript, so that read-through past the stop can be translated.
@@ -37,6 +38,38 @@ pub struct CodingChange {
     /// Met whatever the codon, and a change to the codon is `p.(Met1?)`;
     /// otherwise the codon is read by the standard table, as any other is.
     pub initiates: bool,
+}
+
+impl CodingChange {
+    /// `edit` on a CDS of `cds_len` bases that starts at the first base of
+    /// `coding`, initiates translation there and ends at a stop codon the
+    /// record carries. [`with_end_open`](Self::with_end_open) and
+    /// [`with_initiates`](Self::with_initiates) set the other cases.
+    pub fn new(
+        coding: impl Into<String>,
+        cds_len: usize,
+        edit: ResolvedEdit,
+        protein_ac: impl Into<String>,
+    ) -> Self {
+        CodingChange {
+            coding: coding.into(),
+            cds_len,
+            end_open: false,
+            edit,
+            protein_ac: protein_ac.into(),
+            initiates: true,
+        }
+    }
+
+    /// The same change on a CDS that runs off the record's 3' end, or not.
+    pub fn with_end_open(self, end_open: bool) -> Self {
+        CodingChange { end_open, ..self }
+    }
+
+    /// The same change with translation initiating at the first codon, or not.
+    pub fn with_initiates(self, initiates: bool) -> Self {
+        CodingChange { initiates, ..self }
+    }
 }
 
 /// `seq` with `[start, end)` replaced by `insert`. Indices past the end clamp.

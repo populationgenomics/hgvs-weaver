@@ -13,7 +13,7 @@ use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::reading::CisReading;
 use hgvs_weaver::vrs::VrsBound::Exact;
 use hgvs_weaver::vrs::{refget_accession, VrsExpression, VrsVariation};
-use hgvs_weaver::{parse_hgvs_variant, SequenceVariant, TranscriptData, Variant};
+use hgvs_weaver::{parse_hgvs_variant, SequenceVariant, Variant};
 use support::{single_exon_transcript, Provider};
 
 /// The transcript sits at genomic indices 10..50; c.1 is index 5 of it, so
@@ -49,6 +49,14 @@ fn provider() -> Provider {
             transcript.len() as i32,
         ))
         .protein_for("NM_X.1", "NP_X.1")
+}
+
+/// Each expression as its syntax and value.
+fn syntax_and_value(expressions: &[VrsExpression]) -> Vec<(&str, &str)> {
+    expressions
+        .iter()
+        .map(|e| (e.syntax.as_str(), e.value.as_str()))
+        .collect()
 }
 
 fn cis(s: &str) -> hgvs_weaver::CisPhasedVariant {
@@ -283,11 +291,8 @@ fn a_cis_allele_is_a_cis_phased_block_of_its_members_alleles() {
     assert_eq!(reference.residue_alphabet, "na");
     assert_eq!(*reference, block.members[0].location.sequence_reference);
     assert_eq!(
-        block.expressions,
-        vec![VrsExpression {
-            syntax: "hgvs.c".into(),
-            value: "NM_X.1:c.[7C>T;13T>G]".into(),
-        }]
+        syntax_and_value(&block.expressions),
+        [("hgvs.c", "NM_X.1:c.[7C>T;13T>G]")]
     );
 
     let variation = mapper.to_vrs_variation(&var).unwrap();
@@ -2227,11 +2232,8 @@ fn an_allele_rendered_as_one_allele_carries_the_allele_as_written() {
         panic!("not an Allele");
     };
     assert_eq!(
-        allele.expressions,
-        vec![VrsExpression {
-            syntax: "hgvs.c".into(),
-            value: "NM_X.1:c.[7C>T;8T>G]".into(),
-        }]
+        syntax_and_value(&allele.expressions),
+        [("hgvs.c", "NM_X.1:c.[7C>T;8T>G]")]
     );
 }
 
@@ -2372,10 +2374,9 @@ fn protein_provider() -> Provider {
         .transcript(on("NM_U.1", "NC_SEC.1", Strand::Plus))
         .protein_for("NM_U.1", "NP_U.1")
         .sequence("NM_O.1", &transcript)
-        .transcript(TranscriptData {
-            cds_start: hgvs_weaver::data::CdsStart::Open,
-            ..on("NM_O.1", "NC_X.1", Strand::Plus)
-        })
+        .transcript(
+            on("NM_O.1", "NC_X.1", Strand::Plus).with_cds_start(hgvs_weaver::data::CdsStart::Open),
+        )
         .protein_for("NM_O.1", "NP_X.1")
 }
 
