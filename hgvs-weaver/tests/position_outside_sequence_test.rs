@@ -40,12 +40,21 @@ fn plus_genome() -> String {
     format!("AAAAA{RECORD}AAAAA")
 }
 
+/// The plus genome with G where the record's last base, c.*5, is A.
+fn differing_genome() -> String {
+    let mut genome = plus_genome().into_bytes();
+    assert_eq!(genome[35], b'A');
+    genome[35] = b'G';
+    String::from_utf8(genome).unwrap()
+}
+
 /// `NC_000099.1` is the amplicon. `NM_000099.1` (and `NR_000099.1`, the
 /// record as a non-coding transcript) is the record on the plus strand of
 /// `NC_000098.1`; `NM_000098.1` is the record on the minus strand of
 /// `NC_000097.1`, its reverse complement. `NP_000099.1` is the protein
 /// `MKLAYR`, served without its stop; `NP_000098.1` is the same protein served
-/// with it.
+/// with it. `NM_000096.1` is the record again, on `NC_000096.1`, the plus
+/// genome with a G under the record's last base.
 fn provider() -> Provider {
     Provider::new()
         .sequence("NC_000099.1", AMPLICON)
@@ -54,6 +63,15 @@ fn provider() -> Provider {
         .sequence("NM_000099.1", RECORD)
         .sequence("NR_000099.1", RECORD)
         .sequence("NM_000098.1", RECORD)
+        .sequence("NC_000096.1", &differing_genome())
+        .sequence("NM_000096.1", RECORD)
+        .transcript(transcript(
+            "NM_000096.1",
+            "NC_000096.1",
+            Strand::Plus,
+            Some((5, 25)),
+            vec![exon((0, 31), (5, 35), Strand::Plus)],
+        ))
         .sequence("NP_000099.1", "MKLAYR")
         .sequence("NP_000098.1", "MKLAYR*")
         .transcript(transcript(
@@ -244,6 +262,14 @@ fn equivalence_refuses_a_range_past_the_end_beside_the_part_that_exists() {
 }
 
 #[test]
+fn an_uncertain_position_past_the_end_is_not_found_on_the_sequence() {
+    // It names no one range; only the bases it states would be checked.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(mapper.validate(&parse("NC_000099.1:g.(20_25)del")).unwrap());
+}
+
+#[test]
 fn normalize_refuses_a_mitochondrial_position_one_past_the_last_base() {
     assert_outside(normalized("NC_000099.1:m.10del"), "NC_000099.1", (9, 10), 9);
 }
@@ -276,6 +302,20 @@ fn normalize_refuses_an_intronic_position_past_the_end_of_the_genome() {
         "NC_000098.1",
         (41, 42),
         41,
+    );
+}
+
+#[test]
+fn g_to_c_writes_an_insertion_after_the_records_last_base_as_a_delins_of_it() {
+    // On the genome g.36 is G; on the record c.*5 is A, then the record ends.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .g_to_c(&genomic("NC_000096.1:g.36delinsAT"), "NM_000096.1")
+            .unwrap()
+            .to_string(),
+        "NM_000096.1:c.*5delinsAT"
     );
 }
 

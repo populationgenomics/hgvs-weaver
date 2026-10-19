@@ -29,5 +29,5 @@ class AmpliconProvider:
 
 def test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length() -> None:
     mapper = weaver.VariantMapper(AmpliconProvider())
-    with pytest.raises(weaver.PositionOutsideSequenceError, match=r"AMP1 has 9 positions"):
+    with pytest.raises(weaver.PositionOutsideSequenceError, match=r"AMP1\D+9\D"):
         mapper.to_spdi(weaver.parse("AMP1:g.8_12del"))

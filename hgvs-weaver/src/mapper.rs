@@ -3850,7 +3850,7 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         let (edit, s, e) = normalize::minimal_edit(&reference, start, end, &ref_, &alt)?;
-        let placed = normalize::normalize_interbase(
+        let placed = normalize::normalize(
             &reference,
             PlacedEdit::from_hgvs_range(s, e, edit),
             &ExonBounds::unspliced(),

@@ -2305,6 +2305,10 @@ stop still reads, and the position after the stop is past the end. Projecting a 
 is refused earlier, by the exon structure
 ([A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)).
 
+Two cases are outside the rule. A position known only to lie in a range names no one range to find, so only the bases it
+states are checked ([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A position
+before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`.
+
 weaver learns where a sequence ends from the data provider's own answers, with no method added to it: a window that runs
 past the end comes back short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)).
 
@@ -2326,6 +2330,7 @@ validate  NC_000099.1:g.20del         →  false
 c_to_p    NM_000099.1:c.*6del         →  PositionOutsideSequenceError     not p.(=), the 3'UTR's prediction
 validate  NP_000099.1:p.Ter7Gln       →  true                             the stop the protein is served without
 normalize NP_000099.1:p.Gln8del       →  PositionOutsideSequenceError
+validate  NC_000099.1:g.(20_25)del    →  true                             names no one range
 ```
 
 - **Others:** not checked.
@@ -2338,9 +2343,11 @@ normalize NP_000099.1:p.Gln8del       →  PositionOutsideSequenceError
   `::validate_answers_false_for_a_deletion_wholly_past_the_end`,
   `::c_to_p_refuses_a_three_prime_utr_position_past_the_records_end`,
   `::a_protein_served_without_its_stop_has_the_stop_after_its_last_residue`,
-  `::normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_without` (the rows above), and the file's other
-  tests: the minus-strand record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c`
-  and `equivalent_level`; `reference_length_agrees_with_the_sequence` (property);
+  `::normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_without`,
+  `::an_uncertain_position_past_the_end_is_not_found_on_the_sequence` (the rows above), and the file's other tests: the
+  minus-strand record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c` and
+  `equivalent_level`; `reference_length_agrees_with_the_sequence`,
+  `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
   `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
 
 ## Equivalence

@@ -199,6 +199,8 @@ class VariantMapper:
                 in cis of them.
             ReferenceMismatchError: If a base the variant states is not the record's
                 (exonic) or the genome's on the transcript's strand (intronic).
+            PositionOutsideSequenceError: If an intronic position lies past the end
+                of the genome.
             UnsupportedOperationError: If the variant inserts at an exon
                 junction (c.5_6insT where c.5 and c.6 lie in different
                 exons), which is before or after the intron on the genome.
@@ -496,6 +498,7 @@ class VariantMapper:
         Raises:
             ValueError: If var_p is not a protein variant.
             ReferenceMismatchError: If the residue var_p names is not the protein's.
+            PositionOutsideSequenceError: If var_p names a position past the protein's stop.
             HGVSError: If back-conversion fails due to unsupported consequence or missing transcript.
         """
     def to_spdi(self, var: Variant, unambiguous: bool = ...) -> str:

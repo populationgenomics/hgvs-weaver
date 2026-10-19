@@ -233,31 +233,6 @@ pub fn normalize(
     }
 }
 
-/// [`normalize`] for an edit placed by interbase coordinates, as SPDI and VRS
-/// place one and as the members of a cis allele merge into one. These can put
-/// an insertion after the last base, which HGVS cannot name: it is written as a
-/// delins of the last base, or as the duplication it is.
-pub(crate) fn normalize_interbase(
-    reference: &Reference<'_, '_>,
-    placed: PlacedEdit,
-    exons: &ExonBounds,
-) -> Result<PlacedEdit, HgvsError> {
-    match &placed.edit {
-        NaEdit::Ins {
-            alt: Some(seq),
-            uncertain,
-        } if placed.start > 0 && reference.base(placed.start)?.is_none() => insertion_in_exon(
-            reference,
-            placed.start,
-            seq,
-            *uncertain,
-            exons.exon(placed.start - 1),
-            exons,
-        ),
-        _ => normalize(reference, placed, exons),
-    }
-}
-
 /// The bases an inversion or a repeat names, with its uncertainty, when what
 /// it makes of them is the reference and they lie in one exon: the inverted
 /// range, or the whole run a repeat resolves to. Such an edit states those
@@ -668,6 +643,15 @@ pub(crate) fn minimal_edit(
             uncertain,
         };
         (edit, 0, 1)
+    } else if r.is_empty() && reference.base(at)?.is_none() {
+        // Nor one after the last: a delins of that base.
+        let last = reference.slice(at - 1, at)?;
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(format!("{last}{a}")),
+            uncertain,
+        };
+        (edit, at - 1, at)
     } else if r.is_empty() {
         let edit = NaEdit::Ins {
             alt: Some(a),
