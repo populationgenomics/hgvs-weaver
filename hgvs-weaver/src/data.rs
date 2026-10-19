@@ -172,8 +172,8 @@ pub struct TranscriptData {
     pub cds_start: CdsStart,
     /// The CDS runs off the transcript's 3' end: `cds_end_index` is the last
     /// coding base the record carries, not the last base of a stop codon. No
-    /// position is numbered from the stop codon, and only an in-frame change
-    /// wholly inside the coding bases the record carries has a protein consequence.
+    /// position is numbered from the stop codon, and no protein consequence is
+    /// predicted that needs a base past the last whole codon the record carries.
     pub cds_end_open: bool,
     pub strand: Strand,
     pub reference_accession: String,

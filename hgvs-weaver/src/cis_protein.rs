@@ -406,7 +406,9 @@ impl VariantMapper<'_> {
             };
             return statement(None, s);
         }
-        Reading::new(cds.change(&placed)).check_within_record(&cds.cis.ac)?;
+        if cds.end_open && !upstream {
+            Reading::new(cds.change(&placed)).check_within_record(&cds.cis.ac)?;
+        }
         let (reading, read) = read_through(cds, &placed)?;
         if reading.runs_off() {
             return statement(None, ProteinStatement::Unknown);
@@ -672,8 +674,10 @@ fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVari
         }
         described.push((group, change));
     }
-    for (group, _) in &described {
-        Reading::new(cds.change(group)).check_within_record(&cds.cis.ac)?;
+    if cds.end_open {
+        for (group, _) in &described {
+            Reading::new(cds.change(group)).check_within_record(&cds.cis.ac)?;
+        }
     }
     Ok(Some(described.into_iter().map(|(_, p)| p).collect()))
 }

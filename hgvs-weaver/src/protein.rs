@@ -236,9 +236,7 @@ impl Reading {
             true
         } else if self.start_changed || self.first_changed > self.stop {
             false
-        } else if !self.in_frame
-            || (self.first_changed == self.stop && self.stop < self.ref_aa.len())
-        {
+        } else if !self.in_frame || (self.stop < self.ref_aa.len() && !self.stop_intact) {
             !self.alt_aa[self.first_changed.min(self.alt_aa.len())..].contains(&'*')
         } else {
             self.ref_aa != self.alt_aa

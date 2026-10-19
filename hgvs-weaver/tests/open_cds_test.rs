@@ -402,6 +402,30 @@ fn a_3_open_cds_refuses_losing_a_stop_its_record_carries_with_no_stop_after() {
 }
 
 #[test]
+fn a_3_open_cds_refuses_a_delins_losing_a_stop_its_record_carries_from_the_residue_before() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // GCT TAA becomes GTT GAA: Ala9 and the stop are replaced, and the
+    // protein reads on past the record with no stop
+    assert!(refused_as_open(c_to_p(
+        &mapper,
+        "NM_OPEN3.1:c.26_28delinsTTG"
+    )));
+}
+
+#[test]
+fn a_3_open_cds_allele_with_a_5_utr_member_is_an_unknown_change() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // the frameshift alone would need bases past the record; beside a 5'UTR
+    // change the protein is p.? whatever they are
+    assert_eq!(
+        c_to_p_cis(&mapper, "NM_OPEN3.1:c.[-1G>T;5del]").unwrap(),
+        "NP_OPEN3.1:p.?"
+    );
+}
+
+#[test]
 fn a_3_open_cds_predicts_a_change_to_its_start_codon_as_unknown_from_met1() {
     let hdp = fragment();
     let mapper = VariantMapper::new(&hdp);
@@ -445,7 +469,7 @@ fn a_3_open_cds_reads_an_in_frame_tga_as_selenocysteine_not_its_end() {
 fn a_3_open_cds_refuses_a_frameshift_after_a_selenocysteine() {
     let hdp = selenoprotein_fragment();
     let mapper = VariantMapper::new(&hdp);
-    // ATG TGA GCT GAA CAA CCA CTT TCT AAG GA: no stop in the new frame
+    // ATG TGA GCT GAA CAA CCA CTT CTG AAG GA: no stop in the new frame
     assert!(refused_as_open(c_to_p(&mapper, "NM_SECFRAG.1:c.20del")));
 }
 
