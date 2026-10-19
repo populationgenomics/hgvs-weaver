@@ -2595,10 +2595,8 @@ side by side: the bases between them, which both descriptions leave as the refer
 read.
 
 A nucleotide allele is compared on the genome. Each member is projected to the genome on its own, and the two projected
-descriptions are applied there. A transcript is used only when the provider has no genome for it, and then only when
-nothing the comparison reads reaches outside the exons or crosses an exon junction or an alignment gap: no member, and
-no region a member could equally be written over, since a deletion in a run that spans a junction is in either exon.
-Otherwise the comparison is refused. Comparing on the transcript whenever both descriptions are on one would answer a
+descriptions are applied there. Where the provider has no genome sequence, the comparison raises the provider's error,
+even when every member is in an exon. Comparing on the transcript whenever both descriptions are on one would answer a
 different question. On `NM_S.1`, which is `NM_X.1` with exon 1 ending at c.5, `c.[4A>T;6A>T]` and `c.4_6delinsTAT` make
 one transcript. The first projects to `g.[19A>T;31A>T]`; the second is a `c.` change across a junction, which
 [projects over the intron](#a-range-across-an-exon-junction-is-the-genomic-range), to `g.19_31delinsTAT`. Each
@@ -2847,8 +2845,8 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `members_apart_make_what_each_makes_alone`, `the_generated_alleles_are_mostly_read` (properties); planned, with
   protein alleles read as the protein they leave and the predicted protein of an allele:
   `cis_phased_test::protein_members_are_the_delins_they_make`, `::members_in_one_codon_predict_one_residue`,
-  `::members_on_one_transcript_compare_without_the_genome`, `::a_change_with_a_statement_predicts_both`,
-  `::statements_of_whole_codons_predict_their_residues`, `::a_statement_of_part_of_a_codon_makes_no_protein_statement`,
+  `::a_change_with_a_statement_predicts_both`, `::statements_of_whole_codons_predict_their_residues`,
+  `::a_statement_of_part_of_a_codon_makes_no_protein_statement`,
   `::a_statement_of_part_of_a_codon_beside_a_change_adds_nothing`;
   `equivalence_is_transitive_over_statements_and_changes` (property).
 

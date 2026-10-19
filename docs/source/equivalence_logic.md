@@ -59,10 +59,9 @@ text matches.
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
-them. Where the provider has no genome, the transcript is used only if nothing the comparison reads reaches outside the
-exons or crosses a junction or gap; otherwise the comparison is an error (`Unknown` or `ERR:` in the harness).
-[The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make) has the reasoning and the members that cannot be
-applied. An allele whose members are
+them. Where the provider has no genome sequence, the comparison is the provider's error (`Unknown` or `ERR:` in the
+harness), even when every member is in an exon. [The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)
+has the reasoning and the members that cannot be applied. An allele whose members are
 [contradictory or ambiguous](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not compared: the
 judgement is that error. A one-member allele is its member, and its brackets are spelling, as a prediction's parentheses
 are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
