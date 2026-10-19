@@ -692,7 +692,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
-    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts\np.(=) on the protein the transcript encodes; a protein_ac naming another\nprotein is an error. Every form needs a transcript with a CDS. r.(?)\nsays the RNA follows a DNA change it does not carry, so it has no\nprotein consequence of its own and raises UnsupportedOperationError.\n\nArgs:\n    var_c: The coding or RNA Variant to project.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding or RNA variant.\n    UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.\n    NoProteinStatementError: If var_c is an identity that covers no whole codon,\n        which states bases and no residue.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
+    #[doc = "Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).\n\nAn r. variant is predicted from its c. spelling; a statement about the\ntranscript (r.0, r.spl, r.?, r.=) becomes the matching statement about the\nprotein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts\np.(=) on the protein the transcript encodes; a protein_ac naming another\nprotein is an error. Every form needs a transcript with a CDS. r.(?)\nsays the RNA follows a DNA change it does not carry, so it has no\nprotein consequence of its own and raises UnsupportedOperationError.\n\nAn allele in cis of c. members, c.[a;b], is predicted from the sequence\nits members make together, as one change: c.[4A>T;6A>T] predicts what\nc.4_6delinsTAT does. Changes apart are written as the members of a\npredicted protein allele, c.[4A>C;13T>G] as p.[(Lys2Gln;Tyr5Asp)], and\nresidues whose whole codon the allele states unchanged, and the\nchanges leave as they were, as members beside them, p.[(Ala4=;Tyr5Asp)].\n\nArgs:\n    var_c: The coding or RNA Variant to project, or an allele in cis of\n        c. members.\n    protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.\n\nReturns:\n    A new Variant object in 'p.' coordinates: a single variant, or an\n    allele in cis of p. members.\n\nRaises:\n    ValueError: If var_c is none of a coding variant, an RNA variant or an\n        allele in cis of c. members.\n    UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own,\n        or an allele with a member at an uncertain position or whose bases\n        are not stated, two members whose 3'-most spellings overlap, or a\n        member past the stop that shifts the frame of the read-through.\n    NoProteinStatementError: If var_c is an identity that covers no whole codon,\n        which states bases and no residue, or an allele that changes\n        nothing and states no whole codon.\n    AmbiguousDescriptionError: If an allele in cis has several readings.\n    ValidationError: If an allele in cis has no reading, or the\n        transcript's CDS is open at the 5' end.\n    HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates."]
     fn c_to_p(
         &self,
         _py: Python,
@@ -700,19 +700,21 @@ impl PyVariantMapper {
         protein_ac: Option<String>,
     ) -> PyResult<PyVariant> {
         let mapper = self.mapper();
-        let res = match &var_c.inner {
-            SequenceVariant::Coding(v) => mapper.c_to_p(v, protein_ac.as_deref()),
-            SequenceVariant::Rna(r) => mapper.r_to_p(r, protein_ac.as_deref()),
+        let protein_ac = protein_ac.as_deref();
+        let inner = match &var_c.inner {
+            SequenceVariant::Coding(v) => mapper.c_to_p(v, protein_ac).map(SequenceVariant::Protein),
+            SequenceVariant::Rna(r) => mapper.r_to_p(r, protein_ac).map(SequenceVariant::Protein),
+            SequenceVariant::CisPhased(c) if c.coordinate_type() == "c" => {
+                mapper.c_to_p_cis(c, protein_ac)
+            }
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Expected a coding variant (c.) or an RNA variant (r.)",
+                    "Expected a coding variant (c.), an RNA variant (r.) or an allele in cis of c. members",
                 ))
             }
         }
         .map_err(map_hgvs_error)?;
-        Ok(PyVariant {
-            inner: SequenceVariant::Protein(res),
-        })
+        Ok(PyVariant { inner })
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]

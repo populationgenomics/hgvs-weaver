@@ -33,6 +33,13 @@ pub struct VariantEquivalence<'a> {
     pub searcher: &'a dyn TranscriptSearch,
 }
 
+/// A coding variant, or an allele in cis of coding members, whose prediction
+/// is compared with a protein description.
+enum Coding {
+    One(CVariant),
+    Cis(CisPhasedVariant),
+}
+
 fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVariant> {
     match var {
         SequenceVariant::Mitochondrial(m) => {
@@ -138,9 +145,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
                 return self.protein_level(p1, || self.protein_outcome_on(p1, &p1.ac), p2);
             }
-            (SequenceVariant::Protein(p), nucleotide)
-            | (nucleotide, SequenceVariant::Protein(p)) => {
-                return self.nucleotide_vs_protein(nucleotide, p);
+            (protein @ SequenceVariant::Protein(_), nucleotide)
+            | (nucleotide, protein @ SequenceVariant::Protein(_)) => {
+                return self.nucleotide_vs_protein(nucleotide, protein);
             }
             _ => {
                 // A transcript variant that projects to exactly the genomic text.
@@ -168,8 +175,9 @@ impl<'a> VariantEquivalence<'a> {
     /// comparands are equal, `Different` otherwise. An allele that cannot be
     /// read into a sequence, of protein members or with a member that is
     /// uncertain or a statement, is compared by the set of its members'
-    /// [`MemberKey`]s, and against a plain variant is `Different`. Nothing is
-    /// projected to protein.
+    /// [`MemberKey`]s, and against a plain variant is `Different`. An allele
+    /// of nucleotide members against a protein description is compared by
+    /// its prediction, as a single variant is.
     ///
     /// # Errors
     ///
@@ -201,6 +209,13 @@ impl<'a> VariantEquivalence<'a> {
                     )
                     .map(Some);
             }
+        }
+        let allele = SequenceVariant::CisPhased(cis.clone());
+        match (cis.coordinate_type() == "p", other.coordinate_type() == "p") {
+            (false, true) => return self.nucleotide_vs_protein(&allele, other).map(Some),
+            (true, false) => return self.nucleotide_vs_protein(other, &allele).map(Some),
+            (true, true) => return self.protein_allele_level(&allele, other).map(Some),
+            _ => {}
         }
         let as_allele = |var: &SequenceVariant| -> Result<Option<CisPhasedVariant>, HgvsError> {
             Ok(match var {
@@ -243,6 +258,42 @@ impl<'a> VariantEquivalence<'a> {
         } else {
             EquivalenceLevel::Different
         }))
+    }
+
+    /// A protein allele against another protein allele or a single p.
+    /// description, on one protein accession (any version, read on the
+    /// allele's): `Analogous` when the two can leave the same protein and
+    /// state the same residues unchanged, however the change is split between
+    /// members. Where a member names no stretch of residues (an uncertain
+    /// range, `p.Met1?`, `p.?`), two alleles are compared by the set of their
+    /// members, and an allele with a single description is `Different`.
+    fn protein_allele_level(
+        &self,
+        allele: &SequenceVariant,
+        other: &SequenceVariant,
+    ) -> Result<EquivalenceLevel, HgvsError> {
+        if base_accession(allele.ac()) != base_accession(other.ac()) {
+            return Ok(EquivalenceLevel::Different);
+        }
+        let ac = allele.ac();
+        let same = match (
+            self.protein_comparand(allele, ac)?,
+            self.protein_comparand(other, ac)?,
+        ) {
+            (Some(a), Some(b)) => a.same(b),
+            _ => match (allele, other) {
+                (SequenceVariant::CisPhased(a), SequenceVariant::CisPhased(b)) => matches!(
+                    (self.member_keys(a)?, self.member_keys(b)?),
+                    (Some(x), Some(y)) if x == y
+                ),
+                _ => false,
+            },
+        };
+        Ok(if same {
+            EquivalenceLevel::Analogous
+        } else {
+            EquivalenceLevel::Different
+        })
     }
 
     /// Whether `tx`, a transcript allele, projected member by member onto
@@ -416,43 +467,43 @@ impl<'a> VariantEquivalence<'a> {
     /// description as two protein descriptions are, the prediction leaving
     /// the protein the edited transcript encodes. The level through the best
     /// transcript; a transcript whose prediction fails is the error only when
-    /// no transcript makes the two equivalent.
+    /// no transcript makes the two equivalent. A nucleotide allele predicts
+    /// one description or a protein allele, `p.[(Ala4=;Tyr5Asp)]`; a protein
+    /// allele on either side is compared as two protein alleles are.
     fn nucleotide_vs_protein(
         &self,
         nucleotide: &SequenceVariant,
-        vp: &PVariant,
+        described: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
         // An uncertain position names no codons, so it predicts no protein.
         if !nucleotide.has_exact_position() {
             return Ok(EquivalenceLevel::Different);
         }
-        let coding: Vec<CVariant> = match nucleotide {
-            SequenceVariant::Coding(c) => vec![c.clone()],
-            SequenceVariant::Genomic(g) => self.mapper.g_to_c_all(g, self.searcher)?,
-            SequenceVariant::NonCoding(n) => {
-                let tx = self.mapper.provider().get_transcript(&n.ac, None)?;
-                let g = self
-                    .mapper
-                    .tx_to_g(n, Some(tx.reference_accession.as_str()))?;
-                self.mapper.g_to_c_all(&g, self.searcher)?
-            }
-            _ => vec![],
-        };
+        let ac = described.ac();
+        let coding = self.coding_forms(nucleotide)?;
         let mut best = EquivalenceLevel::Different;
         let mut failed = None;
         for c in &coding {
-            let level = match self.mapper.c_to_p(c, Some(&vp.ac)) {
-                Ok(predicted) => self.protein_level(&predicted, || self.left_by(c, &predicted), vp),
+            let predicted = match c {
+                Coding::One(one) => self
+                    .mapper
+                    .c_to_p(one, Some(ac))
+                    .map(SequenceVariant::Protein),
+                Coding::Cis(cis) => self.mapper.c_to_p_cis(cis, Some(ac)),
+            };
+            let level = match (predicted, described) {
+                (Ok(SequenceVariant::Protein(predicted)), SequenceVariant::Protein(vp)) => {
+                    self.protein_level(&predicted, || self.left_by(c, &predicted), vp)
+                }
+                (Ok(predicted), _) => self.equivalent_level_single(&predicted, described),
                 // An identity of no whole codon says nothing of the protein,
                 // so it matches no protein description; c_to_p refuses c.=
                 // named against another protein, of which it says nothing.
-                Err(HgvsError::NoProteinStatement(_)) => continue,
-                Err(HgvsError::ValidationError(_))
-                    if matches!(c.posedit.edit, NaEdit::WholeIdentity) =>
-                {
+                (Err(HgvsError::NoProteinStatement(_)), _) => continue,
+                (Err(HgvsError::ValidationError(_)), _) if matches!(c, Coding::One(one) if matches!(one.posedit.edit, NaEdit::WholeIdentity)) => {
                     continue
                 }
-                Err(e) => Err(e),
+                (Err(e), _) => Err(e),
             };
             match level {
                 Ok(EquivalenceLevel::Identity) => return Ok(EquivalenceLevel::Identity),
@@ -468,8 +519,80 @@ impl<'a> VariantEquivalence<'a> {
         }
         // A description that cannot be read on its protein is the error,
         // whatever the transcripts predict.
-        self.protein_outcome_on(vp, &vp.ac)?;
+        match described {
+            SequenceVariant::Protein(vp) => {
+                self.protein_outcome_on(vp, &vp.ac)?;
+            }
+            SequenceVariant::CisPhased(allele) => {
+                for member in &allele.members {
+                    if let SequenceVariant::Protein(vp) = member {
+                        self.protein_outcome_on(vp, &vp.ac)?;
+                    }
+                }
+            }
+            _ => {}
+        }
         failed.map_or(Ok(best), Err)
+    }
+
+    /// The coding forms of a nucleotide variant, a single one or an allele in
+    /// cis: its own for a `c.` variant, its projection onto every coding
+    /// transcript it lies on for a `g.` or `n.` one, its `c.` spelling for an
+    /// `r.` one on a coding transcript.
+    fn coding_forms(&self, var: &SequenceVariant) -> Result<Vec<Coding>, HgvsError> {
+        let reference_of = |ac: &str| -> Result<String, HgvsError> {
+            Ok(self
+                .mapper
+                .provider()
+                .get_transcript(ac, None)?
+                .reference_accession)
+        };
+        Ok(match var {
+            SequenceVariant::Coding(c) => vec![Coding::One(c.clone())],
+            SequenceVariant::Genomic(g) => self.coding_of_genomic(g)?,
+            SequenceVariant::NonCoding(n) => {
+                let g = self.mapper.tx_to_g(n, Some(&reference_of(&n.ac)?))?;
+                self.coding_of_genomic(&g)?
+            }
+            SequenceVariant::CisPhased(cis) => match cis.coordinate_type() {
+                "c" => vec![Coding::Cis(cis.clone())],
+                "g" => self.coding_of_genomic_cis(cis)?,
+                "n" => {
+                    let g = self.mapper.n_to_g_cis(cis, Some(&reference_of(&cis.ac)?))?;
+                    self.coding_of_genomic_cis(&g)?
+                }
+                "r" => {
+                    let tx = self.mapper.provider().get_transcript(&cis.ac, None)?;
+                    if tx.cds_start_index.is_some() {
+                        vec![Coding::Cis(self.mapper.r_to_c_cis(cis)?)]
+                    } else {
+                        let n = self.mapper.r_to_n_cis(cis)?;
+                        let g = self.mapper.n_to_g_cis(&n, Some(&tx.reference_accession))?;
+                        self.coding_of_genomic_cis(&g)?
+                    }
+                }
+                _ => vec![],
+            },
+            _ => vec![],
+        })
+    }
+
+    fn coding_of_genomic(&self, g: &crate::structs::GVariant) -> Result<Vec<Coding>, HgvsError> {
+        Ok(self
+            .mapper
+            .g_to_c_all(g, self.searcher)?
+            .into_iter()
+            .map(Coding::One)
+            .collect())
+    }
+
+    fn coding_of_genomic_cis(&self, g: &CisPhasedVariant) -> Result<Vec<Coding>, HgvsError> {
+        Ok(self
+            .mapper
+            .g_to_c_all_cis(g, self.searcher)?
+            .into_iter()
+            .map(Coding::Cis)
+            .collect())
     }
 
     /// The protein the coding variant `c` leaves, whose prediction is
@@ -477,12 +600,18 @@ impl<'a> VariantEquivalence<'a> {
     /// prediction that leaves the protein as it is, the residues it states;
     /// and, where the prediction names no sequence (`p.(Met1?)`, `p.?`), what
     /// the prediction says.
-    fn left_by(&self, c: &CVariant, predicted: &PVariant) -> Result<Option<Outcome>, HgvsError> {
+    fn left_by(&self, c: &Coding, predicted: &PVariant) -> Result<Option<Outcome>, HgvsError> {
         if predicted.posedit.edit.is_identity() {
             let reference = self.reference_protein(&predicted.ac)?;
             return Ok(Some(silent_prediction(predicted, reference.len())));
         }
-        match self.mapper.predicted_protein(c, Some(&predicted.ac))? {
+        let left = match c {
+            Coding::One(one) => self.mapper.predicted_protein(one, Some(&predicted.ac))?,
+            Coding::Cis(cis) => self
+                .mapper
+                .predicted_protein_cis(cis, Some(&predicted.ac))?,
+        };
+        match left {
             Some(left) => {
                 let reference = self.reference_protein(&predicted.ac)?;
                 Ok(Some(Outcome::Leaves {
@@ -503,6 +632,16 @@ impl<'a> VariantEquivalence<'a> {
     /// for `p.Met1?`; or, for a description that leaves the protein as it
     /// is, the residues it says that of. `None` when it says nothing: `p.?`.
     fn protein_outcome_on(&self, vp: &PVariant, ac: &str) -> Result<Option<Outcome>, HgvsError> {
+        match self.protein_read(vp, ac)? {
+            ProteinRead::Said(outcome) => Ok(outcome),
+            ProteinRead::Edit(edit) => Ok(Some(edit.outcome(&self.reference_protein(ac)?))),
+        }
+    }
+
+    /// What a p. description does to the protein `ac`: the edit it makes,
+    /// or, for one that names no stretch of residues to replace (`p.?`, an
+    /// uncertain range, `p.Met1?`, `p.=`, `p.0`), what it says.
+    fn protein_read(&self, vp: &PVariant, ac: &str) -> Result<ProteinRead, HgvsError> {
         use crate::edits::{AaEdit, ProteinStatement};
         let reference = self
             .mapper
@@ -512,7 +651,7 @@ impl<'a> VariantEquivalence<'a> {
         let protein = whole.trim_end_matches('*');
         let len = protein.len();
         if vp.posedit.pos.is_none() {
-            return Ok(match &vp.posedit.edit {
+            return Ok(ProteinRead::Said(match &vp.posedit.edit {
                 AaEdit::Statement(ProteinStatement::Unchanged) => {
                     Some(Outcome::Unchanged(Stated::whole()))
                 }
@@ -522,17 +661,19 @@ impl<'a> VariantEquivalence<'a> {
                     changed_from: 0,
                 }),
                 _ => None,
-            });
+            }));
         }
         // An uncertain range, `p.(Lys2_Leu3)del`, does not say which residues change.
         if vp.posedit.pos.as_ref().is_some_and(|p| p.uncertain) {
-            return Ok(None);
+            return Ok(ProteinRead::Said(None));
         }
         let (start, end) = crate::mapper::residue_range(vp, &reference)?;
         // `p.Met1?`: something happens from this residue on; what, it does not say.
         if let AaEdit::Statement(statement) = &vp.posedit.edit {
-            return Ok((*statement == ProteinStatement::Unknown)
-                .then(|| Outcome::ChangesFrom(start.min(len))));
+            return Ok(ProteinRead::Said(
+                (*statement == ProteinStatement::Unknown)
+                    .then(|| Outcome::ChangesFrom(start.min(len))),
+            ));
         }
         // The residues an edit that resolves to a sequence names: those its
         // position names (an insertion's two flanks) and those it resolves
@@ -571,7 +712,7 @@ impl<'a> VariantEquivalence<'a> {
                     _ => (len, len, alt, true),
                 }
             }
-            AaEdit::Statement(_) | AaEdit::None => return Ok(None),
+            AaEdit::Statement(_) | AaEdit::None => return Ok(ProteinRead::Said(None)),
             edit => {
                 // Read with its stop, so that `Ter7=` one past a protein
                 // served without it resolves to the stop it names.
@@ -595,21 +736,80 @@ impl<'a> VariantEquivalence<'a> {
             None => (end, alt),
         };
         let start = start.min(len);
-        let residues = format!(
-            "{}{}{}",
-            &protein[..start],
+        Ok(ProteinRead::Edit(ProteinEdit {
+            start,
+            end: end.clamp(start, len),
             alt,
-            &protein[end.clamp(start, len)..]
-        );
-        // An edit that leaves the protein as it is states the residues it
-        // names: `p.Leu3=`, `p.Leu3Leu`, `p.Ter7Ter`, `p.Arg6_Ter7insTer`.
-        if let Some(span) = written_over.filter(|_| !open && residues == protein) {
-            return Ok(Some(Outcome::Unchanged(Stated::residues(span, len))));
-        }
-        Ok(Some(Outcome::Leaves {
-            changed_from: first_difference(protein, &residues),
-            residues,
             open,
+            written_over,
+        }))
+    }
+
+    /// What a protein allele, or a single p. description, is compared by
+    /// when read as the protein it leaves: `None` when a member names no
+    /// stretch of residues to replace, so that the allele is compared member
+    /// by member.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::ValidationError`] when two members reach for the same
+    /// residue, a member after a frameshift, a stop or an open end among
+    /// them; and what reading a member on the protein raises.
+    fn protein_comparand(
+        &self,
+        var: &SequenceVariant,
+        ac: &str,
+    ) -> Result<Option<ProteinComparand>, HgvsError> {
+        let members: Vec<&PVariant> = match var {
+            SequenceVariant::Protein(p) => vec![p],
+            SequenceVariant::CisPhased(cis) => cis
+                .members
+                .iter()
+                .filter_map(|m| match m {
+                    SequenceVariant::Protein(p) => Some(p),
+                    _ => None,
+                })
+                .collect(),
+            _ => return Ok(None),
+        };
+        let protein = self.reference_protein(ac)?;
+        let mut changes: Vec<ProteinEdit> = Vec::new();
+        let mut stated: Vec<std::ops::Range<usize>> = Vec::new();
+        for vp in members {
+            match self.protein_read(vp, ac)? {
+                ProteinRead::Said(_) => return Ok(None),
+                ProteinRead::Edit(edit) => match edit.statement(&protein) {
+                    Some(span) => stated.push(span),
+                    None => changes.push(edit),
+                },
+            }
+        }
+        changes.sort_by_key(|e| (e.start, e.end));
+        let reaches = |e: &ProteinEdit| if e.open { protein.len() } else { e.end };
+        for pair in changes.windows(2) {
+            if pair[1].start < reaches(&pair[0]) || pair[1].start == pair[0].start {
+                let why = match reaches(&pair[0]) == protein.len() {
+                    true => "a member after a frameshift, a stop or an open end",
+                    false => "two members that reach for one residue",
+                };
+                return Err(HgvsError::ValidationError(format!(
+                    "{var} has {why}, so it has no reading"
+                )));
+            }
+        }
+        for span in &stated {
+            if changes
+                .iter()
+                .any(|e| span.start < reaches(e).max(e.start + 1) && e.start < span.end)
+            {
+                return Err(HgvsError::ValidationError(format!(
+                    "{var} states a residue unchanged that another member changes, so it has no reading"
+                )));
+            }
+        }
+        Ok(Some(ProteinComparand {
+            left: (!changes.is_empty()).then(|| ProteinEdit::applied(&changes, &protein)),
+            stated: merged_ranges(stated),
         }))
     }
 
@@ -877,6 +1077,97 @@ enum Outcome {
     ChangesFrom(usize),
     /// The protein as it is, stated of these residues.
     Unchanged(Stated),
+}
+
+/// What a p. description does to its protein; see `protein_read`.
+enum ProteinRead {
+    /// It names no stretch of residues to replace; what it says, if anything.
+    Said(Option<Outcome>),
+    Edit(ProteinEdit),
+}
+
+/// A p. description's replacement of residues `[start, end)` of the
+/// protein, before its stop, by `alt` in 1-letter code, `X` where the
+/// description does not say; a stop among the new residues has already cut
+/// the protein there.
+#[derive(Clone, Debug)]
+struct ProteinEdit {
+    start: usize,
+    end: usize,
+    alt: String,
+    /// More residues follow, their number unknown.
+    open: bool,
+    /// The residues the description names, where it resolves to a sequence:
+    /// its position's (an insertion's two flanks) and those it resolves over.
+    written_over: Option<std::ops::Range<usize>>,
+}
+
+impl ProteinEdit {
+    /// The residues the edit names unchanged, when it leaves `protein` as it is:
+    /// `p.Leu3=`, `p.Leu3Leu`, `p.Ter7Ter`, `p.Arg6_Ter7insTer`.
+    fn statement(&self, protein: &str) -> Option<std::ops::Range<usize>> {
+        let leaves = !self.open && protein.get(self.start..self.end) == Some(self.alt.as_str());
+        self.written_over.clone().filter(|_| leaves)
+    }
+
+    /// What the edit says of `protein`.
+    fn outcome(&self, protein: &str) -> Outcome {
+        if let Some(span) = self.statement(protein) {
+            return Outcome::Unchanged(Stated::residues(span, protein.len()));
+        }
+        Self::applied(std::slice::from_ref(self), protein)
+    }
+
+    /// The protein `edits`, sorted and apart, leave of `protein`.
+    fn applied(edits: &[ProteinEdit], protein: &str) -> Outcome {
+        let mut residues = String::with_capacity(protein.len());
+        let mut at = 0;
+        for e in edits {
+            residues.push_str(&protein[at..e.start]);
+            residues.push_str(&e.alt);
+            at = e.end;
+        }
+        residues.push_str(&protein[at..]);
+        Outcome::Leaves {
+            changed_from: first_difference(protein, &residues),
+            residues,
+            open: edits.iter().any(|e| e.open),
+        }
+    }
+}
+
+/// What a protein allele is compared by when read as a protein: the protein
+/// its changes leave (`None` when it changes nothing), and the residues its
+/// statements name unchanged, sorted, those that meet made one.
+#[derive(Debug)]
+struct ProteinComparand {
+    left: Option<Outcome>,
+    stated: Vec<std::ops::Range<usize>>,
+}
+
+impl ProteinComparand {
+    /// Whether the two can leave the same protein and state the same residues.
+    fn same(self, other: ProteinComparand) -> bool {
+        self.stated == other.stated
+            && match (self.left, other.left) {
+                (None, None) => true,
+                (Some(a), Some(b)) => same_protein(Some(a), Some(b)),
+                _ => false,
+            }
+    }
+}
+
+/// `ranges`, sorted, with those that overlap or touch made one.
+fn merged_ranges(mut ranges: Vec<std::ops::Range<usize>>) -> Vec<std::ops::Range<usize>> {
+    ranges.sort_by_key(|r| (r.start, r.end));
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::with_capacity(ranges.len());
+    for r in ranges {
+        match merged.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => merged.push(r),
+        }
+    }
+    merged
 }
 
 use stated::Stated;

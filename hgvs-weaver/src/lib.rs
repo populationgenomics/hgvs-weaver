@@ -57,7 +57,8 @@ pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> 
         | Rule::c_cis_variant
         | Rule::n_cis_variant
         | Rule::r_cis_variant
-        | Rule::p_cis_variant => {
+        | Rule::p_cis_variant
+        | Rule::p_cis_predicted => {
             let mut members = Vec::with_capacity(1 + posedits.len());
             for p in std::iter::once(posedit).chain(posedits) {
                 members.push(cis_member(system, ac.clone(), gene.clone(), p)?);
@@ -116,6 +117,11 @@ fn cis_member(
             gene,
             posedit: parser::parse_p_posedit(p)?,
         }),
+        Rule::p_cis_predicted => {
+            let mut posedit = parser::parse_p_posedit(p)?;
+            posedit.predicted = true;
+            SequenceVariant::Protein(PVariant { ac, gene, posedit })
+        }
         other => {
             return Err(HgvsError::PestError(format!(
                 "Not a cis allele rule: {:?}",
@@ -168,6 +174,7 @@ fn parse_gene_expr(pair: pest::iterators::Pair<Rule>) -> Option<String> {
 pub mod allele;
 pub mod cigar;
 pub mod cis;
+mod cis_protein;
 pub mod coords;
 pub mod data;
 pub mod edits;

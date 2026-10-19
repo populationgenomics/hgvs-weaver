@@ -67,8 +67,13 @@ judgement is that error. A one-member allele is its member, and its brackets are
 are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
 `c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members project to exactly.
 An allele with a member at an uncertain position, or a statement among several members, makes no one sequence; it is
-compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)), and protein alleles
-are compared member by member too.
+compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+
+A protein allele `p.[a;b]` is compared the same way, by what it leaves and what it states: the protein its changes
+leave, read as [single descriptions are](#the-protein-a-description-leaves), and the residues its statements name. So
+`p.[Lys2Gly;Leu3Val]` is `Analogous` with `p.Lys2_Leu3delinsGlyVal`, however the change is split between members, and
+`p.[Ala4=;Tyr5Asp]` is not `p.Tyr5Asp`. Members that reach for one residue are refused; an allele with a member that
+names no stretch of residues to replace (an uncertain range, `p.Met1?`, `p.?`) is compared member by member.
 
 ### Nucleotide against protein
 
@@ -79,6 +84,10 @@ prediction in any spelling (`c.1799T>A` against `p.(Val600Glu)`, `p.Val600Glu` o
 when the two can leave the same protein. The pair is as equivalent as the best transcript makes it; a transcript whose
 prediction fails makes the pair an error only when no transcript makes it equivalent, and a description that does not
 read on its protein is an error whatever the transcripts predict.
+
+A nucleotide allele in cis (`c.`, or `g.`, `n.` or `r.` taken to its coding transcripts) is compared the same way, by
+the prediction read from the sequence its members make together; where that prediction is a protein allele, it is
+compared as protein alleles are ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
 
 The prediction stands for the change, with one difference: the protein it leaves is the one the edited transcript
 encodes (`predicted_protein`), not the one its description leaves. A description leaves residues unnamed — a

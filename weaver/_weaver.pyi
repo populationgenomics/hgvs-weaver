@@ -207,18 +207,35 @@ class VariantMapper:
         says the RNA follows a DNA change it does not carry, so it has no
         protein consequence of its own and raises UnsupportedOperationError.
 
+        An allele in cis of c. members, c.[a;b], is predicted from the sequence
+        its members make together, as one change: c.[4A>T;6A>T] predicts what
+        c.4_6delinsTAT does. Changes apart are written as the members of a
+        predicted protein allele, c.[4A>C;13T>G] as p.[(Lys2Gln;Tyr5Asp)], and
+        residues whose whole codon the allele states unchanged, and the
+        changes leave as they were, as members beside them, p.[(Ala4=;Tyr5Asp)].
+
         Args:
-            var_c: The coding or RNA Variant to project.
+            var_c: The coding or RNA Variant to project, or an allele in cis of
+                c. members.
             protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.
 
         Returns:
-            A new Variant object in 'p.' coordinates.
+            A new Variant object in 'p.' coordinates: a single variant, or an
+            allele in cis of p. members.
 
         Raises:
-            ValueError: If var_c is not a coding or RNA variant.
-            UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own.
+            ValueError: If var_c is none of a coding variant, an RNA variant or an
+                allele in cis of c. members.
+            UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own,
+                or an allele with a member at an uncertain position or whose bases
+                are not stated, two members whose 3'-most spellings overlap, or a
+                member past the stop that shifts the frame of the read-through.
             NoProteinStatementError: If var_c is an identity that covers no whole codon,
-                which states bases and no residue.
+                which states bases and no residue, or an allele that changes
+                nothing and states no whole codon.
+            AmbiguousDescriptionError: If an allele in cis has several readings.
+            ValidationError: If an allele in cis has no reading, or the
+                transcript's CDS is open at the 5' end.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:

@@ -436,7 +436,11 @@ enum Written {
 }
 
 /// Refuses an allele whose members are not in the `system` that `method` projects from.
-fn expect_system(cis: &CisPhasedVariant, system: &str, method: &str) -> Result<(), HgvsError> {
+pub(crate) fn expect_system(
+    cis: &CisPhasedVariant,
+    system: &str,
+    method: &str,
+) -> Result<(), HgvsError> {
     if cis.coordinate_type() == system {
         return Ok(());
     }
@@ -449,7 +453,7 @@ fn wrong_member(member: &SV, system: &str) -> HgvsError {
     HgvsError::UnsupportedOperation(format!("{member} is not a {system}. variant"))
 }
 
-fn member_error(cis: &CisPhasedVariant, index: usize, source: HgvsError) -> HgvsError {
+pub(crate) fn member_error(cis: &CisPhasedVariant, index: usize, source: HgvsError) -> HgvsError {
     HgvsError::CisMember {
         allele: cis.to_string(),
         index,

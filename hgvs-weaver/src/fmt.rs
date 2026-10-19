@@ -51,8 +51,31 @@ impl fmt::Display for CisPhasedVariant {
 }
 
 impl CisPhasedVariant {
-    /// `[posedit;posedit]`.
+    /// `[posedit;posedit]`, or `[(posedit;posedit)]` for protein members all
+    /// predicted at a residue, as HGVS writes a predicted protein allele.
     fn fmt_members(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let predicted: Option<Vec<&PVariant>> = self
+            .members
+            .iter()
+            .map(|m| match m {
+                SequenceVariant::Protein(p) if p.posedit.predicted && p.posedit.pos.is_some() => {
+                    Some(p)
+                }
+                _ => None,
+            })
+            .collect();
+        if let Some(members) = predicted.filter(|m| m.len() > 1) {
+            write!(f, "[(")?;
+            for (i, p) in members.into_iter().enumerate() {
+                if i > 0 {
+                    write!(f, ";")?;
+                }
+                let mut posedit = p.posedit.clone();
+                posedit.predicted = false;
+                posedit.format_simple(f)?;
+            }
+            return write!(f, ")]");
+        }
         write!(f, "[")?;
         for (i, m) in self.members.iter().enumerate() {
             if i > 0 {
