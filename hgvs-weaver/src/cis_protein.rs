@@ -297,9 +297,9 @@ impl VariantMapper<'_> {
                 other => other,
             });
         }
-        let mut stated = codons;
-        stated.extend(silent.iter().filter_map(named_residues));
-        let beside = residues_beside(&changes, &merged(stated))
+        // Beside a change that alters residues, a silent one says nothing the
+        // change does not: the change predicts every residue it leaves.
+        let beside = residues_beside(&changes, &codons)
             .into_iter()
             .map(|c| cds.unchanged(c))
             .collect::<Result<_, _>>()?;
@@ -644,10 +644,9 @@ fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVari
             false => reading.describe().map(Some),
         }
     };
-    let mut pending = groups(edits);
+    let mut pending: std::collections::VecDeque<Vec<ResolvedEdit>> = groups(edits).into();
     let mut described: Vec<(Vec<ResolvedEdit>, PVariant)> = Vec::new();
-    while !pending.is_empty() {
-        let mut group = pending.remove(0);
+    while let Some(mut group) = pending.pop_front() {
         let Some(mut change) = describe(&group)? else {
             return Ok(None);
         };
@@ -666,7 +665,7 @@ fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVari
         if let Some((previous, _)) = described.pop_if(|(_, p)| meets(p)) {
             let mut joined = previous;
             joined.extend(group);
-            pending.insert(0, joined);
+            pending.push_front(joined);
             continue;
         }
         described.push((group, change));

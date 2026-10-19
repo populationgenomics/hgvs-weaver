@@ -2705,9 +2705,11 @@ frameshifts that restore the frame are one change, the residues between them, `c
 `p.(Lys2_Leu3delinsAsnTrp)` rather than two frameshifts. A change that shifts the frame or ends the protein holds every
 change after it, since what follows is read anew or not at all: `c.[4A>T;13T>G]` is `p.(Lys2Ter)`, and `c.[4A>C;10del]`
 is `p.[(Lys2Gln;Ala4ProfsTer?)]`. Each member is described as that change alone would be, so the members together leave
-the protein the whole edited sequence encodes, which is what equivalence compares (below). A silent change names the
-residues of the codons it touches unchanged, as a statement does: beside other changes it is a member, `c.[4A>C;15T>C]`
-giving `p.[(Lys2Gln;Tyr5=)]`, and beside a statement the two are one run, `c.[12C>T;13_15=]` giving `p.(Ala4_Tyr5=)`.
+the protein the whole edited sequence encodes, which is what equivalence compares (below). A silent change beside a
+change that alters residues adds nothing, since that change already predicts every residue it leaves: `c.[4A>C;15T>C]`
+is `p.(Lys2Gln)`, as the delins it makes is, wherever the silent change lies. Where every change is silent, each names
+the residues of the codons it touches unchanged, as a statement does: `c.[9G>A;15T>C]` is `p.[(Leu3=;Tyr5=)]`, and
+beside a statement the two are one run, `c.[12C>T;13_15=]` giving `p.(Ala4_Tyr5=)`.
 
 Where the members lie is read as it is for one change. Each member is placed on its own 3'-most spelling, as
 [a single change is](#a-change-to-the-start-codon-is-an-unknown-change-from-met1), and if the change then alters the
@@ -2827,7 +2829,7 @@ NM_X.1:c.4_6delinsTAT                  ATG TAT CTG GCC TAT CGC TAA    Analogous 
                                                                       not p.[(Lys2Ter;Lys2Asn)], what the members predict alone
 NM_X.1:c.[6A>T;8T>G]                   →  NP_X.1:p.(Lys2_Leu3delinsAsnArg)     adjacent codons, one delins
 NM_X.1:c.[4A>C;13T>G]                  →  NP_X.1:p.[(Lys2Gln;Tyr5Asp)]         Leu3 and Ala4 between: two members
-NM_X.1:c.[4A>C;15T>C]                  →  NP_X.1:p.[(Lys2Gln;Tyr5=)]           a silent change apart is a member
+NM_X.1:c.[4A>C;15T>C]                  →  NP_X.1:p.(Lys2Gln)                   a silent change beside it adds nothing
 NM_X.1:c.[4A>T;13T>G]                  →  NP_X.1:p.(Lys2Ter)                   nothing after the stop is read
 NM_X.1:c.[4A>C;10del]                  →  NP_X.1:p.[(Lys2Gln;Ala4ProfsTer?)]   the frameshift holds what follows
 NM_X.1:c.[5del;10dup]                  →  NP_X.1:p.(Lys2_Leu3delinsAsnTrp)     the frame restored
@@ -2987,7 +2989,8 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `tests/test_cis_phased.py::test_c_to_p_predicts_the_protein_the_members_make_together`,
   `::test_c_to_p_writes_residues_stated_beside_a_change_as_a_protein_allele`; changes apart as members:
   `cis_phased_test::changes_separated_by_an_unchanged_residue_are_separate_members`,
-  `::a_silent_change_apart_from_a_change_is_stated_beside_it`,
+  `::a_silent_change_beside_a_change_adds_nothing`, `::silent_changes_apart_name_their_residues_unchanged`,
+  `::an_allele_with_a_silent_change_apart_is_its_change_on_the_protein`,
   `::a_change_ending_the_protein_holds_the_changes_after_it`,
   `::a_frameshift_apart_from_an_earlier_change_is_a_member_of_its_own`,
   `::a_change_apart_from_one_leaving_no_codon_says_nothing`; protein alleles read as the protein they leave:

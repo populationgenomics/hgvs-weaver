@@ -2487,7 +2487,7 @@ fn protein_members_reaching_for_one_residue_are_refused() {
 fn a_protein_member_after_a_frameshift_is_refused() {
     assert!(matches!(
         protein_level("NP_X.1:p.[Lys2fs;Tyr5Asp]", "NP_X.1:p.Lys2fs"),
-        Err(HgvsError::ValidationError(_))
+        Err(HgvsError::ValidationError(m)) if m.contains("after a frameshift")
     ));
 }
 
@@ -2514,11 +2514,25 @@ fn changes_separated_by_an_unchanged_residue_are_separate_members() {
 }
 
 #[test]
-fn a_silent_change_apart_from_a_change_is_stated_beside_it() {
-    // TAT becomes TAC, still Tyr.
+fn a_silent_change_beside_a_change_adds_nothing() {
+    // TAT becomes TAC, still Tyr: the change already predicts Tyr5 as it is.
+    assert_eq!(predicted("NM_X.1:c.[4A>C;15T>C]"), "NP_X.1:p.(Lys2Gln)");
+}
+
+#[test]
+fn silent_changes_apart_name_their_residues_unchanged() {
+    // CTG becomes CTA and TAT becomes TAC: Leu3 and Tyr5 as they were.
     assert_eq!(
-        predicted("NM_X.1:c.[4A>C;15T>C]"),
-        "NP_X.1:p.[(Lys2Gln;Tyr5=)]"
+        predicted("NM_X.1:c.[9G>A;15T>C]"),
+        "NP_X.1:p.[(Leu3=;Tyr5=)]"
+    );
+}
+
+#[test]
+fn an_allele_with_a_silent_change_apart_is_its_change_on_the_protein() {
+    assert_eq!(
+        protein_level("NM_X.1:c.[4A>C;15T>C]", "NP_X.1:p.Lys2Gln").unwrap(),
+        EquivalenceLevel::Identity
     );
 }
 

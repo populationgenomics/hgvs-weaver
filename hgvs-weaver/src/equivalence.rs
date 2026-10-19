@@ -788,8 +788,12 @@ impl<'a> VariantEquivalence<'a> {
         let reaches = |e: &ProteinEdit| if e.open { protein.len() } else { e.end };
         for pair in changes.windows(2) {
             if pair[1].start < reaches(&pair[0]) || pair[1].start == pair[0].start {
+                let why = match reaches(&pair[0]) == protein.len() {
+                    true => "a member after a frameshift, a stop or an open end",
+                    false => "two members that reach for one residue",
+                };
                 return Err(HgvsError::ValidationError(format!(
-                    "{var} has two members that reach for one residue, so it has no reading"
+                    "{var} has {why}, so it has no reading"
                 )));
             }
         }
