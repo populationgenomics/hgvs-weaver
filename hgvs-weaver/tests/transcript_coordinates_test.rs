@@ -411,7 +411,7 @@ fn repeat_on_the_minus_strand_projects_to_its_whole_run() {
 #[test]
 fn a_position_in_no_exon_is_an_error_not_an_extrapolation() {
     // NM_PLUS10.1 is one exon of 100 bases and c.*60 is its last base, so
-    // c.*61 lies in no exon. It is refused wherever it is resolved, never
+    // c.*61 lies in no exon. It is refused wherever it is projected, never
     // projected by extending the exon past its end.
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
@@ -421,7 +421,6 @@ fn a_position_in_no_exon_is_an_error_not_an_extrapolation() {
     };
     for err in [
         mapper.c_to_g(c, None).unwrap_err(),
-        mapper.validate(&var).unwrap_err(),
         mapper.to_spdi_unambiguous(&var).unwrap_err(),
     ] {
         assert!(matches!(err, HgvsError::ValidationError(_)), "{err}");

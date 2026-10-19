@@ -180,6 +180,41 @@ proptest! {
         }
         prop_assert_eq!(r.whole().unwrap(), seq.clone());
     }
+
+    /// A Reference learns its length from short reads alone, whatever the
+    /// block size and whatever was read first, a range past the end
+    /// included.
+    #[test]
+    fn reference_length_agrees_with_the_sequence(
+        seq in dna(0, 120),
+        block in 1usize..=17,
+        first in prop::option::of(0usize..300),
+    ) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let store = ReferenceStore::with_block_size(&hdp, block);
+        let r = store.reference("X", G);
+        if let Some(i) = first {
+            r.base(i).unwrap();
+        }
+        prop_assert_eq!(r.length().unwrap(), seq.len());
+    }
+
+    /// A range is refused exactly when it runs past the end of the sequence;
+    /// an empty one, an insertion point, needs the base in front of which it
+    /// inserts.
+    #[test]
+    fn a_range_is_refused_exactly_when_it_runs_past_the_end(
+        seq in dna(0, 120),
+        block in 1usize..=17,
+        (a, b) in (0usize..130, 0usize..130),
+    ) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let store = ReferenceStore::with_block_size(&hdp, block);
+        let r = store.reference("X", G);
+        let (s, e) = (a.min(b), a.max(b));
+        let inside = if e > s { e <= seq.len() } else { s < seq.len() };
+        prop_assert_eq!(r.check_range(s, e).is_ok(), inside);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -890,10 +925,14 @@ proptest! {
         let direct = eq.equivalent_level(&SequenceVariant::Coding(vc.clone()), &vp);
         // A prediction that does not read back on its own protein has no
         // judgement to compare with: c_to_p names read-through residues past
-        // the stop for an in-frame change over it (issue #94).
+        // the stop for an in-frame change over it (issue #94), as residues the
+        // protein does not hold or as positions past its end.
         let through_prediction = match through_prediction {
             Ok(level) => level,
-            Err(hgvs_weaver::HgvsError::ReferenceMismatch { .. }) => return Ok(()),
+            Err(
+                hgvs_weaver::HgvsError::ReferenceMismatch { .. }
+                | hgvs_weaver::HgvsError::PositionOutsideSequence { .. },
+            ) => return Ok(()),
             Err(e) => return Err(TestCaseError::fail(format!("{predicted} against {vp}: {e}"))),
         };
         // A predicted frameshift or extension, or a change that removes the

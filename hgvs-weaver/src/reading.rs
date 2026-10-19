@@ -2427,12 +2427,7 @@ fn place(
     if uncertain {
         return Ok(unapplied);
     }
-    if end == 0 || reference.base(end - 1)?.is_none() {
-        return Err(HgvsError::ValidationError(format!(
-            "{member} names bases past the end of {}",
-            reference.accession()
-        )));
-    }
+    reference.check_range(start, end)?;
     let write = |value| Placed::Applied(Act::Write { start, end, value });
     let replace = |start: usize, end: usize, alt: String| {
         Placed::Applied(if alt.is_empty() {

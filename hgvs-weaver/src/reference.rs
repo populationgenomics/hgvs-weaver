@@ -167,14 +167,28 @@ impl<'a> ReferenceStore<'a> {
             }
         }
         let start = index * self.block_size;
-        let block = self.fetch(ac, kind, start, Some(start.saturating_add(self.block_size)))?;
+        // A provider numbers positions in an i32.
+        let end = start.saturating_add(self.block_size).min(i32::MAX as usize);
+        let block = self.fetch(ac, kind, start, Some(end))?;
         let mut cache = self.cache();
         let entry = cache.entry(key).or_default();
-        if block.len() < self.block_size {
+        // An empty block past the first says only that the end lies before it.
+        if block.len() < self.block_size && (start == 0 || !block.is_empty()) {
             entry.len = Some(start + block.len());
         }
         entry.blocks.insert(index, block);
         Ok(())
+    }
+
+    /// The number of bases in block `index` of `ac`: the block size for one
+    /// wholly inside the sequence, fewer for the last, none past the end.
+    fn block_len(&self, ac: &str, kind: IdentifierType, index: usize) -> Result<usize, HgvsError> {
+        self.ensure_block(ac, kind, index)?;
+        let cache = self.cache();
+        Ok(cache
+            .get(&(ac.to_string(), kind))
+            .and_then(|c| c.blocks.get(&index))
+            .map_or(0, String::len))
     }
 }
 
@@ -236,6 +250,84 @@ impl<'s, 'a> Reference<'s, 'a> {
     /// The base at `index`, or `None` past the end.
     pub fn base(&self, index: usize) -> Result<Option<u8>, HgvsError> {
         Ok(self.slice(index, index.saturating_add(1))?.bytes().next())
+    }
+
+    /// Refuses the 0-based half-open `[start, end)` unless the sequence has
+    /// every index in it. An empty range is an insertion point, in front of
+    /// `start`, which needs the base there. Only the block holding the last
+    /// index is read, which reading the range would read anyway; the length
+    /// an error names costs more reads, once.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::PositionOutsideSequence`] naming the range and the
+    /// sequence's length.
+    pub fn check_range(&self, start: usize, end: usize) -> Result<(), HgvsError> {
+        let end = end.max(start.saturating_add(1));
+        if self.base(end - 1)?.is_some() {
+            return Ok(());
+        }
+        Err(HgvsError::PositionOutsideSequence {
+            accession: self.ac.clone(),
+            start,
+            end,
+            length: self.length()?,
+        })
+    }
+
+    /// The number of bases in the sequence. Known without a provider call
+    /// once a short block or the whole sequence has been read; otherwise
+    /// found by reading blocks, doubling the index and then bisecting, so in
+    /// a number of reads logarithmic in the length.
+    pub fn length(&self) -> Result<usize, HgvsError> {
+        let known = || {
+            self.store
+                .cache()
+                .get(&self.key())
+                .and_then(|c| c.len.or(c.whole.as_ref().map(String::len)))
+        };
+        let bs = self.store.block_size;
+        let block_len = |index| self.store.block_len(&self.ac, self.kind, index);
+        // Every block below `full` is full; block `past` is empty.
+        let mut full = 0;
+        let mut probe = 0;
+        if let Some(len) = known() {
+            return Ok(len);
+        }
+        let mut past = loop {
+            let n = block_len(probe)?;
+            if let Some(len) = known() {
+                return Ok(len);
+            }
+            if n < bs {
+                break probe;
+            }
+            full = probe + 1;
+            // A provider numbers positions in an i32: no block starts past it.
+            let last = i32::MAX as usize / bs;
+            if probe >= last {
+                return Err(HgvsError::ValidationError(format!(
+                    "{} has more bases than a position can number",
+                    self.ac
+                )));
+            }
+            probe = (probe * 2).clamp(1, last);
+        };
+        while full < past {
+            let mid = full + (past - full) / 2;
+            let n = block_len(mid)?;
+            if let Some(len) = known() {
+                return Ok(len);
+            }
+            if n == bs {
+                full = mid + 1;
+            } else {
+                past = mid;
+            }
+        }
+        let len = full * bs;
+        self.store.cache().entry(self.key()).or_default().len = Some(len);
+        Ok(len)
     }
 
     /// The refget accession (`SQ.` + sha512t24u) identifying this sequence:

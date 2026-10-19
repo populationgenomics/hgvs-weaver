@@ -127,8 +127,11 @@ impl<'a> VariantEquivalence<'a> {
         for var in [var1, var2] {
             if let SequenceVariant::CisPhased(cis) = var {
                 if let Some(exact) = exact_members(cis)? {
-                    if let Err(e @ (HgvsError::ValidationError(_) | HgvsError::Ambiguous { .. })) =
-                        self.mapper.read_cis(&exact)
+                    if let Err(
+                        e @ (HgvsError::ValidationError(_)
+                        | HgvsError::Ambiguous { .. }
+                        | HgvsError::PositionOutsideSequence { .. }),
+                    ) = self.mapper.read_cis(&exact)
                     {
                         return Err(e);
                     }

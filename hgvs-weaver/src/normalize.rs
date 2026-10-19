@@ -175,17 +175,18 @@ impl ExonBounds {
 ///
 /// # Errors
 ///
-/// [`HgvsError::ReferenceMismatch`] when the edit states bases the reference
-/// does not hold, whether or not the edit would move.
+/// [`HgvsError::PositionOutsideSequence`] when the edit's range runs past the
+/// end of the reference, an insertion's included when it goes after the last
+/// base; [`HgvsError::ReferenceMismatch`] when the edit states bases the
+/// reference does not hold, whether or not the edit would move.
 pub fn normalize(
     reference: &Reference<'_, '_>,
     placed: PlacedEdit,
     exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
+    let (hgvs_start, hgvs_end) = placed.hgvs_range();
     let PlacedEdit { start, end, edit } = placed;
-    edit.check_stated(reference.accession(), start, end, |s, e| {
-        reference.slice(s, e)
-    })?;
+    edit.check_against(reference, hgvs_start, hgvs_end, crate::data::Strand::Plus)?;
     let edit = without_stated_bases(edit);
     if let Some((start, end, uncertain)) = statement_made(reference, start, end, &edit, exons)? {
         return Ok(PlacedEdit {
@@ -215,17 +216,6 @@ pub fn normalize(
                 edit,
             })
         }
-        NaEdit::Ins {
-            alt: Some(seq),
-            uncertain,
-        } if start > 0 && reference.base(start)?.is_none() => insertion_in_exon(
-            reference,
-            start,
-            seq,
-            *uncertain,
-            exons.exon(start - 1),
-            exons,
-        ),
         NaEdit::Ins { .. } if start > 0 && !exons.same_exon(start - 1, start) => {
             Ok(PlacedEdit { start, end, edit })
         }
@@ -353,13 +343,6 @@ fn reduce_delins(
     exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
     let ref_ = reference.slice(start, end)?;
-    if ref_.len() != end - start {
-        return Err(HgvsError::ValidationError(format!(
-            "{} has {} bases over [{start}, {end}); the delins runs past its end",
-            reference.accession(),
-            ref_.len()
-        )));
-    }
     let spans = !exons.same_exon(start, end - 1);
     let (max_prefix, max_suffix) = if spans {
         (
@@ -660,6 +643,15 @@ pub(crate) fn minimal_edit(
             uncertain,
         };
         (edit, 0, 1)
+    } else if r.is_empty() && reference.base(at)?.is_none() {
+        // Nor one after the last: a delins of that base.
+        let last = reference.slice(at - 1, at)?;
+        let edit = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(format!("{last}{a}")),
+            uncertain,
+        };
+        (edit, at - 1, at)
     } else if r.is_empty() {
         let edit = NaEdit::Ins {
             alt: Some(a),

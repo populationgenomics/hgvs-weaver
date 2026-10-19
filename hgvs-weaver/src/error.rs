@@ -36,6 +36,16 @@ pub enum HgvsError {
         start: usize,
         end: usize,
     },
+    /// A description names a position `accession` does not have: the 0-based
+    /// half-open `[start, end)` runs past the end of its `length` bases or
+    /// residues. An insertion needs both its flanking bases, so one after the
+    /// last base runs past the end too.
+    PositionOutsideSequence {
+        accession: String,
+        start: usize,
+        end: usize,
+        length: usize,
+    },
     /// A description that makes no statement about the protein: an identity
     /// that covers no whole codon. HGVS has no `p.` form for it; `p.(=)`
     /// would claim the whole protein, and `p.?` an effect.
@@ -79,6 +89,15 @@ impl fmt::Display for HgvsError {
             } => write!(
                 f,
                 "Reference sequence mismatch: expected {expected}, found {found} on {accession} at indices {start}..{end}"
+            ),
+            HgvsError::PositionOutsideSequence {
+                accession,
+                start,
+                end,
+                length,
+            } => write!(
+                f,
+                "Position outside the sequence: {accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
             ),
             HgvsError::NoProteinStatement(msg) => write!(f, "No protein statement: {msg}"),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),

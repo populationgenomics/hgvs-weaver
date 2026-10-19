@@ -208,6 +208,7 @@ Representation Specification 2.0.1.
 | [Frameshift length counts to the first new stop](#frameshift-length-counts-to-the-first-new-stop)                                   |                           agrees                           |        –         |                –                |        –         |
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |                agrees; silent on derivation                |        –         |                –                |        –         |
 | [A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)                                     |                           agrees                           | differs intronic |        differs intronic         |        –         |
+| [A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)                         |                           agrees                           |        –         |                –                |        –         |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                             –                              |     differs      |                –                |        –         |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |                agrees; silent on `p.Arg12?`                |        –         |                –                |     differs      |
 | [An uncertain position names no one change](#an-uncertain-position-names-no-one-change)                                             |                           agrees                           |        –         |                –                |        –         |
@@ -587,8 +588,10 @@ NC_000095.1:g.15A[3]          →  UnsupportedOperation               NM_JX.1's 
 
 ### A position outside every exon is an error
 
-**Transcript positions resolve through the exon structure only; a position past the last exon is a `ValidationError`,
-not an extrapolated coordinate.**
+**A transcript position projects through the exon structure only; projecting a position past the last exon is a
+`ValidationError`, not an extrapolated coordinate.** An operation that reads the position on the record instead finds it
+past the record's end
+([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
 
 A silently extrapolated coordinate is wrong without saying so.
 
@@ -596,7 +599,7 @@ A silently extrapolated coordinate is wrong without saying so.
 
 ```text
 NM_PLUS10.1:c.*60T>A   →  projects
-NM_PLUS10.1:c.*61A>G   →  ValidationError, from c_to_g, validate and to_spdi_unambiguous alike
+NM_PLUS10.1:c.*61A>G   →  ValidationError, from c_to_g and to_spdi_unambiguous alike
 ```
 
 - **Differs:** biocommons extrapolates in some paths.
@@ -914,7 +917,9 @@ of the sequence the variant is written on.** On a transcript the shift stays wit
 
 An insertion that repeats the bases immediately before it becomes a duplication, and an insertion that slides has its
 bases rotated by how far it moved. An insertion does not slide past the last base of the sequence, after which HGVS has
-no position to name; one written or read there, from SPDI or VRS, is a delins of that base, or the duplication it is.
+no position to name; one read there, from SPDI or VRS, is a delins of that base, or the duplication it is, and one
+written there is refused
+([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
 
 **Example** (on `ACGT` repeated, and on the ten bases `TTCAGCAGTT`):
 
@@ -927,7 +932,7 @@ NM_PLUS0.1:n.12_13insT         →  NM_PLUS0.1:n.12dup             n. and g. ali
 on TTCAGCAGTT:  g.3_5del       →  g.6_8del                       the first CAG shifts onto the second
 on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base, so rotated by one
 on TTCAGCAGTT:  g.9_10insTA    →  g.9_10insTA                    not g.10_11insAT, after the last base
-on TTCAGCAGTT:  g.10_11insA    →  g.10delinsTA                   and NC_…:9:T:TA reads as the same
+on TTCAGCAGTT:  NC_…:9:T:TA    →  g.10delinsTA                   g.10_11insA is past the end
 ```
 
 - **Agrees:** biocommons, VariantValidator and ClinVar.
@@ -939,9 +944,8 @@ on TTCAGCAGTT:  g.10_11insA    →  g.10delinsTA                   and NC_…:9:
   ([intronic positions](#intronic-positions-are-carried-as-given),
   [#87](https://github.com/populationgenomics/hgvs-weaver/issues/87)).
 - **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`,
-  `::an_insertion_written_after_the_last_base_is_a_delins_of_the_last_base`,
-  `::an_insertion_written_after_the_last_base_that_repeats_it_is_a_duplication`,
   `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
+  `::an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication`,
   `::an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue`;
   `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
   `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
@@ -2279,6 +2283,73 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
   `protein_allele_test::validation_checks_the_named_and_stated_residues`;
   `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases` (the
   `validate` cases); `tests/test_validate_stated_bases.py::test_a_base_the_genome_lacks_is_an_error_naming_the_genome`.
+
+### A position past the end of its sequence is an error
+
+**A description that names a position its sequence does not have is refused by every operation that reads it, with a
+`PositionOutsideSequenceError` naming the sequence, the range and the sequence's length; `validate` answers false, as
+for a stated base the sequence lacks. An insertion needs both its flanking bases, so one written after the last base is
+refused too. Positions are checked before bases: a stated base past the end is reported as the position it is.**
+
+A position past the end is not a slip that the nearest base can repair. Read as far as the sequence goes, a deletion
+past the end deletes fewer bases than it says, and an insertion after the last base, rewritten as a delins of that base,
+changes a base it never named: each becomes a different variant without a word. This matters most on short references,
+an amplicon in a saturation genome editing or deep mutational scanning experiment, where a trimming mistake upstream
+yields positions just past the end.
+
+The sequence a position is checked against is the one it numbers, as for stated bases
+([A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)): the genome for `g.`
+and `m.`, the transcript record for an exonic `c.`, `n.` or `r.` position, the genome for an intronic one, the protein
+for `p.`. A protein served without its stop has the stop one past its last residue, so an extension or a change at the
+stop still reads, and the position after the stop is past the end. Projecting a transcript position past the last exon
+is refused earlier, by the exon structure
+([A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)).
+
+Three cases are outside the rule. A position known only to lie in a range names no one range to find, so only the bases
+it states are checked ([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A
+position before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`. Two
+descriptions spelled the same are judged equal without reading either, as for stated bases.
+
+weaver learns where a sequence ends from the data provider's own answers, with no method added to it: a window that runs
+past the end comes back short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)).
+
+SPDI and VRS place a change by interbase coordinates, which can name the point after the last base; an insertion read
+there is not refused, and is written as HGVS can write it
+([Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)).
+
+**Example** (`NC_000099.1` is the nine bases `TTGGGGCTT`; `NM_000099.1` is a 31-base record whose last base is c.\*5;
+`NP_000099.1` is `MKLAYR`, served without its stop):
+
+```text
+normalize NC_000099.1:g.9del          →  NC_000099.1:g.9del               the last base
+normalize NC_000099.1:g.10del         →  PositionOutsideSequenceError     one past it
+to_spdi   NC_000099.1:g.8_10del       →  PositionOutsideSequenceError     not NC_000099.1:7:TT:, two bases of three
+normalize NC_000099.1:g.8_9insA       →  NC_000099.1:g.8_9insA
+normalize NC_000099.1:g.9_10insA      →  PositionOutsideSequenceError     not g.9delinsTA
+normalize NC_000099.1:g.20A>T         →  PositionOutsideSequenceError     not a mismatch against no base
+validate  NC_000099.1:g.20del         →  false
+c_to_p    NM_000099.1:c.*6del         →  PositionOutsideSequenceError     not p.(=), the 3'UTR's prediction
+validate  NP_000099.1:p.Ter7Gln       →  true                             the stop the protein is served without
+normalize NP_000099.1:p.Gln8del       →  PositionOutsideSequenceError
+validate  NC_000099.1:g.(20_25)del    →  true                             names no one range
+```
+
+- **Others:** not checked.
+- **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not allowed to
+  describe variants in nucleotides beyond the boundaries of a reference sequence".
+- **Tests:** `position_outside_sequence_test::a_deletion_of_the_last_base_normalises`,
+  `::normalize_refuses_a_deletion_one_past_the_last_base`, `::to_spdi_refuses_a_range_ending_one_past_the_last_base`,
+  `::an_insertion_between_the_last_two_bases_normalises`, `::normalize_refuses_an_insertion_after_the_last_base`,
+  `::a_stated_base_past_the_end_is_refused_for_its_position_not_its_base`,
+  `::validate_answers_false_for_a_deletion_wholly_past_the_end`,
+  `::c_to_p_refuses_a_three_prime_utr_position_past_the_records_end`,
+  `::a_protein_served_without_its_stop_has_the_stop_after_its_last_residue`,
+  `::normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_without`,
+  `::an_uncertain_position_past_the_end_is_not_found_on_the_sequence` (the rows above), and the file's other tests: the
+  minus-strand record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c` and
+  `equivalent_level`; `reference_length_agrees_with_the_sequence`,
+  `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
+  `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
 
 ## Equivalence
 

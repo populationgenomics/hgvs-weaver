@@ -21,6 +21,13 @@ pyo3::create_exception!(
 
 pyo3::create_exception!(
     _weaver,
+    PositionOutsideSequenceError,
+    HGVSError,
+    "A description names a position its reference does not have: past the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. Raised by every operation that reads the positions; Variant.validate answers False instead."
+);
+
+pyo3::create_exception!(
+    _weaver,
     AmbiguousDescriptionError,
     HGVSError,
     "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."
@@ -54,6 +61,14 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             end,
         } => ReferenceMismatchError::new_err(format!(
             "{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"
+        )),
+        HgvsError::PositionOutsideSequence {
+            accession,
+            start,
+            end,
+            length,
+        } => PositionOutsideSequenceError::new_err(format!(
+            "{context}{accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
         )),
         HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
@@ -278,7 +293,7 @@ impl PyVariant {
             .unbind())
     }
 
-    #[doc = "Validates the bases and residues the variant states against the provided DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein. An allele in cis of nucleotide members must also have\none reading: members that reach for the same base are read every way the\ndescription allows.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every stated base is there, False where an operation reading the\n    variant would raise ReferenceMismatchError. c.= names no bases and is True\n    once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n        An allele in cis whose members leave it no reading is a ValidationError naming two.\n    AmbiguousDescriptionError: If an allele in cis has several readings; its readings\n        are each of them.\n    UnsupportedOperationError: If an allele in cis has readings weaver does not list.\n    DataProviderError: If sequence data cannot be retrieved."]
+    #[doc = "Validates the positions the variant names, and the bases and residues it states, against a DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein. An allele in cis of nucleotide members must also have\none reading: members that reach for the same base are read every way the\ndescription allows.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every position the variant names and every stated base is there,\n    False where an operation reading the variant would raise\n    ReferenceMismatchError or PositionOutsideSequenceError. c.= names no bases\n    and is True once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If the variant names no position or a range that runs\n        backwards, or c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n        An allele in cis whose members leave it no reading is a ValidationError naming two.\n    AmbiguousDescriptionError: If an allele in cis has several readings; its readings\n        are each of them.\n    UnsupportedOperationError: If an allele in cis has readings weaver does not list.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
         VariantMapper::new(&bridge)
@@ -652,7 +667,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, reference_ac = None))]
-    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nA range across an exon junction is the genomic range it numbers, the\nintron included: c.4_6dup across the junction after c.5 duplicates\nc.4, c.5, the intron and c.6.\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    ReferenceMismatchError: If a base the variant states is not the record's\n        (exonic) or the genome's on the transcript's strand (intronic).\n    UnsupportedOperationError: If the variant inserts at an exon\n        junction (c.5_6insT where c.5 and c.6 lie in different\n        exons), which is before or after the intron on the genome.\n        The message names the spelling at each end of the intron,\n        c.5_5+1insT and c.6-1_6insT, either of which projects.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nA range across an exon junction is the genomic range it numbers, the\nintron included: c.4_6dup across the junction after c.5 duplicates\nc.4, c.5, the intron and c.6.\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    ReferenceMismatchError: If a base the variant states is not the record's\n        (exonic) or the genome's on the transcript's strand (intronic).\n    PositionOutsideSequenceError: If an intronic position lies past the end\n        of the genome.\n    UnsupportedOperationError: If the variant inserts at an exon\n        junction (c.5_6insT where c.5 and c.6 lie in different\n        exons), which is before or after the intron on the genome.\n        The message names the spelling at each end of the intron,\n        c.5_5+1insT and c.6-1_6insT, either of which projects.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn c_to_g(
         &self,
         _py: Python,
@@ -820,7 +835,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_p, transcript_ac=None))]
-    #[doc = "Back-converts a protein substitution (p.) to a coding variant (c.).\n\nCurrently handles single amino acid substitutions only. When multiple codons\ncould produce the target amino acid, the one requiring the fewest nucleotide\nchanges is chosen. The residue var_p names is read on the protein, so the\nprovider must serve the protein's sequence.\n\nArgs:\n    var_p: The protein Variant to back-convert.\n    transcript_ac: Optional transcript accession (NM_). Required if the DataProvider cannot resolve NP to NM.\n\nReturns:\n    A tuple of (Variant in 'c.' coordinates, is_unique: bool).\n    is_unique is True if the back-conversion is unambiguous.\n\nRaises:\n    ValueError: If var_p is not a protein variant.\n    ReferenceMismatchError: If the residue var_p names is not the protein's.\n    HGVSError: If back-conversion fails due to unsupported consequence or missing transcript."]
+    #[doc = "Back-converts a protein substitution (p.) to a coding variant (c.).\n\nCurrently handles single amino acid substitutions only. When multiple codons\ncould produce the target amino acid, the one requiring the fewest nucleotide\nchanges is chosen. The residue var_p names is read on the protein, so the\nprovider must serve the protein's sequence.\n\nArgs:\n    var_p: The protein Variant to back-convert.\n    transcript_ac: Optional transcript accession (NM_). Required if the DataProvider cannot resolve NP to NM.\n\nReturns:\n    A tuple of (Variant in 'c.' coordinates, is_unique: bool).\n    is_unique is True if the back-conversion is unambiguous.\n\nRaises:\n    ValueError: If var_p is not a protein variant.\n    ReferenceMismatchError: If the residue var_p names is not the protein's.\n    PositionOutsideSequenceError: If var_p names a position past the protein's stop.\n    HGVSError: If back-conversion fails due to unsupported consequence or missing transcript."]
     fn p_to_c(
         &self,
         _py: Python,
@@ -977,6 +992,10 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "ReferenceMismatchError",
         m.py().get_type::<ReferenceMismatchError>(),
+    )?;
+    m.add(
+        "PositionOutsideSequenceError",
+        m.py().get_type::<PositionOutsideSequenceError>(),
     )?;
     m.add(
         "AmbiguousDescriptionError",
