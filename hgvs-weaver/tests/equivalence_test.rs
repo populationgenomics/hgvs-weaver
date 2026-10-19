@@ -868,7 +868,7 @@ fn a_mitochondrial_uncertain_member_is_its_genomic_spelling() {
             "NC_TEST.1:m.[(1003_1004)del;1007G>A]",
             "NC_TEST.1:g.[1007G>A;(1003_1004)del]"
         ),
-        EquivalenceLevel::Analogous
+        EquivalenceLevel::Identity
     );
 }
 

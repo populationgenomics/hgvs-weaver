@@ -170,9 +170,25 @@ fn a_transcript_allele_is_its_genomic_spelling_unnormalised() {
 }
 
 #[test]
-fn a_mitochondrial_allele_is_the_genomic_one_it_spells() {
+fn a_mitochondrial_allele_is_identical_to_the_genomic_one_it_spells() {
     assert_eq!(
         level("NC_X.1:m.[22C>T;28T>G]", "NC_X.1:g.[28T>G;22C>T]"),
+        Identity
+    );
+}
+
+#[test]
+fn a_mitochondrial_allele_is_identical_to_its_coding_projection() {
+    assert_eq!(
+        level("NC_X.1:m.[22C>T;28T>G]", "NM_X.1:c.[7C>T;13T>G]"),
+        Identity
+    );
+}
+
+#[test]
+fn a_mitochondrial_allele_is_the_genomic_delins_it_makes() {
+    assert_eq!(
+        level("NC_X.1:m.[22C>T;23T>G]", "NC_X.1:g.22_23delinsTG"),
         Analogous
     );
 }

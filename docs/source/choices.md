@@ -2486,6 +2486,7 @@ NC_TEST.1:g.(1005)_(1012)del         vs  NC_TEST.1:g.1005_1012del    Analogous
 NC_TEST.1:g.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;(1003_1004)del]  Identity: the members in another order
 NC_TEST.1:g.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;1003del]         Different
 NC_TEST.1:g.[(1003_1004)del;1001_1002insA] vs  NC_TEST.1:g.[1001dup;(1003_1004)del]  Analogous: insA and dup are one allele
+NC_TEST.1:m.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;(1003_1004)del]  Identity: m. is g. on the same bases
 NM_X.1:c.[(4_6)del;10G>A]                  vs  NM_X.1:c.[10G>A;(4_6)del]             Identity
 canonical_allele, to_spdi NC_TEST.1:g.(1003_1004)del  →  UnsupportedOperation
 c_to_g, c_to_p NM_X.1:c.(4_6)del                      →  UnsupportedOperation
@@ -2616,7 +2617,8 @@ transcript reading makes and normalises to `g.28_29insCCTT`.
 A one-member allele makes what its member makes, so `c.[7C>T]` is `c.7C>T`, and an allele and a single variant are the
 same change when they make the same sequence. The brackets of a one-member allele are spelling, as the parentheses of a
 prediction are, so the two are Identity, as `c.=` and `c.[=]` are. The order of the members is spelling too, so
-`c.[8T>G;7C>T]` and `c.[7C>T;8T>G]` are Identity.
+`c.[8T>G;7C>T]` and `c.[7C>T;8T>G]` are Identity. So is `m.` against `g.`: on the mitochondrial reference the two number
+the same bases, so `m.[22C>T;28T>G]` and `g.[28T>G;22C>T]` are one statement, as `m.22C>T` and `g.22C>T` are.
 
 An allele says more than the sequence it makes when some of its members change nothing. An identity member, `c.10_12=`,
 states that its bases are unchanged, and members that cancel each other state the same of the bases they are written
@@ -2719,6 +2721,7 @@ NC_X.1:g.[22C>T;28T>G]                 the same bases                 Identity: 
 NR_XR.1:n.[23A>C;29G>A]                the same bases                 Analogous: the same sequence on the genome
 NM_X.1:c.7C>T                          ATG AAA TTG GCC TAT CGC TAA    Different from c.[7C>T;13T>G]: a member short
 NM_X.1:c.[7C>T]                        ATG AAA TTG GCC TAT CGC TAA    Identity with c.7C>T
+NC_X.1:m.[22C>T;28T>G]  vs  NC_X.1:g.[28T>G;22C>T]                    Identity: m. and g. number the same bases
 NM_X.1:c.[7C>T;10_12=]                 ATG AAA TTG GCC TAT CGC TAA    Different from c.7C>T: it also states c.10_12
 NM_X.1:c.10=  vs  NM_X.1:c.20=         the reference for both         Different: statements about c.10 and c.20
 NM_X.1:c.10=  vs  NC_X.1:g.25=         the reference for both         Identity: it projects exactly to it
@@ -2788,10 +2791,12 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::a_change_split_differently_between_members_is_one_change`,
   `::a_duplication_in_an_allele_is_the_insertion_it_makes`,
   `::a_duplication_in_an_allele_is_one_written_elsewhere_in_its_run`,
-  `::a_transcript_allele_is_its_genomic_spelling_unnormalised`, `::a_mitochondrial_allele_is_the_genomic_one_it_spells`,
-  `::an_allele_is_not_one_of_its_members`, `::an_allele_is_not_one_with_a_member_more`,
-  `::an_allele_is_not_one_with_a_member_changed`, `::an_allele_of_one_member_is_that_member`,
-  `::an_allele_of_one_member_is_its_members_genomic_allele`,
+  `::a_transcript_allele_is_its_genomic_spelling_unnormalised`,
+  `::a_mitochondrial_allele_is_identical_to_the_genomic_one_it_spells`,
+  `::a_mitochondrial_allele_is_identical_to_its_coding_projection`,
+  `::a_mitochondrial_allele_is_the_genomic_delins_it_makes`, `::an_allele_is_not_one_of_its_members`,
+  `::an_allele_is_not_one_with_a_member_more`, `::an_allele_is_not_one_with_a_member_changed`,
+  `::an_allele_of_one_member_is_that_member`, `::an_allele_of_one_member_is_its_members_genomic_allele`,
   `::an_allele_of_one_member_is_identical_to_its_exact_projection`, `::an_allele_of_one_member_is_not_another_variant`,
   `::a_plain_variant_is_the_allele_making_its_sequence`,
   `::a_mitochondrial_allele_of_one_member_is_identical_to_its_projection`,

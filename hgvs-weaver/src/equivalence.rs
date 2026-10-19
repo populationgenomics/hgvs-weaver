@@ -38,6 +38,17 @@ fn mito_as_genomic(var: &SequenceVariant) -> std::borrow::Cow<'_, SequenceVarian
         SequenceVariant::Mitochondrial(m) => {
             std::borrow::Cow::Owned(SequenceVariant::Genomic(m.to_genomic()))
         }
+        SequenceVariant::CisPhased(cis) if cis.coordinate_type() == "m" => {
+            std::borrow::Cow::Owned(SequenceVariant::CisPhased(CisPhasedVariant {
+                ac: cis.ac.clone(),
+                gene: cis.gene.clone(),
+                members: cis
+                    .members
+                    .iter()
+                    .map(|m| mito_as_genomic(m).into_owned())
+                    .collect(),
+            }))
+        }
         other => std::borrow::Cow::Borrowed(other),
     }
 }
