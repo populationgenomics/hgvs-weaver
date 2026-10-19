@@ -20,6 +20,7 @@ use crate::structs::strip_common_prefix_suffix;
 /// whole region of ambiguity. Coordinates are 0-based inter-residue, as in
 /// SPDI and VRS.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CanonicalAllele {
     pub accession: String,
     pub start: usize,

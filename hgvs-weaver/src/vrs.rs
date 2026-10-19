@@ -72,6 +72,7 @@ impl VrsMolecule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsSequenceReference {
     #[serde(rename = "type")]
     pub type_: String,
@@ -119,6 +120,7 @@ impl Serialize for VrsBound {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsSequenceLocation {
     #[serde(default)]
     pub id: String,
@@ -159,6 +161,7 @@ pub enum VrsState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsExpression {
     pub syntax: String,
     pub value: String,
@@ -210,6 +213,7 @@ fn expressions(hgvs: Option<(&str, &str)>) -> Vec<VrsExpression> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsAllele {
     #[serde(default)]
     pub id: String,
@@ -361,6 +365,7 @@ impl VrsAllele {
 /// A VRS 2.0 `CopyNumberCount`: the number of copies of a location in a
 /// genome, HGVS `g.1000_2000copy3`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsCopyNumberCount {
     #[serde(default)]
     pub id: String,
@@ -560,6 +565,7 @@ impl<'de> Deserialize<'de> for VrsCopyChange {
 /// relative to the baseline ploidy, without a count. HGVS
 /// `g.(a_b)_(c_d)dup` (a gain) or `del` (a loss).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsCopyNumberChange {
     #[serde(default)]
     pub id: String,
@@ -641,6 +647,7 @@ impl VrsCopyNumberChange {
 /// schema's `members` is `minItems: 2`; one member is accepted here because
 /// HGVS allows the degenerate `c.[145C>T]`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VrsCisPhasedBlock {
     #[serde(default)]
     pub id: String,

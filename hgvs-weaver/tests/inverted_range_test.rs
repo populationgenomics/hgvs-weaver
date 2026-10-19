@@ -6,15 +6,9 @@
 
 mod support;
 
-use hgvs_weaver::coords::{Anchor, HgvsGenomicPos, HgvsTranscriptPos};
 use hgvs_weaver::data::Strand;
-use hgvs_weaver::edits::NaEdit;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::structs::{
-    BaseOffsetInterval, BaseOffsetPosition, CVariant, GVariant, LinearVariant, PosEdit,
-    SimpleInterval, SimplePosition, TranscriptVariant,
-};
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
 use support::{single_exon_transcript, Provider};
 
@@ -74,59 +68,32 @@ fn provider() -> Provider {
         .protein_for("NM_D.1", "NP_D.1")
 }
 
-fn coding_position(base: i32) -> BaseOffsetPosition {
-    BaseOffsetPosition {
-        base: HgvsTranscriptPos(base),
-        offset: None,
-        anchor: Anchor::CdsStart,
-        uncertain: false,
+/// `hgvs`, parsed, with the two ends of its range swapped.
+fn reversed(hgvs: &str) -> SequenceVariant {
+    fn swap<P>(start: &mut P, end: &mut Option<P>) {
+        std::mem::swap(start, end.as_mut().expect("a range"));
     }
+    let mut v = parse_hgvs_variant(hgvs).unwrap();
+    match &mut v {
+        SequenceVariant::Coding(c) => {
+            let pos = c.posedit.pos.as_mut().unwrap();
+            swap(&mut pos.start, &mut pos.end);
+        }
+        SequenceVariant::Genomic(g) => {
+            let pos = g.posedit.pos.as_mut().unwrap();
+            swap(&mut pos.start, &mut pos.end);
+        }
+        other => panic!("{other} is neither c. nor g."),
+    }
+    v
 }
 
 #[test]
 fn a_range_built_backwards_is_an_error_wherever_it_is_resolved() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-    let del = NaEdit::Del {
-        ref_: None,
-        uncertain: false,
-    };
-    let c = SequenceVariant::Coding(CVariant::from_parts(
-        "NM_D.1".into(),
-        None,
-        PosEdit {
-            pos: Some(BaseOffsetInterval {
-                start: coding_position(20),
-                end: Some(coding_position(5)),
-                uncertain: false,
-            }),
-            edit: del.clone(),
-            uncertain: false,
-            predicted: false,
-        },
-    ));
-    let g = SequenceVariant::Genomic(GVariant::from_parts(
-        "NC_D.1".into(),
-        None,
-        PosEdit {
-            pos: Some(SimpleInterval {
-                start: SimplePosition {
-                    base: HgvsGenomicPos(40).into(),
-                    end: None,
-                    uncertain: false,
-                },
-                end: Some(SimplePosition {
-                    base: HgvsGenomicPos(20).into(),
-                    end: None,
-                    uncertain: false,
-                }),
-                uncertain: false,
-            }),
-            edit: del,
-            uncertain: false,
-            predicted: false,
-        },
-    ));
+    let c = reversed("NM_D.1:c.5_20del");
+    let g = reversed("NC_D.1:g.20_40del");
     let backwards = |r: Result<String, HgvsError>| {
         assert!(
             matches!(&r, Err(HgvsError::ValidationError(m)) if m.contains("runs backwards")),

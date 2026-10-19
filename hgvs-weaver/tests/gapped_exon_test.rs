@@ -33,14 +33,14 @@ fn revcomp(s: &str) -> String {
 }
 
 fn exon(transcript: (i32, i32), reference: (i32, i32), strand: Strand, cigar: &str) -> ExonData {
-    ExonData {
-        transcript_start: TranscriptPos(transcript.0),
-        transcript_end: TranscriptPos(transcript.1),
-        reference_start: GenomicPos(reference.0),
-        reference_end: GenomicPos(reference.1),
-        alt_strand: strand,
-        cigar: cigar.to_string(),
-    }
+    ExonData::new(
+        TranscriptPos(transcript.0),
+        TranscriptPos(transcript.1),
+        GenomicPos(reference.0),
+        GenomicPos(reference.1),
+        strand,
+        cigar.to_string(),
+    )
 }
 
 /// Four transcripts on a 60-base genome.

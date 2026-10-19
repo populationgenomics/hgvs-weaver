@@ -8,6 +8,7 @@ use crate::structs::{
 
 /// What a transcript index occupies on the genome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Footprint {
     /// The half-open genomic range: one base, or none for a base the genome
     /// lacks, whose empty range `[at, at)` sits between genome bases `at - 1`
@@ -21,6 +22,7 @@ pub struct Footprint {
 
 /// What a genomic position occupies on the transcript.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GenomicFootprint {
     /// The half-open transcript index range: one base, or none for a base the
     /// transcript lacks, whose empty range `[at, at)` sits between transcript
@@ -37,6 +39,7 @@ pub struct GenomicFootprint {
 }
 
 /// Handles coordinate transformations within a single transcript.
+#[non_exhaustive]
 pub struct TranscriptMapper {
     /// The transcript model providing exon and CDS information.
     pub transcript: TranscriptData,

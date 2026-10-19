@@ -6,11 +6,10 @@ mod strategies;
 #[path = "../support/mod.rs"]
 mod support;
 
-use hgvs_weaver::coords::HgvsGenomicPos;
 use hgvs_weaver::data::{IdentifierType, Strand};
 use hgvs_weaver::normalize::{ambiguous_range, normalize, ExonBounds, PlacedEdit};
 use hgvs_weaver::reference::ReferenceStore;
-use hgvs_weaver::structs::{GVariant, LinearVariant, SimpleInterval, SimplePosition};
+use hgvs_weaver::structs::GVariant;
 use proptest::prelude::*;
 use strategies::*;
 
@@ -483,25 +482,29 @@ proptest! {
 
 /// The g. variant on `ac` for an edit over an HGVS range.
 fn genomic_variant(ac: &str, p: &PlacedHgvs) -> GVariant {
-    let position = |i: usize| SimplePosition {
-        base: HgvsGenomicPos(i as i32).into(),
-        end: None,
-        uncertain: false,
-    };
-    GVariant::from_parts(
-        ac.to_string(),
-        None,
-        PosEdit {
-            pos: Some(SimpleInterval {
-                start: position(p.start + 1),
-                end: (p.end > p.start + 1).then(|| position(p.end)),
-                uncertain: false,
-            }),
-            edit: p.edit.clone(),
-            uncertain: false,
-            predicted: false,
-        },
-    )
+    let position = |i: usize| serde_json::json!({"base": i, "end": null, "uncertain": false});
+    let end = (p.end > p.start + 1).then(|| position(p.end));
+    variant_from(ac, interval(position(p.start + 1), end), &p.edit)
+}
+
+/// The interval from `start`, to `end` where there is one.
+fn interval<P: serde::Serialize>(start: P, end: Option<P>) -> serde_json::Value {
+    serde_json::json!({"start": start, "end": end, "uncertain": false})
+}
+
+/// The variant on `ac` that changes `pos` by `edit`, built from its fields
+/// through serde: outside the crate, the structs cannot be written literally.
+fn variant_from<V: serde::de::DeserializeOwned>(
+    ac: &str,
+    pos: serde_json::Value,
+    edit: &NaEdit,
+) -> V {
+    serde_json::from_value(serde_json::json!({
+        "ac": ac,
+        "gene": null,
+        "posedit": {"pos": pos, "edit": edit, "uncertain": false, "predicted": false},
+    }))
+    .unwrap()
 }
 
 /// The reference bases an edit written over an HGVS range replaces, as a
@@ -547,9 +550,7 @@ use hgvs_weaver::coords::{IntronicOffset, TranscriptPos};
 use hgvs_weaver::edits::{AaEdit, NaEdit};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::structs::{
-    BaseOffsetInterval, BaseOffsetPosition, CVariant, PVariant, PosEdit, TranscriptVariant,
-};
+use hgvs_weaver::structs::{CVariant, PVariant, TranscriptVariant};
 use hgvs_weaver::transcript_mapper::TranscriptMapper;
 use hgvs_weaver::utils::{aa1_to_aa3, aa3_to_aa1, translate, translate_codon};
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
@@ -603,8 +604,8 @@ proptest! {
                 // It is an intron base (the generator fills introns with T).
                 prop_assert_eq!(g.genome.as_bytes()[from_left.0 as usize], b'T');
                 // And the same through c. numbering with an intronic offset.
-                let (c, _, anchor) = am.n_to_c(TranscriptPos(last as i32)).unwrap();
-                let pos = BaseOffsetPosition { base: c.to_hgvs(), offset: Some(IntronicOffset(i as i32)), anchor, uncertain: false };
+                let mut pos = CVariant::position_from_index(&am, last as i32).unwrap();
+                pos.offset = Some(IntronicOffset(i as i32));
                 prop_assert_eq!(am.position_to_g(&pos).unwrap(), from_left);
                 // And back from the genome: the base is counted from the nearer
                 // exon boundary, from the earlier exon on a tie, on either strand.
@@ -637,20 +638,7 @@ fn coding_variant(
     } else {
         None
     };
-    CVariant {
-        ac: g.ac.clone(),
-        gene: None,
-        posedit: PosEdit {
-            pos: Some(BaseOffsetInterval {
-                start: s,
-                end: e,
-                uncertain: false,
-            }),
-            edit,
-            uncertain: false,
-            predicted: false,
-        },
-    }
+    variant_from(&g.ac, interval(s, e), &edit)
 }
 
 /// Applies a p. description to the reference protein, the dumb way. Returns
@@ -1618,24 +1606,13 @@ proptest! {
 
 /// The c. variant a [`TxEdit`] describes on `g`.
 fn tx_edit_variant(g: &Gene, am: &TranscriptMapper, e: &TxEdit) -> CVariant {
-    let position = |p: TxPoint| BaseOffsetPosition {
-        offset: (p.offset != 0).then_some(IntronicOffset(p.offset)),
-        ..CVariant::position_from_index(am, p.index).unwrap()
+    let position = |p: TxPoint| {
+        let mut pos = CVariant::position_from_index(am, p.index).unwrap();
+        pos.offset = (p.offset != 0).then_some(IntronicOffset(p.offset));
+        pos
     };
-    CVariant {
-        ac: g.ac.clone(),
-        gene: None,
-        posedit: PosEdit {
-            pos: Some(BaseOffsetInterval {
-                start: position(e.start),
-                end: (e.end != e.start).then(|| position(e.end)),
-                uncertain: false,
-            }),
-            edit: e.edit.clone(),
-            uncertain: false,
-            predicted: false,
-        },
-    }
+    let end = (e.end != e.start).then(|| position(e.end));
+    variant_from(&g.ac, interval(position(e.start), end), &e.edit)
 }
 
 /// The variant's HGVS parses, to the variant it was written from.
@@ -2420,20 +2397,12 @@ fn coding_cis(g: &Gene, members: &[PlacedHgvs]) -> hgvs_weaver::CisPhasedVariant
     let members = members
         .iter()
         .map(|p| {
-            SequenceVariant::Coding(CVariant {
-                ac: g.ac.clone(),
-                gene: None,
-                posedit: PosEdit {
-                    pos: Some(BaseOffsetInterval {
-                        start: position(p.start),
-                        end: (p.end > p.start + 1).then(|| position(p.end - 1)),
-                        uncertain: false,
-                    }),
-                    edit: p.edit.clone(),
-                    uncertain: false,
-                    predicted: false,
-                },
-            })
+            let end = (p.end > p.start + 1).then(|| position(p.end - 1));
+            SequenceVariant::Coding(variant_from(
+                &g.ac,
+                interval(position(p.start), end),
+                &p.edit,
+            ))
         })
         .collect();
     hgvs_weaver::CisPhasedVariant::new(g.ac.clone(), None, members).unwrap()

@@ -91,17 +91,12 @@ fn predicted_changes_keep_their_parentheses() {
         assert_eq!(parse(s).to_string(), s);
     }
     // The parentheses set only the predicted flag.
-    let predicted = rna("NM_R.1:r.(10c>g)").posedit;
+    let mut predicted = rna("NM_R.1:r.(10c>g)").posedit;
     let observed = rna("NM_R.1:r.10c>g").posedit;
     assert!(predicted.predicted);
     assert!(!observed.predicted);
-    assert_eq!(
-        hgvs_weaver::structs::PosEdit {
-            predicted: false,
-            ..predicted
-        },
-        observed
-    );
+    predicted.predicted = false;
+    assert_eq!(predicted, observed);
     // An uncertain interval is not a predicted change.
     assert!(!rna("NM_R.1:r.(10_20)del").posedit.predicted);
     // c. has no parenthesised form in this grammar, so the flag is dropped on
