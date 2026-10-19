@@ -2707,10 +2707,12 @@ the allele is refused. A change in an intron is read on no codon, so an allele w
 state the whole codons they cover between them, an intron between them or not. A member past the stop codon enters the
 reading only where translation of the edited sequence reaches it: `c.[13T>G;*3G>A]` is `p.(Tyr5Asp)`, while
 `c.[19T>C;*6T>A]` loses the stop and finds a new one two codons on, `p.(Ter7GlnextTer2)`. Where a member past the stop
-shifts the frame the members before it leave, the read-through is neither their frameshift nor their in-frame change,
-and the allele is refused: `c.[19T>C;*2del]`. The exception is a frame shifted at the stop itself and restored past it,
-which reads in frame as an extension, `c.[20del;*2_*3insA]` giving `p.(Ter7TyrextTer4)`. A member deleting the whole CDS
-is `p.0?`. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing is stated beside them. A member at an uncertain
+turns the members before it from in frame to out of frame, or back, the read-through is neither their frameshift nor
+their in-frame change, and the allele is refused: `c.[19T>C;*2del]`. The exception is a frame shifted at the stop itself
+and restored past it, which reads in frame as an extension, `c.[20del;*2_*3insA]` giving `p.(Ter7TyrextTer4)`. A
+frameshift that a later member shifts again stays a frameshift, read from the sequence. A deletion of the whole CDS,
+apart from the other members, is `p.0?`; merged with a member beside it, it is the delins they make together, as for one
+change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing is stated beside them. A member at an uncertain
 position, or one whose bases are not stated, leaves no codons to read, so `c_to_p` refuses the allele naming it, even
 where that member alone, in a UTR or an intron, would answer; a contradictory or ambiguous allele is refused as it is
 everywhere.

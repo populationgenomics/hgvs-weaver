@@ -128,6 +128,7 @@ impl VariantMapper<'_> {
             Prediction::Stated(stated) => stated,
             Prediction::Change { reading, beside } => {
                 let mut change = reading.describe()?;
+                change.gene = cis.gene.clone();
                 change.posedit.predicted = true;
                 let mut members = beside;
                 members.push(change);
@@ -400,7 +401,8 @@ impl VariantMapper<'_> {
 /// # Errors
 ///
 /// [`HgvsError::UnsupportedOperation`] when an edit translation reaches
-/// past the stop codon changes the frame the edits before it leave: the
+/// past the stop codon turns the edits before it from in frame to out of
+/// frame, or back: the
 /// read-through is then neither the frameshift nor the in-frame change those
 /// edits make, and is not predicted. The one exception is a frame those
 /// edits shift at the stop itself and the later edit restores: that is an

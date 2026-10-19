@@ -2686,6 +2686,15 @@ fn a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension() {
 }
 
 #[test]
+fn a_predicted_protein_allele_carries_the_gene_on_every_member() {
+    let SequenceVariant::CisPhased(allele) = predict("NM_X.1(TEST):c.[13T>G;10_12=]").unwrap()
+    else {
+        panic!("not an allele");
+    };
+    assert!(allele.members.iter().all(|m| m.gene() == Some("TEST")));
+}
+
+#[test]
 fn an_allele_of_one_member_predicts_what_its_member_does() {
     assert_eq!(predicted("NM_X.1:c.[10_12=]"), "NP_X.1:p.(Ala4=)");
 }
