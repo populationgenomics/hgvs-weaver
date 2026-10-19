@@ -791,7 +791,8 @@ impl Context<'_, '_, '_, '_> {
         placed: PlacedEdit,
         barriers: &Barriers,
     ) -> Result<PlacedEdit, HgvsError> {
-        let normalised = normalize::normalize(self.reference, placed.clone(), &barriers.bounds)?;
+        let normalised =
+            normalize::normalize_interbase(self.reference, placed.clone(), &barriers.bounds)?;
         // An identity may overlap a statement: it states the same bases.
         let identity = matches!(normalised.edit, NaEdit::RefAlt { alt: None, .. });
         Ok(if !identity && barriers.intrudes(&normalised) {

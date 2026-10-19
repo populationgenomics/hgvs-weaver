@@ -21,6 +21,13 @@ pyo3::create_exception!(
 
 pyo3::create_exception!(
     _weaver,
+    PositionOutsideSequenceError,
+    HGVSError,
+    "A description names a position its reference does not have: past the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. Raised by every operation that reads the positions; Variant.validate answers False instead."
+);
+
+pyo3::create_exception!(
+    _weaver,
     AmbiguousDescriptionError,
     HGVSError,
     "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."
@@ -54,6 +61,14 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             end,
         } => ReferenceMismatchError::new_err(format!(
             "{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"
+        )),
+        HgvsError::PositionOutsideSequence {
+            accession,
+            start,
+            end,
+            length,
+        } => PositionOutsideSequenceError::new_err(format!(
+            "{context}{accession} is {length} long, and indices {start}..{end} run past its end"
         )),
         HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
@@ -278,7 +293,7 @@ impl PyVariant {
             .unbind())
     }
 
-    #[doc = "Validates the bases and residues the variant states against the provided DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein. An allele in cis of nucleotide members must also have\none reading: members that reach for the same base are read every way the\ndescription allows.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every stated base is there, False where an operation reading the\n    variant would raise ReferenceMismatchError. c.= names no bases and is True\n    once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If transcript sequence is too short or coordinates are out of bounds,\n        or c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n        An allele in cis whose members leave it no reading is a ValidationError naming two.\n    AmbiguousDescriptionError: If an allele in cis has several readings; its readings\n        are each of them.\n    UnsupportedOperationError: If an allele in cis has readings weaver does not list.\n    DataProviderError: If sequence data cannot be retrieved."]
+    #[doc = "Validates the positions the variant names, and the bases and residues it states, against a DataProvider.\n\nAn exonic c., n. or r. base is read on the transcript record, an intronic one\non the genome (on the transcript's strand), a g. or m. base on the genome and a\np. residue on the protein. An allele in cis of nucleotide members must also have\none reading: members that reach for the same base are read every way the\ndescription allows.\n\nArgs:\n    provider: The data provider instance for sequence retrieval.\n\nReturns:\n    True if every position the variant names and every stated base is there,\n    False where an operation reading the variant would raise\n    ReferenceMismatchError or PositionOutsideSequenceError. c.= names no bases\n    and is True once its transcript is found to have a CDS.\n\nRaises:\n    ValidationError: If c.= is on a transcript without a CDS. An intronic c. or n. variant\n        is projected to the genome to be read, so a projection's error is raised too.\n        An allele in cis whose members leave it no reading is a ValidationError naming two.\n    AmbiguousDescriptionError: If an allele in cis has several readings; its readings\n        are each of them.\n    UnsupportedOperationError: If an allele in cis has readings weaver does not list.\n    DataProviderError: If sequence data cannot be retrieved."]
     fn validate(&self, _py: Python, provider: Py<PyAny>) -> PyResult<bool> {
         let bridge = PyDataProviderBridge { provider };
         VariantMapper::new(&bridge)
@@ -977,6 +992,10 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "ReferenceMismatchError",
         m.py().get_type::<ReferenceMismatchError>(),
+    )?;
+    m.add(
+        "PositionOutsideSequenceError",
+        m.py().get_type::<PositionOutsideSequenceError>(),
     )?;
     m.add(
         "AmbiguousDescriptionError",

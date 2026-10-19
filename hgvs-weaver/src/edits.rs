@@ -404,6 +404,35 @@ impl NaEdit {
         self.stated_ref().is_some() || self.stated_unit().is_some()
     }
 
+    /// Refuses the edit written over `[start, end)` of `reference` where the
+    /// range runs past the end of the sequence, or where the bases it states
+    /// are not there: the bases over the range, or a repeat's unit at
+    /// `start`, read on `strand`. On the minus strand the range is read as
+    /// its reverse complement, so offsets from `start` count down from `end`.
+    ///
+    /// `[start, end)` is the range HGVS writes, the two flanking bases for an
+    /// insertion, or the empty range in front of the base it goes before.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::PositionOutsideSequence`] for a range past the end, then
+    /// [`HgvsError::ReferenceMismatch`] naming the stated and the held bases.
+    pub fn check_against(
+        &self,
+        reference: &Reference<'_, '_>,
+        start: usize,
+        end: usize,
+        strand: crate::data::Strand,
+    ) -> Result<(), HgvsError> {
+        reference.check_range(start, end)?;
+        self.check_stated(reference.accession(), start, end, |s, e| match strand {
+            crate::data::Strand::Plus => reference.slice(s, e),
+            crate::data::Strand::Minus => Ok(crate::utils::reverse_complement(
+                &reference.slice((start + end).saturating_sub(e), start + end - s)?,
+            )),
+        })
+    }
+
     /// Refuses the edit when the bases it states are not what `accession`
     /// holds, read through `fetch`: the bases over `[start, end)`, or a
     /// repeat's unit at `start`. `fetch` is called only for an edit that
@@ -412,7 +441,7 @@ impl NaEdit {
     /// # Errors
     ///
     /// [`HgvsError::ReferenceMismatch`] naming the stated and the held bases.
-    pub fn check_stated(
+    fn check_stated(
         &self,
         accession: &str,
         start: usize,
@@ -446,14 +475,16 @@ impl NaEdit {
     ///
     /// # Errors
     ///
-    /// [`HgvsError::ReferenceMismatch`] when the edit states bases the
-    /// reference does not hold over the range.
+    /// [`HgvsError::PositionOutsideSequence`] when the range runs past the
+    /// end of the reference; [`HgvsError::ReferenceMismatch`] when the edit
+    /// states bases the reference does not hold over the range.
     pub fn resolve(
         &self,
         reference: &Reference<'_, '_>,
         start: usize,
         end: usize,
     ) -> Result<ResolvedEdit, HgvsError> {
+        reference.check_range(start, end)?;
         self.resolve_with(reference.accession(), start, end, |s, e| {
             reference.slice(s, e)
         })

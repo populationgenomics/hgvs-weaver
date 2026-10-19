@@ -44,6 +44,16 @@ class NoProteinStatementError(HGVSError):
 
 class ParseError(HGVSError): ...
 
+class PositionOutsideSequenceError(HGVSError):
+    """A description names a position its reference does not have.
+
+    The reference ends at the end of the genome for g. and m., of the transcript record for an
+    exonic c., n. or r. position, of the protein for p., where a protein served without its stop has
+    the stop one past its last residue. An insertion needs both its flanking bases, so one after the
+    last base is outside too. Raised by every operation that reads the positions; Variant.validate
+    answers False instead.
+    """
+
 class ReferenceMismatchError(HGVSError):
     """A base or residue a description states is not what its reference holds.
 
@@ -105,7 +115,7 @@ class Variant:
         """Returns a JSON string representation of the internal variant structure."""
     def validate(self, provider: Any) -> bool:
         """
-        Validates the bases and residues the variant states against the provided DataProvider.
+        Validates the positions the variant names, and the bases and residues it states, against a DataProvider.
 
         An exonic c., n. or r. base is read on the transcript record, an intronic one
         on the genome (on the transcript's strand), a g. or m. base on the genome and a
@@ -117,13 +127,13 @@ class Variant:
             provider: The data provider instance for sequence retrieval.
 
         Returns:
-            True if every stated base is there, False where an operation reading the
-            variant would raise ReferenceMismatchError. c.= names no bases and is True
-            once its transcript is found to have a CDS.
+            True if every position the variant names and every stated base is there,
+            False where an operation reading the variant would raise
+            ReferenceMismatchError or PositionOutsideSequenceError. c.= names no bases
+            and is True once its transcript is found to have a CDS.
 
         Raises:
-            ValidationError: If transcript sequence is too short or coordinates are out of bounds,
-                or c.= is on a transcript without a CDS. An intronic c. or n. variant
+            ValidationError: If c.= is on a transcript without a CDS. An intronic c. or n. variant
                 is projected to the genome to be read, so a projection's error is raised too.
                 An allele in cis whose members leave it no reading is a ValidationError naming two.
             AmbiguousDescriptionError: If an allele in cis has several readings; its readings

@@ -175,17 +175,18 @@ impl ExonBounds {
 ///
 /// # Errors
 ///
-/// [`HgvsError::ReferenceMismatch`] when the edit states bases the reference
-/// does not hold, whether or not the edit would move.
+/// [`HgvsError::PositionOutsideSequence`] when the edit's range runs past the
+/// end of the reference, an insertion's included when it goes after the last
+/// base; [`HgvsError::ReferenceMismatch`] when the edit states bases the
+/// reference does not hold, whether or not the edit would move.
 pub fn normalize(
     reference: &Reference<'_, '_>,
     placed: PlacedEdit,
     exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
+    let (hgvs_start, hgvs_end) = placed.hgvs_range();
     let PlacedEdit { start, end, edit } = placed;
-    edit.check_stated(reference.accession(), start, end, |s, e| {
-        reference.slice(s, e)
-    })?;
+    edit.check_against(reference, hgvs_start, hgvs_end, crate::data::Strand::Plus)?;
     let edit = without_stated_bases(edit);
     if let Some((start, end, uncertain)) = statement_made(reference, start, end, &edit, exons)? {
         return Ok(PlacedEdit {
@@ -215,17 +216,6 @@ pub fn normalize(
                 edit,
             })
         }
-        NaEdit::Ins {
-            alt: Some(seq),
-            uncertain,
-        } if start > 0 && reference.base(start)?.is_none() => insertion_in_exon(
-            reference,
-            start,
-            seq,
-            *uncertain,
-            exons.exon(start - 1),
-            exons,
-        ),
         NaEdit::Ins { .. } if start > 0 && !exons.same_exon(start - 1, start) => {
             Ok(PlacedEdit { start, end, edit })
         }
@@ -240,6 +230,30 @@ pub fn normalize(
             place_insertion(reference, start, seq, *uncertain, k, exons)
         }
         _ => Ok(PlacedEdit { start, end, edit }),
+    }
+}
+
+/// [`normalize`] for an edit placed by interbase coordinates, as SPDI and VRS
+/// place one. These can put an insertion after the last base, which HGVS
+/// cannot name: it is written as [`insertion_in_exon`] writes it.
+pub(crate) fn normalize_interbase(
+    reference: &Reference<'_, '_>,
+    placed: PlacedEdit,
+    exons: &ExonBounds,
+) -> Result<PlacedEdit, HgvsError> {
+    match &placed.edit {
+        NaEdit::Ins {
+            alt: Some(seq),
+            uncertain,
+        } if placed.start > 0 && reference.base(placed.start)?.is_none() => insertion_in_exon(
+            reference,
+            placed.start,
+            seq,
+            *uncertain,
+            exons.exon(placed.start - 1),
+            exons,
+        ),
+        _ => normalize(reference, placed, exons),
     }
 }
 
@@ -353,13 +367,6 @@ fn reduce_delins(
     exons: &ExonBounds,
 ) -> Result<PlacedEdit, HgvsError> {
     let ref_ = reference.slice(start, end)?;
-    if ref_.len() != end - start {
-        return Err(HgvsError::ValidationError(format!(
-            "{} has {} bases over [{start}, {end}); the delins runs past its end",
-            reference.accession(),
-            ref_.len()
-        )));
-    }
     let spans = !exons.same_exon(start, end - 1);
     let (max_prefix, max_suffix) = if spans {
         (

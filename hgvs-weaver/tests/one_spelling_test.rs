@@ -267,19 +267,6 @@ fn a_change_with_uncertain_ends_is_left_as_written() {
 }
 
 #[test]
-fn an_insertion_written_after_the_last_base_is_a_delins_of_the_last_base() {
-    assert_eq!(
-        normalized("NC_000099.1:g.10_11insA"),
-        "NC_000099.1:g.10delinsTA"
-    );
-}
-
-#[test]
-fn an_insertion_written_after_the_last_base_that_repeats_it_is_a_duplication() {
-    assert_eq!(normalized("NC_000099.1:g.10_11insT"), "NC_000099.1:g.10dup");
-}
-
-#[test]
 fn an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins() {
     assert_eq!(from_spdi("NC_000099.1:9:T:TA"), "NC_000099.1:g.10delinsTA");
 }
