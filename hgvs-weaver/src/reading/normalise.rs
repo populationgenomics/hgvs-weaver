@@ -719,9 +719,7 @@ impl Context<'_, '_, '_, '_> {
             // and one trimmed onto a barrier it cannot leave is refused by
             // the overlap rule; reduced as a delins, either keeps the base
             // beside it.
-            let on_junction = settled.is_insertion()
-                && (exons.is_junction(settled.start)
-                    || self.reference.base(settled.start)?.is_none());
+            let on_junction = settled.is_insertion() && exons.is_junction(settled.start);
             if !on_junction && !barriers.intrudes(&settled) {
                 return Ok(settled);
             }
@@ -1499,32 +1497,7 @@ impl VariantMapper<'_> {
                 }
                 let (edit, s, e) =
                     normalize::minimal_edit(reference, window.0, window.1, &ref_, &alt)?;
-                let mut placed = PlacedEdit::from_hgvs_range(s, e, edit);
-                if let NaEdit::Ins {
-                    alt: Some(inserted),
-                    uncertain,
-                } = &placed.edit
-                {
-                    if placed.start > 0 && reference.base(placed.start)?.is_none() {
-                        // No insertion after the last base: a delins of it.
-                        let at = placed.start - 1;
-                        let last = Segment::Reference {
-                            start: at,
-                            end: at + 1,
-                        }
-                        .read(reference, 0, 1)?;
-                        placed = PlacedEdit {
-                            start: at,
-                            end: at + 1,
-                            edit: NaEdit::RefAlt {
-                                ref_: Some(String::new()),
-                                alt: Some(format!("{last}{inserted}")),
-                                uncertain: *uncertain,
-                            },
-                        };
-                    }
-                }
-                changes.push(placed);
+                changes.push(PlacedEdit::from_hgvs_range(s, e, edit));
             }
         }
         let (stated, changes) = self.with_repeats_as_written(frame, stated, changes, repeats)?;

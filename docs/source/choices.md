@@ -2305,9 +2305,10 @@ stop still reads, and the position after the stop is past the end. Projecting a 
 is refused earlier, by the exon structure
 ([A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)).
 
-Two cases are outside the rule. A position known only to lie in a range names no one range to find, so only the bases it
-states are checked ([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A position
-before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`.
+Three cases are outside the rule. A position known only to lie in a range names no one range to find, so only the bases
+it states are checked ([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A
+position before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`. Two
+descriptions spelled the same are judged equal without reading either, as for stated bases.
 
 weaver learns where a sequence ends from the data provider's own answers, with no method added to it: a window that runs
 past the end comes back short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)).

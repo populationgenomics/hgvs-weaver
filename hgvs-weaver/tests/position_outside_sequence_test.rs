@@ -270,6 +270,29 @@ fn an_uncertain_position_past_the_end_is_not_found_on_the_sequence() {
 }
 
 #[test]
+fn equivalence_refuses_a_cis_allele_with_a_member_past_the_end_against_its_own_spelling() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let allele = parse("NC_000099.1:g.[8T>A;10del]");
+    assert_outside(
+        eq.equivalent_level(&allele, &allele),
+        "NC_000099.1",
+        (9, 10),
+        9,
+    );
+}
+
+#[test]
+fn validate_answers_false_for_a_position_at_the_last_number_a_position_can_hold() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(!mapper
+        .validate(&parse("NC_000099.1:g.2147483647del"))
+        .unwrap());
+}
+
+#[test]
 fn normalize_refuses_a_mitochondrial_position_one_past_the_last_base() {
     assert_outside(normalized("NC_000099.1:m.10del"), "NC_000099.1", (9, 10), 9);
 }

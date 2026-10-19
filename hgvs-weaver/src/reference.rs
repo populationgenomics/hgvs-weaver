@@ -167,7 +167,9 @@ impl<'a> ReferenceStore<'a> {
             }
         }
         let start = index * self.block_size;
-        let block = self.fetch(ac, kind, start, Some(start.saturating_add(self.block_size)))?;
+        // A provider numbers positions in an i32.
+        let end = start.saturating_add(self.block_size).min(i32::MAX as usize);
+        let block = self.fetch(ac, kind, start, Some(end))?;
         let mut cache = self.cache();
         let entry = cache.entry(key).or_default();
         // An empty block past the first says only that the end lies before it.
