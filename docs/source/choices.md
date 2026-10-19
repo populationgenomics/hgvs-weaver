@@ -2470,7 +2470,10 @@ members beside it are compared by their canonical alleles, as an exact single va
 `g.[(3_4)del;10dup]` wherever g.10 is an A: `10dup` and `10_11insA` are judged by one rule whatever stands beside them.
 The members of a `[;]` allele are unordered, so `g.[(3_4)del;10G>A]` is `g.[10G>A;(3_4)del]`, and a member written twice
 counts once, so `g.[(3_4)del;(3_4)del;10G>A]` is `g.[(3_4)del;10G>A]`. An uncertain member is still never an exact one:
-`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`.
+`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`. The exact members are still held to the
+[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) among themselves, so `g.[(3_4)del;10G>A;10G>C]` is
+refused as `g.[10G>A;10G>C]` is. An overlap that involves the uncertain member itself, `g.[(3_12)del;10G>A]`, is not
+refused when two descriptions are judged: the allele is compared member by member, as above.
 
 **Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`):
 
@@ -2487,6 +2490,7 @@ NC_TEST.1:g.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;(1003_1004)d
 NC_TEST.1:g.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;1003del]         Different
 NC_TEST.1:g.[(1003_1004)del;1001_1002insA] vs  NC_TEST.1:g.[1001dup;(1003_1004)del]  Analogous: insA and dup are one allele
 NC_TEST.1:m.[(1003_1004)del;1007G>A]       vs  NC_TEST.1:g.[1007G>A;(1003_1004)del]  Identity: m. is g. on the same bases
+NC_TEST.1:g.[(1003_1004)del;1007G>A;1007G>C]  vs  NC_TEST.1:g.[(1003_1004)del;1007G>A]  refused: two bases at g.1007
 NM_X.1:c.[(4_6)del;10G>A]                  vs  NM_X.1:c.[10G>A;(4_6)del]             Identity
 canonical_allele, to_spdi NC_TEST.1:g.(1003_1004)del  →  UnsupportedOperation
 c_to_g, c_to_p NM_X.1:c.(4_6)del                      →  UnsupportedOperation
@@ -2528,6 +2532,9 @@ g_to_c NC_X.1:g.(109_110)del                           →  UnsupportedOperation
   `::a_mitochondrial_uncertain_member_is_its_genomic_spelling`, `::an_rna_uncertain_member_is_its_coding_spelling`,
   `::a_protein_cis_allele_with_an_uncertain_member_is_itself_in_another_order`,
   `::the_exact_protein_members_beside_an_uncertain_one_compare_by_their_alleles`;
+  `cis_equivalence_test::exact_members_beside_an_uncertain_one_that_contradict_are_refused`,
+  `::exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_themselves`,
+  `::an_exact_member_inside_an_uncertain_one_is_compared_member_by_member`;
   `vrs_range_test::uncertain_breakpoints_become_ranges`.
 
 ### Judging with no protein sequence is an error

@@ -24,7 +24,7 @@ const UTR3: &str = "CCGTATAAGTAAGG";
 /// the minus strand, so n.23 is g.28 and n.29 is g.22; `NM_S.1` is `NM_X.1`
 /// with exon 1 ending at c.5 and the intron `GTAAGTCCAG` after it in `NC_S.1`,
 /// so c.5 is g.20, c.5+1 is g.21 and c.6 is g.31; `NC_R.1` is `TTCAGCAGTT`
-/// and `NC_T.1` ten Ts.
+/// `NC_T.1` ten Ts; `NC_TEST.1` is `ACGT` repeated, so g.1007 is a G.
 fn provider() -> Provider {
     let transcript = format!("{UTR5}{CDS}{UTR3}");
     let len = transcript.len() as i32;
@@ -41,6 +41,7 @@ fn provider() -> Provider {
         )
         .sequence("NC_R.1", "TTCAGCAGTT")
         .sequence("NC_T.1", "TTTTTTTTTT")
+        .sequence("NC_TEST.1", &"ACGT".repeat(300))
         .sequence("NM_X.1", &transcript)
         .sequence("NM_S.1", &transcript)
         .sequence(
@@ -620,6 +621,41 @@ fn an_allele_with_no_reading_on_the_genome_is_refused() {
         judge("NM_S.1:c.[5_6insG;6A>T]", "NM_S.1:c.6delinsGT"),
         Err(HgvsError::CisMember { .. })
     ));
+}
+
+#[test]
+fn exact_members_beside_an_uncertain_one_that_contradict_are_refused() {
+    assert!(matches!(
+        judge(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A;1007G>C]",
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A]"
+        ),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_themselves() {
+    assert!(matches!(
+        judge(
+            "NC_TEST.1:g.[(1003_1004)del;1007G>A;1007G>C]",
+            "NC_TEST.1:g.[1007G>C;(1003_1004)del;1007G>A]"
+        ),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn an_exact_member_inside_an_uncertain_one_is_compared_member_by_member() {
+    // g.1007 lies inside the bases (1001_1010)del may remove; that overlap is
+    // not refused in equivalence.
+    assert_eq!(
+        level(
+            "NC_TEST.1:g.[(1001_1010)del;1007G>A]",
+            "NC_TEST.1:g.[1007G>A;(1001_1010)del]"
+        ),
+        Identity
+    );
 }
 
 #[test]
