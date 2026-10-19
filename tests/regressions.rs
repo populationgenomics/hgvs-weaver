@@ -79,8 +79,7 @@ fn test_regression_nm_000038_6() {
     let tx = TranscriptData::new(
         ac.to_string(),
         "APC",
-        Some(TranscriptPos(59)),
-        Some(TranscriptPos(8590)),
+        Some((TranscriptPos(59), TranscriptPos(8590))),
         hgvs_weaver::data::Strand::Plus,
         "NC_000017.11",
         vec![
@@ -239,8 +238,7 @@ fn test_regression_nm_000527_5() {
     let tx = TranscriptData::new(
         ac.to_string(),
         "LDLR",
-        Some(TranscriptPos(86)),
-        Some(TranscriptPos(2668)),
+        Some((TranscriptPos(86), TranscriptPos(2668))),
         hgvs_weaver::data::Strand::Plus,
         "NC_000019.10",
         vec![
@@ -415,8 +413,7 @@ fn test_regression_nm_000478_6() {
     let tx = TranscriptData::new(
         ac.to_string(),
         "ALPL",
-        Some(TranscriptPos(199)),
-        Some(TranscriptPos(1773)),
+        Some((TranscriptPos(199), TranscriptPos(1773))),
         hgvs_weaver::data::Strand::Plus,
         "NC_000001.11",
         vec![
@@ -545,8 +542,7 @@ fn test_regression_nm_001122606_1() {
     let tx = TranscriptData::new(
         ac.to_string(),
         "CASP8",
-        Some(TranscriptPos(180)),
-        Some(TranscriptPos(1415)),
+        Some((TranscriptPos(180), TranscriptPos(1415))),
         hgvs_weaver::data::Strand::Plus,
         "NC_000002.12",
         vec![
@@ -649,8 +645,7 @@ fn test_regression_nm_000465_4() {
     let tx = TranscriptData::new(
         ac.to_string(),
         "ABCA4",
-        Some(TranscriptPos(114)),
-        Some(TranscriptPos(2447)),
+        Some((TranscriptPos(114), TranscriptPos(2447))),
         hgvs_weaver::data::Strand::Plus,
         "NC_000001.11",
         vec![

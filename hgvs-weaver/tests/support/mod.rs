@@ -135,8 +135,7 @@ pub fn transcript(
     TranscriptData::new(
         ac.to_string(),
         "TEST",
-        cds.map(|(start, _)| TranscriptPos(start)),
-        cds.map(|(_, end)| TranscriptPos(end)),
+        cds.map(|(start, end)| (TranscriptPos(start), TranscriptPos(end))),
         strand,
         reference_ac.to_string(),
         exons,

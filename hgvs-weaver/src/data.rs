@@ -207,9 +207,9 @@ pub struct TranscriptData {
 
 impl TranscriptData {
     /// A transcript model whose CDS, where it has one, starts at a start codon
-    /// and ends at a stop codon the record carries. `cds_start_index` and
-    /// `cds_end_index` are `None` for a non-coding transcript;
-    /// [`with_cds_start`](Self::with_cds_start) and
+    /// and ends at a stop codon the record carries. `cds` is the CDS's first
+    /// and last transcript index, inclusive, and `None` for a non-coding
+    /// transcript; [`with_cds_start`](Self::with_cds_start) and
     /// [`with_cds_end_open`](Self::with_cds_end_open) set the other cases.
     ///
     /// ```
@@ -221,8 +221,7 @@ impl TranscriptData {
     /// let model = TranscriptData::new(
     ///     "NM_000001.1",
     ///     "GENE",
-    ///     Some(TranscriptPos(5)),
-    ///     Some(TranscriptPos(34)),
+    ///     Some((TranscriptPos(5), TranscriptPos(34))),
     ///     Strand::Plus,
     ///     "NC_000001.11",
     ///     vec![ExonData::new(
@@ -241,8 +240,7 @@ impl TranscriptData {
     pub fn new(
         ac: impl Into<String>,
         gene: impl Into<String>,
-        cds_start_index: Option<TranscriptPos>,
-        cds_end_index: Option<TranscriptPos>,
+        cds: Option<(TranscriptPos, TranscriptPos)>,
         strand: Strand,
         reference_accession: impl Into<String>,
         exons: Vec<ExonData>,
@@ -250,8 +248,8 @@ impl TranscriptData {
         TranscriptData {
             ac: ac.into(),
             gene: gene.into(),
-            cds_start_index,
-            cds_end_index,
+            cds_start_index: cds.map(|(start, _)| start),
+            cds_end_index: cds.map(|(_, end)| end),
             cds_start: CdsStart::Initiator,
             cds_end_open: false,
             strand,

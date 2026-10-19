@@ -271,8 +271,10 @@ impl Gene {
         TranscriptData::new(
             self.ac.clone(),
             "PROP",
-            Some(hgvs_weaver::coords::TranscriptPos(self.cds_start as i32)),
-            Some(hgvs_weaver::coords::TranscriptPos(self.cds_end as i32)),
+            Some((
+                hgvs_weaver::coords::TranscriptPos(self.cds_start as i32),
+                hgvs_weaver::coords::TranscriptPos(self.cds_end as i32),
+            )),
             self.strand,
             self.reference_ac.clone(),
             self.exons.clone(),

@@ -327,8 +327,7 @@ fn a_model_built_in_rust_is_the_model_a_dict_without_the_optional_keys_gives() {
     let built = TranscriptData::new(
         "NM_X.1",
         "X",
-        Some(TranscriptPos(0)),
-        Some(TranscriptPos(29)),
+        Some((TranscriptPos(0), TranscriptPos(29))),
         Strand::Plus,
         GENOME_AC,
         vec![],
@@ -345,8 +344,7 @@ fn a_model_built_in_rust_with_an_internal_start_is_one_whose_first_codon_does_no
     let built = TranscriptData::new(
         "NM_X.1",
         "X",
-        Some(TranscriptPos(0)),
-        Some(TranscriptPos(29)),
+        Some((TranscriptPos(0), TranscriptPos(29))),
         Strand::Plus,
         GENOME_AC,
         vec![],
@@ -354,6 +352,25 @@ fn a_model_built_in_rust_with_an_internal_start_is_one_whose_first_codon_does_no
     .with_cds_start(CdsStart::Internal);
     let read: TranscriptData = serde_json::from_str(
         r#"{"ac":"NM_X.1","gene":"X","cds_start_index":0,"cds_end_index":29,"cds_start_initiates":false,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(as_dict(&built), as_dict(&read));
+}
+
+#[test]
+fn a_model_built_in_rust_with_both_ends_open_is_one_whose_dict_says_so() {
+    let built = TranscriptData::new(
+        "NM_X.1",
+        "X",
+        Some((TranscriptPos(0), TranscriptPos(29))),
+        Strand::Plus,
+        GENOME_AC,
+        vec![],
+    )
+    .with_cds_start(CdsStart::Open)
+    .with_cds_end_open(true);
+    let read: TranscriptData = serde_json::from_str(
+        r#"{"ac":"NM_X.1","gene":"X","cds_start_index":0,"cds_end_index":29,"cds_start_open":true,"cds_end_open":true,"strand":1,"reference_accession":"NC_000099.1","exons":[]}"#,
     )
     .unwrap();
     assert_eq!(as_dict(&built), as_dict(&read));
