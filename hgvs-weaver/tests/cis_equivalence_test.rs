@@ -537,10 +537,62 @@ fn protein_alleles_with_a_member_changed_differ() {
     );
 }
 
+// --- A nucleotide allele against a protein description ---
+
 #[test]
-fn a_nucleotide_allele_is_not_projected_to_protein() {
+fn a_coding_allele_is_its_prediction_written_unbracketed() {
+    assert_eq!(level("NM_X.1:c.[4A>T;6A>T]", "NP_X.1:p.Lys2Tyr"), Identity);
+}
+
+#[test]
+fn a_coding_allele_is_not_what_one_member_predicts_alone() {
+    // c.6A>T alone is p.(Lys2Asn); with c.4A>T the codon is TAT.
+    assert_eq!(level("NM_X.1:c.[4A>T;6A>T]", "NP_X.1:p.Lys2Asn"), Different);
+}
+
+#[test]
+fn a_coding_allele_is_another_description_of_the_protein_it_leaves() {
+    // It predicts p.(Lys2_Leu3delinsAsnArg): MNRAYR, as the wider delins leaves.
     assert_eq!(
-        level("NM_X.1:c.[7C>T;13T>G]", "NP_X.1:p.Leu3Phe"),
+        level("NM_X.1:c.[6A>T;8T>G]", "NP_X.1:p.Lys2_Ala4delinsAsnArgAla"),
+        Analogous
+    );
+}
+
+#[test]
+fn a_frameshifting_allele_is_the_frameshift_written_without_its_length() {
+    assert_eq!(level("NM_X.1:c.[5del;13T>G]", "NP_X.1:p.Lys2fs"), Analogous);
+}
+
+#[test]
+fn a_genomic_allele_is_judged_by_its_prediction_on_the_transcript() {
+    // g.19 and g.21 are c.4 and c.6.
+    assert_eq!(
+        level("NC_X.1:g.[19A>T;21A>T]", "NP_X.1:p.Lys2Tyr"),
+        Identity
+    );
+}
+
+#[test]
+fn an_allele_stating_residues_beside_a_change_is_not_the_change_alone() {
+    assert_eq!(
+        level("NM_X.1:c.[13T>G;10_12=]", "NP_X.1:p.(Tyr5Asp)"),
+        Different
+    );
+}
+
+#[test]
+fn an_allele_stating_residues_beside_a_change_is_its_predicted_protein_allele() {
+    assert_eq!(
+        level("NM_X.1:c.[13T>G;10_12=]", "NP_X.1:p.[Ala4=;Tyr5Asp]"),
+        Identity
+    );
+}
+
+#[test]
+fn an_allele_with_an_uncertain_member_predicts_no_protein() {
+    assert_eq!(
+        level("NM_X.1:c.[(4_9)del;13T>G]", "NP_X.1:p.Tyr5Asp"),
         Different
     );
 }

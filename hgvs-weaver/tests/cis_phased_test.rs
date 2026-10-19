@@ -2330,3 +2330,292 @@ fn a_block_is_only_for_an_allele_that_normalises_to_several_members() {
         "{err}"
     );
 }
+
+// --- The protein an allele predicts ---
+//
+// Behaviour of choices.md, "A cis allele is the sequence its members make":
+// the members are applied together and the protein is read from what they
+// make, with the residues the allele states unchanged beside the change.
+
+/// `reading_provider` with `NP_X.1` for `NM_S.1`, and three more coding
+/// transcripts: `NM_XM.1` reads `NM_X.1`'s forty bases on the minus strand
+/// of `NC_XM.1`, so its c. numbering is `NM_X.1`'s; `NM_C.1` is `NM_X.1`
+/// with a `CTG` start, `NP_C.1` the same `MKLAYR`; `NM_U.1` is `NM_X.1` with
+/// codon 3 a selenocysteine `TGA`, `NP_U.1` `MKUAYR`.
+fn protein_provider() -> Provider {
+    let transcript = transcript();
+    let len = transcript.len() as i32;
+    let ctg_start = format!("{UTR5}CTGAAACTGGCCTATCGCTAA{UTR3}");
+    let selenocysteine = format!("{UTR5}ATGAAATGAGCCTATCGCTAA{UTR3}");
+    let (cds_start, cds_end) = (UTR5.len() as i32, (UTR5.len() + CDS.len()) as i32 - 1);
+    let on = |ac: &str, chrom: &str, strand: Strand| {
+        single_exon_transcript(ac, chrom, 10, strand, cds_start, cds_end, len)
+    };
+    reading_provider()
+        .protein_for("NM_S.1", "NP_X.1")
+        .sequence(
+            "NC_XM.1",
+            &hgvs_weaver::utils::reverse_complement(&genome()),
+        )
+        .sequence("NM_XM.1", &transcript)
+        .transcript(on("NM_XM.1", "NC_XM.1", Strand::Minus))
+        .protein_for("NM_XM.1", "NP_X.1")
+        .sequence("NC_C.1", &format!("TTTTTTTTTT{ctg_start}CCCCCCCCCC"))
+        .sequence("NM_C.1", &ctg_start)
+        .sequence("NP_C.1", PROTEIN)
+        .transcript(on("NM_C.1", "NC_C.1", Strand::Plus))
+        .protein_for("NM_C.1", "NP_C.1")
+        .sequence("NC_SEC.1", &format!("TTTTTTTTTT{selenocysteine}CCCCCCCCCC"))
+        .sequence("NM_U.1", &selenocysteine)
+        .sequence("NP_U.1", "MKUAYR")
+        .transcript(on("NM_U.1", "NC_SEC.1", Strand::Plus))
+        .protein_for("NM_U.1", "NP_U.1")
+}
+
+fn predict(hgvs: &str) -> Result<SequenceVariant, HgvsError> {
+    let hdp = protein_provider();
+    VariantMapper::new(&hdp).c_to_p_cis(&cis(hgvs), None)
+}
+
+fn predicted(hgvs: &str) -> String {
+    predict(hgvs)
+        .unwrap_or_else(|e| panic!("{hgvs}: {e}"))
+        .to_string()
+}
+
+#[test]
+fn members_in_one_codon_predict_one_residue() {
+    // AAA becomes TAT, Tyr; alone the members would be Lys2Ter and Lys2Asn.
+    assert_eq!(predicted("NM_X.1:c.[4A>T;6A>T]"), "NP_X.1:p.(Lys2Tyr)");
+}
+
+#[test]
+fn members_in_one_codon_predict_what_the_delins_they_make_predicts() {
+    let hdp = protein_provider();
+    let SequenceVariant::Coding(delins) = parse_hgvs_variant("NM_X.1:c.4_6delinsTAT").unwrap()
+    else {
+        panic!("not a c. variant");
+    };
+    assert_eq!(
+        predicted("NM_X.1:c.[4A>T;6A>T]"),
+        VariantMapper::new(&hdp)
+            .c_to_p(&delins, None)
+            .unwrap()
+            .to_string()
+    );
+}
+
+#[test]
+fn members_in_adjacent_codons_predict_one_delins() {
+    // AAA CTG becomes AAT CGG: Asn Arg.
+    assert_eq!(
+        predicted("NM_X.1:c.[6A>T;8T>G]"),
+        "NP_X.1:p.(Lys2_Leu3delinsAsnArg)"
+    );
+}
+
+#[test]
+fn frameshifts_that_restore_the_frame_predict_the_residues_between() {
+    // ATG AA CTG GGCC TAT reads ATG AAC TGG GCC TAT: Asn Trp.
+    assert_eq!(
+        predicted("NM_X.1:c.[5del;10dup]"),
+        "NP_X.1:p.(Lys2_Leu3delinsAsnTrp)"
+    );
+}
+
+#[test]
+fn statements_of_whole_codons_predict_their_residues() {
+    assert_eq!(
+        predicted("NM_X.1:c.[10_12=;19_21=]"),
+        "NP_X.1:p.[(Ala4=;Ter7=)]"
+    );
+}
+
+#[test]
+fn statements_that_meet_predict_one_run_of_residues() {
+    assert_eq!(
+        predicted("NM_X.1:c.[10_12=;13_15=]"),
+        "NP_X.1:p.(Ala4_Tyr5=)"
+    );
+}
+
+#[test]
+fn a_statement_of_part_of_a_codon_makes_no_protein_statement() {
+    // The cancelling pair states c.4_5, two bases of codon 2.
+    assert!(matches!(
+        predict("NM_X.1:c.[4_5insA;5del]"),
+        Err(HgvsError::NoProteinStatement(_))
+    ));
+}
+
+#[test]
+fn single_bases_of_two_codons_make_no_protein_statement() {
+    assert!(matches!(
+        predict("NM_X.1:c.[10=;20=]"),
+        Err(HgvsError::NoProteinStatement(_))
+    ));
+}
+
+#[test]
+fn a_change_with_a_statement_predicts_both() {
+    assert_eq!(
+        predicted("NM_X.1:c.[13T>G;10_12=]"),
+        "NP_X.1:p.[(Ala4=;Tyr5Asp)]"
+    );
+}
+
+#[test]
+fn a_statement_of_part_of_a_codon_beside_a_change_adds_nothing() {
+    assert_eq!(
+        predicted("NM_X.1:c.[4_5insA;5del;13T>G]"),
+        "NP_X.1:p.(Tyr5Asp)"
+    );
+}
+
+#[test]
+fn a_statement_in_the_codon_a_change_alters_adds_nothing() {
+    assert_eq!(
+        predicted("NM_X.1:c.[4_5insA;5del;6A>T]"),
+        "NP_X.1:p.(Lys2Asn)"
+    );
+}
+
+#[test]
+fn a_statement_after_a_frameshift_adds_nothing() {
+    // ATG AAC TGG CCT ATC GCT AAC CGT ATA AGT AAG G: no stop in the new frame.
+    assert_eq!(
+        predicted("NM_X.1:c.[5del;13_15=]"),
+        "NP_X.1:p.(Lys2AsnfsTer?)"
+    );
+}
+
+#[test]
+fn a_statement_before_a_frameshift_is_predicted_beside_it() {
+    assert_eq!(
+        predicted("NM_X.1:c.[1_3=;5del]"),
+        "NP_X.1:p.[(Met1=;Lys2AsnfsTer?)]"
+    );
+}
+
+#[test]
+fn a_member_in_the_5_utr_beside_a_cds_change_makes_the_protein_unknown() {
+    // A 5'UTR change alone is p.?, and the first codon is left as it was.
+    assert_eq!(predicted("NM_X.1:c.[-3G>A;13T>G]"), "NP_X.1:p.?");
+}
+
+#[test]
+fn a_member_in_the_3_utr_beside_a_cds_change_adds_nothing() {
+    assert_eq!(predicted("NM_X.1:c.[13T>G;*3G>A]"), "NP_X.1:p.(Tyr5Asp)");
+}
+
+#[test]
+fn a_member_past_the_stop_counts_where_translation_reads_through_it() {
+    // The stop becomes CAA, Gln; the read-through's CCG TAT becomes CCG TAA.
+    assert_eq!(
+        predicted("NM_X.1:c.[19T>C;*6T>A]"),
+        "NP_X.1:p.(Ter7GlnextTer2)"
+    );
+}
+
+#[test]
+fn members_only_in_the_3_utr_leave_the_protein_unchanged() {
+    assert_eq!(predicted("NM_X.1:c.[*3G>A;*6T>A]"), "NP_X.1:p.(=)");
+}
+
+#[test]
+fn a_member_changing_the_start_codon_is_an_unknown_change_from_met1() {
+    assert_eq!(predicted("NM_X.1:c.[1A>G;13T>G]"), "NP_X.1:p.(Met1?)");
+}
+
+#[test]
+fn a_member_in_the_5_utr_beside_a_start_codon_change_is_an_unknown_change_from_met1() {
+    assert_eq!(predicted("NM_X.1:c.[-3G>A;2T>C]"), "NP_X.1:p.(Met1?)");
+}
+
+#[test]
+fn a_member_writing_the_start_codon_back_states_it_unchanged() {
+    assert_eq!(
+        predicted("NM_X.1:c.[1_3delinsATG;4A>C]"),
+        "NP_X.1:p.[(Met1=;Lys2Gln)]"
+    );
+}
+
+#[test]
+fn a_non_aug_start_stated_unchanged_is_met1() {
+    assert_eq!(
+        predicted("NM_C.1:c.[1_3=;13T>G]"),
+        "NP_C.1:p.[(Met1=;Tyr5Asp)]"
+    );
+}
+
+#[test]
+fn a_selenocysteine_stated_unchanged_is_sec() {
+    assert_eq!(
+        predicted("NM_U.1:c.[7_9=;13T>G]"),
+        "NP_U.1:p.[(Sec3=;Tyr5Asp)]"
+    );
+}
+
+#[test]
+fn a_minus_strand_allele_predicts_from_its_transcript() {
+    assert_eq!(predicted("NM_XM.1:c.[4A>T;6A>T]"), "NP_X.1:p.(Lys2Tyr)");
+}
+
+#[test]
+fn an_intronic_change_beside_a_cds_change_makes_the_protein_unknown() {
+    // c.5+2 is the intron's T in NC_S.1.
+    assert_eq!(predicted("NM_S.1:c.[5+2T>A;13T>G]"), "NP_X.1:p.?");
+}
+
+#[test]
+fn an_identity_into_an_intron_states_the_whole_codons_it_covers() {
+    assert_eq!(
+        predicted("NM_S.1:c.[1_5+1=;13T>G]"),
+        "NP_X.1:p.[(Met1=;Tyr5Asp)]"
+    );
+}
+
+#[test]
+fn an_uncertain_member_is_refused_and_named() {
+    match predict("NM_X.1:c.[13T>G;(4_9)del]") {
+        Err(HgvsError::CisMember { index, source, .. }) => {
+            assert_eq!(index, 1);
+            assert!(
+                matches!(*source, HgvsError::UnsupportedOperation(ref m) if m.contains("uncertain")),
+                "{source}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_contradictory_allele_predicts_nothing() {
+    assert!(matches!(
+        predict("NM_X.1:c.[7C>T;7C>G]"),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn an_ambiguous_allele_predicts_nothing() {
+    assert!(matches!(
+        predict("NM_X.1:c.[7_8insA;7_8insG]"),
+        Err(HgvsError::Ambiguous { .. })
+    ));
+}
+
+#[test]
+fn an_allele_of_one_member_predicts_what_its_member_does() {
+    assert_eq!(predicted("NM_X.1:c.[10_12=]"), "NP_X.1:p.(Ala4=)");
+}
+
+#[test]
+fn a_predicted_protein_allele_is_written_with_its_parentheses_inside_the_brackets() {
+    assert_eq!(
+        parse_hgvs_variant("NP_X.1:p.[(Lys2Asn);(Leu3Pro)]")
+            .unwrap()
+            .to_string(),
+        "NP_X.1:p.[(Lys2Asn;Leu3Pro)]"
+    );
+}

@@ -2063,7 +2063,10 @@ description does not ([edits outside the CDS](#edits-outside-the-cds-are-stateme
 A statement the nomenclature has no example for would take the parentheses, as a change does; there is none today. A
 parsed description keeps the parentheses it was written with. A prediction's parentheses enclose the whole description;
 those of an uncertain residue or range, `p.(Gln18)[(70_80)]`, belong to the position, so a description that opens with
-one is not a prediction, and `p.((Gln18)[(70_80)])` is.
+one is not a prediction, and `p.((Gln18)[(70_80)])` is. A predicted protein allele, which `c_to_p` writes for an allele
+that states residues beside a change, takes one pair inside the brackets around every member, as the protein alleles
+page writes `p.[(Ser68Arg;Asn594del)]` and rules out `p.([Ser68Arg;Asn594del])`; the per-member spelling
+`p.[(Lys2Asn);(Leu3Pro)]` is read as the same allele and written that way.
 
 In equivalence a prediction is taken as its confirmation, so a prediction's parentheses are spelling and no other
 parentheses are. Between two `p.` descriptions `p.(Val600Glu)` and `p.Val600Glu` are Identity, as `p.(Met1?)` and
@@ -2087,6 +2090,7 @@ NM_W.1:c.*5T>A        →  NP_W.1:p.(=)
 NM_W.1:c.-3C>A        →  NP_W.1:p.?
 NM_W.1:c.-3_*2del     →  NP_W.1:p.0?
 NM_W.1:r.0            →  NP_W.1:p.0?
+NM_X.1:c.[13T>G;10_12=]  →  NP_X.1:p.[(Ala4=;Tyr5Asp)]   one pair of parentheses, inside the brackets
 ```
 
 - **Differs:** biocommons writes the start codon `p.Met1?` (its test table, INITMET01/03). VariantValidator: not
@@ -2116,7 +2120,9 @@ NM_W.1:r.0            →  NP_W.1:p.0?
   `rna_test::r_predicts_the_protein_like_c` (`r.0` to `p.0?`); `real_transcripts_test::biocommons_real_transcript_cases`
   (INITMET01/03); `printed_reparse_test::a_change_at_an_uncertain_residue_is_not_a_prediction`,
   `::a_change_over_an_uncertain_residue_range_is_not_a_prediction`,
-  `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`;
+  `::a_predicted_change_at_an_uncertain_residue_keeps_both_brackets`, `::a_predicted_protein_allele`,
+  `::a_predicted_protein_allele_written_member_by_member`;
+  `cis_phased_test::a_predicted_protein_allele_is_written_with_its_parentheses_inside_the_brackets`;
   `equivalence_test::a_predicted_protein_change_is_its_confirmation`,
   `::a_cis_allele_of_predicted_protein_changes_is_its_confirmation`,
   `::a_coding_change_is_its_prediction_written_unbracketed`; `regression_test::test_braf_identity`;
@@ -2307,9 +2313,12 @@ optional prediction is proposed in [issue #83](https://github.com/populationgeno
 
 A coding change is compared as the statement it predicts: `c.9G>A`, silent in codon 3, predicts `p.(Leu3=)`, while
 `c.*3G>A`, in the 3'UTR, predicts `p.(=)` ([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the first
-is the same as `p.(Leu3=)` and the second as `p.(=)`. A coding allele that changes the sequence and states bases
-predicts both, `c.[13T>G;10_12=]` giving `p.[(Ala4=;Tyr5Asp)]`, and is compared as that. The rows marked *planned* are
-those where the comparison by protein left behind answers otherwise today.
+is the same as `p.(Leu3=)` and the second as `p.(=)`. A nucleotide allele is compared by its prediction too, read from
+the sequence its members make ([the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make)), so
+`c.[4A>T;6A>T]` is Identity with `p.Lys2Tyr`, and a `g.` allele is taken to each coding transcript first, as a single
+`g.` variant is. An allele that changes the sequence and states bases predicts both, `c.[13T>G;10_12=]` giving
+`p.[(Ala4=;Tyr5Asp)]`, and is compared as that protein allele: Identity with its spelling, Different from the single
+`p.(Tyr5Asp)`, which says nothing of Ala4.
 
 A coding change and a `p.` description are compared by one rule with two `p.` descriptions: the change's prediction
 against the description, Identity as one spelling, Analogous when the two can leave the same protein. One thing differs.
@@ -2342,7 +2351,10 @@ NM_X.1:c.9=                  vs  NP_X.1:p.Leu3=                            Diffe
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Ala4=)                          Different: c.9G>A predicts p.(Leu3=)
 NM_X.1:c.9G>A                vs  NP_X.1:p.(Leu3=)                          Identity: the prediction as weaver writes it
 NM_X.1:c.*3G>A               vs  NP_X.1:p.(=)                              Identity
-NM_X.1:c.[13T>G;10_12=]      vs  NP_X.1:p.(Tyr5Asp)                        Different: it predicts p.[(Ala4=;Tyr5Asp)] (planned)
+NM_X.1:c.[13T>G;10_12=]      vs  NP_X.1:p.(Tyr5Asp)                        Different: it predicts p.[(Ala4=;Tyr5Asp)]
+NM_X.1:c.[13T>G;10_12=]      vs  NP_X.1:p.[Ala4=;Tyr5Asp]                  Identity: the prediction, confirmed
+NM_X.1:c.[4A>T;6A>T]         vs  NP_X.1:p.Lys2Tyr                          Identity: the codon the members make
+NM_X.1:c.[6A>T;8T>G]         vs  NP_X.1:p.Lys2_Ala4delinsAsnArgAla         Analogous: both leave MNRAYR
 NP_001337263.1:p.Tyr165Ter   vs  NP_001337263.1:p.Ala164_Tyr165insTer      Analogous: both end the protein after 164
 NM_X.1:c.4A>C                vs  NP_X.1:p.(Lys2Gln)                        Identity: the prediction as weaver writes it
 NM_X.1:c.4A>C                vs  NP_X.1:p.Lys2Gln                          Identity: the prediction, confirmed
@@ -2358,6 +2370,14 @@ NP_001.1:p.Arg97ProfsTer4    vs  NP_001.1:p.Arg97delinsProAlaValLeuTer     not: 
   Different.
 - **Spec (silent):** none; HGVS describes, it does not compare.
 - **Tests:** `transcript_coordinates_test::canonical_alleles_make_spdi_vrs_and_equivalence_one_value`;
+  `cis_equivalence_test::a_coding_allele_is_its_prediction_written_unbracketed`,
+  `::a_coding_allele_is_not_what_one_member_predicts_alone`,
+  `::a_coding_allele_is_another_description_of_the_protein_it_leaves`,
+  `::a_frameshifting_allele_is_the_frameshift_written_without_its_length`,
+  `::a_genomic_allele_is_judged_by_its_prediction_on_the_transcript`,
+  `::an_allele_stating_residues_beside_a_change_is_not_the_change_alone`,
+  `::an_allele_stating_residues_beside_a_change_is_its_predicted_protein_allele`,
+  `::an_allele_with_an_uncertain_member_predicts_no_protein`;
   `equivalence_cases_test::test_clinvar_regression_tyr165ter`, `::test_analogous_fs_wildcard_unification`;
   `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`;
   `equivalence_test::silent_statements_at_different_residues_differ`,
@@ -2664,6 +2684,25 @@ as it was, so `c.[13T>G;10_12=]` is `p.[(Ala4=;Tyr5Asp)]`, while a statement of 
 change names that residue: `c.[4_5insA;5del;6A>T]` is `p.(Lys2Asn)`. Nor does a statement outside the codons, or of a
 codon read in a new frame or past a new stop; `p.(=)` is about the whole protein and does not stand beside a change.
 
+The change the members make is one change, and it predicts what one change written over the same stretch predicts.
+Members in adjacent codons give one description, `c.[6A>T;8T>G]` the delins `p.(Lys2_Leu3delinsAsnArg)`, and two
+frameshifts that restore the frame give the residues between them, `c.[5del;10dup]` the delins
+`p.(Lys2_Leu3delinsAsnTrp)` rather than two frameshifts. Where the members lie is read as it is for one change, with one
+difference. A member is placed on its own 3'-most spelling, as
+[a single change is](#a-change-to-the-start-codon-is-an-unknown-change-from-met1); if the change then alters the first
+codon, the prediction is `p.(Met1?)`. A member wholly in the 5'UTR beside changes that leave the first codon is `p.?`,
+as it is alone, since weaver does not read the 5'UTR for a new start: `c.[-3G>A;13T>G]` is `p.?`. That is the
+difference: a single delins written from c.-3 to c.13 starts upstream and reaches into the CDS, so it is `p.(Met1?)`,
+but the allele's own members say the first codon is untouched, and the allele is answered from them. A change in an
+intron is read on no codon, so an allele with one predicts `p.?`; an identity in an intron states the whole codons it
+covers, as alone. A member past the stop codon enters the reading only where translation of the edited sequence reaches
+it: `c.[13T>G;*3G>A]` is `p.(Tyr5Asp)`, while `c.[19T>C;*6T>A]` loses the stop and finds a new one two codons on,
+`p.(Ter7GlnextTer2)`. Where such a member shifts the frame the members before it leave, the read-through is neither
+their frameshift nor their in-frame change, and the allele is refused rather than described. `p.?`, `p.(Met1?)`, `p.0?`
+and `p.(=)` stand alone: nothing is stated beside them. A member at an uncertain position, or one whose bases are not
+stated, leaves no codons to read, so `c_to_p` refuses the allele naming it, and a contradictory or ambiguous allele is
+refused as it is everywhere.
+
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement (the whole-sequence
 `=`, `?`, `spl`, `0`, `r.(?)`), which names no bases. An allele with either is compared member by member, as
@@ -2751,6 +2790,16 @@ NM_X.1:c.[4_5insA;5del;6A>T]           →  NP_X.1:p.(Lys2Asn)          the stat
 NM_X.1:c.[4A>T;6A>T]                   ATG TAT CTG GCC TAT CGC TAA    →  NP_X.1:p.(Lys2Tyr)
 NM_X.1:c.4_6delinsTAT                  ATG TAT CTG GCC TAT CGC TAA    Analogous with c.[4A>T;6A>T]
                                                                       not p.[(Lys2Ter;Lys2Asn)], what the members predict alone
+NM_X.1:c.[6A>T;8T>G]                   →  NP_X.1:p.(Lys2_Leu3delinsAsnArg)     adjacent codons, one delins
+NM_X.1:c.[5del;10dup]                  →  NP_X.1:p.(Lys2_Leu3delinsAsnTrp)     the frame restored
+NM_X.1:c.[1_3=;5del]                   →  NP_X.1:p.[(Met1=;Lys2AsnfsTer?)]     a statement before a frameshift
+NM_X.1:c.[5del;13_15=]                 →  NP_X.1:p.(Lys2AsnfsTer?)             one after it adds nothing
+NM_X.1:c.[1A>G;13T>G]                  →  NP_X.1:p.(Met1?)
+NM_X.1:c.[-3G>A;13T>G]                 →  NP_X.1:p.?                           the 5'UTR member; the first codon untouched
+NM_X.1:c.[13T>G;*3G>A]                 →  NP_X.1:p.(Tyr5Asp)                   translation stops before c.*3
+NM_X.1:c.[19T>C;*6T>A]                 →  NP_X.1:p.(Ter7GlnextTer2)            the read-through reaches c.*6
+NM_S.1:c.[5+2T>A;13T>G]                →  NP_X.1:p.?                           a change in the intron
+NM_X.1:c.[13T>G;(4_9)del]              →  refused, naming (4_9)del: no codons to read
 
 on TTCAGCAGTT:
 X:g.[3_5del;7A>T]                      TTCTGTT
@@ -2830,8 +2879,7 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::an_allele_with_an_uncertain_member_compares_its_members_as_a_set`,
   `::an_allele_with_an_uncertain_member_matches_the_same_members`, `::protein_alleles_compare_their_members_as_a_set`,
   `::protein_alleles_in_one_letter_code_are_one_spelling`, `::protein_alleles_with_a_member_changed_differ`,
-  `::a_nucleotide_allele_is_not_projected_to_protein`, `::a_contradictory_allele_is_refused`,
-  `::an_ambiguous_allele_is_refused_with_its_readings_where_written`,
+  `::a_contradictory_allele_is_refused`, `::an_ambiguous_allele_is_refused_with_its_readings_where_written`,
   `::a_contradictory_allele_is_refused_against_its_exact_projection`,
   `::an_ambiguous_allele_is_refused_against_its_exact_projection`,
   `::a_contradictory_allele_is_refused_against_itself_in_another_order`,
@@ -2854,13 +2902,33 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::members_that_touch_on_the_transcript_but_not_the_genome_are_two_alleles`,
   `::a_minus_strand_duplication_beside_a_delins_renders_as_its_genome_reading`,
   `::an_allele_rendered_as_one_allele_carries_the_allele_as_written`; `walking_two_readings_agrees_with_building_them`,
-  `members_apart_make_what_each_makes_alone`, `the_generated_alleles_are_mostly_read` (properties); planned, with
-  protein alleles read as the protein they leave and the predicted protein of an allele:
-  `cis_phased_test::protein_members_are_the_delins_they_make`, `::members_in_one_codon_predict_one_residue`,
-  `::a_change_with_a_statement_predicts_both`, `::statements_of_whole_codons_predict_their_residues`,
+  `members_apart_make_what_each_makes_alone`, `the_generated_alleles_are_mostly_read`,
+  `equivalence_is_transitive_over_statements_and_changes` (properties); the protein an allele predicts:
+  `cis_phased_test::members_in_one_codon_predict_one_residue`,
+  `::members_in_one_codon_predict_what_the_delins_they_make_predicts`,
+  `::members_in_adjacent_codons_predict_one_delins`,
+  `::frameshifts_that_restore_the_frame_predict_the_residues_between`,
+  `::statements_of_whole_codons_predict_their_residues`, `::statements_that_meet_predict_one_run_of_residues`,
   `::a_statement_of_part_of_a_codon_makes_no_protein_statement`,
-  `::a_statement_of_part_of_a_codon_beside_a_change_adds_nothing`;
-  `equivalence_is_transitive_over_statements_and_changes` (property).
+  `::single_bases_of_two_codons_make_no_protein_statement`, `::a_change_with_a_statement_predicts_both`,
+  `::a_statement_of_part_of_a_codon_beside_a_change_adds_nothing`,
+  `::a_statement_in_the_codon_a_change_alters_adds_nothing`, `::a_statement_after_a_frameshift_adds_nothing`,
+  `::a_statement_before_a_frameshift_is_predicted_beside_it`,
+  `::a_member_in_the_5_utr_beside_a_cds_change_makes_the_protein_unknown`,
+  `::a_member_in_the_3_utr_beside_a_cds_change_adds_nothing`,
+  `::a_member_past_the_stop_counts_where_translation_reads_through_it`,
+  `::members_only_in_the_3_utr_leave_the_protein_unchanged`,
+  `::a_member_changing_the_start_codon_is_an_unknown_change_from_met1`,
+  `::a_member_in_the_5_utr_beside_a_start_codon_change_is_an_unknown_change_from_met1`,
+  `::a_member_writing_the_start_codon_back_states_it_unchanged`, `::a_non_aug_start_stated_unchanged_is_met1`,
+  `::a_selenocysteine_stated_unchanged_is_sec`, `::a_minus_strand_allele_predicts_from_its_transcript`,
+  `::an_intronic_change_beside_a_cds_change_makes_the_protein_unknown`,
+  `::an_identity_into_an_intron_states_the_whole_codons_it_covers`, `::an_uncertain_member_is_refused_and_named`,
+  `::a_contradictory_allele_predicts_nothing`, `::an_ambiguous_allele_predicts_nothing`,
+  `::an_allele_of_one_member_predicts_what_its_member_does`; `an_allele_leaves_the_protein_its_one_delins_leaves`
+  (property); `tests/test_cis_phased.py::test_c_to_p_predicts_the_protein_the_members_make_together`,
+  `::test_c_to_p_writes_residues_stated_beside_a_change_as_a_protein_allele`; planned, with protein alleles read as the
+  protein they leave: `cis_phased_test::protein_members_are_the_delins_they_make`.
 
 ### Overlapping members of a cis allele need one reading
 

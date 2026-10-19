@@ -2630,3 +2630,130 @@ proptest! {
         );
     }
 }
+
+// The protein an allele predicts, and what equivalence makes of alleles that
+// state bases beside a change.
+
+/// The changes of a dense transcript allele inside the codons before the
+/// stop, or `None` when it does not read, states bases or changes anything
+/// outside them: as one delins, the allele that
+/// [`an_allele_leaves_the_protein_its_one_delins_leaves`] compares it with.
+fn delins_inside_the_codons(
+    mapper: &VariantMapper,
+    g: &Gene,
+    cis: &hgvs_weaver::CisPhasedVariant,
+) -> Option<hgvs_weaver::CisPhasedVariant> {
+    let reading = mapper.read_cis(cis).ok()?;
+    let reference = mapper
+        .refs
+        .reference(&g.ac, IdentifierType::TranscriptAccession);
+    let made = reading
+        .sequence(&reference, 0, g.transcript_seq.len())
+        .unwrap();
+    let one = as_one_member(&g.transcript_seq, &made)?;
+    let inside = one.start >= g.cds_start && one.end + 3 <= g.cds_end + 1;
+    (reading.stated().is_empty() && inside).then(|| coding_cis(g, std::slice::from_ref(&one)))
+}
+
+/// The delins property is not vacuous: on a fixed sample, a good share of
+/// the dense alleles change only codons before the stop and state nothing.
+#[test]
+fn the_generated_alleles_inside_the_codons_are_mostly_compared() {
+    use proptest::strategy::ValueTree;
+    let mut runner = proptest::test_runner::TestRunner::deterministic();
+    let strategy = gene_and_dense_cis();
+    let cases = 1000;
+    let mut compared = 0;
+    for _ in 0..cases {
+        let (g, members) = strategy.new_tree(&mut runner).unwrap().current();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        compared +=
+            usize::from(delins_inside_the_codons(&mapper, &g, &coding_cis(&g, &members)).is_some());
+    }
+    assert!(
+        compared * 10 >= cases,
+        "{compared} of {cases} alleles compared"
+    );
+}
+
+/// The bases `members` make on `X`, as one delins, followed by an identity
+/// of each stretch they state: another spelling of what they make and state.
+/// `None` when they do not read or make the reference.
+fn respelled_allele(
+    mapper: &VariantMapper,
+    seq: &str,
+    members: &[PlacedHgvs],
+) -> Option<Vec<PlacedHgvs>> {
+    let reading = mapper.read_cis(&genomic_cis(members)).ok()?;
+    let reference = mapper.refs.reference("X", G);
+    let made = reading.sequence(&reference, 0, seq.len()).unwrap();
+    let mut respelled = vec![as_one_member(seq, &made)?];
+    respelled.extend(reading.stated().iter().map(|&(start, end)| PlacedHgvs {
+        start,
+        end,
+        edit: NaEdit::RefAlt {
+            ref_: None,
+            alt: None,
+            uncertain: false,
+        },
+    }));
+    Some(respelled)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// Equivalence between nucleotide alleles is the equality of one value,
+    /// the sequence made and the bases stated, so it is symmetric and
+    /// transitive however the members split the change between them and the
+    /// bases they state unchanged.
+    #[test]
+    fn equivalence_is_transitive_over_statements_and_changes((seq, a, b) in seq_and_two_alleles()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let eq = VariantEquivalence::new(&mapper, &hdp);
+        let mut alleles: Vec<Vec<PlacedHgvs>> = vec![a.clone(), b];
+        alleles.extend(respelled_allele(&mapper, &seq, &a));
+        alleles.extend(respelled_allele(&mapper, &seq, &a).map(|mut r| {
+            r.truncate(1);
+            r
+        }));
+        let alleles: Vec<SequenceVariant> = alleles
+            .iter()
+            .map(|m| genomic_cis(m))
+            .filter(|cis| mapper.read_cis(cis).is_ok())
+            .map(SequenceVariant::CisPhased)
+            .collect();
+        let same = |x: &SequenceVariant, y: &SequenceVariant| {
+            eq.equivalent(x, y).unwrap_or_else(|e| panic!("{x} vs {y}: {e}"))
+        };
+        for x in &alleles {
+            for y in &alleles {
+                prop_assert_eq!(same(x, y), same(y, x), "{} and {}: not symmetric", x, y);
+                for z in &alleles {
+                    if same(x, y) && same(y, z) {
+                        prop_assert!(same(x, z), "{x} is {y}, and {y} is {z}, but {x} is not {z}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// A transcript allele whose changes lie inside the codons before the
+    /// stop, and which states nothing, leaves the protein the one delins it
+    /// makes leaves: the members are read together, not one at a time.
+    #[test]
+    fn an_allele_leaves_the_protein_its_one_delins_leaves((g, members) in gene_and_dense_cis()) {
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let cis = coding_cis(&g, &members);
+        let Some(delins) = delins_inside_the_codons(&mapper, &g, &cis) else {
+            return Ok(());
+        };
+        let left = |c: &hgvs_weaver::CisPhasedVariant| {
+            mapper.predicted_protein_cis(c, None).map_err(|e| std::mem::discriminant(&e))
+        };
+        prop_assert_eq!(left(&cis), left(&delins), "{} and {}", cis, delins);
+    }
+}

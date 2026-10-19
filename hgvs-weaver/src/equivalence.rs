@@ -138,9 +138,9 @@ impl<'a> VariantEquivalence<'a> {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
                 return self.protein_level(p1, || self.protein_outcome_on(p1, &p1.ac), p2);
             }
-            (SequenceVariant::Protein(p), nucleotide)
-            | (nucleotide, SequenceVariant::Protein(p)) => {
-                return self.nucleotide_vs_protein(nucleotide, p);
+            (protein @ SequenceVariant::Protein(_), nucleotide)
+            | (nucleotide, protein @ SequenceVariant::Protein(_)) => {
+                return self.nucleotide_vs_protein(nucleotide, protein);
             }
             _ => {
                 // A transcript variant that projects to exactly the genomic text.
@@ -168,8 +168,9 @@ impl<'a> VariantEquivalence<'a> {
     /// comparands are equal, `Different` otherwise. An allele that cannot be
     /// read into a sequence, of protein members or with a member that is
     /// uncertain or a statement, is compared by the set of its members'
-    /// [`MemberKey`]s, and against a plain variant is `Different`. Nothing is
-    /// projected to protein.
+    /// [`MemberKey`]s, and against a plain variant is `Different`. An allele
+    /// of nucleotide members against a protein description is compared by
+    /// its prediction, as a single variant is.
     ///
     /// # Errors
     ///
@@ -201,6 +202,12 @@ impl<'a> VariantEquivalence<'a> {
                     )
                     .map(Some);
             }
+        }
+        let allele = SequenceVariant::CisPhased(cis.clone());
+        match (cis.coordinate_type() == "p", other.coordinate_type() == "p") {
+            (false, true) => return self.nucleotide_vs_protein(&allele, other).map(Some),
+            (true, false) => return self.nucleotide_vs_protein(other, &allele).map(Some),
+            _ => {}
         }
         let as_allele = |var: &SequenceVariant| -> Result<Option<CisPhasedVariant>, HgvsError> {
             Ok(match var {
@@ -416,43 +423,43 @@ impl<'a> VariantEquivalence<'a> {
     /// description as two protein descriptions are, the prediction leaving
     /// the protein the edited transcript encodes. The level through the best
     /// transcript; a transcript whose prediction fails is the error only when
-    /// no transcript makes the two equivalent.
+    /// no transcript makes the two equivalent. A nucleotide allele predicts
+    /// one description or a protein allele, `p.[(Ala4=;Tyr5Asp)]`; a protein
+    /// allele on either side is compared as two protein alleles are.
     fn nucleotide_vs_protein(
         &self,
         nucleotide: &SequenceVariant,
-        vp: &PVariant,
+        described: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
         // An uncertain position names no codons, so it predicts no protein.
         if !nucleotide.has_exact_position() {
             return Ok(EquivalenceLevel::Different);
         }
-        let coding: Vec<CVariant> = match nucleotide {
-            SequenceVariant::Coding(c) => vec![c.clone()],
-            SequenceVariant::Genomic(g) => self.mapper.g_to_c_all(g, self.searcher)?,
-            SequenceVariant::NonCoding(n) => {
-                let tx = self.mapper.provider().get_transcript(&n.ac, None)?;
-                let g = self
-                    .mapper
-                    .tx_to_g(n, Some(tx.reference_accession.as_str()))?;
-                self.mapper.g_to_c_all(&g, self.searcher)?
-            }
-            _ => vec![],
-        };
+        let ac = described.ac();
+        let coding = self.coding_forms(nucleotide)?;
         let mut best = EquivalenceLevel::Different;
         let mut failed = None;
         for c in &coding {
-            let level = match self.mapper.c_to_p(c, Some(&vp.ac)) {
-                Ok(predicted) => self.protein_level(&predicted, || self.left_by(c, &predicted), vp),
+            let predicted = match c {
+                Coding::One(one) => self
+                    .mapper
+                    .c_to_p(one, Some(ac))
+                    .map(SequenceVariant::Protein),
+                Coding::Cis(cis) => self.mapper.c_to_p_cis(cis, Some(ac)),
+            };
+            let level = match (predicted, described) {
+                (Ok(SequenceVariant::Protein(predicted)), SequenceVariant::Protein(vp)) => {
+                    self.protein_level(&predicted, || self.left_by(c, &predicted), vp)
+                }
+                (Ok(predicted), _) => self.equivalent_level_single(&predicted, described),
                 // An identity of no whole codon says nothing of the protein,
                 // so it matches no protein description; c_to_p refuses c.=
                 // named against another protein, of which it says nothing.
-                Err(HgvsError::NoProteinStatement(_)) => continue,
-                Err(HgvsError::ValidationError(_))
-                    if matches!(c.posedit.edit, NaEdit::WholeIdentity) =>
-                {
+                (Err(HgvsError::NoProteinStatement(_)), _) => continue,
+                (Err(HgvsError::ValidationError(_)), _) if matches!(c, Coding::One(one) if matches!(one.posedit.edit, NaEdit::WholeIdentity)) => {
                     continue
                 }
-                Err(e) => Err(e),
+                (Err(e), _) => Err(e),
             };
             match level {
                 Ok(EquivalenceLevel::Identity) => return Ok(EquivalenceLevel::Identity),
@@ -468,8 +475,70 @@ impl<'a> VariantEquivalence<'a> {
         }
         // A description that cannot be read on its protein is the error,
         // whatever the transcripts predict.
-        self.protein_outcome_on(vp, &vp.ac)?;
+        if let SequenceVariant::Protein(vp) = described {
+            self.protein_outcome_on(vp, &vp.ac)?;
+        }
         failed.map_or(Ok(best), Err)
+    }
+
+    /// The coding forms of a nucleotide variant, a single one or an allele in
+    /// cis: its own for a `c.` variant, its projection onto every coding
+    /// transcript it lies on for a `g.` or `n.` one, its `c.` spelling for an
+    /// `r.` one on a coding transcript.
+    fn coding_forms(&self, var: &SequenceVariant) -> Result<Vec<Coding>, HgvsError> {
+        let reference_of = |ac: &str| -> Result<String, HgvsError> {
+            Ok(self
+                .mapper
+                .provider()
+                .get_transcript(ac, None)?
+                .reference_accession)
+        };
+        Ok(match var {
+            SequenceVariant::Coding(c) => vec![Coding::One(c.clone())],
+            SequenceVariant::Genomic(g) => self.coding_of_genomic(g)?,
+            SequenceVariant::NonCoding(n) => {
+                let g = self.mapper.tx_to_g(n, Some(&reference_of(&n.ac)?))?;
+                self.coding_of_genomic(&g)?
+            }
+            SequenceVariant::CisPhased(cis) => match cis.coordinate_type() {
+                "c" => vec![Coding::Cis(cis.clone())],
+                "g" => self.coding_of_genomic_cis(cis)?,
+                "n" => {
+                    let g = self.mapper.n_to_g_cis(cis, Some(&reference_of(&cis.ac)?))?;
+                    self.coding_of_genomic_cis(&g)?
+                }
+                "r" => {
+                    let tx = self.mapper.provider().get_transcript(&cis.ac, None)?;
+                    if tx.cds_start_index.is_some() {
+                        vec![Coding::Cis(self.mapper.r_to_c_cis(cis)?)]
+                    } else {
+                        let n = self.mapper.r_to_n_cis(cis)?;
+                        let g = self.mapper.n_to_g_cis(&n, Some(&tx.reference_accession))?;
+                        self.coding_of_genomic_cis(&g)?
+                    }
+                }
+                _ => vec![],
+            },
+            _ => vec![],
+        })
+    }
+
+    fn coding_of_genomic(&self, g: &crate::structs::GVariant) -> Result<Vec<Coding>, HgvsError> {
+        Ok(self
+            .mapper
+            .g_to_c_all(g, self.searcher)?
+            .into_iter()
+            .map(Coding::One)
+            .collect())
+    }
+
+    fn coding_of_genomic_cis(&self, g: &CisPhasedVariant) -> Result<Vec<Coding>, HgvsError> {
+        Ok(self
+            .mapper
+            .g_to_c_all_cis(g, self.searcher)?
+            .into_iter()
+            .map(Coding::Cis)
+            .collect())
     }
 
     /// The protein the coding variant `c` leaves, whose prediction is
@@ -477,12 +546,18 @@ impl<'a> VariantEquivalence<'a> {
     /// prediction that leaves the protein as it is, the residues it states;
     /// and, where the prediction names no sequence (`p.(Met1?)`, `p.?`), what
     /// the prediction says.
-    fn left_by(&self, c: &CVariant, predicted: &PVariant) -> Result<Option<Outcome>, HgvsError> {
+    fn left_by(&self, c: &Coding, predicted: &PVariant) -> Result<Option<Outcome>, HgvsError> {
         if predicted.posedit.edit.is_identity() {
             let reference = self.reference_protein(&predicted.ac)?;
             return Ok(Some(silent_prediction(predicted, reference.len())));
         }
-        match self.mapper.predicted_protein(c, Some(&predicted.ac))? {
+        let left = match c {
+            Coding::One(one) => self.mapper.predicted_protein(one, Some(&predicted.ac))?,
+            Coding::Cis(cis) => self
+                .mapper
+                .predicted_protein_cis(cis, Some(&predicted.ac))?,
+        };
+        match left {
             Some(left) => {
                 let reference = self.reference_protein(&predicted.ac)?;
                 Ok(Some(Outcome::Leaves {
@@ -699,6 +774,13 @@ impl<'a> VariantEquivalence<'a> {
 /// what is said and stays, as in `g.(3_4)del`, `p.(Lys2_Leu3)del` and `r.(?)`.
 /// A cis allele's members are unordered, so `g.[(3_4)del;10G>A]` is
 /// `g.[10G>A;(3_4)del]`; a member written twice is still two members here.
+/// A coding variant, or an allele in cis of coding members, whose prediction
+/// is compared with a protein description.
+enum Coding {
+    One(CVariant),
+    Cis(CisPhasedVariant),
+}
+
 fn spelling(var: &SequenceVariant) -> String {
     let mut var = var.clone();
     as_confirmed(&mut var);

@@ -181,6 +181,31 @@ def test_protein_vrs_refuses_an_allele(mapper: weaver.VariantMapper) -> None:
         mapper.protein_vrs(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
 
 
+def test_c_to_p_predicts_the_protein_the_members_make_together(mapper: weaver.VariantMapper) -> None:
+    predicted = mapper.c_to_p(weaver.parse("NM_X.1:c.[4A>T;6A>T]"))
+    assert str(predicted) == "NP_X.1:p.(Lys2Tyr)"
+    assert predicted.members is None
+
+
+def test_c_to_p_writes_residues_stated_beside_a_change_as_a_protein_allele(mapper: weaver.VariantMapper) -> None:
+    predicted = mapper.c_to_p(weaver.parse("NM_X.1:c.[13T>G;10_12=]"))
+    assert str(predicted) == "NP_X.1:p.[(Ala4=;Tyr5Asp)]"
+    assert predicted.members is not None
+    assert [str(m) for m in predicted.members] == ["NP_X.1:p.(Ala4=)", "NP_X.1:p.(Tyr5Asp)"]
+
+
+def test_c_to_p_of_an_allele_stating_no_whole_codon_raises_no_protein_statement(
+    mapper: weaver.VariantMapper,
+) -> None:
+    with pytest.raises(weaver.NoProteinStatementError, match="no whole codon"):
+        mapper.c_to_p(weaver.parse("NM_X.1:c.[10=;20=]"))
+
+
+def test_c_to_p_refuses_an_allele_of_genomic_members(mapper: weaver.VariantMapper) -> None:
+    with pytest.raises(ValueError, match=r"allele in cis of c\. members"):
+        mapper.c_to_p(weaver.parse("NC_X.1:g.[22C>T;28T>G]"))
+
+
 def test_an_allele_normalised_to_one_change_comes_back_as_a_plain_variant(mapper: weaver.VariantMapper) -> None:
     normalised = mapper.normalize_variant(weaver.parse("NM_X.1:c.[7C>T;8T>G]"))
     assert normalised.members is None

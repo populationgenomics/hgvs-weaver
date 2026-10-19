@@ -254,6 +254,20 @@ impl Reading {
         self.alt_stop() < self.alt_aa.len()
     }
 
+    /// Whether the edit adds or removes a multiple of three bases.
+    pub(crate) fn in_frame(&self) -> bool {
+        self.in_frame
+    }
+
+    /// Where translation of the edited sequence ends, as an index into the
+    /// reference coding sequence: one past the alternate stop codon, mapped
+    /// back over the bases the edit adds or removes; `None` when translation
+    /// runs off the end of the edited transcript.
+    pub(crate) fn translation_end(&self) -> Option<i64> {
+        self.alternate_stops()
+            .then(|| 3 * (self.alt_stop() as i64 + 1) - self.net)
+    }
+
     /// [`proteins`](crate::protein::proteins) of the change read.
     pub(crate) fn proteins(&self) -> Result<(String, String), HgvsError> {
         self.check_predictable()?;

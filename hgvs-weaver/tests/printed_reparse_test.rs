@@ -30,6 +30,8 @@ reparses_to_itself! {
     a_frameshift_count_with_leading_zeros: "NP_W.1:p.Arg97ProfsTer007";
     an_unknown_change_from_a_residue_past_met1: "NP_W.1:p.Arg12?";
     a_predicted_unknown_change_from_a_residue_past_met1: "NP_W.1:p.(Arg12?)";
+    a_predicted_protein_allele: "NP_W.1:p.[(Ala4=;Tyr5Asp)]";
+    a_predicted_protein_allele_written_member_by_member: "NP_W.1:p.[(Ala4=);(Tyr5Asp)]";
 }
 
 reparses_to_itself! {
