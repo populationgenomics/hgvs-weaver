@@ -81,7 +81,8 @@ Two audiences, two registers:
   pytest. Ensure hooks are installed (`uv run --no-sync pre-commit install`) — if not, install or ask the author; never
   bypass with `--no-verify`.
 - **Lock discipline.** CI syncs from `uv.lock` with `--locked`; a change to `pyproject.toml`'s dependencies comes with
-  the relocked file in the same commit. `Cargo.lock` at the root and in `hgvs-weaver/` are tracked for the same reason.
+  the relocked file in the same commit. The root `Cargo.lock` is tracked for the same reason; it is the workspace's only
+  lockfile.
 - **Correct a pushed branch with a new commit on top**, not amend + force-push. PRs squash-merge, so `main` history
   stays linear regardless and intermediate fixups vanish on merge. Reserve force-push for rebasing a branch onto `main`.
 
