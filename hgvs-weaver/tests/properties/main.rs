@@ -2787,14 +2787,15 @@ fn sense_codon() -> impl Strategy<Value = String> {
 }
 
 /// The protein consequence of the delins `[start, end)` to `alt` on `coding`,
-/// a CDS of `cds_len` bases and its 3'UTR, or `None` where none is predicted.
+/// a CDS of `cds_len` bases and its 3'UTR, or the kind of error that refuses
+/// to predict one.
 fn consequence(
     coding: &str,
     cds_len: usize,
     start: usize,
     end: usize,
     alt: &str,
-) -> Option<String> {
+) -> Result<String, std::mem::Discriminant<hgvs_weaver::HgvsError>> {
     let edit = NaEdit::RefAlt {
         ref_: None,
         alt: Some(alt.to_string()),
@@ -2805,8 +2806,8 @@ fn consequence(
         .unwrap();
     let change = hgvs_weaver::protein::CodingChange::new(coding, cds_len, resolved, "NP_PROP.1");
     hgvs_weaver::protein::describe(&change)
-        .ok()
         .map(|v| v.to_string())
+        .map_err(|e| std::mem::discriminant(&e))
 }
 
 proptest! {
@@ -2842,7 +2843,7 @@ proptest! {
             .to_ascii_uppercase();
         let narrow = consequence(&coding, cds_len, start, end, &alt);
         let wide = consequence(&coding, cds_len, wide_start, wide_end, &wide_alt);
-        if narrow.as_deref().is_some_and(|d| d.ends_with("=") || d.ends_with("=)")) {
+        if narrow.as_deref().is_ok_and(|d| d.ends_with("=") || d.ends_with("=)")) {
             return Ok(());
         }
         prop_assert_eq!(
