@@ -808,6 +808,33 @@ impl DataProvider for ProteinWithStop {
     }
 }
 
+/// Refuses a description on an accession its provider classifies as the
+/// other kind of sequence: a `p.` description on a transcript or genomic
+/// accession, or a `g.`, `m.`, `c.`, `n.` or `r.` one on a protein. Read there,
+/// its bases would be compared with residues or its residues with bases. An
+/// accession the provider cannot classify is read as written.
+pub(crate) fn check_reference_kind(
+    provider: &dyn DataProvider,
+    ac: &str,
+    coordinate_type: &str,
+) -> Result<(), HgvsError> {
+    let kind = provider.get_identifier_type(ac)?;
+    let named = match kind {
+        IdentifierType::TranscriptAccession => "a transcript",
+        IdentifierType::GenomicAccession => "a genomic",
+        IdentifierType::ProteinAccession => "a protein",
+        IdentifierType::GeneSymbol | IdentifierType::Unknown => return Ok(()),
+    };
+    let protein = coordinate_type == "p";
+    if protein == (kind == IdentifierType::ProteinAccession) {
+        return Ok(());
+    }
+    let needs = if protein { "a protein" } else { "a nucleotide" };
+    Err(HgvsError::ValidationError(format!(
+        "{ac} is {named} accession, and a {coordinate_type}. description needs {needs} reference"
+    )))
+}
+
 /// The 0-based half-open residue range a p. variant names on `reference`,
 /// once the range is found on the protein and the residues it states there:
 /// the residue named at each end of its interval (`p.Arg2Leu`'s Arg), and any
@@ -820,12 +847,13 @@ impl DataProvider for ProteinWithStop {
 /// [`HgvsError::PositionOutsideSequence`] for an interval past the stop;
 /// [`HgvsError::ReferenceMismatch`] for a stated residue the protein does not
 /// hold; a `ValidationError` for an interval that runs backwards or names no
-/// position.
+/// position, or for a reference the provider says is not a protein.
 pub(crate) fn residue_range(
     vp: &PVariant,
     reference: &crate::reference::Reference<'_, '_>,
 ) -> Result<(usize, usize), HgvsError> {
     use crate::edits::AaEdit;
+    check_reference_kind(reference.provider(), reference.accession(), "p")?;
     let pos = vp
         .posedit
         .pos
@@ -3049,8 +3077,12 @@ impl<'a> VariantMapper<'a> {
     /// A contradictory allele is a [`HgvsError::ValidationError`] and an
     /// ambiguous one [`HgvsError::Ambiguous`], raised rather than answered
     /// `false`, as any description that cannot be read is; one whose readings
-    /// weaver does not list is [`HgvsError::UnsupportedOperation`].
+    /// weaver does not list is [`HgvsError::UnsupportedOperation`]. So is a
+    /// description on an accession the provider classifies as the other kind
+    /// of sequence, a `p.` one on a transcript or genome or a nucleotide one
+    /// on a protein: a [`HgvsError::ValidationError`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
+        check_reference_kind(self.provider(), var.ac(), var.coordinate_type())?;
         match self.check_stated(var) {
             Ok(()) => Ok(true),
             Err(
@@ -3105,6 +3137,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     fn check_linear_stated<L: LinearVariant>(&self, v: &L) -> Result<(), HgvsError> {
+        check_reference_kind(self.provider(), v.ac(), v.coordinate_type())?;
         let edit = &v.posedit().edit;
         let pos = v
             .posedit()
@@ -3178,6 +3211,7 @@ impl<'a> VariantMapper<'a> {
         var: crate::SequenceVariant,
     ) -> Result<crate::SequenceVariant, HgvsError> {
         use crate::SequenceVariant as SV;
+        check_reference_kind(self.provider(), var.ac(), var.coordinate_type())?;
         Ok(match var {
             SV::Genomic(v) => SV::Genomic(self.normalize_linear(v)?),
             SV::Mitochondrial(v) => SV::Mitochondrial(self.normalize_linear(v)?),

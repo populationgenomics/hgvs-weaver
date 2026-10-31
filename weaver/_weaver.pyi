@@ -139,6 +139,8 @@ class Variant:
                 backwards, or c.= is on a transcript without a CDS. An intronic c. or n. variant
                 is projected to the genome to be read, so a projection's error is raised too.
                 An allele in cis whose members leave it no reading is a ValidationError naming two.
+                So is a p. description on an accession the provider classifies as a transcript or
+                genomic sequence, or a g., m., c., n. or r. one on a protein.
             AmbiguousDescriptionError: If an allele in cis has several readings; its readings
                 are each of them.
             UnsupportedOperationError: If an allele in cis has readings weaver does not list.
@@ -474,7 +476,9 @@ class VariantMapper:
         Raises:
             HGVSError: If normalization fails due to reference sequence boundaries.
             AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading.
+            ValidationError: If an allele in cis has no reading, or the variant is on an
+                accession the provider classifies as the other kind of sequence (p. on a
+                nucleotide sequence, or a nucleotide description on a protein).
             UnsupportedOperationError: If an allele in cis has readings weaver does not
                 list, members that share bases across an exon junction, a form it
                 would be written in that does not read as it does, or members that

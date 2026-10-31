@@ -214,6 +214,7 @@ Variation Representation Specification 2.0.1.
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |                      agrees; silent on derivation                       |        –         |                –                |        –         |
 | [A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)                                     |                                 agrees                                  | differs intronic |        differs intronic         |        –         |
 | [A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)                         |                                 agrees                                  |        –         |                –                |        –         |
+| [A description is read on a reference of its kind](#a-description-is-read-on-a-reference-of-its-kind)                               |                                 agrees                                  |        –         |                –                |        –         |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                                    –                                    |     differs      |                –                |        –         |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |                      agrees; silent on `p.Arg12?`                       |        –         |                –                |     differs      |
 | [An N-terminal extension adds residues before Met1](#an-n-terminal-extension-adds-residues-before-met1)                             | agrees; **differs**: reads `p.Met1Valext-4`, which it says not to write |        –         |                –                |        –         |
@@ -2754,6 +2755,49 @@ validate  NC_000099.1:g.(20_25)del    →  true                             name
   `equivalent_level`; `reference_length_agrees_with_the_sequence`,
   `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
   `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
+
+### A description is read on a reference of its kind
+
+**A `p.` description names residues of a protein, and a `g.`, `m.`, `c.`, `n.` or `r.` description bases of a nucleotide
+sequence. Where the data provider classifies the accession as the other kind, the description is refused with a
+`ValidationError` before any of it is read: `validate` raises it rather than answering false. An accession the provider
+cannot classify is read as written.**
+
+Read on a transcript, a `p.` residue is compared with a base, and four amino acid letters are base letters:
+`NM_003001.3:p.Ala158Pro` validates where base 158 is A, while `p.Leu158Pro` fails as a stated residue the reference
+lacks, telling the caller the variant disagrees with the reference when the accession is of the wrong kind. The answer
+is an error, not false, because no version of that accession could hold the description; false says the reference
+contradicts it, and is kept for that.
+
+`validate` and `normalize` check every description. Every operation that finds a `p.` description's residues — `p_to_c`,
+SPDI, VRS, the canonical allele and equivalence — checks it too, as do those built on the canonical allele for a `g.` or
+`m.` description. A `c.`, `n.` or `r.` description on a protein is refused by a projection already, when the provider
+has no transcript of that accession.
+
+**Example** (`NM_K.1` is a transcript whose sixth base is A, `NC_K.1` the genome it lies on, `NP_K.1` its protein,
+`MKLAYR`, and `XQ_K.1` the same protein under an accession the provider does not classify):
+
+```text
+validate  NM_K.1:p.Ala6Pro   →  ValidationError   NM_K.1 is a transcript accession
+validate  NC_K.1:p.Gly1Pro   →  ValidationError
+normalize NM_K.1:p.Leu6Pro   →  ValidationError   not a mismatch of L against A
+to_spdi   NM_K.1:p.Ala6Pro   →  ValidationError   not NM_K.1:5:A:P
+validate  NP_K.1:c.2T>A      →  ValidationError   and n., r., g. and m. alike
+normalize NP_K.1:g.4A>T      →  ValidationError
+validate  NP_K.1:p.Lys2Arg   →  true
+validate  XQ_K.1:p.Lys2Arg   →  true              read as written
+```
+
+- **Others:** not checked.
+- **Spec (agrees):** [reference sequences](https://hgvs-nomenclature.org/stable/background/refseq/): `p.` is a "protein
+  reference sequence", `c.` a "coding DNA reference sequence (based on a protein coding transcript)", `g.` a "linear
+  genomic reference sequence".
+- **Tests:** `reference_kind_test::validate_refuses_a_protein_description_on_a_transcript`,
+  `::validate_refuses_a_protein_description_on_a_genome`, `::normalize_refuses_a_protein_description_on_a_transcript`,
+  `::to_spdi_refuses_a_protein_description_on_a_transcript`, `::validate_refuses_a_nucleotide_description_on_a_protein`,
+  `::normalize_refuses_a_genomic_description_on_a_protein`, `::a_protein_description_on_its_protein_validates`,
+  `::a_protein_description_on_an_accession_of_unknown_kind_is_read_as_written` (the rows above);
+  `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
 
 ## Equivalence
 

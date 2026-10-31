@@ -56,6 +56,14 @@ class MockProvider:
             return [(weaver.IdentifierType.ProteinAccession, "NP_TEST.1")]
         return [(weaver.IdentifierType.GeneSymbol, symbol)]
 
+    def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
+        """Genomic for NC_, protein for NP_, transcript otherwise."""
+        if identifier.startswith("NC_"):
+            return weaver.IdentifierType.GenomicAccession
+        if identifier.startswith("NP_"):
+            return weaver.IdentifierType.ProteinAccession
+        return weaver.IdentifierType.TranscriptAccession
+
 
 def test_parsing() -> None:
     """Tests variant parsing."""
@@ -178,3 +186,9 @@ def test_an_offset_from_a_base_inside_an_exon_raises_position_outside_sequence_e
 
 def test_validate_answers_false_for_an_offset_from_a_base_inside_an_exon() -> None:
     assert not weaver.parse("NM_TEST:c.9+1del").validate(MockProvider())
+
+
+def test_validate_refuses_a_protein_description_on_a_transcript() -> None:
+    """Base 11 of NM_TEST is A, which read as a residue would be Ala11."""
+    with pytest.raises(weaver.ValidationError, match="needs a protein reference"):
+        weaver.parse("NM_TEST:p.Ala11Pro").validate(MockProvider())

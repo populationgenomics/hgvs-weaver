@@ -204,6 +204,11 @@ impl<'s, 'a> Reference<'s, 'a> {
         &self.ac
     }
 
+    /// The provider the sequence is read from.
+    pub fn provider(&self) -> &'a dyn DataProvider {
+        self.store.hdp
+    }
+
     pub fn kind(&self) -> IdentifierType {
         self.kind
     }
