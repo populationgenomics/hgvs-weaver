@@ -4544,7 +4544,8 @@ NM_MINUS10.1:c.1_3del   →  (1087, 1090)     low to high on the genome
 
 ### A mapper keeps its cache
 
-**A `VariantMapper` holds sequence blocks and refget accessions for as long as it lives. Build one and reuse it.**
+**A `VariantMapper` holds sequence blocks, refget accessions and what the provider says each accession is for as long as
+it lives. Build one and reuse it.**
 
 **Example:**
 
@@ -4557,7 +4558,8 @@ weaver.VariantMapper(provider).c_to_p(...)         # a new mapper starts cold
 
 - **Spec (silent):** none.
 - **Tests:** `tests/test_mapper_cache.py::test_sequences_are_fetched_once_per_mapper`,
-  `::test_a_refget_lookup_is_asked_before_the_sequence_is_hashed`.
+  `::test_a_refget_lookup_is_asked_before_the_sequence_is_hashed`,
+  `::test_each_accession_is_classified_once_per_mapper`.
 
 ### Refget is its own seam
 

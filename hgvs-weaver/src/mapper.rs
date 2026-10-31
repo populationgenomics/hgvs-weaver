@@ -827,11 +827,11 @@ pub(crate) enum ReadAs<'a> {
 /// residues or residues with bases. An accession the provider cannot classify
 /// is read as written.
 pub(crate) fn check_reference_kind(
-    provider: &dyn DataProvider,
+    refs: &ReferenceStore<'_>,
     ac: &str,
     read_as: ReadAs<'_>,
 ) -> Result<(), HgvsError> {
-    let kind = provider.get_identifier_type(ac)?;
+    let kind = refs.identifier_type(ac)?;
     let named = match kind {
         IdentifierType::TranscriptAccession => "a transcript",
         IdentifierType::GenomicAccession => "a genomic",
@@ -882,20 +882,21 @@ fn as_rna_error<T>(r: &RVariant, result: Result<T, HgvsError>) -> Result<T, Hgvs
     })
 }
 
-/// The transcript model of `ac` from `provider`, aligned to `reference_ac`
+/// The transcript model of `ac` from `refs`' provider, aligned to `reference_ac`
 /// where one is given, once the provider classifies neither as a protein,
 /// each read as its `ReadAs` says: every `c.`, `n.` and `r.` operation, and
 /// every projection from `g.`, reads its transcript through here.
 pub(crate) fn transcript_model(
-    provider: &dyn DataProvider,
+    refs: &ReferenceStore<'_>,
     ac: (&str, ReadAs<'_>),
     reference_ac: Option<(&str, ReadAs<'_>)>,
 ) -> Result<TranscriptData, HgvsError> {
-    check_reference_kind(provider, ac.0, ac.1)?;
+    check_reference_kind(refs, ac.0, ac.1)?;
     if let Some((reference_ac, read_as)) = reference_ac {
-        check_reference_kind(provider, reference_ac, read_as)?;
+        check_reference_kind(refs, reference_ac, read_as)?;
     }
-    provider.get_transcript(ac.0, reference_ac.map(|(r, _)| r))
+    refs.provider()
+        .get_transcript(ac.0, reference_ac.map(|(r, _)| r))
 }
 
 /// The 0-based half-open residue range a p. variant names on `reference`,
@@ -917,7 +918,7 @@ pub(crate) fn residue_range(
 ) -> Result<(usize, usize), HgvsError> {
     use crate::edits::AaEdit;
     check_reference_kind(
-        reference.provider(),
+        reference.store(),
         reference.accession(),
         ReadAs::Description("p"),
     )?;
@@ -1946,7 +1947,7 @@ impl<'a> VariantMapper<'a> {
         ac: (&str, ReadAs<'_>),
         reference_ac: Option<(&str, ReadAs<'_>)>,
     ) -> Result<TranscriptData, HgvsError> {
-        transcript_model(self.provider(), ac, reference_ac)
+        transcript_model(&self.refs, ac, reference_ac)
     }
 
     /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
@@ -2527,7 +2528,7 @@ impl<'a> VariantMapper<'a> {
         var_g: &GVariant,
         searcher: &dyn TranscriptSearch,
     ) -> Result<Vec<CVariant>, HgvsError> {
-        check_reference_kind(self.provider(), &var_g.ac, ReadAs::Description("g"))?;
+        check_reference_kind(&self.refs, &var_g.ac, ReadAs::Description("g"))?;
         let pos = var_g
             .posedit
             .pos
@@ -2585,10 +2586,10 @@ impl<'a> VariantMapper<'a> {
         transcript_ac: &str,
         protein_ac: Option<&str>,
     ) -> Result<String, HgvsError> {
-        check_reference_kind(self.provider(), transcript_ac, ReadAs::Description("c"))?;
+        check_reference_kind(&self.refs, transcript_ac, ReadAs::Description("c"))?;
         if let Some(ac) = protein_ac {
             check_reference_kind(
-                self.provider(),
+                &self.refs,
                 ac,
                 ReadAs::Protein("the protein a prediction is written on"),
             )?;
@@ -3187,7 +3188,7 @@ impl<'a> VariantMapper<'a> {
     /// on a protein: a [`HgvsError::ValidationError`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
         check_reference_kind(
-            self.provider(),
+            &self.refs,
             var.ac(),
             ReadAs::Description(var.coordinate_type()),
         )?;
@@ -3247,11 +3248,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     fn check_linear_stated<L: LinearVariant>(&self, v: &L) -> Result<(), HgvsError> {
-        check_reference_kind(
-            self.provider(),
-            v.ac(),
-            ReadAs::Description(v.coordinate_type()),
-        )?;
+        check_reference_kind(&self.refs, v.ac(), ReadAs::Description(v.coordinate_type()))?;
         let edit = &v.posedit().edit;
         let pos = v
             .posedit()
@@ -3328,7 +3325,7 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<crate::SequenceVariant, HgvsError> {
         use crate::SequenceVariant as SV;
         check_reference_kind(
-            self.provider(),
+            &self.refs,
             var.ac(),
             ReadAs::Description(var.coordinate_type()),
         )?;

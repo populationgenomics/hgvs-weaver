@@ -695,7 +695,7 @@ impl IntervalSpdi for BaseOffsetInterval {
         // SPDI is expressed on the chromosomal accession, so resolve the
         // transcript interval to genomic coordinates via the transcript model.
         let transcript = crate::mapper::transcript_model(
-            data_provider,
+            &crate::reference::ReferenceStore::new(data_provider),
             (
                 ac,
                 crate::mapper::ReadAs::Nucleotide("the transcript an interval is numbered on"),

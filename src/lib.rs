@@ -632,7 +632,7 @@ impl PyVariantMapper {
 impl PyVariantMapper {
     #[new]
     #[pyo3(signature = (provider, refget=None))]
-    #[doc = "Creates a new VariantMapper with the given DataProvider.\n\nThe mapper caches the sequence blocks and refget accessions it fetches for\nas long as it lives, so keep one and reuse it.\n\nArgs:\n    provider: The DataProvider for transcripts and sequences.\n    refget: Optional Refget lookup: an object with get_refget_accession(ac)\n        and get_accession_for_refget(refget), each returning str | None (a\n        weaver.refget.RefgetProvider is one). Without it refget accessions\n        are computed from the whole sequence and from_vrs needs the\n        accession passed."]
+    #[doc = "Creates a new VariantMapper with the given DataProvider.\n\nThe mapper caches the sequence blocks, refget accessions and identifier\ntypes it fetches for as long as it lives, so keep one and reuse it.\n\nArgs:\n    provider: The DataProvider for transcripts and sequences.\n    refget: Optional Refget lookup: an object with get_refget_accession(ac)\n        and get_accession_for_refget(refget), each returning str | None (a\n        weaver.refget.RefgetProvider is one). Without it refget accessions\n        are computed from the whole sequence and from_vrs needs the\n        accession passed."]
     fn new(provider: Py<PyAny>, refget: Option<Py<PyAny>>) -> Self {
         PyVariantMapper {
             bridge: PyDataProviderBridge { provider },

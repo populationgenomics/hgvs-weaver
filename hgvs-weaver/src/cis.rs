@@ -238,7 +238,7 @@ impl VariantMapper<'_> {
     ) -> Result<Vec<CisPhasedVariant>, HgvsError> {
         expect_system(cis, "g", "g_to_c_all")?;
         crate::mapper::check_reference_kind(
-            self.provider(),
+            &self.refs,
             &cis.ac,
             crate::mapper::ReadAs::Description("g"),
         )?;

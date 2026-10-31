@@ -159,8 +159,8 @@ class VariantMapper:
     def __new__(cls, provider: Any, refget: Any | None = ...) -> VariantMapper:
         """Creates a new VariantMapper with the given DataProvider.
 
-        The mapper caches the sequence blocks and refget accessions it fetches for
-        as long as it lives, so keep one and reuse it.
+        The mapper caches the sequence blocks, refget accessions and identifier
+        types it fetches for as long as it lives, so keep one and reuse it.
 
         Args:
             provider: The DataProvider for transcripts and sequences.

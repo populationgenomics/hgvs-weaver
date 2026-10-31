@@ -87,8 +87,8 @@ retired transcript versions; `weaver.cli.provider.RefSeqDataProvider` implements
 FASTA; `weaver.refget.RefgetProvider` implements it over a GA4GH refget server (for sequences) plus another provider for
 transcript models.
 
-A `VariantMapper` caches the sequence blocks and refget accessions it fetches for as long as it lives. Build one and
-reuse it.
+A `VariantMapper` caches the sequence blocks, refget accessions and identifier types it fetches for as long as it lives.
+Build one and reuse it.
 
 ### Coordinate Expectations
 
