@@ -795,7 +795,7 @@ c_to_g   NM_GD.1:c.16+1del    →  NC_B.1:g.41del                 not g.40, the 
   `::c_to_g_refuses_an_offset_from_a_base_inside_an_exon`,
   `::validate_answers_false_for_an_offset_after_the_first_base_of_an_exon`,
   `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused`,
-  `::normalize_refuses_an_uncertain_range_with_an_end_offset_from_inside_an_exon`,
+  `::normalize_refuses_an_uncertain_range_with_a_start_offset_from_inside_an_exon`,
   `::validate_answers_false_for_an_offset_past_the_end_of_its_intron`,
   `::validate_answers_false_for_an_offset_from_a_base_past_the_transcripts_end`,
   `::an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end`,

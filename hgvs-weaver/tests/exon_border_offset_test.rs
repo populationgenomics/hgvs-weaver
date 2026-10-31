@@ -301,13 +301,24 @@ fn normalize_refuses_an_uncertain_position_offset_from_a_base_inside_an_exon() {
 }
 
 #[test]
-fn normalize_refuses_an_uncertain_range_with_an_end_offset_from_inside_an_exon() {
+fn normalize_refuses_an_uncertain_range_with_a_start_offset_from_inside_an_exon() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
     assert_not_a_border(
         mapper.normalize_variant(parse("NM_B.1:c.(6+1_8-1)del")),
         "NM_B.1",
         "c.6+1",
+    );
+}
+
+#[test]
+fn normalize_refuses_an_uncertain_range_with_an_end_offset_from_inside_an_exon() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_not_a_border(
+        mapper.normalize_variant(parse("NM_B.1:c.(7+1_9-1)del")),
+        "NM_B.1",
+        "c.9-1",
     );
 }
 
