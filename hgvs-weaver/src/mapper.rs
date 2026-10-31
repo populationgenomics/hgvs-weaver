@@ -835,6 +835,44 @@ pub(crate) fn check_reference_kind(
     )))
 }
 
+/// `result`, with a [`HgvsError::NotAnExonBorder`] on `r`'s transcript
+/// naming the position in `r.`, as `r` writes it, rather than in the `c.` or
+/// `n.` spelling it was read through.
+fn as_rna_error<T>(r: &RVariant, result: Result<T, HgvsError>) -> Result<T, HgvsError> {
+    result.map_err(|e| match e {
+        HgvsError::NotAnExonBorder {
+            accession,
+            position,
+        } if accession == r.ac => {
+            let position = match position.split_once('.') {
+                Some(("c" | "n", rest)) => format!("r.{rest}"),
+                _ => position,
+            };
+            HgvsError::NotAnExonBorder {
+                accession,
+                position,
+            }
+        }
+        other => other,
+    })
+}
+
+/// The transcript model of `ac` from `provider`, aligned to `reference_ac`
+/// where one is given, once neither is an accession the provider classifies
+/// as a protein: every `c.`, `n.` and `r.` operation, and every projection
+/// from `g.`, reads its transcript through here.
+pub(crate) fn transcript_model(
+    provider: &dyn DataProvider,
+    ac: &str,
+    reference_ac: Option<&str>,
+) -> Result<TranscriptData, HgvsError> {
+    check_reference_kind(provider, ac, "c., n. or r")?;
+    if let Some(reference_ac) = reference_ac {
+        check_reference_kind(provider, reference_ac, "g")?;
+    }
+    provider.get_transcript(ac, reference_ac)
+}
+
 /// The 0-based half-open residue range a p. variant names on `reference`,
 /// once the range is found on the protein and the residues it states there:
 /// the residue named at each end of its interval (`p.Arg2Leu`'s Arg), and any
@@ -1873,6 +1911,15 @@ impl<'a> VariantMapper<'a> {
         self.refs.provider()
     }
 
+    /// The transcript model of `ac`; see [`transcript_model`].
+    pub(crate) fn transcript(
+        &self,
+        ac: &str,
+        reference_ac: Option<&str>,
+    ) -> Result<TranscriptData, HgvsError> {
+        transcript_model(self.provider(), ac, reference_ac)
+    }
+
     /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
     ///
     /// A genomic range whose ends lie in two exons is written over the
@@ -1882,9 +1929,7 @@ impl<'a> VariantMapper<'a> {
     /// [`HgvsError::UnsupportedOperation`], as is a range across a junction
     /// with an end on bases only one sequence holds.
     pub fn g_to_c(&self, var_g: &GVariant, transcript_ac: &str) -> Result<CVariant, HgvsError> {
-        let transcript = self
-            .provider()
-            .get_transcript(transcript_ac, Some(&var_g.ac))?;
+        let transcript = self.transcript(transcript_ac, Some(&var_g.ac))?;
         let am = TranscriptMapper::new(transcript)?;
 
         let pos = var_g
@@ -2251,7 +2296,7 @@ impl<'a> VariantMapper<'a> {
                 var_c.posedit()
             )));
         }
-        let transcript = self.provider().get_transcript(var_c.ac(), reference_ac)?;
+        let transcript = self.transcript(var_c.ac(), reference_ac)?;
         let am = TranscriptMapper::new(transcript)?;
         let target_ac = reference_ac
             .unwrap_or(am.transcript.reference_accession.as_str())
@@ -2439,6 +2484,7 @@ impl<'a> VariantMapper<'a> {
         var_g: &GVariant,
         searcher: &dyn TranscriptSearch,
     ) -> Result<Vec<CVariant>, HgvsError> {
+        check_reference_kind(self.provider(), &var_g.ac, "g")?;
         let pos = var_g
             .posedit
             .pos
@@ -2488,12 +2534,14 @@ impl<'a> VariantMapper<'a> {
         Ok(results)
     }
 
-    /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to.
+    /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to;
+    /// a `transcript_ac` the provider classifies as a protein is refused.
     pub(crate) fn protein_accession(
         &self,
         transcript_ac: &str,
         protein_ac: Option<&str>,
     ) -> Result<String, HgvsError> {
+        check_reference_kind(self.provider(), transcript_ac, "c., n. or r")?;
         if let Some(ac) = protein_ac {
             return Ok(ac.to_string());
         }
@@ -2558,7 +2606,7 @@ impl<'a> VariantMapper<'a> {
                 },
             });
         }
-        self.c_to_p(&self.r_to_c(r)?, protein_ac)
+        as_rna_error(r, self.c_to_p(&self.r_to_c(r)?, protein_ac))
     }
 
     /// Transforms a coding cDNA variant (`c.`) to a protein variant (`p.`).
@@ -2782,7 +2830,7 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
-        let am = TranscriptMapper::new(self.provider().get_transcript(&var_c.ac, None)?)?;
+        let am = TranscriptMapper::new(self.transcript(&var_c.ac, None)?)?;
         let transcript = &am.transcript;
         if transcript.cds_start == crate::data::CdsStart::Open {
             return Err(HgvsError::ValidationError(format!(
@@ -3035,7 +3083,7 @@ impl<'a> VariantMapper<'a> {
 
     /// The codon of residue `aa_pos` (1-based) on `tx_ac`, uppercase.
     fn codon_at(&self, tx_ac: &str, aa_pos: usize) -> Result<String, HgvsError> {
-        let transcript = self.provider().get_transcript(tx_ac, None)?;
+        let transcript = self.transcript(tx_ac, None)?;
         let cds_start = transcript
             .cds_start_index
             .ok_or_else(|| HgvsError::ValidationError("No CDS start for transcript".into()))?
@@ -3116,7 +3164,9 @@ impl<'a> VariantMapper<'a> {
             .map(|_| ()),
             // r.=, r.0, r.spl and their kind state no base.
             crate::SequenceVariant::Rna(r) if r.posedit.edit.is_whole_transcript() => Ok(()),
-            crate::SequenceVariant::Rna(r) => self.check_stated(&self.r_as_transcript(r)?),
+            crate::SequenceVariant::Rna(r) => {
+                as_rna_error(r, self.check_stated(&self.r_as_transcript(r)?))
+            }
             crate::SequenceVariant::CisPhased(cis) if cis.coordinate_type() == "p" => {
                 cis.members.iter().try_for_each(|m| self.check_stated(m))
             }
@@ -3160,7 +3210,7 @@ impl<'a> VariantMapper<'a> {
     /// record where it is exonic and on the genome, through the projection,
     /// where it is not.
     fn check_transcript_stated<V: TranscriptVariant>(&self, v: &V) -> Result<(), HgvsError> {
-        let am = TranscriptMapper::new(self.provider().get_transcript(v.ac(), None)?)?;
+        let am = TranscriptMapper::new(self.transcript(v.ac(), None)?)?;
         self.check_transcript_stated_on(v, &am)
     }
 
@@ -3222,7 +3272,8 @@ impl<'a> VariantMapper<'a> {
             // (r.0, r.spl, r.=) has nothing to normalise.
             SV::Rna(r) if r.posedit.edit.is_whole_transcript() => SV::Rna(r),
             SV::Rna(r) => {
-                let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
+                let normalised =
+                    as_rna_error(&r, self.normalize_variant(self.r_as_transcript(&r)?))?;
                 SV::Rna(self.tx_to_r(&normalised)?)
             }
             // A p. allele is not normalised, but what each member names is read.
@@ -3274,7 +3325,7 @@ impl<'a> VariantMapper<'a> {
 
     fn normalize_transcript<V: TranscriptVariant>(&self, mut v: V) -> Result<V, HgvsError> {
         let ac = v.ac().to_string();
-        let am = TranscriptMapper::new(self.provider().get_transcript(&ac, None)?)?;
+        let am = TranscriptMapper::new(self.transcript(&ac, None)?)?;
         let Some(pos) = &v.posedit().pos else {
             return Ok(v);
         };
@@ -4283,7 +4334,7 @@ impl<'a> VariantMapper<'a> {
 
     /// Whether `ac` has a CDS, which decides whether r. is numbered like c. or n.
     fn has_cds(&self, ac: &str) -> Result<bool, HgvsError> {
-        let t = self.provider().get_transcript(ac, None)?;
+        let t = self.transcript(ac, None)?;
         Ok(t.cds_start_index.is_some() && t.cds_end_index.is_some())
     }
 
@@ -4375,7 +4426,7 @@ impl<'a> VariantMapper<'a> {
             _ => unreachable!("r_as_transcript gives c. or n."),
         };
         if let Some(pos) = &posedit.pos {
-            let am = TranscriptMapper::new(self.provider().get_transcript(&r.ac, None)?)?;
+            let am = TranscriptMapper::new(self.transcript(&r.ac, None)?)?;
             // Intronic positions do not resolve to a transcript range; they
             // name the genome directly and need no guard.
             if let Ok((start, end)) = am.interval_to_n(pos) {
@@ -4386,10 +4437,13 @@ impl<'a> VariantMapper<'a> {
                 }
             }
         }
-        match tx {
-            crate::SequenceVariant::Coding(c) => self.tx_to_g(&c, reference_ac),
-            crate::SequenceVariant::NonCoding(n) => self.tx_to_g(&n, reference_ac),
-            _ => unreachable!("r_as_transcript gives c. or n."),
-        }
+        as_rna_error(
+            r,
+            match tx {
+                crate::SequenceVariant::Coding(c) => self.tx_to_g(&c, reference_ac),
+                crate::SequenceVariant::NonCoding(n) => self.tx_to_g(&n, reference_ac),
+                _ => unreachable!("r_as_transcript gives c. or n."),
+            },
+        )
     }
 }

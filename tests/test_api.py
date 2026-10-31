@@ -154,6 +154,12 @@ class MockMinusProvider:
         """Maps mock symbols."""
         return [(weaver.IdentifierType.GeneSymbol, symbol)]
 
+    def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
+        """Genomic for NC_, transcript otherwise."""
+        if identifier.startswith("NC_"):
+            return weaver.IdentifierType.GenomicAccession
+        return weaver.IdentifierType.TranscriptAccession
+
 
 def test_minus_strand() -> None:
     """Tests mapping on the minus strand."""

@@ -2770,9 +2770,11 @@ is an error, not false, because no version of that accession could hold the desc
 contradicts it, and is kept for that.
 
 `validate` and `normalize` check every description. Every operation that finds a `p.` description's residues — `p_to_c`,
-SPDI, VRS, the canonical allele and equivalence — checks it too, as do those built on the canonical allele for a `g.` or
-`m.` description. A `c.`, `n.` or `r.` description on a protein is refused by a projection already, when the provider
-has no transcript of that accession.
+SPDI, VRS, the canonical allele and equivalence — checks it too. A transcript model is read only once neither its
+accession nor the genome it is asked for on is a protein, and every operation on a `c.`, `n.` or `r.` description and
+every projection from `g.` reads one, so each refuses a protein in either place. The operations built on the canonical
+allele, and the projection of a `g.` description onto every transcript it lies on, check the `g.` or `m.` description's
+own accession.
 
 **Example** (`NM_K.1` is a transcript whose sixth base is A, `NC_K.1` the genome it lies on, `NP_K.1` its protein,
 `MKLAYR`, and `XQ_K.1` the same protein under an accession the provider does not classify):
@@ -2783,6 +2785,8 @@ validate  NC_K.1:p.Gly1Pro   →  ValidationError
 normalize NM_K.1:p.Leu6Pro   →  ValidationError   not a mismatch of L against A
 to_spdi   NM_K.1:p.Ala6Pro   →  ValidationError   not NM_K.1:5:A:P
 validate  NP_K.1:c.2T>A      →  ValidationError   and n., r., g. and m. alike
+c_to_g    NP_K.1:c.2T>A      →  ValidationError   not "no transcript NP_K.1"
+g_to_c    NP_K.1:g.4A>T      →  ValidationError   onto NM_K.1; not NM_K.1:c.-2G>T
 normalize NP_K.1:g.4A>T      →  ValidationError
 validate  NP_K.1:p.Lys2Arg   →  true
 validate  XQ_K.1:p.Lys2Arg   →  true              read as written
@@ -2795,8 +2799,10 @@ validate  XQ_K.1:p.Lys2Arg   →  true              read as written
 - **Tests:** `reference_kind_test::validate_refuses_a_protein_description_on_a_transcript`,
   `::validate_refuses_a_protein_description_on_a_genome`, `::normalize_refuses_a_protein_description_on_a_transcript`,
   `::to_spdi_refuses_a_protein_description_on_a_transcript`, `::validate_refuses_a_nucleotide_description_on_a_protein`,
+  `::c_to_g_refuses_a_coding_description_on_a_protein`, `::g_to_c_refuses_a_genomic_description_on_a_protein`,
   `::normalize_refuses_a_genomic_description_on_a_protein`, `::a_protein_description_on_its_protein_validates`,
-  `::a_protein_description_on_an_accession_of_unknown_kind_is_read_as_written` (the rows above);
+  `::a_protein_description_on_an_accession_of_unknown_kind_is_read_as_written` (the rows above), and the file's other
+  tests: `n_to_g`, `r_to_g`, `c_to_p`, `to_vrs`, `g_to_c_all`, and a protein as the sequence a projection lands on;
   `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
 
 ## Equivalence

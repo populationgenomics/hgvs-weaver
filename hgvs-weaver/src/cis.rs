@@ -193,10 +193,7 @@ impl VariantMapper<'_> {
         transcript_ac: &str,
     ) -> Result<CisPhasedVariant, HgvsError> {
         expect_system(cis, "g", "g_to_c")?;
-        let strand = self
-            .provider()
-            .get_transcript(transcript_ac, Some(&cis.ac))?
-            .strand;
+        let strand = self.transcript(transcript_ac, Some(&cis.ac))?.strand;
         let mut genomic: Vec<GVariant> = project_members(cis, |m| match m {
             SV::Genomic(g) => Ok(g.clone()),
             other => Err(wrong_member(other, "g")),
@@ -232,6 +229,7 @@ impl VariantMapper<'_> {
         searcher: &dyn TranscriptSearch,
     ) -> Result<Vec<CisPhasedVariant>, HgvsError> {
         expect_system(cis, "g", "g_to_c_all")?;
+        crate::mapper::check_reference_kind(self.provider(), &cis.ac, "g")?;
         let spans = project_members(cis, |m| {
             let SV::Genomic(g) = m else {
                 return Err(wrong_member(m, "g"));
@@ -330,10 +328,7 @@ impl VariantMapper<'_> {
         reference_ac: Option<&str>,
         project: impl Fn(&SV) -> Result<GVariant, HgvsError>,
     ) -> Result<CisPhasedVariant, HgvsError> {
-        let strand = self
-            .provider()
-            .get_transcript(&cis.ac, reference_ac)?
-            .strand;
+        let strand = self.transcript(&cis.ac, reference_ac)?.strand;
         let mut projected = project_members(cis, project)?;
         if strand == Strand::Minus {
             refuse_uncertain_copies(cis)?;

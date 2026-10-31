@@ -290,6 +290,28 @@ fn validate_answers_false_for_an_rna_offset_from_a_base_inside_an_exon() {
 }
 
 #[test]
+fn r_to_g_names_an_rna_offset_from_inside_an_exon_as_written() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    let r = match parse("NM_B.1:r.9-1del") {
+        SequenceVariant::Rna(r) => r,
+        other => panic!("{other} is not r."),
+    };
+    assert_not_a_border(mapper.r_to_g(&r, None), "NM_B.1", "r.9-1");
+}
+
+#[test]
+fn normalize_names_an_rna_offset_from_inside_an_exon_as_written() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_not_a_border(
+        mapper.normalize_variant(parse("NM_B.1:r.9-1del")),
+        "NM_B.1",
+        "r.9-1",
+    );
+}
+
+#[test]
 fn an_offset_after_a_gapped_exons_last_transcript_base_validates() {
     // Exon 2 of NR_GAP.1 carries nine bases, n.11 to n.19.
     assert!(validate("NR_GAP.1:n.19+1del"));

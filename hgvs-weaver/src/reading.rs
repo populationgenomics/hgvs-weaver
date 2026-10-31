@@ -2142,7 +2142,7 @@ impl VariantMapper<'_> {
         if intronic || on == On::Genome {
             return self.genomic_frame(cis, &members);
         }
-        let transcript = self.provider().get_transcript(&cis.ac, None)?;
+        let transcript = self.transcript(&cis.ac, None)?;
         let am = TranscriptMapper::new(transcript)?;
         let reference = self
             .refs
@@ -2226,7 +2226,7 @@ impl VariantMapper<'_> {
     /// 5' of it on the genome, so it is placed at the junction before the
     /// bases it copies there.
     fn genomic_frame(&self, cis: &CisPhasedVariant, members: &[SV]) -> Result<Frame, HgvsError> {
-        let transcript = self.provider().get_transcript(&cis.ac, None)?;
+        let transcript = self.transcript(&cis.ac, None)?;
         let minus = transcript.strand == Strand::Minus;
         let genome = transcript.reference_accession.clone();
         let reference = self

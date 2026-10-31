@@ -624,11 +624,7 @@ impl<'a> VariantEquivalence<'a> {
     /// `r.` one on a coding transcript.
     fn coding_forms(&self, var: &SequenceVariant) -> Result<Vec<Coding>, HgvsError> {
         let reference_of = |ac: &str| -> Result<String, HgvsError> {
-            Ok(self
-                .mapper
-                .provider()
-                .get_transcript(ac, None)?
-                .reference_accession)
+            Ok(self.mapper.transcript(ac, None)?.reference_accession)
         };
         Ok(match var {
             SequenceVariant::Coding(c) => vec![Coding::One(c.clone())],
@@ -645,7 +641,7 @@ impl<'a> VariantEquivalence<'a> {
                     self.coding_of_genomic_cis(&g)?
                 }
                 "r" => {
-                    let tx = self.mapper.provider().get_transcript(&cis.ac, None)?;
+                    let tx = self.mapper.transcript(&cis.ac, None)?;
                     if tx.cds_start_index.is_some() {
                         vec![Coding::Cis(self.mapper.r_to_c_cis(cis)?)]
                     } else {

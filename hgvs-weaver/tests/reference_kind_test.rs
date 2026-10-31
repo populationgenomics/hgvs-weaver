@@ -11,7 +11,7 @@ mod support;
 use hgvs_weaver::data::{IdentifierType, Strand};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
-use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
+use hgvs_weaver::{parse_hgvs_variant, CVariant, GVariant, SequenceVariant};
 use support::{exon, transcript, Provider};
 
 /// A 5'UTR of five, then `ATG AAA CTG GCC TAT CGC TAA`: c.1 is the A at
@@ -135,4 +135,111 @@ fn a_protein_description_on_an_accession_of_unknown_kind_is_read_as_written() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
     assert!(mapper.validate(&parse("XQ_K.1:p.Lys2Arg")).unwrap());
+}
+
+fn coding(s: &str) -> CVariant {
+    match parse(s) {
+        SequenceVariant::Coding(c) => c,
+        other => panic!("{other} is not c."),
+    }
+}
+
+fn genomic(s: &str) -> GVariant {
+    match parse(s) {
+        SequenceVariant::Genomic(g) => g,
+        other => panic!("{other} is not g."),
+    }
+}
+
+#[test]
+fn c_to_g_refuses_a_coding_description_on_a_protein() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.c_to_g(&coding("NP_K.1:c.2T>A"), None),
+        "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn c_to_g_refuses_a_protein_as_the_genome_to_project_onto() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.c_to_g(&coding("NM_K.1:c.2T>A"), Some("NP_K.1")),
+        "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn n_to_g_refuses_a_non_coding_description_on_a_protein() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    let n = match parse("NP_K.1:n.2G>A") {
+        SequenceVariant::NonCoding(n) => n,
+        other => panic!("{other} is not n."),
+    };
+    assert_wrong_kind(mapper.n_to_g(&n, None), "needs a nucleotide reference");
+}
+
+#[test]
+fn r_to_g_refuses_an_rna_description_on_a_protein() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    let r = match parse("NP_K.1:r.2u>a") {
+        SequenceVariant::Rna(r) => r,
+        other => panic!("{other} is not r."),
+    };
+    assert_wrong_kind(mapper.r_to_g(&r, None), "needs a nucleotide reference");
+}
+
+#[test]
+fn c_to_p_refuses_a_coding_description_on_a_protein() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.c_to_p(&coding("NP_K.1:c.2T>A"), None),
+        "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn to_vrs_refuses_a_coding_description_on_a_protein() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.to_vrs(&parse("NP_K.1:c.2T>A")),
+        "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn g_to_c_refuses_a_genomic_description_on_a_protein() {
+    // Residue 4 of NP_K.1 is A, so read as a base the description would hold.
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.g_to_c(&genomic("NP_K.1:g.4A>T"), "NM_K.1"),
+        "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn g_to_c_refuses_a_protein_as_the_transcript_to_project_onto() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.g_to_c(&genomic("NC_K.1:g.4A>T"), "NP_K.1"),
+        "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn g_to_c_all_refuses_a_genomic_description_on_a_protein() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.g_to_c_all(&genomic("NP_K.1:g.4A>T"), &provider),
+        "needs a nucleotide reference",
+    );
 }
