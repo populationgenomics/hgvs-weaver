@@ -3185,10 +3185,10 @@ impl<'a> VariantMapper<'a> {
     /// A contradictory allele is a [`HgvsError::ValidationError`] and an
     /// ambiguous one [`HgvsError::Ambiguous`], raised rather than answered
     /// `false`, as any description that cannot be read is; one whose readings
-    /// weaver does not list is [`HgvsError::UnsupportedOperation`]. So is a
+    /// weaver does not list is [`HgvsError::UnsupportedOperation`]. A
     /// description on an accession the provider classifies as the other kind
     /// of sequence, a `p.` one on a transcript or genome or a nucleotide one
-    /// on a protein: a [`HgvsError::ValidationError`].
+    /// on a protein, is raised too, as [`HgvsError::WrongReferenceKind`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
         check_reference_kind(
             &self.refs,
