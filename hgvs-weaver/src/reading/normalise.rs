@@ -789,6 +789,11 @@ impl Context<'_, '_, '_, '_> {
         placed: PlacedEdit,
         barriers: &Barriers,
     ) -> Result<PlacedEdit, HgvsError> {
+        if let Some((at, alt, uncertain)) = self.as_insertion(&placed)? {
+            if let Some(p) = self.placed_insertion(at, &alt, uncertain, barriers)? {
+                return Ok(p);
+            }
+        }
         let normalised = normalize::normalize(self.reference, placed.clone(), &barriers.bounds)?;
         // An identity may overlap a statement: it states the same bases.
         let identity = matches!(normalised.edit, NaEdit::RefAlt { alt: None, .. });
@@ -797,6 +802,165 @@ impl Context<'_, '_, '_, '_> {
         } else {
             normalised
         })
+    }
+
+    /// The junction `p` inserts at and what, where it is an insertion: one
+    /// written as such, or a delins that, trimmed of the bases it writes back
+    /// at either end, replaces nothing.
+    fn as_insertion(&self, p: &PlacedEdit) -> Result<Option<(usize, String, bool)>, HgvsError> {
+        Ok(match &p.edit {
+            NaEdit::Ins {
+                alt: Some(alt),
+                uncertain,
+            } => Some((p.start, alt.clone(), *uncertain)),
+            NaEdit::RefAlt {
+                alt: Some(alt),
+                uncertain,
+                ..
+            } if p.end > p.start && alt.len() > p.end - p.start => {
+                let ref_ = self.slice((p.start, p.end))?;
+                let (at, r, a) = crate::structs::strip_common_prefix_suffix(
+                    p.start as i32,
+                    &ref_.to_ascii_uppercase(),
+                    &alt.to_ascii_uppercase(),
+                );
+                (r.is_empty() && !a.is_empty()).then_some((at as usize, a, *uncertain))
+            }
+            _ => None,
+        })
+    }
+
+    /// The insertion of `alt` in front of `at` at its 3'-most place, as
+    /// `normalize` places one, except that a statement's edge is a place and
+    /// not an exon junction. It is placed within its stretch: the bases
+    /// between the barriers either side of it, inside its exon and the
+    /// sequence. From the 5'-most place there it slides 3' as far as the
+    /// stretch allows, and is the duplication of the bases before it where
+    /// it copies them. Slid onto a place no insertion can be, an exon
+    /// junction, the end of the sequence or the edge of what a member
+    /// without bases reaches for, it stops a base short, as `normalize`
+    /// stops one; unslid past the last base, it is the delins of that base.
+    /// `None` where `normalize` settles it: before the first base, on an
+    /// exon junction, at the edge of a member without bases, or among
+    /// stated bases.
+    fn placed_insertion(
+        &self,
+        at: usize,
+        alt: &str,
+        uncertain: bool,
+        barriers: &Barriers,
+    ) -> Result<Option<PlacedEdit>, HgvsError> {
+        let exons = &self.frame.exons;
+        let len = self.reference.length()?;
+        let n = alt.len();
+        // The edge of what a member without bases reaches for, or of a unit
+        // left across a statement, is no place: the overlap rule refuses an
+        // insertion there.
+        let other_edge = |c: usize| {
+            barriers.junctions.contains(&c)
+                || barriers
+                    .ranges
+                    .iter()
+                    .any(|r| (r.0 == c || r.1 == c) && !barriers.stated.contains(r))
+        };
+        let nowhere = |c: usize| c == 0 || c == len || exons.is_junction(c) || other_edge(c);
+        if n == 0
+            || at == 0
+            || at > len
+            || other_edge(at)
+            || (at < len && exons.is_junction(at))
+            || barriers.ranges.iter().any(|&r| strictly_inside(at, r))
+        {
+            return Ok(None);
+        }
+        // The stretch, as junctions an insertion in it can be at.
+        let lo = barriers
+            .ranges
+            .iter()
+            .map(|r| r.1)
+            .chain(barriers.junctions.iter().copied())
+            .filter(|&e| e <= at)
+            .max()
+            .unwrap_or(0)
+            .max(exons.exon_start(at - 1));
+        let hi = barriers
+            .ranges
+            .iter()
+            .map(|r| r.0)
+            .chain(barriers.junctions.iter().copied())
+            .filter(|&s| s >= at)
+            .min()
+            .unwrap_or(usize::MAX)
+            .min(exons.exon_end(at - 1))
+            .min(len);
+        let at_here = |point: usize| crate::edits::ResolvedEdit {
+            start: point,
+            end: point,
+            ref_: String::new(),
+            alt: alt.to_string(),
+        };
+        let back = normalize::shift_5(self.reference, &at_here(at))?.min(at - lo);
+        let from = at - back;
+        // The inserted bases as they read from `from`, then `k` further on.
+        let turned = |k: usize| {
+            let r = (n - back % n + k % n) % n;
+            format!("{}{}", &alt[r..], &alt[..r])
+        };
+        let at_from = crate::edits::ResolvedEdit {
+            alt: turned(0),
+            ..at_here(from)
+        };
+        let mut k = match from < len {
+            true => normalize::shift_3(self.reference, &at_from)?.min(hi - from),
+            false => 0,
+        };
+        let copies = |k: usize| -> Result<bool, HgvsError> {
+            let point = from + k;
+            Ok(point >= lo + n
+                && self
+                    .slice((point - n, point))?
+                    .eq_ignore_ascii_case(&turned(k)))
+        };
+        if nowhere(from + k) && !copies(k)? {
+            if k > 0 {
+                k -= 1;
+            } else if from == len {
+                let last = self.slice((len - 1, len))?;
+                return Ok(Some(PlacedEdit {
+                    start: len - 1,
+                    end: len,
+                    edit: NaEdit::RefAlt {
+                        ref_: Some(String::new()),
+                        alt: Some(format!("{last}{}", turned(0))),
+                        uncertain,
+                    },
+                }));
+            } else {
+                return Ok(None);
+            }
+        }
+        let point = from + k;
+        if nowhere(point) && !copies(k)? {
+            return Ok(None);
+        }
+        Ok(Some(match copies(k)? {
+            true => PlacedEdit {
+                start: point - n,
+                end: point,
+                edit: NaEdit::Dup {
+                    ref_: None,
+                    uncertain,
+                },
+            },
+            false => PlacedEdit {
+                start: point,
+                end: point,
+                edit: NaEdit::Ins {
+                    alt: Some(turned(k)),
+                    uncertain,
+                },
+            },
+        }))
     }
 }
 

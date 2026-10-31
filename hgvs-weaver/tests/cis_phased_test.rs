@@ -585,16 +585,13 @@ fn alleles_making_different_sequences_across_an_identity_have_different_vrs_iden
 
 #[test]
 fn alleles_across_an_identity_read_back_from_their_blocks() {
-    // normalize writes the first's insertion 12_13insA beside the identity;
-    // its block's Allele is the A run after it, read back 3'-most, 13dup.
-    // The second's two changes after the identity are one Allele, and one
-    // change read back.
+    // The first reads back as it normalises. The second's duplication copies
+    // the identity's last base, and normalize keeps it as written; its
+    // block, one Allele of the two changes after the identity, reads back as
+    // the one change they make.
     for (allele, normalised) in [
         ("X:g.[12_13insA;1_3dup;8_12=]", "X:g.[5_7dup;8_12=;13dup]"),
-        (
-            "X:g.[8_12=;12dup;13delinsACAA]",
-            "X:g.[8_12=;13delinsAACAA]",
-        ),
+        ("X:g.[8_12=;12dup;13delinsACAA]", "X:g.[8_12=;12_13insAACA]"),
     ] {
         assert_eq!(
             read_back_from_its_block("ACAACAACAACAA", allele),
@@ -1940,6 +1937,35 @@ fn a_shift_stops_short_of_an_identity() {
         normalised(&normalising_provider(), "NM_X.1:c.[4del;6=]"),
         "NM_X.1:c.[5del;6=]"
     );
+}
+
+#[test]
+fn an_insertion_after_an_identity_is_written_3_prime_most_beyond_it() {
+    // ACAACAACAACAA: g.13 is the A after the identity's run, so an A
+    // inserted after g.12 is a copy of g.13
+    let hdp = Provider::new().sequence("X", "ACAACAACAACAA");
+    for allele in ["X:g.[8_12=;12_13insA]", "X:g.[8_12=;13dup]"] {
+        assert_eq!(normalised(&hdp, allele), "X:g.[8_12=;13dup]", "{allele}");
+    }
+}
+
+#[test]
+fn a_duplication_of_a_stated_base_is_left_as_written() {
+    let hdp = Provider::new().sequence("X", "ACAACAACAACAA");
+    assert_eq!(normalised(&hdp, "X:g.[8_12=;12dup]"), "X:g.[8_12=;12dup]");
+}
+
+#[test]
+fn an_insertion_before_an_identity_copying_the_base_before_it_is_its_duplication() {
+    // g.3_4 is AA, then the identity from g.5: the A goes against it
+    let hdp = Provider::new().sequence("X", "ACAACAACAACAA");
+    for allele in [
+        "X:g.[3_4insA;5_7=]",
+        "X:g.[4_5insA;5_7=]",
+        "X:g.[4dup;5_7=]",
+    ] {
+        assert_eq!(normalised(&hdp, allele), "X:g.[4dup;5_7=]", "{allele}");
+    }
 }
 
 #[test]

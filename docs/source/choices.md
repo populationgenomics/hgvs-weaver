@@ -1449,6 +1449,18 @@ deletion stopping at c.5, and `c.[4del;5=]` stays as written. A member that cann
 uncertain position, is left as written too, in its place among the others, and no shift enters what it reaches for or
 inserts where it may insert, which the overlap rule would refuse.
 
+An identity's edge is not an exon junction. An insertion on a junction names no single place on the genome, so a single
+variant's shift stops a base short of one and one written there stays; an insertion beside an identity names one place,
+between the last stated base and the next. So an insertion in an allele is placed within the stretch between the
+identities either side of it: from its 5'-most place there it slides 3' as far as the stretch allows, onto an identity's
+edge if it gets there, and is the duplication of the bases before it where it copies them and none of them is stated.
+Every spelling of one insertion is then one: on `ACAACAACAACAA`, `g.[8_12=;12_13insA]` and `g.[8_12=;13dup]` are both
+`g.[8_12=;13dup]`, and `g.[3_4insA;5_7=]`, `g.[4_5insA;5_7=]` and `g.[4dup;5_7=]` are all `g.[4dup;5_7=]`. Slid onto an
+exon junction or past the last base it stops a base short, as a single variant's does. A duplication written over stated
+bases is still left as written, since no shift enters an identity: `g.[8_12=;12dup]` stays, though it makes and states
+what `g.[8_12=;13dup]` does. Reading it as the insertion it is changes which bases it names, which decides where members
+that cancel state bases, so that spelling is the one place one change keeps two normal forms.
+
 The result is not a canonical form. `c.[5A>G;9G>T]` stays two members, and `c.5_9delinsGACTT`, which makes the same
 sequence, stays one delins, because a delins that changes a base at each end
 [stays where it is](#a-delins-is-reduced-before-it-is-shifted). Equivalence compares sequences, so neither spelling is a
@@ -1623,6 +1635,10 @@ NM_S.1:c.[5=;6=]                  AA|ACTG      →  NM_S.1:c.[5=;6=]         ide
 NM_S.1:c.[6-4dup;6-3dup]          TCCCCAG      →  NM_S.1:c.6-4_6-3dup      the intron's end; not shifted
 NM_S.1:c.[5+4delinsA;5+5G>A]      GTAAA        →  NM_S.1:c.[5+4=;5+5G>A]   c.5+4 written back: a statement
 NM_X.1:c.[4del;6=]                AACTG        →  NM_X.1:c.[5del;6=]       no shift enters c.6
+on ACAACAACAACAA:
+X:g.[8_12=;12_13insA]             …CAAACA      →  X:g.[8_12=;13dup]        past the identity's edge
+X:g.[4_5insA;5_7=]                ACAAACA…     →  X:g.[4dup;5_7=]          against the identity, a copy of g.4
+X:g.[8_12=;12dup]                 …CAAACA      →  X:g.[8_12=;12dup]        it copies a stated base: left as written
 on GAAAAAG:
 X:g.[2del;4A>T]                   GATAAG       →  X:g.3_4delinsT           both deletions justify over g.2_6
 X:g.[6del;4A>T]                   GAATAG       →  X:g.4_5delinsT
@@ -1681,6 +1697,8 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::members_touching_in_one_exon_beside_a_junction_are_one_change`,
   `::a_deletion_in_an_allele_stops_at_its_exons_last_base`, `::a_duplication_in_an_allele_stops_at_its_exons_last_base`,
   `::a_shift_stops_short_of_an_identity`, `::a_change_against_an_identity_does_not_move`,
+  `::an_insertion_after_an_identity_is_written_3_prime_most_beyond_it`,
+  `::an_insertion_before_an_identity_copying_the_base_before_it_is_its_duplication`,
   `::members_are_written_in_order_of_position`, `::a_non_coding_allele_is_normalised_on_its_transcript`,
   `::an_rna_allele_is_normalised_as_its_coding_spelling`,
   `::a_cancelling_allele_is_the_identity_of_the_bases_its_members_name`,
