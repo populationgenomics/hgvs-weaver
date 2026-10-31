@@ -978,8 +978,7 @@ written there is refused
 is the exception: the position after its last residue is its stop, whether or not the provider serves it, so an
 insertion read there is an insertion before the stop
 ([a protein allele sees the stop](#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none)). That is the form ClinVar
-writes, `NP_112205.2:p.Ala453_Ter454insGluAla` among 170 such descriptions in its HGVS file, and the one `c_to_p`
-predicts for three bases inserted before the stop codon: on `NM_X.1`, `c.18_19insCAG` is `p.(Arg6_Ter7insGln)`.
+writes, `NP_112205.2:p.Ala453_Ter454insGluAla` among 170 such descriptions in its HGVS file.
 
 **Example** (on `ACGT` repeated, and on the ten bases `TTCAGCAGTT`):
 
@@ -1008,7 +1007,6 @@ on MAAAKL:      NP_…:6::Q      →  p.Leu6_Ter7insGln              the stop fo
   `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
   `::an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication`,
   `::an_spdi_insertion_after_the_last_residue_reads_as_an_insertion_before_the_stop`;
-  `equivalence_test::a_coding_insertion_before_the_stop_codon_is_predicted_before_the_stop`;
   `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
   `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
   `::shift_5_mirrors_shift_3` (the last two rows above, read from the 0-based ranges those tests assert);
@@ -3947,8 +3945,7 @@ NM_X.1:c.[17_18delinsAG;19T>C]    vs  NP_X.1:p.[Arg6Gln;Ter7Gln]    Analogous: T
 ```
 
 - **Agrees:** ClinVar, on an insertion before the stop, which it writes `_Ter#ins`
-  (`NP_112205.2:p.Ala453_Ter454insGluAla`, among 170 such descriptions); and weaver's own `c_to_p`, which predicts
-  `c.18_19insCAG` on `NM_X.1` as `p.(Arg6_Ter7insGln)`.
+  (`NP_112205.2:p.Ala453_Ter454insGluAla`, among 170 such descriptions).
 - **Others:** not checked.
 - **Spec (agrees; silent on alleles):**
   [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): a change of the stop codon that
