@@ -976,7 +976,8 @@ no position to name; one read there, from SPDI or VRS, is a delins of that base,
 written there is refused
 ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)). A protein
 is the exception: the position after its last residue is its stop, whether or not the provider serves it, so residues
-read there are added before the stop, at the C-terminal end, and the specification writes that as an extension
+read there are added before the stop, at the C-terminal end, and the specification writes that as an extension, a copy
+of the last residues as much as any other
 ([a protein allele sees the stop](#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none)).
 
 **Example** (on `ACGT` repeated, and on the ten bases `TTCAGCAGTT`):
@@ -3907,6 +3908,10 @@ own: the reading says what the specification writes, and the residues after the 
 same change as an insertion, `NP_112205.2:p.Ala453_Ter454insGluAla`, among 170 such descriptions in its HGVS file;
 equivalence reads both spellings as the protein they leave, and grades them the same protein.
 
+A copy of the last residues extends the protein the same way, and the specification says so of duplications too: so
+`NP:6::R` on a protein ending in Arg reads back as `p.Ter7ArgextTer1`, not `p.Arg6dup`, and a copy of the last two as an
+extension by two. A duplication anywhere else is still a duplication.
+
 A stop deleted, or replaced by residues with no stop after them, lets translation run on into the 3'UTR, which HGVS
 writes as an extension, `p.Ter7GlnextTer?`. How far it runs is in the transcript, not the protein, so no allele on the
 protein holds it: an allele ending at the last residue would claim the protein ends there, and one that deletes the stop
@@ -3943,6 +3948,7 @@ NP_X.1:p.Arg6_Ter7delinsArgGlnTer  →  NP_X.1:6::Q            the same allele
 NP_X.1:p.Arg6_Ter7dup              →  NP_X.1:6::             no change, as p.Ter7dup and p.Ter7=
 from_spdi NP_X.1:6::Q              →  NP_X.1:p.Ter7GlnextTer1, as on NP_S.1
 NP_X.1:p.Ter7GlnextTer1            →  NP_X.1:6::Q
+from_spdi NP_X.1:6::R              →  NP_X.1:p.Ter7ArgextTer1  a copy of Arg6, at the C-terminal end
 from_spdi NP_X.1:6::*              →  NP_X.1:p.Ter7=
 from_spdi NP_S.1:6:*:*G            →  NP_S.1:p.Ter7=         a residue after the stop is none of the protein
 from_spdi NP_S.1:7::G              →  ValidationError: past the stop
@@ -3962,8 +3968,10 @@ NP_X.1:p.Arg6_Ter7insGln          vs  NP_X.1:p.Ter7GlnextTer1       Analogous: b
   [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): a change of the stop codon that
   adds residues is an extension, of unknown length when no new stop is found, `p.Ter327ArgextTer?`;
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/protein/insertion/): "insertions extending the
-  full-length amino acid sequence at the C-terminal end with one or more amino acids are described as an Extension". VRS
-  2.0.1 places an allele on the protein sequence and says nothing of a stop it does not carry.
+  full-length amino acid sequence at the C-terminal end with one or more amino acids are described as an Extension";
+  [duplication](https://hgvs-nomenclature.org/stable/recommendations/protein/duplication/): "duplications extending the
+  amino acid sequence at the C-terminal end with one or more amino acids are described as an Extension". VRS 2.0.1
+  places an allele on the protein sequence and says nothing of a stop it does not carry.
 - **Tests:** `protein_allele_test::a_deleted_stop_has_no_allele`, `::a_deleted_stop_served_has_no_allele`,
   `::a_stop_made_a_residue_has_no_allele`, `::a_stop_made_a_residue_served_has_no_allele`,
   `::a_stop_deleted_with_the_residue_before_it_has_no_allele`,
@@ -3974,7 +3982,10 @@ NP_X.1:p.Arg6_Ter7insGln          vs  NP_X.1:p.Ter7GlnextTer1       Analogous: b
   `::a_stop_replaced_by_residues_and_a_stop_is_an_extension`,
   `::two_residues_inserted_after_the_last_residue_are_an_extension_by_two`,
   `::an_extension_by_one_named_residue_is_its_insertion`, `::an_extension_by_one_named_residue_served_is_its_insertion`,
-  `::an_extension_by_one_residue_reads_back_from_vrs_as_itself`,
+  `::an_extension_by_one_residue_reads_back_from_vrs_as_itself`, `::a_duplicated_last_residue_is_an_extension`,
+  `::a_duplicated_last_residue_served_is_an_extension`, `::the_last_two_residues_duplicated_are_an_extension_by_two`,
+  `::an_extension_repeating_the_last_residue_reads_back_from_vrs_as_itself`,
+  `::a_duplicated_last_residue_reads_back_from_vrs_as_the_extension`,
   `::a_stop_inserted_after_the_last_residue_is_the_stop_unchanged`, `::a_residue_after_the_stop_is_the_stop_unchanged`,
   `::no_change_at_the_stop_is_the_stop_unchanged`, `::an_allele_deleting_the_stop_is_refused`,
   `::an_allele_replacing_the_stop_with_a_residue_is_refused`,

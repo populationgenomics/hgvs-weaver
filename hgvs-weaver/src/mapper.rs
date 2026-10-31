@@ -4170,15 +4170,19 @@ impl<'a> VariantMapper<'a> {
             &ExonBounds::unspliced(),
         )?;
         let (s, e) = placed.hgvs_range();
-        if let crate::edits::NaEdit::Ins {
-            alt: Some(added), ..
-        } = &placed.edit
-        {
-            if s + 1 == residues && e == residues + 1 {
-                return Ok(crate::SequenceVariant::Protein(extension_variant(
-                    ac, residues, added,
-                )?));
-            }
+        // Residues inserted after the last, or a copy of the last ones, extend
+        // the protein at its C-terminal end: HGVS writes either as an extension.
+        let added = match &placed.edit {
+            crate::edits::NaEdit::Ins {
+                alt: Some(added), ..
+            } if s + 1 == residues && e == residues + 1 => Some(added.clone()),
+            crate::edits::NaEdit::Dup { .. } if e == residues => Some(shown.slice(s, e)?),
+            _ => None,
+        };
+        if let Some(added) = added {
+            return Ok(crate::SequenceVariant::Protein(extension_variant(
+                ac, residues, &added,
+            )?));
         }
         Ok(crate::SequenceVariant::Protein(protein_variant(
             ac,
