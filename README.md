@@ -131,7 +131,11 @@ class DataProvider(Protocol):
         ...
 
     def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]] | list[tuple[IdentifierType, str]]:
-        """Map gene symbols to accessions (e.g., 'ATM' -> [('transcript_accession', 'NM_000051.3')])."""
+        """Map an identifier to accessions of target_kind; kinds are 'g', 'c', 'p' or 'gene'.
+
+        (symbol, 'gene', 'c') asks for a gene's transcripts ('ATM' -> [('transcript_accession', 'NM_000051.3')]),
+        (symbol, 'gene', 'p') for its proteins, and (transcript, 'c', 'p') for a transcript's protein.
+        """
         ...
 
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
