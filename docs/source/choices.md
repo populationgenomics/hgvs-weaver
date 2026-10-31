@@ -3143,15 +3143,22 @@ nor their in-frame change, and the allele is refused: `c.[19T>C;*2del]`. A membe
 the members make needs a base past it in every spelling: `c.[15_16insGG;18_21dup]` writes its copy after the stop, but
 makes what `c.16_17delinsGGCGCTAA` makes, and is `p.(Arg6delinsGlyAlaAsn)` as that is. The exception is a frame shifted
 at the stop itself and restored past it, which reads in frame as an extension, `c.[20del;*2_*3insA]` giving
-`p.(Ter7TyrextTer4)`. A frameshift that a later member shifts again stays a frameshift, read from the sequence. A
-deletion of the whole CDS, apart from the other members, is `p.0?`; merged with a member beside it, it is the delins
-they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing is stated beside
-them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to read, so `c_to_p`
-refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a contradictory or
-ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is predicted unless the change
-its members make, or one of the changes it is finally written as, needs a base past the last whole codon the record
-carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is `p.[(Ala2Val;Gly10Glu)]` on a
-ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
+`p.(Ter7TyrextTer4)`. A frameshift that a later member shifts again stays a frameshift, read from the sequence. Members
+apart are described as their own changes even where one delins of the same bases would be a single frameshift:
+`c.[13T>C;19T>C]` is `p.[(Tyr5His;Ter7GlnextTer4)]`, while `c.13_19delinsCATCGCC`, which makes the same sequence, is
+`p.(Tyr5HisfsTer7)`, because
+[a stop lost after an earlier change is a frameshift](#a-stop-lost-after-an-earlier-change-is-a-frameshift) only where
+one change makes both. The allele states two changes with an unchanged codon between them, and its description names the
+change at each, as it does for members apart anywhere else in the CDS; written as one frameshift, it would name a change
+the allele does not state. Equivalence compares the two descriptions by the protein each leaves, which is the same, and
+grades them Analogous. A deletion of the whole CDS, apart from the other members, is `p.0?`; merged with a member beside
+it, it is the delins they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing
+is stated beside them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to read,
+so `c_to_p` refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a
+contradictory or ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is predicted
+unless the change its members make, or one of the changes it is finally written as, needs a base past the last whole
+codon the record carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is
+`p.[(Ala2Val;Gly10Glu)]` on a ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
 
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement (the whole-sequence
