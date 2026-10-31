@@ -192,7 +192,7 @@ Variation Representation Specification 2.0.1.
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |                        agrees; silent on `r.(?)`                        |        –         |             differs             |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          |                  agrees; silent on what `c.=` implies                   |     differs      |                –                |        –         |
 | [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |                    agrees; silent on the duplication                    |        –         |                –                |        –         |
-| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |               agrees; **differs** at exon/intron borders                |      agrees      |             agrees              |      agrees      |
+| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |  agrees; **differs** at exon/intron borders and for a projected repeat  |      agrees      |             agrees              |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |             agrees at exon/exon; **differs** at exon/intron             |     differs      |                –                |      agrees      |
 | [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                                 agrees                                  |   agrees on g.   |                –                |        –         |
 | [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                                 agrees                                  |     differs      |             agrees              |        –         |
@@ -1105,13 +1105,15 @@ on MAAAKL:      NP_…:6::Q      →  p.Ter7GlnextTer1               added at th
 ```
 
 - **Agrees:** biocommons, VariantValidator and ClinVar.
-- **Spec (agrees; differs at exon/intron borders):**
+- **Spec (agrees; differs at exon/intron borders and for a projected repeat):**
   [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/): "tandem duplications are described
   as a duplication, not an insertion". The rule "applies to ALL descriptions", and its one exception is the exon/exon
   junction; weaver does not shift a transcript variant across an exon/intron border either
   ([intronic positions](#intronic-positions-are-carried-as-given),
-  [#87](https://github.com/populationgenomics/hgvs-weaver/issues/87)).
+  [#87](https://github.com/populationgenomics/hgvs-weaver/issues/87)), nor write a repeat projected onto a sequence that
+  differs from its source in the target's 3' form: `NM_DIFF.1:c.5dup` is not written `c.6dup`
+  ([a repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)).
 - **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`,
   `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
   `::an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication`,
