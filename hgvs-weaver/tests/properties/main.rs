@@ -909,20 +909,10 @@ proptest! {
             &protein, &predicted, other.as_ref(), kind, at, count, &residues, length,
         ) else { return Ok(()) };
         let vp = parse_hgvs_variant(&text).unwrap_or_else(|e| panic!("{text}: {e}"));
-        let through_prediction = eq.equivalent_level(&SequenceVariant::Protein(predicted.clone()), &vp);
+        let through_prediction = eq
+            .equivalent_level(&SequenceVariant::Protein(predicted.clone()), &vp)
+            .map_err(|e| TestCaseError::fail(format!("{predicted} against {vp}: {e}")))?;
         let direct = eq.equivalent_level(&SequenceVariant::Coding(vc.clone()), &vp);
-        // A prediction that does not read back on its own protein has no
-        // judgement to compare with: c_to_p names read-through residues past
-        // the stop for an in-frame change over it (issue #94), as residues the
-        // protein does not hold or as positions past its end.
-        let through_prediction = match through_prediction {
-            Ok(level) => level,
-            Err(
-                hgvs_weaver::HgvsError::ReferenceMismatch { .. }
-                | hgvs_weaver::HgvsError::PositionOutsideSequence { .. },
-            ) => return Ok(()),
-            Err(e) => return Err(TestCaseError::fail(format!("{predicted} against {vp}: {e}"))),
-        };
         // A predicted frameshift or extension, or a change that removes the
         // stop, leaves residues it does not name, which match any residue, so
         // a description can match those through the prediction and not the
