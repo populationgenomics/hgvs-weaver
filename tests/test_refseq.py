@@ -234,3 +234,32 @@ def test_a_replayed_read_to_the_end_answers_what_the_recorded_one_did(tmp_path: 
 def test_a_replayed_read_of_a_range_that_is_not_one_is_refused(tmp_path: pathlib.Path) -> None:
     with pytest.raises(weaver.DataProviderError, match=re.escape("NC_000099.1: [0, -1) is not a range")):
         recorded(tmp_path, 50, None).fetch("NC_000099.1", 0, -1)
+
+
+@pytest.mark.parametrize(
+    ("symbol", "source", "target", "accessions"),
+    [
+        ("FWD", "g", "c", [(weaver.IdentifierType.TranscriptAccession, "NM_000099.1")]),
+        ("FWD", "g", "p", [(weaver.IdentifierType.ProteinAccession, "NP_000099.1")]),
+        ("NM_000099.1", "c", "p", [(weaver.IdentifierType.ProteinAccession, "NP_000099.1")]),
+        ("NP_000099.1", "p", "c", [(weaver.IdentifierType.TranscriptAccession, "NM_000099.1")]),
+        ("REV", "g", "p", []),
+        ("NM_000097.2", "c", "p", []),
+        ("NOSUCH", "g", "c", []),
+        ("NM_000099.1", "c", "g", []),
+    ],
+)
+def test_a_symbol_maps_to_the_accessions_of_the_kind_asked_for(
+    tmp_path: pathlib.Path,
+    symbol: str,
+    source: str,
+    target: str,
+    accessions: list[tuple[weaver.IdentifierType, str]],
+) -> None:
+    assert provider(tmp_path, TWO_VERSIONS).get_symbol_accessions(symbol, source, target) == accessions
+
+
+def test_a_variant_on_a_gene_symbol_is_equivalent_to_the_same_change_on_its_transcript(tmp_path: pathlib.Path) -> None:
+    rp = provider(tmp_path)
+    mapper = weaver.VariantMapper(rp)
+    assert mapper.equivalent(weaver.parse("FWD:c.13T>A"), weaver.parse("NM_000099.1:c.13T>A"), rp)

@@ -103,7 +103,12 @@ class CombinedProvider:
 
         return self.refseq.get_seq(ac, start, end, kind)
 
-    def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]]:
+    def get_symbol_accessions(
+        self,
+        symbol: str,
+        source_kind: str,
+        target_kind: str,
+    ) -> list[tuple[weaver.IdentifierType, str]]:
         return self.refseq.get_symbol_accessions(symbol, source_kind, target_kind)
 
 

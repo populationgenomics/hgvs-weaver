@@ -461,26 +461,38 @@ class RefSeqDataProvider:
                 results.append(tx["ac"])
         return list(set(results))
 
-    def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]]:
-        """Maps gene symbols to transcript accessions."""
+    def get_symbol_accessions(
+        self,
+        symbol: str,
+        source_kind: str,
+        target_kind: str,
+    ) -> list[tuple[weaver.IdentifierType, str]]:
+        """The accessions ``symbol`` maps to, by the kinds weaver asks for; any other pair is empty.
+
+        ``g -> c``: a gene's transcripts; ``g -> p``: a gene's proteins; ``c -> p``: a transcript's protein;
+        ``p -> c``: a protein's transcript. weaver names a gene symbol's kind ``g``.
+        """
+        if source_kind == IdentifierKind.Genomic and target_kind == IdentifierKind.Transcript:
+            return [
+                (weaver.IdentifierType.TranscriptAccession, tx_ac)
+                for tx_ac in dict.fromkeys(self.gene_to_transcripts.get(symbol, []))
+            ]
+        if source_kind == IdentifierKind.Genomic and target_kind == IdentifierKind.Protein:
+            proteins = (self._protein_of(tx_ac) for tx_ac in self.gene_to_transcripts.get(symbol, []))
+            return [(weaver.IdentifierType.ProteinAccession, ac) for ac in dict.fromkeys(proteins) if ac]
         if source_kind == IdentifierKind.Transcript and target_kind == IdentifierKind.Protein:
-            # Ambiguous if multiple refs, but usually protein is same
-            try:
-                tx = self.get_transcript(symbol, None)
-                if tx.get("protein_id"):
-                    return [("protein_accession", tx["protein_id"])]
-            except weaver.DataProviderError:
-                pass
-        if (
-            source_kind == IdentifierKind.Protein
-            and target_kind == IdentifierKind.Transcript
-            and symbol in self.accession_map
-        ):
-            tx_id, _chrom = self.accession_map[symbol]
-            return [("transcript_accession", tx_id)]
-        if symbol in self.gene_to_transcripts:
-            return [("transcript_accession", tx_ac) for tx_ac in self.gene_to_transcripts[symbol]]
-        return [("gene_symbol", symbol)]
+            protein = self._protein_of(symbol) if symbol in self.tx_to_refs else ""
+            return [(weaver.IdentifierType.ProteinAccession, protein)] if protein else []
+        if source_kind == IdentifierKind.Protein and target_kind == IdentifierKind.Transcript:
+            if symbol not in self.accession_map:
+                return []
+            tx_ac, _chrom = self.accession_map[symbol]
+            return [(weaver.IdentifierType.TranscriptAccession, tx_ac)]
+        return []
+
+    def _protein_of(self, tx_ac: str) -> str:
+        """The protein the GFF3 names for a transcript it annotates; empty for a non-coding one."""
+        return self.transcripts[(tx_ac, self._default_reference(tx_ac))]["protein_id"]
 
     def get_identifier_type(self, identifier: str) -> str:
         """What the provider holds under ``identifier``, whatever its form; ``unknown`` if it holds nothing.
