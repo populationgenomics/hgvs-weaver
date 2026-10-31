@@ -55,17 +55,6 @@ fn substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein() {
 }
 
 #[test]
-fn a_count_whose_alternate_no_protein_could_number_is_refused() {
-    let hdp = provider();
-    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[2147483647]").unwrap();
-    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
-    assert!(
-        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483647")),
-        "expected ValidationError naming the count, got {err:?}"
-    );
-}
-
-#[test]
 fn a_protein_repeat_over_the_cap_has_no_allele() {
     let hdp = provider();
     let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[10000001]").unwrap();
@@ -84,19 +73,6 @@ fn a_protein_repeat_at_the_cap_has_an_allele() {
     assert_eq!(
         allele.alternate.len() - allele.reference.len(),
         10_000_000 - 3
-    );
-}
-
-#[test]
-fn a_count_whose_protein_no_sequence_could_number_is_refused() {
-    // Ala4 plus this many copies fits before the run's end, but with the
-    // three residues after the run, Tyr Arg Gln, the protein is too long.
-    let hdp = provider();
-    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[2147483643]").unwrap();
-    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
-    assert!(
-        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483643")),
-        "expected ValidationError naming the count, got {err:?}"
     );
 }
 

@@ -235,7 +235,7 @@ fn repeat_within_the_cap(
         return Ok(());
     };
     let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| reference.slice(s, e))?;
-    crate::edits::within_the_repeat_cap(&unit, repeat.max)
+    crate::edits::within_the_repeat_cap(&unit, repeat.max).map(|_| ())
 }
 
 /// Whether transcript indices `[start, end)` lie in one exon.
@@ -534,13 +534,7 @@ fn project_repeat(
     let (source, (s_lo, s_hi)) = source;
     let (target, (t_lo, t_hi), shared) = target;
     let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
-    crate::edits::copies_that_fit(
-        target.accession(),
-        &unit,
-        repeat.max,
-        (t_lo, t_hi),
-        Some(target.length()?),
-    )?;
+    crate::edits::within_the_repeat_cap(&unit, repeat.max)?;
     // The run and the count are all a count needs; the copies are built only
     // for an edit that writes them out.
     let run_end = repeat_run_end(&repeat.edit(), &unit, source, (s_lo, s_hi))?;
@@ -820,17 +814,6 @@ fn project_edit_over_run(
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
     let (source, named, wide) = source;
-    if let Some(repeat) = Repeat::of(edit) {
-        let unit =
-            crate::edits::repeat_unit(&repeat.unit, named.0, named.1, |s, e| source.slice(s, e))?;
-        crate::edits::copies_that_fit(
-            target.accession(),
-            &unit,
-            repeat.max,
-            target_range,
-            Some(target.length()?),
-        )?;
-    }
     let resolved = edit.resolve(source, named.0, named.1)?;
     let (w_lo, w_hi) = (wide.0.min(resolved.start), wide.1.max(resolved.end));
     let source_ref = source.slice(w_lo, w_hi)?;
@@ -873,19 +856,12 @@ fn project_over_genomic_range(
         crate::data::Strand::Plus => b.to_string(),
     };
     let read = orient(record);
-    let genome_length = || genome.length();
-    let resolved = edit.resolve_in(
-        genome.accession(),
-        0,
-        read.len(),
-        Some(&genome_length),
-        |s, e| {
-            Ok(read
-                .get(s..e.min(read.len()))
-                .unwrap_or_default()
-                .to_string())
-        },
-    )?;
+    let resolved = edit.resolve_with(genome.accession(), 0, read.len(), |s, e| {
+        Ok(read
+            .get(s..e.min(read.len()))
+            .unwrap_or_default()
+            .to_string())
+    })?;
     let made = format!(
         "{}{}{}",
         &read[..resolved.start],

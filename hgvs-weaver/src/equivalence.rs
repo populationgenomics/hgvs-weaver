@@ -834,16 +834,10 @@ impl<'a> VariantEquivalence<'a> {
                 // Read with its stop, so that `Ter7=` one past a protein
                 // served without it resolves to the stop it names.
                 let with_stop = format!("{protein}*");
-                let r = edit.resolve_in(
-                    reference.accession(),
-                    start,
-                    end,
-                    Some(&|| Ok(with_stop.len())),
-                    |s, e| {
-                        let s = s.min(with_stop.len());
-                        Ok(with_stop[s..e.clamp(s, with_stop.len())].to_string())
-                    },
-                )?;
+                let r = edit.resolve_with(reference.accession(), start, end, |s, e| {
+                    let s = s.min(with_stop.len());
+                    Ok(with_stop[s..e.clamp(s, with_stop.len())].to_string())
+                })?;
                 // A change that replaces the stop and does not stop again reads
                 // on for an unknown distance: ClinVar's `Ter#Xxx` for a stop
                 // loss. An insertion before the stop keeps it.

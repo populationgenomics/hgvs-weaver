@@ -720,26 +720,6 @@ fn a_genomic_repeat_in_an_intron_whose_unit_is_absent_is_refused() {
 }
 
 #[test]
-fn a_count_whose_alternate_no_sequence_could_number_is_refused() {
-    let err = to_genome(&plus(), "NM_FWD.1:c.5A[2147483647]").unwrap_err();
-    assert!(
-        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483647")),
-        "expected ValidationError naming the count, got {err:?}"
-    );
-}
-
-#[test]
-fn a_count_the_transcript_could_number_but_the_genome_could_not_is_refused() {
-    // On NM_FWD.1's 23 bases, c.5_6 becoming this many A is a sequence
-    // shorter than 2^31; on NC_000098.1's 43 it is longer.
-    let err = to_genome(&plus(), "NM_FWD.1:c.5A[2147483617]").unwrap_err();
-    assert!(
-        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483617")),
-        "expected ValidationError naming the count, got {err:?}"
-    );
-}
-
-#[test]
 fn a_range_past_the_run_of_its_unit_is_refused() {
     // c.7_15 is CAG three times; c.16_18 is TTC, not a fourth copy.
     let err = to_genome(&minus(), "NM_REV.1:c.7_18CAG[2]").unwrap_err();
@@ -991,5 +971,14 @@ fn copies_of_a_longer_unit_within_the_cap_are_answered() {
     assert_eq!(
         to_genome(&plus(), "NM_FWD.1:c.10CAG[3333333]").unwrap(),
         "NC_000098.1:g.20_25CAG[3333333]"
+    );
+}
+
+#[test]
+fn the_largest_count_is_refused_at_the_cap() {
+    // The count the grammar admits, with a three-base unit: the copies'
+    // length is computed without overflowing on the way to the cap.
+    refused_at_the_cap(
+        VariantMapper::new(&plus()).canonical_allele(&parse("NC_000098.1:g.17CAG[2147483647]")),
     );
 }

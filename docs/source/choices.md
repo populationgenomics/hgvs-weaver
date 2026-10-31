@@ -1410,7 +1410,7 @@ NM_FWD.1:c.10CAG[3333334]      →  ValidationError        10,000,002 bases
   `::a_repeat_over_the_cap_is_not_projected_to_the_genome`, `::a_count_the_genome_grows_past_the_cap_is_refused`,
   `::a_repeat_at_the_cap_has_an_allele`, `::a_repeat_at_the_cap_projects_to_the_genome`,
   `::a_repeat_at_the_cap_projects_to_the_transcript`, `::the_cap_counts_the_bases_of_a_longer_units_copies`,
-  `::copies_of_a_longer_unit_within_the_cap_are_answered`;
+  `::copies_of_a_longer_unit_within_the_cap_are_answered`, `::the_largest_count_is_refused_at_the_cap`;
   `protein_allele_test::a_protein_repeat_over_the_cap_has_no_allele`, `::a_protein_repeat_at_the_cap_has_an_allele`.
 
 ### Members of a cis allele that meet are written as one change
