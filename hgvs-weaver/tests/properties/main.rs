@@ -1600,6 +1600,15 @@ proptest! {
         let actual = spliced_in(&g.genome, allele.start, allele.end, &allele.alternate);
         prop_assert_eq!(actual, expected, "{} projected to {} on the {:?} strand", vg, vc, g.strand);
     }
+}
+
+proptest! {
+    // Most generated runs miss the difference or leave their exon, and are
+    // rejected; the cap is raised so a high case count does not abort.
+    #![proptest_config(ProptestConfig {
+        max_global_rejects: 1_000_000,
+        ..ProptestConfig::with_cases(512)
+    })]
 
     /// A genomic repeat beside a base where the record and the genome differ,
     /// projected to the transcript, makes the genome the genome's run with its

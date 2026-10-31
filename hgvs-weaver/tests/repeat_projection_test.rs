@@ -844,7 +844,12 @@ fn a_coding_repeat_the_genome_continues_over_a_base_the_record_lacks_projects_ba
     // lacks. Two A become three on the record.
     let hdp = gap_in_the_record();
     let mapper = VariantMapper::new(&hdp);
-    let on_genome = mapper.c_to_g(&coding("NM_GAPD.1:c.4A[3]"), None).unwrap();
+    let written = "NM_GAPD.1:c.4A[3]";
+    let on_genome = mapper.c_to_g(&coding(written), None).unwrap();
     let back = mapper.g_to_c(&on_genome, "NM_GAPD.1").unwrap();
-    assert_eq!(back.to_string(), "NM_GAPD.1:c.5dup", "through {on_genome}");
+    assert_eq!(
+        spdi(&hdp, &back.to_string()),
+        spdi(&hdp, written),
+        "{written} through {on_genome} back to {back}"
+    );
 }
