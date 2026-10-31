@@ -506,7 +506,9 @@ genome can describe only the whole run of such bases, so an edit touching a run 
 gets the run, as changed, inserted between its flanking bases. The same holds in the other direction: a genome base the
 transcript lacks (a `D`) has no transcript index, and a genomic edit touching the run is written on the transcript over
 the whole run. At the edge of an exon's alignment, where a soft-clipped end is supplied as a leading or trailing `I`, or
-a `D` opens or closes the alignment, there is no flanking pair and projecting it is a `ValidationError`.**
+a `D` opens or closes the alignment, there is no flanking pair and projecting it is a `ValidationError`. An intronic
+offset from such an exon counts from the end of its genomic span
+([An intronic offset counts from an exon border](#an-intronic-offset-counts-from-an-exon-border)).**
 
 Such a base has no genomic substitution equivalent. Placing it on a neighbouring genome base, as the alignment-mapper
 weaver descends from does, silently replaces the stated base with the neighbour's. Inserting only the changed base loses
@@ -732,7 +734,8 @@ normalize NM_MINUS10.1:c.*60+5del         →  NM_MINUS10.1:c.*60+5del
 count outward, upstream and downstream of it. An offset from any other base names a position the transcript does not
 have: projection, normalisation, the protein consequence, SPDI and VRS refuse it with a `PositionOutsideSequenceError`
 (`NotAnExonBorder` in Rust), and `validate` answers false. The border is the exon's border on the transcript, so in a
-gapped exon it is the exon's last transcript base, wherever the exon's genomic span ends.**
+gapped exon it is the exon's last transcript base, wherever the exon's genomic span ends; the offset counts from the end
+of that span.**
 
 Read as "k bases along the genome from c.N", an offset from a base inside an exon lands on another base of that exon: a
 description numbered against one exon structure validates against a base it never named. An intronic description is
@@ -742,12 +745,21 @@ raising for the reason it does for a position past the end
 ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)): the
 description is well formed, and another transcript may have the border it names.
 
+An exon's alignment can begin or end with a base only one sequence has: a transcript base the genome lacks, or a genome
+base the transcript lacks. The border base then has no genome base of its own beside the intron, or has one the
+transcript skips. Counting from the end of the exon's genomic span gives the first intron base either way: `c.18+1`
+after an exon whose last base the genome lacks is the base after the span, as is `c.16+1` after an exon whose span runs
+one base past its last transcript base, where counting from that base would land on the skipped genome base. It is also
+how a genomic position in the intron is numbered on the transcript, so a projection from the genome reads back.
+
 HGVS does not allow a variant beyond a transcript's ends to be described on that transcript. weaver still reads `c.-N-k`
 from the first base and `c.*N+k` from the last as positions upstream and downstream, as it writes a genomic position
 there when projecting to the transcript; this entry does not change that.
 
 **Example** (`NM_B.1` has three exons, c.-3 to c.7, c.8 to c.17 and c.18 to c.\*3; `NR_GAP.1`'s second exon lacks one
-base of its genomic span, so it carries n.11 to n.19 and the third exon starts at n.20):
+base of its genomic span, so it carries n.11 to n.19 and the third exon starts at n.20; `NM_GI.1`'s second exon, on
+g.31_40, ends with a base the genome lacks, c.18, and `NM_GD.1`'s, on the same span, lacks its last genome base, so it
+ends at c.16):
 
 ```text
 validate NM_B.1:c.8-1del      →  true
@@ -759,6 +771,8 @@ validate NM_B.1:c.-2-1del     →  false
 validate NM_B.1:c.*3+1del     →  true                           downstream of its last
 validate NR_GAP.1:n.19+1del   →  true
 validate NR_GAP.1:n.20+1del   →  false                          n.20 starts exon 3
+c_to_g   NM_GI.1:c.18+1del    →  NC_B.1:g.41del                 c.18 is a base the genome lacks; exon 2 ends at g.40
+c_to_g   NM_GD.1:c.16+1del    →  NC_B.1:g.41del                 not g.40, the genome base the transcript lacks
 ```
 
 - **Others:** not checked.
@@ -773,8 +787,11 @@ validate NR_GAP.1:n.20+1del   →  false                          n.20 starts ex
   `::validate_answers_false_for_an_offset_after_the_first_base_of_an_exon`,
   `::an_offset_upstream_of_the_transcripts_first_base_validates`,
   `::an_offset_downstream_of_the_transcripts_last_base_validates`,
-  `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused` (the rows above), and the file's other tests:
-  normalisation, `c_to_p`, `to_spdi`, a range, the minus strand, `n.` and `r.`;
+  `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused`,
+  `::an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end`,
+  `::an_offset_after_an_exon_the_genome_runs_past_counts_from_the_exons_genome_end` (the rows above), and the file's
+  other tests: normalisation, `c_to_p`, `to_spdi`, a range, the minus strand, `n.` and `r.`, an exon starting with a
+  base the genome lacks, and a range from the genome into the intron after an edge gap, read back;
   `tests/test_api.py::test_an_offset_from_a_base_inside_an_exon_raises_position_outside_sequence_error`.
 
 ### Mitochondrial and RNA descriptions share the DNA machinery

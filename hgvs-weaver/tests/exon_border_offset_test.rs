@@ -44,13 +44,18 @@ fn plus_genome() -> String {
     )
 }
 
-fn gapped_exon(transcript: (i32, i32), reference: (i32, i32), cigar: &str) -> ExonData {
+fn gapped_exon(
+    transcript: (i32, i32),
+    reference: (i32, i32),
+    strand: Strand,
+    cigar: &str,
+) -> ExonData {
     ExonData::new(
         TranscriptPos(transcript.0),
         TranscriptPos(transcript.1),
         GenomicPos(reference.0),
         GenomicPos(reference.1),
-        Strand::Plus,
+        strand,
         cigar,
     )
 }
@@ -60,6 +65,13 @@ fn gapped_exon(transcript: (i32, i32), reference: (i32, i32), cigar: &str) -> Ex
 /// `NR_GAP.1` lacks the genome's g.36 in exon 2 (cigar `5=1D4=`), so its exon
 /// 2 is n.11 to n.19 and exon 3 starts at n.20, where the genome's exon 2
 /// alone would put it at n.21.
+///
+/// Four transcripts have a gap at an edge of exon 2's alignment. `NM_GI.1`
+/// ends it with a base the genome lacks (cigar `10=1I`), so exon 2 is c.8 to
+/// c.18 and c.18 has no genome base; `NM_GIM.1` is the same on the minus
+/// strand of `NC_M.1`. `NM_GL.1` starts it with one (cigar `1I10=`), so c.8
+/// has none. `NM_GD.1` lacks the genome's last base of exon 2, g.40 (cigar
+/// `9=1D`), so exon 2 is c.8 to c.16.
 fn provider() -> Provider {
     let plus_exons = || {
         vec![
@@ -108,9 +120,57 @@ fn provider() -> Provider {
             Strand::Plus,
             None,
             vec![
-                gapped_exon((0, 10), (10, 19), "10M"),
-                gapped_exon((10, 19), (30, 39), "5=1D4="),
-                gapped_exon((19, 29), (50, 59), "10M"),
+                gapped_exon((0, 10), (10, 19), Strand::Plus, "10M"),
+                gapped_exon((10, 19), (30, 39), Strand::Plus, "5=1D4="),
+                gapped_exon((19, 29), (50, 59), Strand::Plus, "10M"),
+            ],
+        ))
+        .sequence("NM_GI.1", &format!("{}A{}", &RECORD[..20], &RECORD[20..]))
+        .sequence("NM_GIM.1", &format!("{}A{}", &RECORD[..20], &RECORD[20..]))
+        .sequence("NM_GL.1", &format!("{}A{}", &RECORD[..10], &RECORD[10..]))
+        .sequence("NM_GD.1", &format!("{}{}", &RECORD[..19], &RECORD[20..]))
+        .transcript(transcript(
+            "NM_GI.1",
+            "NC_B.1",
+            Strand::Plus,
+            Some((3, 26)),
+            vec![
+                gapped_exon((0, 10), (10, 19), Strand::Plus, "10M"),
+                gapped_exon((10, 21), (30, 39), Strand::Plus, "10=1I"),
+                gapped_exon((21, 31), (50, 59), Strand::Plus, "10M"),
+            ],
+        ))
+        .transcript(transcript(
+            "NM_GIM.1",
+            "NC_M.1",
+            Strand::Minus,
+            Some((3, 26)),
+            vec![
+                gapped_exon((0, 10), (50, 59), Strand::Minus, "10M"),
+                gapped_exon((10, 21), (30, 39), Strand::Minus, "10=1I"),
+                gapped_exon((21, 31), (10, 19), Strand::Minus, "10M"),
+            ],
+        ))
+        .transcript(transcript(
+            "NM_GL.1",
+            "NC_B.1",
+            Strand::Plus,
+            Some((3, 26)),
+            vec![
+                gapped_exon((0, 10), (10, 19), Strand::Plus, "10M"),
+                gapped_exon((10, 21), (30, 39), Strand::Plus, "1I10="),
+                gapped_exon((21, 31), (50, 59), Strand::Plus, "10M"),
+            ],
+        ))
+        .transcript(transcript(
+            "NM_GD.1",
+            "NC_B.1",
+            Strand::Plus,
+            Some((3, 26)),
+            vec![
+                gapped_exon((0, 10), (10, 19), Strand::Plus, "10M"),
+                gapped_exon((10, 19), (30, 39), Strand::Plus, "9=1D"),
+                gapped_exon((19, 29), (50, 59), Strand::Plus, "10M"),
             ],
         ))
         .protein_for("NM_B.1", "NP_B.1")
@@ -327,4 +387,56 @@ fn an_offset_after_the_first_base_past_a_gapped_exon_is_refused() {
     // n.20 is the first base of exon 3, though exon 2's genome span alone
     // would make it the last of exon 2.
     assert!(!validate("NR_GAP.1:n.20+1del"));
+}
+
+fn c_to_g(s: &str) -> String {
+    let provider = provider();
+    VariantMapper::new(&provider)
+        .c_to_g(&coding(s), None)
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end() {
+    // g.40 is the exon's last genome base, so c.18+1 is g.41.
+    assert_eq!(c_to_g("NM_GI.1:c.18+1del"), "NC_B.1:g.41del");
+}
+
+#[test]
+fn an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_on_the_minus_strand() {
+    // Exon 2 runs down NC_M.1 to g.31, so c.18+1 is g.30.
+    assert_eq!(c_to_g("NM_GIM.1:c.18+1del"), "NC_M.1:g.30del");
+}
+
+#[test]
+fn an_offset_before_an_exon_starting_with_a_base_the_genome_lacks_counts_from_the_exons_genome_start(
+) {
+    // g.31 is the exon's first genome base, so c.8-1 is g.30.
+    assert_eq!(c_to_g("NM_GL.1:c.8-1del"), "NC_B.1:g.30del");
+}
+
+#[test]
+fn an_offset_after_an_exon_the_genome_runs_past_counts_from_the_exons_genome_end() {
+    // The exon's alignment ends at g.40, which the transcript lacks: c.16+1
+    // is g.41, the first intron base, not g.40.
+    assert_eq!(c_to_g("NM_GD.1:c.16+1del"), "NC_B.1:g.41del");
+}
+
+#[test]
+fn a_range_into_the_intron_after_an_edge_gap_round_trips_through_the_transcript() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    for tx in ["NM_GI.1", "NM_GD.1"] {
+        let g = match parse("NC_B.1:g.38_41del") {
+            SequenceVariant::Genomic(g) => g,
+            other => panic!("{other} is not g."),
+        };
+        let c = mapper.g_to_c(&g, tx).unwrap();
+        assert_eq!(
+            mapper.c_to_g(&c, None).unwrap().to_string(),
+            "NC_B.1:g.38_41del",
+            "{tx}: {c}"
+        );
+    }
 }

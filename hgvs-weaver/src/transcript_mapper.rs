@@ -424,38 +424,55 @@ impl TranscriptMapper {
         offset: IntronicOffset,
         written: &dyn Fn() -> String,
     ) -> Result<GenomicPos, HgvsError> {
-        let (
-            exon_index,
-            exon,
-            Footprint {
-                range: (lo, hi), ..
-            },
-        ) = self.place(n_pos)?;
-        if lo == hi {
-            return Err(HgvsError::ValidationError(format!(
-                "{}:n.{} is a base {} lacks; it has no genomic position",
-                self.transcript.ac,
-                n_pos.0 + 1,
-                self.transcript.reference_accession,
-            )));
-        }
-        if offset.0 != 0 {
-            let first: i32 = (0..exon_index).map(|i| self.exon_tx_len(i)).sum();
-            let border = if offset.0 > 0 {
-                first + self.exon_tx_len(exon_index) - 1
-            } else {
-                first
-            };
-            if n_pos.0 != border {
-                return Err(HgvsError::NotAnExonBorder {
-                    accession: self.transcript.ac.clone(),
-                    position: written(),
-                });
+        if offset.0 == 0 {
+            let (
+                _,
+                _,
+                Footprint {
+                    range: (lo, hi), ..
+                },
+            ) = self.place(n_pos)?;
+            if lo == hi {
+                return Err(HgvsError::ValidationError(format!(
+                    "{}:n.{} is a base {} lacks; it has no genomic position",
+                    self.transcript.ac,
+                    n_pos.0 + 1,
+                    self.transcript.reference_accession,
+                )));
             }
+            return Ok(lo);
         }
-        Ok(GenomicPos(match exon.alt_strand {
-            Strand::Plus => lo.0 + offset.0,
-            Strand::Minus => lo.0 - offset.0,
+        let mut first = 0;
+        let (exon, len) = self
+            .exons
+            .iter()
+            .enumerate()
+            .find_map(|(i, exon)| {
+                let len = self.exon_tx_len(i);
+                if n_pos.0 < first + len {
+                    return (n_pos.0 >= first).then_some((exon, len));
+                }
+                first += len;
+                None
+            })
+            .ok_or_else(|| {
+                HgvsError::ValidationError("Transcript position out of exon bounds".into())
+            })?;
+        let border = if offset.0 > 0 { first + len - 1 } else { first };
+        if n_pos.0 != border {
+            return Err(HgvsError::NotAnExonBorder {
+                accession: self.transcript.ac.clone(),
+                position: written(),
+            });
+        }
+        // Counted from the exon's end on the genome, which an edge gap in its
+        // alignment leaves short of, or past, the border base.
+        let (start, end) = (exon.reference_start.0, exon.reference_end.0);
+        Ok(GenomicPos(match (exon.alt_strand, offset.0 > 0) {
+            (Strand::Plus, true) => end + offset.0,
+            (Strand::Plus, false) => start + offset.0,
+            (Strand::Minus, true) => start - offset.0,
+            (Strand::Minus, false) => end - offset.0,
         }))
     }
 
