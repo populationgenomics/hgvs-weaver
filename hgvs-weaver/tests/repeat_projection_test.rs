@@ -889,3 +889,21 @@ fn a_count_near_the_limit_projects_to_the_transcript_as_a_count() {
         .unwrap();
     assert_eq!(projected.to_string(), "NM_FWD.1:c.5_6A[2000000000]");
 }
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_does_not_share_is_the_duplication_of_its_last_copy(
+) {
+    let projected = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.14A[3]"), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_DIFF.1:c.5dup");
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_lacks_is_the_duplication_of_its_last_copy(
+) {
+    let projected = VariantMapper::new(&gap_in_the_genome())
+        .g_to_c(&genomic("NC_000091.1:g.14A[3]"), "NM_GAPI.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_GAPI.1:c.5dup");
+}
