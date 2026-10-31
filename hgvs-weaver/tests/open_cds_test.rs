@@ -479,7 +479,7 @@ fn a_closed_cds_predicts_deleting_its_last_residue() {
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.28_30del").unwrap(),
-        "NP_SHUT.1:p.(Gly10Ter)"
+        "NP_SHUT.1:p.(Gly10del)"
     );
 }
 
@@ -611,7 +611,7 @@ fn a_closed_cds_predicts_an_allele_that_deletes_its_last_residue() {
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p_cis(&mapper, "NM_SHUT.1:c.[5C>T;28_30del]").unwrap(),
-        "NP_SHUT.1:p.[(Ala2Val;Gly10Ter)]"
+        "NP_SHUT.1:p.[(Ala2Val;Gly10del)]"
     );
 }
 

@@ -358,10 +358,9 @@ fn residues_duplicated_before_the_stop_written_as_a_duplication_are_the_extensio
 }
 
 #[test]
-fn a_deletion_reaching_the_stop_written_as_a_deletion_is_the_nonsense_weaver_predicts() {
-    // c.16_18del predicts p.(Arg6Ter); a deletion of the last residue is the
-    // same protein.
-    let level = coding_level("NM_X.1:c.16_18del", "NP_X.1:p.Arg6del");
+fn a_deletion_reaching_the_stop_written_as_nonsense_is_the_deletion_weaver_predicts() {
+    // c.16_18del predicts p.(Arg6del); a stop at Arg6 leaves the same protein.
+    let level = coding_level("NM_X.1:c.16_18del", "NP_X.1:p.Arg6Ter");
     assert!(level.is_equivalent(), "{level:?}");
 }
 

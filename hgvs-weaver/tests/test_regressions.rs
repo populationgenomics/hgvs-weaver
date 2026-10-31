@@ -96,7 +96,8 @@ fn repeat_provider() -> Provider {
 }
 
 #[test]
-fn a_deletion_in_a_run_before_the_stop_is_nonsense_at_its_last_residue() -> Result<(), HgvsError> {
+fn a_deletion_in_a_run_before_the_stop_is_a_deletion_of_its_last_residue() -> Result<(), HgvsError>
+{
     let hdp = repeat_provider();
     let mapper = VariantMapper::new(&hdp);
     // M Q Q Q *: one Gln of the run, written 3'-most, is the last residue, and
@@ -106,7 +107,7 @@ fn a_deletion_in_a_run_before_the_stop_is_nonsense_at_its_last_residue() -> Resu
     };
     assert_eq!(
         mapper.c_to_p(&vc, Some("NP_001.1"))?.to_string(),
-        "NP_001.1:p.(Gln4Ter)"
+        "NP_001.1:p.(Gln4del)"
     );
     Ok(())
 }
