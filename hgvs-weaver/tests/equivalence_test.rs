@@ -1420,9 +1420,9 @@ fn n_terminal_extensions_from_different_starts_differ() {
 }
 
 #[test]
-fn an_n_terminal_extension_starts_at_a_met() {
+fn an_n_terminal_extension_is_a_met_and_unknown_residues_before_met1() {
     assert_eq!(
-        coding_level("NP_X.1:p.Met1ext-5", "NP_X.1:p.Met1extMet-5"),
+        coding_level("NP_X.1:p.Met1ext-2", "NP_X.1:p.Met1delinsMetGlyMet"),
         EquivalenceLevel::Analogous
     );
 }
