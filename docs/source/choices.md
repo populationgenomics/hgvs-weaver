@@ -1532,25 +1532,37 @@ differs from a block of members translated one at a time wherever members meet, 
 this information.
 
 `from_vrs` reads a `CisPhasedBlock` back the same way: each member is trimmed to its minimal edit, every placement of
-that edit within the member's justified location is considered, and the placements the overlap rule accepts are
-normalised as one allele by this rule. Where they all make one sequence, that is the answer. A block's members are fully
-justified one at a time (ga4gh.vrs 2.3.1's translator justifies each Allele, and its block normalisation only sorts them
-by digest), and justified locations can overlap where the edits do not: the deletion of `g.[3_5del;7A>T]` on
+that edit within the member's justified location is considered, and a combination of placements is a reading when the
+overlap rule accepts it, every member makes its own change, and it states only what the block's reference Alleles state.
+Where every reading makes one sequence, that is the answer, normalised as one allele by this rule. A block's members are
+fully justified one at a time (ga4gh.vrs 2.3.1's translator justifies each Allele, and its block normalisation only
+sorts them by digest), and justified locations can overlap where the edits do not: the deletion of `g.[3_5del;7A>T]` on
 `TTCAGCAGTT` is justified over g.3_8, which holds g.7. VRS 1.3's `Haplotype` was "a set of non-overlapping Allele
 members"; 2.0.1's `CisPhasedBlock` drops the condition. Read back one at a time, the members are either
 `g.[6_8del;7A>T]`, an overlap weaver refuses, or overlapping justified spans, which are not a description; grouping is
 the only reading that returns an answer. Of the deletion's placements g.3_5, g.4_6, g.5_7 and g.6_8, the first two pass
 beside `g.7A>T` and both make `TTCTGTT`, so the block reads back as `g.4_7delinsT`. A block whose members' minimal edits
 can be placed in ways that make different sequences, as a ga4gh.vrs block for either `GAAAAAG` allele above can, is
-[ambiguous](#an-ambiguous-description-is-an-error-that-lists-its-readings), and reading it back gives both. weaver's own
-blocks need the same reading: `NM_X.1:c.[9_12inv;3_8del]` renders as an identity over c.9_12, whose `GGCC` is its own
-reverse complement, beside a deletion justified over c.2_9, and read back one at a time the deletion lands on c.9.
-Placed together it reads back as `NC_X.1:g.[18_23del;24_27=]`. The placements tried together are those of members whose
+[ambiguous](#an-ambiguous-description-is-an-error-that-lists-its-readings), and reading it back gives both; with several
+such sets, every combination of their readings is listed. A block no placement reads, a deletion of g.2 beside `g.2A>T`,
+is contradictory, a `ValidationError`.
+
+Every member makes its own change: two members placed as one edit would be read once, and a reading that drops a member
+is not the block. On `GAAAAAG`, two identical Alleles deleting an A from the run delete two, `g.5_6del`, and in a run of
+twenty-five As two deletions and an insertion of an A make `g.25del`. A reading states nothing a member does not: a
+deletion and an insertion placed side by side would cancel and state the bases between them, which the block does not.
+
+weaver's own blocks need the same reading: `NM_X.1:c.[9_12inv;3_8del]` renders as an identity over c.9_12, whose `GGCC`
+is its own reverse complement, beside a deletion justified over c.2_9, and read back one at a time the deletion lands on
+c.9. Placed together it reads back as `NC_X.1:g.[18_23del;24_27=]`. Where some readings render as the block's own
+Alleles, as one weaver wrote does, only those count, an insertion of the bases before it written as their duplication
+for this, as `normalize` writes it: so `g.[1dup;2_12dup;6_10=]` on `CGCCTAGTTGGTAAG` reads back as itself, not as
+another allele of the same sequence with another identifier. The placements tried together are those of members whose
 locations overlap or touch, every combination of them, and a set with more than 16,384 combinations is refused with
 `UnsupportedOperation` rather than tried; a protein block is read member by member. A block can say less than the allele
-it was rendered from: where normalisation leaves a member apart from one its VRS location overlaps, a duplication of the
-bases an identity names beside a change further along their run, `g.[1_2=;1_2dup;6C>G]` on `TCTCTCTCTC`, the block is
-ambiguous, and one of its readings is the allele.
+it was rendered from: `to_vrs` renders `g.[12_13insA;1_3dup;8_12=]` on `ACAACAACAACAA` and
+`g.[8_12=;12dup;13delinsACAA]`, which make different sequences, as one block, so reading it back is ambiguous between
+the two.
 
 **Example** (`NM_X.1` and `NC_X.1` as in [the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make); c.4_12
 reads `AAACTGGCC`, codons 2 to 4, and c.4 is g.19; `NM_S.1` is `NM_X.1` with exon 1 ending at c.5, so c.4_9 reads
@@ -1703,7 +1715,12 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::members_justified_over_one_run_render_as_the_allele_they_make`,
   `::a_block_whose_justified_members_overlap_reads_back_as_the_allele_they_make`,
   `::a_block_whose_members_can_be_placed_to_make_two_sequences_is_ambiguous`,
-  `::an_allele_whose_rendered_members_overlap_round_trips_through_vrs`; `::an_ambiguity_carries_its_readings` and
+  `::an_allele_whose_rendered_members_overlap_round_trips_through_vrs`,
+  `::a_block_whose_members_change_one_base_two_ways_is_contradictory`,
+  `::an_allele_reads_back_from_its_block_as_it_normalises`,
+  `::an_ambiguous_block_lists_the_readings_of_every_ambiguous_set`,
+  `::identical_members_of_a_block_each_make_their_change`,
+  `::a_block_of_changes_in_a_run_reads_back_as_the_change_they_make`; `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
   share a member, which reading the allele already refuses;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,

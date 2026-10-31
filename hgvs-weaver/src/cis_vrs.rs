@@ -4,10 +4,15 @@
 //! overlapping locations where their edits do not overlap: the deletion of
 //! `g.[3_5del;7A>T]` on `TTCAGCAGTT` is justified over g.3_8, which holds
 //! g.7. Each member is therefore read as every placement of its minimal edit
-//! within its location, the placements of members whose locations meet are
-//! tried together, and those the overlap rule accepts are the block's
-//! readings: one sequence is the answer, normalised as one allele; several
-//! are an [`HgvsError::Ambiguous`] listing them.
+//! within its location, and the placements of members whose locations meet
+//! are tried together. A combination is a reading when the overlap rule
+//! accepts it, every member makes its own change (no two placed as one
+//! edit, which the rule would read once), and it states only what the
+//! block's reference Alleles state. Where some readings render as the block's
+//! own members, as a block weaver wrote does, only those count. One sequence
+//! is the answer, normalised as one allele, its members' own 3'-most
+//! spellings preferred; several are an [`HgvsError::Ambiguous`] listing every
+//! combination of each set's readings.
 
 use crate::data::IdentifierType;
 use crate::error::HgvsError;
@@ -15,7 +20,7 @@ use crate::mapper::{g_variant, interval, VariantMapper};
 use crate::normalize;
 use crate::reading::CisReading;
 use crate::structs::{CisPhasedVariant, Variant};
-use crate::vrs::{VrsAllele, VrsBound, VrsCisPhasedBlock, VrsState};
+use crate::vrs::{VrsAllele, VrsBound, VrsCisPhasedBlock, VrsState, VrsVariation};
 use crate::SequenceVariant as SV;
 
 /// The most placements of one set of meeting members tried together.
@@ -28,7 +33,13 @@ struct Member {
     alone: SV,
     placements: Vec<SV>,
     location: Option<(usize, usize)>,
+    /// The location and the bases the Allele puts there, for an exact
+    /// location and a state with its bases: what identifies it.
+    key: Option<Key>,
 }
+
+/// An Allele as its exact location and the bases it puts there.
+type Key = (usize, usize, String);
 
 impl VariantMapper<'_> {
     /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`, on the sequence
@@ -67,42 +78,59 @@ impl VariantMapper<'_> {
         self.placed_together(&ac, members)
     }
 
-    /// `allele`, which reads back alone as `alone`, with its placements.
+    /// `allele`, which reads back alone as `alone`, with its placements,
+    /// 3'-most first; `alone` when it has none to list.
     fn member(&self, ac: &str, allele: &VrsAllele, alone: SV) -> Result<Member, HgvsError> {
         let location = match (allele.location.start, allele.location.end) {
             (VrsBound::Exact(s), VrsBound::Exact(e)) => Some((s, e)),
             _ => None,
         };
-        let placements = match (&allele.state, location, &alone) {
-            (VrsState::Literal { sequence, .. }, Some((start, end)), SV::Genomic(_)) => {
-                self.placements(ac, start, end, sequence)?
-            }
-            (
-                VrsState::ReferenceLength {
-                    length,
-                    repeat_subunit_length,
-                    ..
-                },
-                Some((start, end)),
-                SV::Genomic(_),
-            ) => {
-                // `alone` read, so the subunit fits the location.
-                let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
-                let unit = reference.slice(start, start + repeat_subunit_length)?;
-                let alt: String = unit.chars().cycle().take(*length).collect();
-                self.placements(ac, start, end, &alt)?
-            }
-            _ => Vec::new(),
+        let key = match &alone {
+            SV::Genomic(_) => self.key(ac, allele)?,
+            _ => None,
         };
-        let placements = match placements.is_empty() {
-            true => vec![alone.clone()],
-            false => placements,
+        let mut placements = match &key {
+            Some((start, end, alt)) => self.placements(ac, *start, *end, alt)?,
+            None => Vec::new(),
         };
+        placements.reverse();
+        if placements.is_empty() {
+            placements.push(alone.clone());
+        }
         Ok(Member {
             alone,
             placements,
             location,
+            key,
         })
+    }
+
+    /// `allele` on `ac` as its exact location and the bases it puts there;
+    /// `None` for a Range bound or a state without bases.
+    fn key(&self, ac: &str, allele: &VrsAllele) -> Result<Option<Key>, HgvsError> {
+        let (VrsBound::Exact(start), VrsBound::Exact(end)) =
+            (allele.location.start, allele.location.end)
+        else {
+            return Ok(None);
+        };
+        let alt = match &allele.state {
+            VrsState::Literal { sequence, .. } => sequence.to_ascii_uppercase(),
+            VrsState::ReferenceLength {
+                length,
+                repeat_subunit_length,
+                ..
+            } => {
+                let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
+                let unit = reference.slice(start, start + repeat_subunit_length)?;
+                unit.to_ascii_uppercase()
+                    .chars()
+                    .cycle()
+                    .take(*length)
+                    .collect()
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some((start, end, alt)))
     }
 
     /// Every spelling of "the bases over `[start, end)` of `ac` become `alt`"
@@ -141,40 +169,40 @@ impl VariantMapper<'_> {
     }
 
     /// The allele `members` make on `ac` with each set of members whose
-    /// locations meet placed together, normalised as one allele.
+    /// locations meet placed together, normalised as one allele; an
+    /// [`HgvsError::Ambiguous`] listing every combination of the sets'
+    /// readings where a set has several.
     fn placed_together(&self, ac: &str, members: Vec<Member>) -> Result<SV, HgvsError> {
         let reference = self.refs.reference(ac, IdentifierType::GenomicAccession);
-        let mut chosen: Vec<Vec<SV>> = Vec::new();
-        let mut ambiguous: Option<(usize, Vec<Vec<SV>>)> = None;
+        let mut sets: Vec<Vec<Vec<SV>>> = Vec::new();
         for set in meeting(&members) {
             let set: Vec<&Member> = set.into_iter().map(|i| &members[i]).collect();
-            if let [one] = set.as_slice() {
-                chosen.push(vec![one.alone.clone()]);
-                continue;
-            }
-            let mut readings = self.readings(ac, &set, &reference)?;
-            let first = readings.remove(0);
-            if !readings.is_empty() && ambiguous.is_none() {
-                ambiguous = Some((chosen.len(), readings));
-            }
-            chosen.push(first);
+            sets.push(match set.as_slice() {
+                [one] => vec![vec![one.alone.clone()]],
+                _ => self.readings(ac, &set, &reference)?,
+            });
         }
-        let normalised = |chosen: &[Vec<SV>]| {
-            let all = chosen.iter().flatten().cloned().collect();
-            self.normalize_variant(SV::CisPhased(CisPhasedVariant::new(
+        let combinations = sets
+            .iter()
+            .try_fold(1usize, |n, s| n.checked_mul(s.len()))
+            .filter(|&n| n <= MAX_PLACEMENTS)
+            .ok_or_else(|| too_many(ac))?;
+        let mut readings = Vec::with_capacity(combinations);
+        for n in 0..combinations {
+            let mut rest = n;
+            let mut all = Vec::new();
+            for set in &sets {
+                all.extend(set[rest % set.len()].iter().cloned());
+                rest /= set.len();
+            }
+            readings.push(self.normalize_variant(SV::CisPhased(CisPhasedVariant::new(
                 ac.to_string(),
                 None,
                 all,
-            )?))
-        };
-        let Some((at, others)) = ambiguous else {
-            return normalised(&chosen);
-        };
-        let mut readings = vec![normalised(&chosen)?];
-        for other in others {
-            let mut alternative = chosen.clone();
-            alternative[at] = other;
-            readings.push(normalised(&alternative)?);
+            )?))?);
+        }
+        if readings.len() == 1 {
+            return Ok(readings.remove(0));
         }
         let alone = members.into_iter().map(|m| m.alone).collect();
         Err(HgvsError::Ambiguous {
@@ -183,15 +211,17 @@ impl VariantMapper<'_> {
         })
     }
 
-    /// The placements of `set`, members whose locations meet, that the
-    /// overlap rule accepts, one for each sequence and statement they make,
-    /// at least one.
+    /// The readings of `set`, members whose locations meet: one placement
+    /// for each sequence they make, the first found in the order the
+    /// members' placements are listed. Where some render as the members of
+    /// `set` do, only those.
     ///
     /// # Errors
     ///
-    /// When none is accepted, what reading the members as they read back
-    /// alone raises; [`HgvsError::UnsupportedOperation`] when there are more
-    /// than [`MAX_PLACEMENTS`] to try.
+    /// When no combination is a reading, what reading the first that the
+    /// overlap rule refuses raises, else a [`HgvsError::ValidationError`];
+    /// [`HgvsError::UnsupportedOperation`] when there are more than
+    /// [`MAX_PLACEMENTS`] to try.
     fn readings(
         &self,
         ac: &str,
@@ -202,14 +232,27 @@ impl VariantMapper<'_> {
             .iter()
             .try_fold(1usize, |n, m| n.checked_mul(m.placements.len()))
             .filter(|&n| n <= MAX_PLACEMENTS)
-            .ok_or_else(|| {
-                HgvsError::UnsupportedOperation(format!(
-                    "the CisPhasedBlock's members on {ac} meet with more than {MAX_PLACEMENTS} \
-                     placements between them, which are not tried"
-                ))
-            })?;
+            .ok_or_else(|| too_many(ac))?;
         let allele = |members: Vec<SV>| CisPhasedVariant::new(ac.to_string(), None, members);
-        let mut found: Vec<(Vec<SV>, CisReading)> = Vec::new();
+        let identities: Vec<SV> = set
+            .iter()
+            .filter(|m| {
+                m.key
+                    .as_ref()
+                    .is_some_and(|k| reference_allele(reference, k))
+            })
+            .map(|m| m.alone.clone())
+            .collect();
+        let stated = match identities.is_empty() {
+            true => Vec::new(),
+            false => self.read_cis(&allele(identities)?)?.stated().to_vec(),
+        };
+        let mut keys: Vec<&Key> = set.iter().filter_map(|m| m.key.as_ref()).collect();
+        keys.sort_unstable();
+        let mut refused: Option<HgvsError> = None;
+        // Each sequence made, with a placement making it and whether that
+        // placement renders as the block's members.
+        let mut found: Vec<(Vec<SV>, CisReading, bool)> = Vec::new();
         for n in 0..count {
             let mut rest = n;
             let placed: Vec<SV> = set
@@ -220,25 +263,153 @@ impl VariantMapper<'_> {
                     p
                 })
                 .collect();
-            let Ok(reading) = self.read_cis(&allele(placed.clone())?) else {
+            if (1..placed.len()).any(|i| placed[..i].contains(&placed[i])) {
                 continue;
+            }
+            let reading = match self.read_cis(&allele(placed.clone())?) {
+                Ok(r) => r,
+                Err(e) => {
+                    refused.get_or_insert(e);
+                    continue;
+                }
             };
+            if reading.stated() != stated.as_slice() {
+                continue;
+            }
+            // Rendered as written: an insertion that is a duplication
+            // renders as one.
+            let placed = self.with_duplications(ac, placed, reference)?;
+            let renders = self.renders_as(ac, &placed, &keys)?;
             let mut seen = false;
-            for (_, other) in &found {
-                if other.stated() == reading.stated() && other.same_sequence(&reading, reference)? {
+            for (p, other, r) in found.iter_mut() {
+                if other.same_sequence(&reading, reference)? {
+                    if renders && !*r {
+                        (*p, *r) = (placed.clone(), true);
+                    }
                     seen = true;
                     break;
                 }
             }
             if !seen {
-                found.push((placed, reading));
+                found.push((placed, reading, renders));
             }
         }
-        if found.is_empty() {
-            self.read_cis(&allele(set.iter().map(|m| m.alone.clone()).collect())?)?;
+        if found.iter().any(|(.., r)| *r) {
+            found.retain(|(.., r)| *r);
         }
-        Ok(found.into_iter().map(|(placed, _)| placed).collect())
+        if found.is_empty() {
+            return Err(refused.unwrap_or_else(|| {
+                HgvsError::ValidationError(format!(
+                    "no placement of the CisPhasedBlock's members on {ac} applies each of them"
+                ))
+            }));
+        }
+        Ok(found.into_iter().map(|(placed, ..)| placed).collect())
     }
+
+    /// `members` with each insertion of a copy of the bases just before it
+    /// written as their duplication, as HGVS writes it, where the allele
+    /// still reads as one and makes what it made: a duplication reads the
+    /// bases it copies, which a neighbour may change.
+    fn with_duplications(
+        &self,
+        ac: &str,
+        mut members: Vec<SV>,
+        reference: &crate::reference::Reference<'_, '_>,
+    ) -> Result<Vec<SV>, HgvsError> {
+        let allele = |m: &[SV]| CisPhasedVariant::new(ac.to_string(), None, m.to_vec());
+        let before = self.read_cis(&allele(&members)?)?;
+        for i in 0..members.len() {
+            let Some(dup) = as_duplication(reference, &members[i])? else {
+                continue;
+            };
+            let mut respelled = members.clone();
+            respelled[i] = dup;
+            if let Ok(after) = self.read_cis(&allele(&respelled)?) {
+                if after.stated() == before.stated() && after.same_sequence(&before, reference)? {
+                    members = respelled;
+                }
+            }
+        }
+        Ok(members)
+    }
+
+    /// Whether the allele `placed` on `ac` renders as the Alleles `keys`,
+    /// sorted.
+    fn renders_as(&self, ac: &str, placed: &[SV], keys: &[&Key]) -> Result<bool, HgvsError> {
+        let cis = SV::CisPhased(CisPhasedVariant::new(
+            ac.to_string(),
+            None,
+            placed.to_vec(),
+        )?);
+        let Ok(rendered) = self.to_vrs_variation(&cis) else {
+            return Ok(false);
+        };
+        let alleles = match rendered {
+            VrsVariation::Allele(a) => vec![a],
+            VrsVariation::CisPhasedBlock(b) => b.members,
+            _ => return Ok(false),
+        };
+        let mut rendered = Vec::with_capacity(alleles.len());
+        for a in &alleles {
+            match self.key(ac, a)? {
+                Some(k) => rendered.push(k),
+                None => return Ok(false),
+            }
+        }
+        rendered.sort_unstable();
+        Ok(rendered.iter().eq(keys.iter().copied()))
+    }
+}
+
+/// Whether the Allele `key` puts back the bases its location holds.
+fn reference_allele(reference: &crate::reference::Reference<'_, '_>, key: &Key) -> bool {
+    reference
+        .slice(key.0, key.1)
+        .is_ok_and(|bases| bases.eq_ignore_ascii_case(&key.2))
+}
+
+/// `member`, an insertion of a copy of the bases just before it, as the
+/// duplication of those bases; `None` for any other member.
+fn as_duplication(
+    reference: &crate::reference::Reference<'_, '_>,
+    member: &SV,
+) -> Result<Option<SV>, HgvsError> {
+    let SV::Genomic(g) = member else {
+        return Ok(None);
+    };
+    let (crate::edits::NaEdit::Ins { alt: Some(ins), .. }, Some(pos)) =
+        (&g.posedit.edit, g.posedit.pos.as_ref())
+    else {
+        return Ok(None);
+    };
+    // The insertion goes after its first flanking base, g.N of g.N_N+1.
+    let at = usize::try_from(pos.start.index()?.0)
+        .map_err(|_| HgvsError::Other(format!("{g} starts before its sequence")))?
+        + 1;
+    let Some(from) = at.checked_sub(ins.len()) else {
+        return Ok(None);
+    };
+    if !reference.slice(from, at)?.eq_ignore_ascii_case(ins) {
+        return Ok(None);
+    }
+    let dup = crate::edits::NaEdit::Dup {
+        ref_: None,
+        uncertain: false,
+    };
+    Ok(Some(SV::Genomic(g_variant(
+        &g.ac,
+        interval(from, at)?,
+        dup,
+    ))))
+}
+
+/// The refusal of a block whose meeting members have too many placements.
+fn too_many(ac: &str) -> HgvsError {
+    HgvsError::UnsupportedOperation(format!(
+        "the CisPhasedBlock's members on {ac} meet with more than {MAX_PLACEMENTS} placements \
+         between them, which are not tried"
+    ))
 }
 
 /// The indices of `members` in sets whose exact locations overlap or touch,

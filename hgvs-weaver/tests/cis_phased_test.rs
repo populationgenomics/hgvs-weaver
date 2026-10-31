@@ -537,6 +537,121 @@ fn an_allele_whose_rendered_members_overlap_round_trips_through_vrs() {
     assert_eq!(back.to_string(), "NC_X.1:g.[18_23del;24_27=]");
 }
 
+#[test]
+fn a_block_whose_members_change_one_base_two_ways_is_contradictory() {
+    // g.2 deleted and g.2 made T: no placement of either moves
+    let hdp = normalising_provider();
+    let json = block_on("GAAAAAG", &[(1, 2, ""), (1, 2, "T")]);
+    assert!(matches!(
+        VariantMapper::with_refget(&hdp, &hdp).from_vrs(&json, None),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+/// What `allele` on `X`, which is `sequence`, reads back from its own VRS
+/// block as, and whether its block's identifier comes back with it.
+fn read_back_from_its_block(sequence: &str, allele: &str) -> (String, bool) {
+    let hdp = Provider::new().sequence("X", sequence);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = mapper
+        .to_vrs_variation(&parse_hgvs_variant(allele).unwrap())
+        .unwrap();
+    let back = mapper
+        .from_vrs(&block.to_json(), None)
+        .unwrap_or_else(|e| panic!("{allele}: {e}"));
+    let same_id = mapper.to_vrs_variation(&back).unwrap().id() == block.id();
+    (back.to_string(), same_id)
+}
+
+#[test]
+fn an_allele_reads_back_from_its_block_as_it_normalises() {
+    for (sequence, allele, normalised) in [
+        (
+            "A".repeat(19),
+            "X:g.[2_3inv;14_15dup;4_5=]",
+            "X:g.[2_3inv;4_5=;18_19dup]",
+        ),
+        (
+            "T".repeat(22),
+            "X:g.[17del;12_16=;10_11insCACTC]",
+            "X:g.[10_11insCACTC;12_16=;22del]",
+        ),
+        (
+            "CGCCTAGTTGGTAAG".to_string(),
+            "X:g.[1dup;2_12dup;6_10=]",
+            "X:g.[1dup;2_12dup;6_10=]",
+        ),
+        (
+            "GGCCTTCCACT".to_string(),
+            "X:g.[2_6=;9_10inv;5_8dup]",
+            "X:g.[2_6=;5_8dup;9_10inv]",
+        ),
+        (
+            "CGCCTAGTTGGTAAG".to_string(),
+            "X:g.[10_14=;8_9=;2_9dup]",
+            "X:g.[2_9dup;8_9=;10_14=]",
+        ),
+        ("GAAAAAG".to_string(), "X:g.[3_4=;6del]", "X:g.[3_4=;6del]"),
+    ] {
+        assert_eq!(
+            read_back_from_its_block(&sequence, allele),
+            (normalised.to_string(), true),
+            "{allele}"
+        );
+    }
+}
+
+#[test]
+fn an_ambiguous_block_lists_the_readings_of_every_ambiguous_set() {
+    // each deletion goes either side of the substitution in its run
+    let hdp = Provider::new().sequence("X", "GAAAAAGCTTTTTC");
+    let json = block_on(
+        "GAAAAAGCTTTTTC",
+        &[(1, 6, "AAAA"), (3, 4, "T"), (8, 13, "TTTT"), (10, 11, "G")],
+    );
+    let Err(HgvsError::Ambiguous { readings, .. }) =
+        VariantMapper::with_refget(&hdp, &hdp).from_vrs(&json, None)
+    else {
+        panic!("not ambiguous");
+    };
+    assert_eq!(readings.len(), 4);
+}
+
+#[test]
+fn identical_members_of_a_block_each_make_their_change() {
+    let hdp = normalising_provider();
+    let json = block_on("GAAAAAG", &[(1, 6, "AAAA"), (1, 6, "AAAA")]);
+    assert_eq!(
+        VariantMapper::with_refget(&hdp, &hdp)
+            .from_vrs(&json, None)
+            .unwrap()
+            .to_string(),
+        "NC_K.1:g.5_6del"
+    );
+}
+
+#[test]
+fn a_block_of_changes_in_a_run_reads_back_as_the_change_they_make() {
+    // two deletions and an insertion of an A, each justified over the run
+    let run = "A".repeat(25);
+    let hdp = Provider::new().sequence("X", &run);
+    let json = block_on(
+        &run,
+        &[
+            (0, 25, &"A".repeat(24)),
+            (0, 25, &"A".repeat(24)),
+            (0, 25, &"A".repeat(26)),
+        ],
+    );
+    assert_eq!(
+        VariantMapper::with_refget(&hdp, &hdp)
+            .from_vrs(&json, None)
+            .unwrap()
+            .to_string(),
+        "X:g.25del"
+    );
+}
+
 // Reading an allele into the one sequence its members make: the overlap rule
 // of choices.md, "Overlapping members of a cis allele need one reading", and
 // the ambiguity it can end in.
