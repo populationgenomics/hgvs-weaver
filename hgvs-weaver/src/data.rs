@@ -317,6 +317,9 @@ pub enum IdentifierKind {
     Genomic,
     Transcript,
     Protein,
+    /// A gene symbol: `get_symbol_accessions(gene, Gene, Protein)` names the
+    /// gene's proteins.
+    Gene,
 }
 
 impl IdentifierKind {
@@ -325,6 +328,7 @@ impl IdentifierKind {
             IdentifierKind::Genomic => IdentifierType::GenomicAccession,
             IdentifierKind::Transcript => IdentifierType::TranscriptAccession,
             IdentifierKind::Protein => IdentifierType::ProteinAccession,
+            IdentifierKind::Gene => IdentifierType::GeneSymbol,
         }
     }
 }

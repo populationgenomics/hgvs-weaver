@@ -492,11 +492,13 @@ impl DataProvider for PyDataProviderBridge {
                 IdentifierKind::Genomic => "g",
                 IdentifierKind::Transcript => "c",
                 IdentifierKind::Protein => "p",
+                IdentifierKind::Gene => "gene",
             };
             let tk = match target_kind {
                 IdentifierKind::Genomic => "g",
                 IdentifierKind::Transcript => "c",
                 IdentifierKind::Protein => "p",
+                IdentifierKind::Gene => "gene",
             };
             let res = self
                 .provider

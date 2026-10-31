@@ -566,53 +566,55 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// Whether `transcript` encodes `protein`: the provider pairs the two, in
-    /// any version of the protein; or the transcript is of the protein's gene
-    /// and its CDS translates to the protein's sequence, as another
-    /// publisher's transcript, or one the provider pairs with nothing, would.
-    /// A paralogue that encodes the same sequence is of another gene, and
-    /// does not.
+    /// any version of the protein; or the transcript's CDS translates to the
+    /// protein's sequence and the provider names the protein among those of
+    /// the transcript's gene, as for another publisher's transcript, another
+    /// isoform, or one paired with nothing. A paralogue that encodes the same
+    /// sequence is of another gene, whose proteins the protein is not among.
     ///
     /// # Errors
     ///
     /// What the provider raises for a transcript or a protein sequence it
     /// does not hold; [`HgvsError::ValidationError`] for a transcript with no
     /// CDS to translate, and for one whose translation is the protein's when
-    /// the provider pairs the protein with no transcript, so that its gene,
-    /// and whether the transcript is a paralogue, is unknown.
+    /// the transcript names no gene or the provider names no protein of its
+    /// gene, so that whether it is the protein's or a paralogue's is unknown.
     fn encodes(&self, transcript: &str, protein: &str) -> Result<bool, HgvsError> {
         let provider = self.mapper.provider();
-        let paired = provider.get_symbol_accessions(
-            transcript,
-            IdentifierKind::Transcript,
-            IdentifierKind::Protein,
-        )?;
-        if paired.iter().any(|(kind, p)| {
-            *kind == crate::data::IdentifierType::ProteinAccession
-                && base_accession(p) == base_accession(protein)
-        }) {
+        let names = |symbol: &str, source: IdentifierKind| -> Result<Vec<String>, HgvsError> {
+            Ok(provider
+                .get_symbol_accessions(symbol, source, IdentifierKind::Protein)?
+                .into_iter()
+                .filter(|(kind, _)| *kind == crate::data::IdentifierType::ProteinAccession)
+                .map(|(_, p)| p)
+                .collect())
+        };
+        let named = |proteins: &[String]| {
+            proteins
+                .iter()
+                .any(|p| base_accession(p) == base_accession(protein))
+        };
+        if named(&names(transcript, IdentifierKind::Transcript)?) {
             return Ok(true);
         }
         if self.mapper.encoded_protein(transcript)? != self.reference_protein(protein)? {
             return Ok(false);
         }
-        let mut genes = Vec::new();
-        for (kind, tx) in provider.get_symbol_accessions(
-            protein,
-            IdentifierKind::Protein,
-            IdentifierKind::Transcript,
-        )? {
-            if kind == crate::data::IdentifierType::TranscriptAccession {
-                genes.push(provider.get_transcript(&tx, None)?.gene);
-            }
-        }
-        if genes.is_empty() {
-            return Err(HgvsError::ValidationError(format!(
-                "{transcript} translates to {protein}, but no transcript is paired with {protein} \
-                 to name its gene, so whether {transcript} encodes it or a paralogue's copy is unknown"
-            )));
-        }
         let gene = provider.get_transcript(transcript, None)?.gene;
-        Ok(genes.contains(&gene))
+        let unknown = |why: String| {
+            Err(HgvsError::ValidationError(format!(
+                "{transcript} translates to {protein}, but {why}, so whether it encodes \
+                 {protein} or a paralogue's copy is unknown"
+            )))
+        };
+        if gene.is_empty() {
+            return unknown(format!("{transcript} names no gene"));
+        }
+        let of_gene = names(&gene, IdentifierKind::Gene)?;
+        if of_gene.is_empty() {
+            return unknown(format!("the provider names no protein of its gene {gene}"));
+        }
+        Ok(named(&of_gene))
     }
 
     /// The coding forms of a nucleotide variant, a single one or an allele in

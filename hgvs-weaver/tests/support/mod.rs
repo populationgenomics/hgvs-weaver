@@ -36,6 +36,9 @@ pub struct Provider {
     identifier_types: BTreeMap<String, IdentifierType>,
     /// When set, every `get_seq` fails: a provider that has no sequences at all.
     failing_sequences: bool,
+    /// When set, a protein's transcripts are not found, as hgvs-weaver-data
+    /// does not look them up.
+    no_protein_transcripts: bool,
 }
 
 impl Provider {
@@ -84,6 +87,14 @@ impl Provider {
     /// Classifies `ac` as `kind`, whatever its prefix says.
     pub fn identifier_type(mut self, ac: &str, kind: IdentifierType) -> Self {
         self.identifier_types.insert(ac.to_string(), kind);
+        self
+    }
+
+    /// Answers only the lookups hgvs-weaver-data's provider does: a
+    /// transcript's protein, and a gene's transcripts and proteins; a
+    /// protein's transcripts are not found.
+    pub fn answering_as_a_bundle(mut self) -> Self {
+        self.no_protein_transcripts = true;
         self
     }
 
@@ -198,10 +209,33 @@ impl DataProvider for Provider {
     fn get_symbol_accessions(
         &self,
         symbol: &str,
-        _: IdentifierKind,
+        source: IdentifierKind,
         target: IdentifierKind,
     ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
+        let of_gene = |tx: &str| {
+            self.transcripts
+                .iter()
+                .any(|t| t.ac == tx && t.gene == symbol)
+        };
+        if source == IdentifierKind::Gene {
+            return Ok(match target {
+                IdentifierKind::Protein => self
+                    .proteins
+                    .iter()
+                    .filter(|(tx, _)| of_gene(tx))
+                    .map(|(_, np)| (IdentifierType::ProteinAccession, np.clone()))
+                    .collect(),
+                IdentifierKind::Transcript => self
+                    .transcripts
+                    .iter()
+                    .filter(|t| t.gene == symbol)
+                    .map(|t| (IdentifierType::TranscriptAccession, t.ac.clone()))
+                    .collect(),
+                _ => vec![],
+            });
+        }
         Ok(match target {
+            IdentifierKind::Transcript if self.no_protein_transcripts => vec![],
             IdentifierKind::Protein => self
                 .proteins
                 .iter()
@@ -214,7 +248,7 @@ impl DataProvider for Provider {
                 .filter(|(_, np)| np == symbol)
                 .map(|(tx, _)| (IdentifierType::TranscriptAccession, tx.clone()))
                 .collect(),
-            IdentifierKind::Genomic => vec![],
+            IdentifierKind::Genomic | IdentifierKind::Gene => vec![],
         })
     }
 

@@ -1268,9 +1268,11 @@ fn of_gene(
 /// `NC_X.1`: `NM_X.1` paired with `NP_X.1`; `NM_X2.1`, another isoform,
 /// paired with `NP_X2.1`; `ENST0001.1`, another publisher's, paired with
 /// `ENSP0001.1`; and `NM_U.1`, paired with no protein. Of gene `PG` on
-/// `NC_P.1`, a paralogue: `NM_P.1` paired with `NP_P.1`. All five proteins
-/// are `MKLAYR`, as is `NP_Z.1`, which no transcript is paired with;
-/// `NP_Q.1` is `MKLAYQ`. c.4 is g.109 on either genome.
+/// `NC_P.1`, a paralogue: `NM_P.1` paired with `NP_P.1`; and of gene `LG` on `NC_L.1`,
+/// `NM_L.1`, paired with nothing, so that no protein of `LG` is known. All
+/// five proteins are `MKLAYR`, as is `NP_Z.1`, which no transcript is paired
+/// with; `NP_Q.1` is `MKLAYQ`. c.4 is g.109 on either genome. The provider
+/// answers as hgvs-weaver-data's does: a protein's transcripts are not found.
 fn same_sequence_provider() -> Provider {
     let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
     let len = transcript.len() as i32;
@@ -1284,7 +1286,14 @@ fn same_sequence_provider() -> Provider {
     let mut provider = Provider::new()
         .sequence("NC_X.1", &genome)
         .sequence("NC_P.1", &genome);
-    for ac in ["NM_X.1", "NM_X2.1", "ENST0001.1", "NM_U.1", "NM_P.1"] {
+    for ac in [
+        "NM_X.1",
+        "NM_X2.1",
+        "ENST0001.1",
+        "NM_U.1",
+        "NM_P.1",
+        "NM_L.1",
+    ] {
         provider = provider.sequence(ac, transcript);
     }
     for ac in ["NP_X.1", "NP_X2.1", "ENSP0001.1", "NP_P.1", "NP_Z.1"] {
@@ -1297,10 +1306,12 @@ fn same_sequence_provider() -> Provider {
         .transcript(on("ENST0001.1", "NC_X.1", "XG"))
         .transcript(on("NM_U.1", "NC_X.1", "XG"))
         .transcript(on("NM_P.1", "NC_P.1", "PG"))
+        .transcript(on("NM_L.1", "NC_L.1", "LG"))
         .protein_for("NM_X.1", "NP_X.1")
         .protein_for("NM_X2.1", "NP_X2.1")
         .protein_for("ENST0001.1", "ENSP0001.1")
         .protein_for("NM_P.1", "NP_P.1")
+        .answering_as_a_bundle()
 }
 
 #[test]
@@ -1331,15 +1342,24 @@ fn a_genomic_change_on_a_paralogue_only_does_not_predict_the_protein() {
 }
 
 #[test]
-fn a_translation_matching_a_protein_of_no_known_gene_is_an_error() {
+fn a_translation_matching_a_protein_its_gene_does_not_name_does_not_predict_it() {
+    let hdp = same_sequence_provider();
+    assert_eq!(
+        level_over(&hdp, "NM_U.1:c.4A>C", "NP_Z.1:p.Lys2Gln"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_translation_matching_the_protein_on_a_gene_with_no_named_protein_is_an_error() {
     let hdp = same_sequence_provider();
     let mapper = VariantMapper::new(&hdp);
     let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
-        &parse_hgvs_variant("NM_U.1:c.4A>C").unwrap(),
-        &parse_hgvs_variant("NP_Z.1:p.Lys2Gln").unwrap(),
+        &parse_hgvs_variant("NM_L.1:c.4A>C").unwrap(),
+        &parse_hgvs_variant("NP_X.1:p.Lys2Gln").unwrap(),
     );
     assert!(
-        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("NP_Z.1") && m.contains("gene")),
+        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("no protein of its gene LG")),
         "{result:?}"
     );
 }
