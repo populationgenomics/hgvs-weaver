@@ -775,6 +775,26 @@ fn more_copies_than_the_run_holds_are_inserted_between_its_own_bases() {
 }
 
 #[test]
+fn more_copies_than_a_one_base_run_holds_are_inserted_before_it() {
+    // The genome's run from g.15 is its one A; the record's c.4 is another,
+    // shared, and its c.6 an A the genome holds as G.
+    let projected = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.15A[3]"), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_DIFF.1:c.4_5insAA");
+}
+
+#[test]
+fn more_copies_than_a_one_base_run_holds_are_inserted_before_it_on_the_genome() {
+    // The record's run from c.6 is its one A; the genome's g.17 is an A the
+    // record holds as C.
+    assert_eq!(
+        to_genome(&genome_continues_the_run(), "NM_DIFF3.1:c.6A[3]").unwrap(),
+        "NC_000089.1:g.15_16insAA"
+    );
+}
+
+#[test]
 fn more_copies_of_a_longer_unit_than_the_run_holds_are_inserted_inside_its_one_copy() {
     // One CAG at g.17_19 becomes four; the record's run goes on at c.10. The
     // three copies go in after c.7, read from there as AGC.

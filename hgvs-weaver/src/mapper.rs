@@ -476,12 +476,20 @@ fn repeat_run_end(
     Ok(if run_end == start { end } else { run_end })
 }
 
-/// Whether the target's base at an index is one the source holds there too,
-/// next to the source's base for the index before: false for a base the
-/// source lacks or holds differently, or with a base of the source's own
-/// before it; true for a genome base outside every exon, for which the record
-/// has none.
-type SharedWithSource<'a> = &'a dyn Fn(usize) -> Result<bool, HgvsError>;
+/// What a projection's source shares with its target, read at an index of
+/// the target.
+#[derive(Clone, Copy)]
+struct SharedWithSource<'a> {
+    /// Whether the target's base is one the source holds there too, next to
+    /// the source's base for the index before: false for a base the source
+    /// lacks or holds differently, or with a base of the source's own before
+    /// it; true for a genome base outside every exon, for which the record
+    /// has none.
+    base: &'a dyn Fn(usize) -> Result<bool, HgvsError>,
+    /// Whether the target's base and the one before are aligned in one exon
+    /// and neighbours on the source, whatever bases each holds.
+    neighbours: &'a dyn Fn(usize) -> Result<bool, HgvsError>,
+}
 
 /// A repeat over the whole run it counts on the source, `[s_lo, s_hi)`,
 /// written for the target over `[t_lo, t_hi)`, the same bases.
@@ -546,7 +554,7 @@ fn project_repeat(
         return Ok((apply_strand_complement(repeat.edit(), strand), t_lo, t_hi));
     }
     for i in t_hi..run_end {
-        if !shared(i)? {
+        if !(shared.base)(i)? {
             if repeat.min != repeat.max {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "{} continues the run past [{t_lo}, {t_hi}) over a base {} does not share, \
@@ -557,11 +565,51 @@ fn project_repeat(
                     repeat.max
                 )));
             }
-            return edit_within(target, (t_lo, t_hi), &unit, &target_ref, &alt());
+            return edit_within(target, (t_lo, t_hi), shared, &unit, &target_ref, &alt());
         }
     }
     let more = (run_end - t_hi) / unit.len();
     Ok((repeat.grown(unit, more)?, t_lo, run_end))
+}
+
+/// Whether the record's bases at `n - 1` and `n` lie in one exon and are
+/// neighbours on the genome.
+fn neighbours_on_the_genome(am: &TranscriptMapper, n: usize) -> Result<bool, HgvsError> {
+    if n == 0 || !within_one_exon(am, n as i32 - 1, n as i32 + 1) {
+        return Ok(false);
+    }
+    let place = |n: usize| {
+        am.n_to_g_footprint(TranscriptPos(n as i32))
+            .map(|f| f.range)
+    };
+    let ((before_lo, before_hi), (lo, hi)) = (place(n - 1)?, place(n)?);
+    if before_lo == before_hi || lo == hi {
+        return Ok(false);
+    }
+    Ok(match am.transcript.strand {
+        crate::data::Strand::Minus => hi == before_lo,
+        crate::data::Strand::Plus => before_hi == lo,
+    })
+}
+
+/// Whether the genome's bases at `g - 1` and `g` are both aligned in one exon
+/// and neighbours on the record.
+fn neighbours_on_the_record(am: &TranscriptMapper, g: usize) -> Result<bool, HgvsError> {
+    if g == 0 {
+        return Ok(false);
+    }
+    let before = am.g_to_n_footprint(GenomicPos(g as i32 - 1))?;
+    let here = am.g_to_n_footprint(GenomicPos(g as i32))?;
+    let aligned =
+        |f: &crate::transcript_mapper::GenomicFootprint| f.offset.0 == 0 && f.range.0 != f.range.1;
+    if !aligned(&before) || !aligned(&here) {
+        return Ok(false);
+    }
+    let (lo, hi) = (
+        before.range.0 .0.min(here.range.0 .0),
+        before.range.1 .0.max(here.range.1 .0),
+    );
+    Ok(hi - lo == 2 && within_one_exon(am, lo, hi))
 }
 
 /// Whether the genome holds the base at index `n` of `record` where it
@@ -651,13 +699,15 @@ fn record_holds_the_genomes_base(
 /// alone: copies removed are a deletion within the range, and copies added a
 /// duplication of the range's last copies, or, where more are added than the
 /// range holds, an insertion between two of its bases, after its first copy
-/// or else after its first base with the unit read from there. Only a range
-/// of one base has no such pair, and its base is replaced. An insertion after
-/// the range would name the base past it as a flank, which the change leaves
-/// alone.
+/// or else after its first base with the unit read from there. A range of one
+/// base has no such pair: the copies go in before it where the base before is
+/// another copy both sequences share, and otherwise its base is replaced. An
+/// insertion after the range would name the base past it as a flank, which
+/// the change leaves alone.
 fn edit_within(
     target: &crate::reference::Reference<'_, '_>,
     (t_lo, t_hi): (usize, usize),
+    shared: SharedWithSource<'_>,
     unit: &str,
     target_ref: &str,
     alt: &str,
@@ -682,6 +732,12 @@ fn edit_within(
             t_lo + 1,
             format!("{}{}", &unit[1..], &unit[..1]).repeat(copies),
         )
+    } else if t_lo > 0
+        && target.slice(t_lo - 1, t_lo)?.eq_ignore_ascii_case(unit)
+        && (shared.base)(t_lo - 1)?
+        && (shared.neighbours)(t_lo)?
+    {
+        (t_lo, unit.repeat(copies))
     } else {
         let delins = NaEdit::RefAlt {
             ref_: Some(String::new()),
@@ -2307,7 +2363,10 @@ impl<'a> VariantMapper<'a> {
                     &target,
                     (t_lo, t_hi),
                     am.transcript.strand,
-                    &|n| genome_holds_the_records_base(&am, &target, &source, n),
+                    SharedWithSource {
+                        base: &|n| genome_holds_the_records_base(&am, &target, &source, n),
+                        neighbours: &|n| neighbours_on_the_genome(&am, n),
+                    },
                 )?
             };
             let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
@@ -2744,7 +2803,10 @@ impl<'a> VariantMapper<'a> {
                 &target,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
-                &|g| record_holds_the_genomes_base(&am, &target, &source, g),
+                SharedWithSource {
+                    base: &|g| record_holds_the_genomes_base(&am, &target, &source, g),
+                    neighbours: &|g| neighbours_on_the_record(&am, g),
+                },
             )?
         };
         // An edit over a run is always rewritten for the genome.

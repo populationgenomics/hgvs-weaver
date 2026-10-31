@@ -571,16 +571,16 @@ the target would count that base, and the count projected back would write the t
 record holding A where the genome holds G after two A, `g.14A[3]` as `c.4_6A[4]` projects back as `g.16delinsAA`.
 Stopping the count at that base does not help, since `c.4_5A[3]` still counts the record's whole run, which makes no
 change. So the change is written over the source's run alone, as a deletion of the copies it removes, a duplication of
-the copies it adds, or, where it adds more than the run holds, an insertion between two of the run's own bases; a count
-known only as a range is refused. These are deliberately not the record's 3' form: normalised on the record,
-`NM_DIFF.1:c.5dup` is `c.6dup`, which duplicates the base the two sequences hold differently and projects as
-`g.16delinsAA`, a different change. A transcript run that crosses an exon junction is refused, whichever side the repeat
-is written on: copies added to or removed from it could go on either side of the intron, so a `c.` count over it has no
-single place on the genome, and a genomic repeat whose run the next exon continues, or whose run crosses an intron from
-one exon into the next, would be written as that `c.` count. A genomic run read on in the transcript's sense past a base
-the record lacks or holds differently is refused for the same reason as a count over it. Counting only the copies within
-the starting exon would answer instead, at the price of a `c.` count that is not the transcript's total, which the
-specification defines it to be.
+the copies it adds, or, where it adds more than the run holds, an insertion between two of the run's own bases, or, for
+a run of one base, between it and a copy before it that both sequences share; a count known only as a range is refused.
+These are deliberately not the record's 3' form: normalised on the record, `NM_DIFF.1:c.5dup` is `c.6dup`, which
+duplicates the base the two sequences hold differently and projects as `g.16delinsAA`, a different change. A transcript
+run that crosses an exon junction is refused, whichever side the repeat is written on: copies added to or removed from
+it could go on either side of the intron, so a `c.` count over it has no single place on the genome, and a genomic
+repeat whose run the next exon continues, or whose run crosses an intron from one exon into the next, would be written
+as that `c.` count. A genomic run read on in the transcript's sense past a base the record lacks or holds differently is
+refused for the same reason as a count over it. Counting only the copies within the starting exon would answer instead,
+at the price of a `c.` count that is not the transcript's total, which the specification defines it to be.
 
 **Example** (`NC_REP.1` is `TTTTT GCCATT GCCATT GCCATT AAAAA…`; `NM_REP_MINUS.1` reads it on the minus strand, where the
 run is `AATGGC` from c.78. `NM_REV.1` is `ATGAAACAGCAGCAGTTCTAAGG` on the minus strand of `NC_000099.1`, c.4_6 `AAA` at
@@ -604,6 +604,7 @@ NC_000095.1:g.15A[3]          →  UnsupportedOperation               NM_JX.1's 
 NC_000084.1:g.18T[10]         →  UnsupportedOperation               the genome's run crosses NM_MIR.1's intron
 NC_000096.1:g.14A[3]          →  NM_DIFF.1:c.5dup                   the record's A at c.6 is not the genome's
 NC_000096.1:g.14A[5]          →  NM_DIFF.1:c.4_5insAAA              more copies than the run holds
+NC_000096.1:g.15A[3]          →  NM_DIFF.1:c.4_5insAA               a run of one base, after the shared c.4
 NC_000096.1:g.14A[(2_3)]      →  UnsupportedOperation
 NC_000091.1:g.14A[3]          →  NM_GAPI.1:c.5dup                   the genome lacks c.6
 ```
