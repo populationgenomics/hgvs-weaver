@@ -138,8 +138,8 @@ pub(crate) fn genome_may_count_more(
     }
     let (start, end) = (written.start, written.end);
     let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| record.slice(s, e))?;
-    let run = written.edit.resolve(record, start, end)?;
-    let last = run.end as i32 - 1;
+    let run_end = repeat_run_end(&written.edit, &unit, record, (start, end))?;
+    let last = run_end as i32 - 1;
     let exon = am
         .transcript
         .exons
@@ -155,10 +155,10 @@ pub(crate) fn genome_may_count_more(
         return Ok(true);
     }
     let exon_end = exon.transcript_end.0 as usize;
-    if exon_end - run.end >= unit.len() {
+    if exon_end - run_end >= unit.len() {
         return Ok(false);
     }
-    let rest = record.slice(run.end, exon_end)?;
+    let rest = record.slice(run_end, exon_end)?;
     Ok(unit.as_bytes()[..rest.len()].eq_ignore_ascii_case(rest.as_bytes()))
 }
 
@@ -450,9 +450,30 @@ fn repeat_over_run(
         return Ok(None);
     };
     let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| reference.slice(s, e))?;
+    let run_end = repeat_run_end(edit, &unit, reference, (start, end))?;
     let stated = repeat.grown(unit, 0)?;
-    let run = stated.resolve(reference, start, end)?;
-    Ok((run.end > run.start).then_some((run.end, stated)))
+    Ok((run_end > start).then_some((run_end, stated)))
+}
+
+/// The half-open end of the run of `unit` that `repeat`, written over
+/// `[start, end)` of `reference`, counts, as resolving it reads the run, with
+/// what it states checked; its copies are not built, so a count whose
+/// sequence the target alone could not number is refused there.
+fn repeat_run_end(
+    repeat: &crate::edits::NaEdit,
+    unit: &str,
+    reference: &crate::reference::Reference<'_, '_>,
+    (start, end): (usize, usize),
+) -> Result<usize, HgvsError> {
+    repeat.check_against(reference, start, end, crate::data::Strand::Plus)?;
+    let mut run_end = start;
+    while reference
+        .slice(run_end, run_end + unit.len())?
+        .eq_ignore_ascii_case(unit)
+    {
+        run_end += unit.len();
+    }
+    Ok(if run_end == start { end } else { run_end })
 }
 
 /// Whether the target's base at an index is one the source holds there too,
