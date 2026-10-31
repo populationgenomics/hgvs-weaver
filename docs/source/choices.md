@@ -786,8 +786,6 @@ c_to_g   NM_GD.1:c.16+1del    →  NC_B.1:g.41del                 not g.40, the 
 - **Tests:** `exon_border_offset_test::validate_answers_false_for_an_offset_before_a_base_inside_an_exon`,
   `::c_to_g_refuses_an_offset_from_a_base_inside_an_exon`,
   `::validate_answers_false_for_an_offset_after_the_first_base_of_an_exon`,
-  `::an_offset_upstream_of_the_transcripts_first_base_validates`,
-  `::an_offset_downstream_of_the_transcripts_last_base_validates`,
   `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused`,
   `::normalize_refuses_an_uncertain_range_with_an_end_offset_from_inside_an_exon`,
   `::an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end`,
@@ -2822,10 +2820,8 @@ validate  XQ_K.1:p.Lys2Arg   →  true              read as written
   `::to_spdi_refuses_a_protein_description_on_a_transcript`, `::validate_refuses_a_nucleotide_description_on_a_protein`,
   `::c_to_g_refuses_a_coding_description_on_a_protein`, `::g_to_c_refuses_a_genomic_description_on_a_protein`,
   `::c_to_p_refuses_a_genome_as_the_protein_to_predict_on`, `::normalize_refuses_a_genomic_description_on_a_protein`,
-  `::a_protein_description_on_its_protein_validates`,
-  `::a_protein_description_on_an_accession_of_unknown_kind_is_read_as_written` (the rows above), and the file's other
-  tests: `n_to_g`, `r_to_g`, `c_to_p`, `to_vrs`, `g_to_c_all`, and a protein as the sequence a projection lands on;
-  `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
+  (the rows above), and the file's other tests: `n_to_g`, `r_to_g`, `c_to_p`, `to_vrs`, `g_to_c_all`, and a protein as
+  the sequence a projection lands on; `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
 
 ## Equivalence
 

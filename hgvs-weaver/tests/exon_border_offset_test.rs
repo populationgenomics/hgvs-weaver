@@ -237,13 +237,23 @@ fn validate_answers_false_for_an_offset_before_the_last_base_of_an_exon() {
 }
 
 #[test]
-fn an_offset_from_each_exon_border_validates() {
-    for border in ["c.7+1", "c.8-1", "c.17+1", "c.18-1"] {
-        assert!(
-            validate(&format!("NM_B.1:{border}del")),
-            "{border} counts from an exon border"
-        );
-    }
+fn an_offset_after_the_last_base_of_the_first_exon_validates() {
+    assert!(validate("NM_B.1:c.7+1del"));
+}
+
+#[test]
+fn an_offset_before_the_first_base_of_a_middle_exon_validates() {
+    assert!(validate("NM_B.1:c.8-1del"));
+}
+
+#[test]
+fn an_offset_after_the_last_base_of_a_middle_exon_validates() {
+    assert!(validate("NM_B.1:c.17+1del"));
+}
+
+#[test]
+fn an_offset_before_the_first_base_of_the_last_exon_validates() {
+    assert!(validate("NM_B.1:c.18-1del"));
 }
 
 #[test]
