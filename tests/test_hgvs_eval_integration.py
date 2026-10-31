@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 import weaver
-from weaver.cli import provider as provider_mod
+from weaver import refseq
 
 # Paths to data files
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -20,16 +20,16 @@ FASTA37_PATH = os.path.join(REPO_ROOT, "GCF_000001405.25_GRCh37.p13_genomic.fna"
 SEQ_CACHE_PATH = os.path.join(REPO_ROOT, "tests", "data", "hgvs_eval_sequences.json")
 
 
-def setup_sequence_mocking() -> None:
-    """Sets up WEAVER_SEQ_MODE and WEAVER_SEQ_CACHE based on file availability."""
+def setup_sequence_mocking(mp: pytest.MonkeyPatch) -> None:
+    """Sets up WEAVER_SEQ_MODE and WEAVER_SEQ_CACHE based on file availability, until `mp` is undone."""
     if "WEAVER_SEQ_CACHE" not in os.environ:
-        os.environ["WEAVER_SEQ_CACHE"] = SEQ_CACHE_PATH
+        mp.setenv("WEAVER_SEQ_CACHE", SEQ_CACHE_PATH)
 
     if "WEAVER_SEQ_MODE" not in os.environ:
         if os.path.exists(SEQ_CACHE_PATH) and not os.path.exists(FASTA38_PATH):
-            os.environ["WEAVER_SEQ_MODE"] = "replay"
+            mp.setenv("WEAVER_SEQ_MODE", "replay")
         else:
-            os.environ["WEAVER_SEQ_MODE"] = "live"
+            mp.setenv("WEAVER_SEQ_MODE", "live")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -166,47 +166,47 @@ HGVS_EVAL_CASES: list[Any] = [
 
 
 @pytest.fixture(scope="session")
-def real_provider_38() -> Generator[provider_mod.RefSeqDataProvider, None, None]:
-    setup_sequence_mocking()
-    mode = os.environ.get("WEAVER_SEQ_MODE", "live")
+def real_provider_38() -> Generator[refseq.RefSeqDataProvider, None, None]:
+    with pytest.MonkeyPatch.context() as mp:
+        setup_sequence_mocking(mp)
+        mode = os.environ.get("WEAVER_SEQ_MODE", "live")
 
-    if mode == "replay":
-        if not os.path.exists(SEQ_CACHE_PATH):
-            pytest.skip("Sequence cache missing for replay mode")
-    elif not os.path.exists(GFF38_PATH) or not os.path.exists(FASTA38_PATH):
-        pytest.skip("Real data files (GFF/FASTA) not found. Skipping integration tests.")
+        if mode == "replay":
+            if not os.path.exists(SEQ_CACHE_PATH):
+                pytest.skip("Sequence cache missing for replay mode")
+        elif not os.path.exists(GFF38_PATH) or not os.path.exists(FASTA38_PATH):
+            pytest.skip("Real data files (GFF/FASTA) not found. Skipping integration tests.")
 
-    print(f"Loading RefSeq provider (mode={mode}) with GFF: {GFF38_PATH}")
-    provider = provider_mod.RefSeqDataProvider(GFF38_PATH, FASTA38_PATH)
+        print(f"Loading RefSeq provider (mode={mode}) with GFF: {GFF38_PATH}")
+        provider = refseq.RefSeqDataProvider(GFF38_PATH, FASTA38_PATH)
     yield provider
     if provider.fasta.mode == "record":
         provider.fasta.save_cache()
 
 
 @pytest.fixture(scope="session")
-def real_provider_37() -> Generator[provider_mod.RefSeqDataProvider | None, None, None]:
-    setup_sequence_mocking()
-    mode = os.environ.get("WEAVER_SEQ_MODE", "live")
-
-    if mode == "replay":
-        if not os.path.exists(SEQ_CACHE_PATH):
-            yield None
-            return
-    elif not os.path.exists(GFF37_PATH) or not os.path.exists(FASTA37_PATH):
-        yield None
-        return
-
-    print(f"Loading RefSeq provider (mode={mode}) with GFF: {GFF37_PATH}")
-    provider = provider_mod.RefSeqDataProvider(GFF37_PATH, FASTA37_PATH)
+def real_provider_37() -> Generator[refseq.RefSeqDataProvider | None, None, None]:
+    with pytest.MonkeyPatch.context() as mp:
+        setup_sequence_mocking(mp)
+        mode = os.environ.get("WEAVER_SEQ_MODE", "live")
+        available = (
+            os.path.exists(SEQ_CACHE_PATH)
+            if mode == "replay"
+            else os.path.exists(GFF37_PATH) and os.path.exists(FASTA37_PATH)
+        )
+        provider = None
+        if available:
+            print(f"Loading RefSeq provider (mode={mode}) with GFF: {GFF37_PATH}")
+            provider = refseq.RefSeqDataProvider(GFF37_PATH, FASTA37_PATH)
     yield provider
-    if provider.fasta.mode == "record":
+    if provider is not None and provider.fasta.mode == "record":
         provider.fasta.save_cache()
 
 
 @pytest.mark.parametrize("hgvs_eval_case", HGVS_EVAL_CASES)
 def test_hgvs_eval_equivalence(
-    real_provider_38: provider_mod.RefSeqDataProvider,
-    real_provider_37: provider_mod.RefSeqDataProvider | None,
+    real_provider_38: refseq.RefSeqDataProvider,
+    real_provider_37: refseq.RefSeqDataProvider | None,
     hgvs_eval_case: EvalCase,
 ) -> None:
     """

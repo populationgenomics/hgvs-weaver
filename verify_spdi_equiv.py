@@ -1,11 +1,11 @@
 import csv
 import sys
 
-from weaver.cli.provider import RefSeqDataProvider
+from weaver import refseq
 
 
 def verify_equivalence(results_file: str) -> None:
-    provider = RefSeqDataProvider(
+    provider = refseq.RefSeqDataProvider(
         gff_path="GRCh38_latest_genomic.gff.gz",
         fasta_path="GCF_000001405.40_GRCh38.p14_genomic.fna",
     )

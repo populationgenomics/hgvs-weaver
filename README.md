@@ -83,9 +83,9 @@ print(level)                                              # EquivalenceLevel.Ana
 Mapping needs an object implementing the `DataProvider` protocol, which supplies transcript models and reference
 sequences. [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider) implements it over a store
 built from NCBI's published transcript alignments, with every placement NCBI publishes and NCBI's historical set of
-retired transcript versions; `weaver.cli.provider.RefSeqDataProvider` implements it directly over a RefSeq GFF3 and
-FASTA; `weaver.refget.RefgetProvider` implements it over a GA4GH refget server (for sequences) plus another provider for
-transcript models.
+retired transcript versions; `weaver.refseq.RefSeqDataProvider` implements it directly over a RefSeq GFF3 and FASTA
+(install `hgvs-weaver[refseq]` for its `pysam` dependency); `weaver.refget.RefgetProvider` implements it over a GA4GH
+refget server (for sequences) plus another provider for transcript models.
 
 A `VariantMapper` caches the sequence blocks, refget accessions and identifier types it fetches for as long as it lives.
 Build one and reuse it.

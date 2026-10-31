@@ -72,6 +72,7 @@ def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> 
     from weaver_data_provider import store as wd_store  # noqa: PLC0415
 
     global _worker
+    logging.basicConfig(level=logging.INFO)  # a spawned worker does not inherit the parent's logging
     rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
     fh_results: dict[str, str] = {}
     if fh_results_path:
@@ -357,6 +358,7 @@ def main(argv: list[str] | None = None) -> None:
         help="Disable ferro-hgvs comparison entirely (fh_parse column will be SKIP).",
     )
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO)
     if importlib.util.find_spec("weaver_data_provider") is None:
         print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
         print("  pip install hgvs-weaver-data")

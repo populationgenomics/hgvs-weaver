@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import weaver
-from weaver.cli import provider
+from weaver import refseq
 
 # Increase CSV field size limit for very large variants
 csv.field_size_limit(sys.maxsize)
@@ -37,13 +37,13 @@ FASTA_38 = "GRCh38_latest_genomic.fna"
 
 @dataclass
 class ValidationProviders:
-    rp37: provider.RefSeqDataProvider
-    rp38: provider.RefSeqDataProvider
+    rp37: refseq.RefSeqDataProvider
+    rp38: refseq.RefSeqDataProvider
     mapper37: weaver.VariantMapper
     mapper38: weaver.VariantMapper
 
 
-def vcf_normalize(v_genomic: Any, rp: provider.RefSeqDataProvider, mapper: weaver.VariantMapper) -> str:
+def vcf_normalize(v_genomic: Any, rp: refseq.RefSeqDataProvider, mapper: weaver.VariantMapper) -> str:
     """
     Converts a genomic variant to VCF-style {chrom}-{pos}-{ref}-{alt} format.
     Handles anchor base prepending for indels.
@@ -150,7 +150,7 @@ def is_hgvs_equivalent(
     v1: Any,
     v2_str: str,
     mapper: weaver.VariantMapper,
-    searcher: provider.RefSeqDataProvider,
+    searcher: refseq.RefSeqDataProvider,
 ) -> bool:
     """
     Check if a Variant object is equivalent to an HGVS string.
@@ -273,7 +273,7 @@ def _handle_protein_input(
     expected_c: str,
     expected_p: str,
     cur_mapper: weaver.VariantMapper,
-    cur_rp: provider.RefSeqDataProvider,
+    cur_rp: refseq.RefSeqDataProvider,
     vp: ValidationProviders,
     build: str,
     expected_id: str,
@@ -325,7 +325,7 @@ def _handle_protein_input(
 def _handle_coding_input(
     v: Any,
     cur_mapper: weaver.VariantMapper,
-    cur_rp: provider.RefSeqDataProvider,
+    cur_rp: refseq.RefSeqDataProvider,
     vp: ValidationProviders,
     build: str,
     expected_id: str,
@@ -391,7 +391,7 @@ def _mane_fallback(
     v_c: Any,
     expected_c: str,
     cur_mapper: weaver.VariantMapper,
-    cur_rp: provider.RefSeqDataProvider,
+    cur_rp: refseq.RefSeqDataProvider,
 ) -> tuple[bool, Any, str]:
     expected_tx = expected_c.split(":")[0] if ":" in expected_c else None
     if expected_tx and v_c and hasattr(v_c, "ac") and v_c.ac.split(".")[0] != expected_tx.split(".")[0]:
@@ -460,8 +460,8 @@ def _log_mismatch(
 
 def validate(input_path: str, mismatch_path: str | None = None) -> None:
     logger.info("Loading providers...")
-    p_37 = provider.RefSeqDataProvider(GFF_37, FASTA_37)
-    p_38 = provider.RefSeqDataProvider(GFF_38, FASTA_38)
+    p_37 = refseq.RefSeqDataProvider(GFF_37, FASTA_37)
+    p_38 = refseq.RefSeqDataProvider(GFF_38, FASTA_38)
     vp = ValidationProviders(p_37, p_38, weaver.VariantMapper(p_37), weaver.VariantMapper(p_38))
     stats = {"total": 0, "id_match": 0, "c_match": 0, "p_match": 0, "errors": 0}
 
