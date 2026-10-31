@@ -1826,6 +1826,11 @@ stop is kept when an alignment that costs no more matches its codon to a stop co
 it is described by what it does before the stop; what it does to the 3'UTR, in frame or not, is no change to the
 protein.
 
+The alignment is kept to a band of diagonals around the bases the change adds or removes, widened until no cheapest
+alignment can lie outside it, so the answer is exact; a 4,200-base inversion over the stop of a 15 kb CDS takes about 30
+ms. A change whose band would need more than 2^28 pairs of bases aligned is refused with an error that says so, rather
+than read as keeping or losing the stop.
+
 **Example** (CDS `ATG CTG TTT GTA TTG TGT CGT CTT TAA`, Met Leu Phe Val Leu Cys Arg Leu Ter; and the toy CDS with 3'UTR
 `CCG TAG`):
 
@@ -1859,7 +1864,9 @@ toy c.16_21delinsGGCGCTAACTAA →  p.Arg6delinsGlyAlaAsn     as c.16_17delinsGGC
   `::an_in_frame_change_that_rewrites_the_stop_as_a_stop_keeps_it`,
   `::a_change_on_both_sides_of_a_kept_stop_is_the_change_before_it`,
   `::a_delins_written_through_a_stop_it_writes_back_is_the_change_before_it`,
-  `::a_deletion_before_the_stop_that_could_cut_into_its_codon_keeps_it`;
+  `::a_deletion_before_the_stop_that_could_cut_into_its_codon_keeps_it`,
+  `::a_change_whose_differing_bases_run_to_thousands_is_decided_exactly`, `::the_band_costs_what_the_whole_table_does`,
+  `::a_band_that_needs_more_than_the_limit_is_refused`;
   `open_cds_test::a_closed_cds_predicts_duplicating_its_last_residue`;
   `equivalence_test::residues_inserted_before_the_stop_written_as_clinvar_does_are_the_extension_weaver_predicts`;
   `one_edited_transcript_is_one_protein_consequence` and `in_frame_indels_describe_the_translated_protein` (properties).

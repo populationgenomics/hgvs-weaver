@@ -2639,7 +2639,7 @@ impl<'a> VariantMapper<'a> {
             protein_ac,
             initiates,
         };
-        let reading = crate::protein::Reading::new(change);
+        let reading = crate::protein::Reading::new(change)?;
         reading.check_within_record(&var_c.ac)?;
         if reading.runs_off() {
             return Ok(CodingOutcome::Statement(predicted_statement(
