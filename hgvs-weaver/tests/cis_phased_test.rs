@@ -1509,6 +1509,15 @@ fn a_repeat_member_the_intron_continues_with_whole_copies_is_left_as_written() {
 }
 
 #[test]
+fn a_repeat_member_whose_genome_run_touches_an_intronic_member_is_left_beside_it() {
+    // the genome's run of GT is c.6_9+2; c.9+3 is the intron's A
+    assert_eq!(
+        normalised(&exon_edge(), "NM_EDGE.1:c.[6GT[2];9+3A>C]"),
+        "NM_EDGE.1:c.[6GT[2];9+3A>C]"
+    );
+}
+
+#[test]
 fn a_repeat_member_the_intron_completes_a_copy_of_is_left_as_written() {
     assert_eq!(
         normalised(&exon_edge(), "NM_EDGE.1:c.[2T>C;7TG[1]]"),
