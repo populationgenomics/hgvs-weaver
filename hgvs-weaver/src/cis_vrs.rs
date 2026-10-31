@@ -216,8 +216,9 @@ impl VariantMapper<'_> {
 
     /// The readings of `set`, members whose locations meet: one placement
     /// for each sequence they make, the first found in the order the
-    /// members' placements are listed. Where some render as the members of
-    /// `set` do, only those.
+    /// members' placements are listed, and each reading of a placement the
+    /// overlap rule finds ambiguous, such as two insertions at one point.
+    /// Where some render as the members of `set` do, only those.
     ///
     /// # Errors
     ///
@@ -266,35 +267,51 @@ impl VariantMapper<'_> {
                     p
                 })
                 .collect();
-            if (1..placed.len()).any(|i| placed[..i].contains(&placed[i])) {
+            // Two members placed as one edit would be read once; two
+            // insertions at one point are not, and read as one copy or two.
+            if (1..placed.len()).any(|i| placed[..i].contains(&placed[i]) && !inserts(&placed[i])) {
                 continue;
             }
-            let reading = match self.read_cis(&allele(placed.clone())?) {
-                Ok(r) => r,
+            let candidates = match self.read_cis(&allele(placed.clone())?) {
+                Ok(r) => vec![(placed, r)],
+                Err(HgvsError::Ambiguous { readings, .. }) => {
+                    let mut each = Vec::with_capacity(readings.len());
+                    for r in readings {
+                        let members = match r {
+                            SV::CisPhased(c) => c.members,
+                            one => vec![one],
+                        };
+                        let reading = self.read_cis(&allele(members.clone())?)?;
+                        each.push((members, reading));
+                    }
+                    each
+                }
                 Err(e) => {
                     refused.get_or_insert(e);
                     continue;
                 }
             };
-            if reading.stated() != stated.as_slice() {
-                continue;
-            }
-            // Rendered as written: an insertion that is a duplication
-            // renders as one.
-            let placed = self.with_duplications(ac, placed, reference)?;
-            let renders = self.renders_as(ac, &placed, &keys)?;
-            let mut seen = false;
-            for (p, other, r) in found.iter_mut() {
-                if other.same_sequence(&reading, reference)? {
-                    if renders && !*r {
-                        (*p, *r) = (placed.clone(), true);
-                    }
-                    seen = true;
-                    break;
+            for (placed, reading) in candidates {
+                if reading.stated() != stated.as_slice() {
+                    continue;
                 }
-            }
-            if !seen {
-                found.push((placed, reading, renders));
+                // Rendered as written: an insertion that is a duplication
+                // renders as one.
+                let placed = self.with_duplications(ac, placed, reference)?;
+                let renders = self.renders_as(ac, &placed, &keys)?;
+                let mut seen = false;
+                for (p, other, r) in found.iter_mut() {
+                    if other.same_sequence(&reading, reference)? {
+                        if renders && !*r {
+                            (*p, *r) = (placed.clone(), true);
+                        }
+                        seen = true;
+                        break;
+                    }
+                }
+                if !seen {
+                    found.push((placed, reading, renders));
+                }
             }
         }
         if found.iter().any(|(.., r)| *r) {
@@ -582,4 +599,15 @@ fn meeting(members: &[Member]) -> Vec<Vec<usize>> {
     }
     sets.sort_unstable_by_key(|set| set[0]);
     sets
+}
+
+/// Whether `member` inserts bases at a point: an insertion or a duplication.
+fn inserts(member: &SV) -> bool {
+    matches!(
+        member,
+        SV::Genomic(g) if matches!(
+            g.posedit.edit,
+            crate::edits::NaEdit::Ins { .. } | crate::edits::NaEdit::Dup { .. }
+        )
+    )
 }

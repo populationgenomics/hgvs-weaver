@@ -3,6 +3,8 @@
 
 mod support;
 
+use std::collections::BTreeSet;
+
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
@@ -337,5 +339,69 @@ fn an_insertion_before_the_first_base_reads_back_as_a_delins_of_that_base() {
     assert_eq!(
         mapper.from_vrs(&json, None).unwrap().to_string(),
         "NC_TEST.1:g.1delinsTA"
+    );
+}
+
+/// A `CisPhasedBlock` of `members`, each an Allele on `sequence` from
+/// interbase `start` to `end` whose state is `alt`.
+fn block_on(sequence: &str, members: &[(usize, usize, &str)]) -> String {
+    let refget = refget_accession(sequence);
+    let alleles: Vec<String> = members
+        .iter()
+        .map(|(start, end, alt)| {
+            format!(
+                r#"{{"type":"Allele","location":{{"type":"SequenceLocation",
+                    "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+                    "start":{start},"end":{end}}},
+                    "state":{{"type":"LiteralSequenceExpression","sequence":"{alt}"}}}}"#
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"type":"CisPhasedBlock","members":[{}]}}"#,
+        alleles.join(",")
+    )
+}
+
+/// The readings `from_vrs` lists for the ambiguous `block` on `X`, which is
+/// `sequence`.
+fn ambiguous_readings(sequence: &str, block: &str) -> BTreeSet<String> {
+    let hdp = Provider::new().sequence("X", sequence);
+    match VariantMapper::with_refget(&hdp, &hdp).from_vrs(block, None) {
+        Err(HgvsError::Ambiguous { readings, .. }) => {
+            readings.iter().map(|r| r.to_string()).collect()
+        }
+        other => panic!("expected an ambiguity, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_block_inserting_twice_at_one_point_reads_back_as_ambiguous() {
+    // An A and a G between g.4 and g.5 of TTCAGCAGTT, in either order: AG,
+    // or GA, a copy of g.4_5.
+    let block = block_on("TTCAGCAGTT", &[(4, 4, "A"), (4, 4, "G")]);
+    assert_eq!(
+        ambiguous_readings("TTCAGCAGTT", &block),
+        BTreeSet::from(["X:g.4_5insAG".to_string(), "X:g.4_5dup".to_string()])
+    );
+}
+
+#[test]
+fn a_block_of_two_identical_insertions_reads_back_as_ambiguous() {
+    // One T written twice, or two Ts, in the run of TTCAGCAGTT's g.1_2.
+    let block = block_on("TTCAGCAGTT", &[(2, 2, "T"), (2, 2, "T")]);
+    assert_eq!(
+        ambiguous_readings("TTCAGCAGTT", &block),
+        BTreeSet::from(["X:g.2dup".to_string(), "X:g.1_2dup".to_string()])
+    );
+}
+
+#[test]
+fn a_block_of_two_identical_insertions_after_a_base_reads_back_as_ambiguous() {
+    // One A after g.4 of TTCAGCAGTT written twice, or two As.
+    let block = block_on("TTCAGCAGTT", &[(4, 4, "A"), (4, 4, "A")]);
+    assert_eq!(
+        ambiguous_readings("TTCAGCAGTT", &block),
+        BTreeSet::from(["X:g.4dup".to_string(), "X:g.4_5insAA".to_string()])
     );
 }

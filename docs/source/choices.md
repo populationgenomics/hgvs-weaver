@@ -1575,7 +1575,9 @@ is contradictory, a `ValidationError`.
 
 Every member makes its own change: two members placed as one edit would be read once, and a reading that drops a member
 is not the block. On `GAAAAAG`, two identical Alleles deleting an A from the run delete two, `g.5_6del`, and in a run of
-twenty-five As two deletions and an insertion of an A make `g.25del`. A reading states nothing a member does not: a
+twenty-five As two deletions and an insertion of an A make `g.25del`. Two insertions at one point are the exception:
+placed as one, they are one copy written twice or two copies, and the block reads back as
+[that ambiguity](#overlapping-members-of-a-cis-allele-need-one-reading). A reading states nothing a member does not: a
 deletion and an insertion placed side by side would cancel and state the bases between them, which the block does not.
 
 weaver's own blocks need the same reading. `NM_X.1:c.[9_12inv;3_8del]` renders as an identity over c.9_12, whose `GGCC`
@@ -3700,9 +3702,10 @@ NM_X.1:c.[7C>T;7C>G]         →  ValidationError: contradictory, no reading
   `::a_member_without_a_sequence_is_in_every_reading`, `::statements_either_side_of_an_insertion_are_written_apart`,
   `::to_vrs_refuses_an_ambiguous_allele`, `::an_ambiguity_across_an_exon_junction_lists_its_readings`,
   `::an_ambiguity_the_rule_cannot_write_still_lists_its_readings`;
-  `tests/test_cis_phased.py::test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings`; planned:
+  `tests/test_cis_phased.py::test_an_ambiguity_is_an_ambiguous_description_error_with_its_readings`;
   `vrs_round_trip_test::a_block_inserting_twice_at_one_point_reads_back_as_ambiguous`,
-  `::a_block_of_two_identical_insertions_reads_back_as_ambiguous`.
+  `::a_block_of_two_identical_insertions_reads_back_as_ambiguous`,
+  `::a_block_of_two_identical_insertions_after_a_base_reads_back_as_ambiguous`.
 
 ## Alleles, SPDI and VRS
 
