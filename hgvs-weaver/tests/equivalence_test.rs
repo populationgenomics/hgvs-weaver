@@ -1530,10 +1530,15 @@ fn a_coding_allele_that_loses_the_stop_is_a_protein_allele_changing_it() {
 }
 
 #[test]
-fn a_deleted_stop_is_an_extension_of_unknown_length() {
+fn a_coding_insertion_before_the_stop_codon_is_predicted_before_the_stop() {
+    let hdp = coding_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let SequenceVariant::Coding(c) = parse_hgvs_variant("NM_X.1:c.18_19insCAG").unwrap() else {
+        panic!("not c.");
+    };
     assert_eq!(
-        coding_level("NP_X.1:p.Ter7del", "NP_X.1:p.Ter7GlnextTer?"),
-        EquivalenceLevel::Analogous
+        mapper.c_to_p(&c, None).unwrap().to_string(),
+        "NP_X.1:p.(Arg6_Ter7insGln)"
     );
 }
 
