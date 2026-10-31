@@ -646,7 +646,7 @@ impl<'a> VariantEquivalence<'a> {
     /// or, for one that names no stretch of residues to replace (`p.?`, an
     /// uncertain range, `p.Met1?`, `p.=`, `p.0`), what it says.
     fn protein_read(&self, vp: &PVariant, ac: &str) -> Result<ProteinRead, HgvsError> {
-        use crate::edits::{AaEdit, ProteinStatement};
+        use crate::edits::{AaEdit, ExtensionEnd, ProteinStatement};
         let reference = self
             .mapper
             .refs
@@ -702,6 +702,31 @@ impl<'a> VariantEquivalence<'a> {
                     _ if alt == "*" => (start, end, alt, false),
                     _ => (start, end, alt, true),
                 }
+            }
+            // `Met1ext-N`: translation starts N residues upstream, at a Met
+            // unless another residue is named, and Met1 becomes the residue
+            // written before `ext`, if one is.
+            AaEdit::Ext {
+                alt,
+                end: ExtensionEnd::Upstream { residue, distance },
+            } => {
+                if start != 0 {
+                    return Err(HgvsError::ValidationError(format!(
+                        "{vp} extends the protein upstream of a residue other than Met1, \
+                         so it has no reading"
+                    )));
+                }
+                let mut added = match residue {
+                    Some(r) => crate::utils::residues_1(r)?,
+                    None => "M".to_string(),
+                };
+                while added.len() < distance.get() as usize {
+                    added.push('X');
+                }
+                let met1 = crate::utils::residues_1(alt)?;
+                let end = if met1.is_empty() { 0 } else { 1 };
+                added.push_str(&met1);
+                (0, end, added, false)
             }
             // `Ter#Xxxext*N`: the stop becomes Xxx, then N - 1 residues, then a stop.
             AaEdit::Ext { alt, end } => {

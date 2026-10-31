@@ -126,6 +126,8 @@ read against the reference protein:
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
   substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
   number. An open outcome matches any outcome it is a prefix of;
+- an N-terminal extension `p.Met1ext-5` leaves the reference with five residues added before Met1, a Met and four it
+  does not name ([the choice](choices.md#an-n-terminal-extension-adds-residues-before-met1));
 - `p.0` and `p.0?` leave no protein;
 - a description that leaves the protein as it is, `p.(Leu3=)` or `p.Leu3Leu`, is a statement about the residues it
   names, and is the same only as a statement about exactly those residues: `p.(Leu3_Ala4=)` is not `p.(Leu3=)`, and

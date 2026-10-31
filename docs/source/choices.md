@@ -215,6 +215,7 @@ Variation Representation Specification 2.0.1.
 | [A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)                         |                               agrees                               |        –         |                –                |        –         |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                                 –                                  |     differs      |                –                |        –         |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |                    agrees; silent on `p.Arg12?`                    |        –         |                –                |     differs      |
+| [An N-terminal extension adds residues before Met1](#an-n-terminal-extension-adds-residues-before-met1)                             |                    agrees; silent on comparing                     |        –         |                –                |        –         |
 | [An uncertain position names no one change](#an-uncertain-position-names-no-one-change)                                             |                               agrees                               |        –         |                –                |        –         |
 | [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |                                 –                                  |        –         |                –                |        –         |
 | [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours)                             |                                 –                                  |        –         |                –                |        –         |
@@ -2889,6 +2890,44 @@ NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
   `::an_unknown_change_from_a_residue_matches_a_coding_change_predicted_there`,
   `::a_predicted_unknown_change_from_a_residue_is_the_stated_one`;
   `printed_reparse_test::an_unknown_change_from_a_residue_past_met1`.
+
+### An N-terminal extension adds residues before Met1
+
+**`p.Met1ext-N` is read as the protein with N residues added before Met1: the first a Met, or the residue named after
+`ext`, the rest unknown. A residue written before `ext` is what Met1 becomes. An upstream extension written at any
+residue but Met1 has no reading, and is an error.**
+
+A new start upstream of Met1 leaves every residue of the protein in place and adds a run before it, so equivalence
+compares it as that protein, with an unknown residue matching any. The specification glosses `p.Met1ext-5` as a new
+initiation site "starting with amino acid `Met-5`", which is where the Met comes from; a description that names another
+residue there, `extLeu-5`, is read as naming it. Its own companion example writes the same kind of change with Met1
+replaced as an insertion, `p.Met1_Leu2insArgSerThrVal` for a start at `Met-4` with Met1 changed to Val, so reading the
+residue before `ext` as Met1's replacement makes the two spellings one protein. Read as the C-terminal extension it is
+written beside, an N-terminal one would match a stop loss and every other upstream extension whatever its length. weaver
+does not predict an N-terminal extension from a coding change
+([edits outside the CDS](#edits-outside-the-cds-are-statements)), so the reading bears on two `p.` descriptions.
+
+**Example** (`NP_X.1` is `MKLAYR`):
+
+```text
+NP_X.1:p.Met1ext-5      vs  NP_X.1:p.Met1extMet-5               Analogous: MXXXXMKLAYR
+NP_X.1:p.Met1ext-5      vs  NP_X.1:p.Met1ext-8                  Different: five residues added, and eight
+NP_X.1:p.Met1ext-5      vs  NP_X.1:p.Met1extLeu-5               Different: the new start is a Met, and a Leu
+NP_X.1:p.Met1ext-5      vs  NP_X.1:p.Ter7GlnextTer?             Different: added before Met1, not after Arg6
+NP_X.1:p.Met1Valext-4   vs  NP_X.1:p.Met1_Lys2insArgSerThrVal   Analogous: MXXXVKLAYR and MRSTVKLAYR
+NP_X.1:p.Lys2ext-5      vs  NP_X.1:p.Met1ext-5                  ValidationError: no reading
+```
+
+- **Others:** not checked.
+- **Spec (agrees; silent on comparing):**
+  [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): `p.Met1ext-5`, "a new upstream
+  translation initiation site starting with amino acid `Met-5`", and `p.Met1_Leu2insArgSerThrVal` for Met1 changed to
+  Val with a start at `Met-4`.
+- **Tests:** `equivalence_test::an_n_terminal_extension_is_not_a_c_terminal_one`,
+  `::n_terminal_extensions_from_different_starts_differ`, `::an_n_terminal_extension_starts_at_a_met`,
+  `::an_n_terminal_extension_from_another_residue_is_not_one_from_a_met`,
+  `::an_n_terminal_extension_is_the_residues_it_adds_before_the_protein`,
+  `::an_upstream_extension_from_a_residue_past_met1_is_an_error`.
 
 ### An uncertain position names no one change
 

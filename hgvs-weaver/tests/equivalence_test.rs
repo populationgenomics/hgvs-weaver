@@ -1247,3 +1247,59 @@ fn a_selenocysteine_codon_inserted_after_its_copy_is_the_same_duplication() {
         EquivalenceLevel::Identity
     );
 }
+
+#[test]
+fn an_n_terminal_extension_is_not_a_c_terminal_one() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1ext-5", "NP_X.1:p.Ter7GlnextTer?"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn n_terminal_extensions_from_different_starts_differ() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1ext-5", "NP_X.1:p.Met1ext-8"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_n_terminal_extension_starts_at_a_met() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1ext-5", "NP_X.1:p.Met1extMet-5"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_n_terminal_extension_from_another_residue_is_not_one_from_a_met() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1ext-5", "NP_X.1:p.Met1extLeu-5"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_n_terminal_extension_is_the_residues_it_adds_before_the_protein() {
+    // HGVS's own pair: Met1 becomes Val and translation starts at Met-4,
+    // the protein ArgSerThrVal inserted after Met1 leaves.
+    assert_eq!(
+        coding_level("NP_X.1:p.Met1Valext-4", "NP_X.1:p.Met1_Lys2insArgSerThrVal"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
+fn an_upstream_extension_from_a_residue_past_met1_is_an_error() {
+    let hdp = coding_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &parse_hgvs_variant("NP_X.1:p.Lys2ext-5").unwrap(),
+        &parse_hgvs_variant("NP_X.1:p.Met1ext-5").unwrap(),
+    );
+    assert!(
+        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("other than Met1")),
+        "{result:?}"
+    );
+}
