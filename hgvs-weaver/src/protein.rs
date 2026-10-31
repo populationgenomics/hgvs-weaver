@@ -197,7 +197,7 @@ impl Reading {
             alt_aa[j] = 'U';
         }
         let tail = suffix.min(ref_nt.len().min(edited.len()) - prefix);
-        let original_stop = kept_stop(ref_nt, edited, &alt_aa, stop, prefix, tail)?;
+        let original_stop = kept_stop(ref_nt, edited, &alt_aa, stop, (prefix, suffix, tail))?;
         let changed_end = edited.len() - tail;
         let changed_ref_end = ref_nt.len() - tail;
         let first_codon = start / 3;
@@ -435,13 +435,17 @@ pub(crate) fn met1() -> AaInterval {
 
 /// Where the reference's stop codon, residue `stop`, is read in the edited
 /// sequence `alt_nt`, when the change keeps it. The two sequences share a
-/// `prefix` and, past the bases that differ, a `tail`; between them, the
-/// bases that differ are aligned with the fewest substitutions, insertions
-/// and deletions, and the stop is kept when an alignment that costs no more
-/// aligns its codon, base for base, with a stop codon read in frame. The
-/// first such stop is where it is read. What the change does past it is no
-/// change to the protein, whatever frame it leaves the 3'UTR in. Read from
-/// the two sequences, every spelling of one change reads alike.
+/// `prefix` and a `suffix`, which overlap where the change is an insertion or
+/// deletion that could be placed anywhere along a repeat; `tail` is the
+/// suffix that does not. A stop codon outside the bases between them is kept
+/// where they put it, and one a deletion cuts is kept if the deletion can be
+/// placed wholly before it. Otherwise the bases that differ, and only those,
+/// are aligned at the least [cost](alignment_row), and the stop is kept when
+/// an alignment that costs no more aligns its codon, base for base, with a
+/// stop codon read in frame. The first such stop is where it is read. What
+/// the change does past it is no change to the protein, whatever frame it
+/// leaves the 3'UTR in. Read from the two sequences, every spelling of one
+/// change reads alike.
 ///
 /// # Errors
 ///
@@ -452,8 +456,7 @@ fn kept_stop(
     alt_nt: &[u8],
     alt_aa: &[char],
     stop: usize,
-    prefix: usize,
-    tail: usize,
+    (prefix, suffix, tail): (usize, usize, usize),
 ) -> Result<Option<usize>, HgvsError> {
     let codon = 3 * stop..3 * stop + 3;
     if codon.end > ref_nt.len() {
@@ -472,13 +475,21 @@ fn kept_stop(
     if codon.start >= ref_end {
         return Ok(reads_stop_at(codon.start as i64 + net));
     }
-    // Shared bases on either side, as many as the change adds or removes, let
-    // the alignment place the change wholly before or after the codon.
-    let shift = net.unsigned_abs() as usize;
-    let start = prefix.min(codon.start.saturating_sub(shift));
-    let end = ref_end
-        .max(codon.end + if net < 0 { shift } else { 0 })
-        .min(ref_nt.len());
+    let alt_end = alt_nt.len() - tail;
+    if alt_end == prefix {
+        // A deletion, which may be placed anywhere along the repeat it lies in:
+        // its 3'-most placement, at `prefix`, cuts the codon; its 5'-most may
+        // lie wholly before it.
+        let removed = ref_end - prefix;
+        let first = (ref_nt.len() - suffix).saturating_sub(removed);
+        return Ok((first + removed <= codon.start)
+            .then(|| reads_stop_at(codon.start as i64 + net))
+            .flatten());
+    }
+    // Only the bases that differ, and the rest of the codon where they cut it,
+    // are aligned: a stop codon the edited transcript shares with the
+    // reference past them is no part of the change.
+    let (start, end) = (prefix.min(codon.start), ref_end.max(codon.end));
     let upper = |s: &[u8]| s.to_ascii_uppercase();
     let r = upper(&ref_nt[start..end]);
     let a = upper(&alt_nt[start..(end as i64 + net) as usize]);
@@ -486,13 +497,13 @@ fn kept_stop(
     let (band, whole) = exact_band(&r, &a, MAX_ALIGNED)?;
     // The cost of aligning r[..at] with each prefix of a, and of r[at + 3..]
     // with each suffix.
-    let before = edit_rows(&r[..at], &a, band);
+    let before = alignment_row(&r[..at], &a, band);
     let after: Vec<usize> = {
         let (rr, ra): (Vec<u8>, Vec<u8>) = (
             r[at + 3..].iter().rev().copied().collect(),
             a.iter().rev().copied().collect(),
         );
-        edit_rows(&rr, &ra, (net - band.1, net - band.0))
+        alignment_row(&rr, &ra, (net - band.1, net - band.0))
             .into_iter()
             .rev()
             .collect()
@@ -518,7 +529,8 @@ const MAX_ALIGNED: usize = 1 << 28;
 /// The diagonals, `j - i` for base `i` of `r` against base `j` of `a`, that
 /// every cheapest alignment of `r` with `a` stays within. An alignment that
 /// strays `d` diagonals past those between `0` and the difference in length
-/// costs at least that difference and `2 d` more, so a band whose cheapest
+/// inserts or deletes at least that difference and `2 d` more bases, and costs
+/// at least as much, so a band whose cheapest
 /// alignment costs less than that holds every cheapest one. The band is
 /// widened until it does; it is returned with that cost.
 ///
@@ -542,7 +554,7 @@ fn exact_band(r: &[u8], a: &[u8], limit: usize) -> Result<((i64, i64), usize), H
                 a.len()
             )));
         }
-        let cost = edit_rows(r, a, band)[a.len()];
+        let cost = alignment_row(r, a, band)[a.len()];
         if whole_matrix || (cost as i64) < net.abs() + 2 * (margin + 1) {
             return Ok((band, cost));
         }
@@ -550,40 +562,72 @@ fn exact_band(r: &[u8], a: &[u8], limit: usize) -> Result<((i64, i64), usize), H
     }
 }
 
-/// The last row of the edit-distance table of `r` against `a`, kept to the
+/// What opening a run of inserted or deleted bases costs in [`alignment_row`],
+/// on top of one for each base in it: a change read as fewer runs is cheaper,
+/// so one deletion is not read as several scattered around a codon.
+const GAP_OPEN: usize = 2;
+
+/// The last row of the alignment table of `r` against `a`, kept to the
 /// diagonals `band` (`j - i` from `band.0` to `band.1`, which holds `0`):
-/// entry `j` is the fewest substitutions, insertions and deletions that make
-/// `r` into `a[..j]` along those diagonals, and `usize::MAX / 2` off them.
-fn edit_rows(r: &[u8], a: &[u8], band: (i64, i64)) -> Vec<usize> {
-    const OFF: usize = usize::MAX / 2;
+/// entry `j` is the least cost of making `r` into `a[..j]` along those
+/// diagonals, a substitution costing one and a run of inserted or deleted
+/// bases its length and [`GAP_OPEN`] more, and `usize::MAX / 4` off them.
+fn alignment_row(r: &[u8], a: &[u8], band: (i64, i64)) -> Vec<usize> {
+    const OFF: usize = usize::MAX / 4;
     let (lo, hi) = band;
     let n = a.len() as i64;
-    let mut row = vec![OFF; a.len() + 1];
-    for j in 0..=hi.min(n) {
-        row[j as usize] = j as usize;
+    // The cost of each prefix pair ending in a match or substitution, in a
+    // deletion from `r`, and in an insertion from `a`, for the row before and
+    // the row being filled.
+    let mut prev = [
+        vec![OFF; a.len() + 1],
+        vec![OFF; a.len() + 1],
+        vec![OFF; a.len() + 1],
+    ];
+    let mut cur = prev.clone();
+    let mut span = (0usize, hi.min(n) as usize);
+    prev[0][0] = 0;
+    for (j, cell) in prev[2].iter_mut().enumerate().take(span.1 + 1).skip(1) {
+        *cell = GAP_OPEN + j;
     }
     for (i, x) in (1i64..).zip(r) {
         let (first, last) = ((i + lo).max(0), (i + hi).min(n));
         if first > last {
-            row.fill(OFF);
-            break;
+            return vec![OFF; a.len() + 1];
         }
-        let first = first as usize;
-        // The cell before the band is off it in this row.
-        let (mut j, mut diagonal, mut left) = match first {
-            0 => (1, std::mem::replace(&mut row[0], i as usize), i as usize),
-            _ => (first, std::mem::replace(&mut row[first - 1], OFF), OFF),
-        };
-        while j <= last as usize {
-            let up = row[j];
-            let cell = (diagonal + usize::from(*x != a[j - 1]))
-                .min(up + 1)
-                .min(left + 1);
-            diagonal = up;
-            row[j] = cell;
-            left = cell;
+        let (first, last) = (first as usize, last as usize);
+        for state in &mut cur {
+            if first > 0 {
+                state[first - 1] = OFF;
+            }
+            if last < a.len() {
+                state[last + 1] = OFF;
+            }
+        }
+        let mut j = first;
+        if j == 0 {
+            cur[0][0] = OFF;
+            cur[1][0] = GAP_OPEN + i as usize;
+            cur[2][0] = OFF;
+            j = 1;
+        }
+        while j <= last {
+            let [pm, pd, pi] = &prev;
+            let diagonal = pm[j - 1].min(pd[j - 1]).min(pi[j - 1]);
+            let matched = diagonal + usize::from(*x != a[j - 1]);
+            let deleted = (pm[j].min(pi[j]) + GAP_OPEN).min(pd[j]) + 1;
+            let inserted = (cur[0][j - 1].min(cur[1][j - 1]) + GAP_OPEN).min(cur[2][j - 1]) + 1;
+            cur[0][j] = matched;
+            cur[1][j] = deleted;
+            cur[2][j] = inserted;
             j += 1;
         }
+        std::mem::swap(&mut prev, &mut cur);
+        span = (first, last);
+    }
+    let mut row = vec![OFF; a.len() + 1];
+    for j in span.0..=span.1 {
+        row[j] = prev[0][j].min(prev[1][j]).min(prev[2][j]);
     }
     row
 }
@@ -997,6 +1041,18 @@ mod tests {
     }
 
     #[test]
+    fn one_deletion_through_the_stop_is_not_read_as_several_that_keep_it() {
+        // 500 codons and a stop, then 2,000 bases of 3'UTR; one deletion from
+        // codon 401 through the stop and 29 bases of the 3'UTR. Scattered
+        // deletions of as many bases could keep the stop codon's bases, matched
+        // to a stop the 3'UTR brings into frame, but the change is one.
+        let cds = format!("ATG{}TGA", bases(5, 3 * 498, true));
+        let utr = bases(6, 2000, false);
+        let out = p(&cds, &utr, del(), 1200, cds.len() + 29);
+        assert!(out.starts_with("NP:p.") && out.contains("fsTer"), "{out}");
+    }
+
+    #[test]
     fn the_band_costs_what_the_whole_table_does() {
         // Pairs of a few hundred bases, the second the first with runs
         // replaced, inserted and deleted, so the cheapest alignment strays
@@ -1011,8 +1067,8 @@ mod tests {
             let whole = (-(r.len() as i64), a.len() as i64);
             let (band, cost) = exact_band(r, a, MAX_ALIGNED).unwrap();
             assert_eq!(
-                (cost, edit_rows(r, a, band)[a.len()]),
-                (cost, edit_rows(r, a, whole)[a.len()]),
+                (cost, alignment_row(r, a, band)[a.len()]),
+                (cost, alignment_row(r, a, whole)[a.len()]),
                 "seed {seed}"
             );
         }

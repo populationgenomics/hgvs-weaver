@@ -1822,15 +1822,21 @@ duplication or a lost stop. Reading it so also makes one protein one description
 and `c.18_19insCAACCG`, which keeps it, make the same protein and are both `p.Ter7GlnextTer2`.
 
 Whether the stop is kept is read from the two sequences, not from where the edit is written, so every spelling of one
-change reads alike. The bases that differ are aligned with the fewest substitutions, insertions and deletions, and the
+change reads alike. A stop codon outside the bases that differ is kept, and one a deletion cuts is kept if the deletion
+can be placed wholly before it along the repeat it lies in. Otherwise the bases that differ, and only those, are
+aligned, a substitution costing one and a run of inserted or deleted bases its length and two more for opening it; the
 stop is kept when an alignment that costs no more matches its codon to a stop codon read in frame. A change that keeps
 it is described by what it does before the stop; what it does to the 3'UTR, in frame or not, is no change to the
-protein.
+protein. Both limits matter for a deletion that runs from the CDS through the stop into the 3'UTR: with unit costs, or
+with bases the edited transcript shares with the reference in the alignment, the deletion could be read as several
+scattered around the stop codon, matched to a stop the 3'UTR brings into frame, and `NM_001110792.2:c.1077_*29del` read
+as a change before a kept stop rather than the frameshift it is. A replacement that puts a stop codon where the
+reference's was keeps it, as a stop codon rewritten as a stop does.
 
 The alignment is kept to a band of diagonals around the bases the change adds or removes, widened until no cheapest
-alignment can lie outside it, so the answer is exact; a 4,200-base inversion over the stop of a 15 kb CDS takes about 30
-ms. A change whose band would need more than 2^28 pairs of bases aligned is refused with an error that says so, rather
-than read as keeping or losing the stop.
+alignment can lie outside it, so the answer is exact; a 4,200-base inversion over the stop of a 15 kb CDS takes about
+100 ms, a 10,000-base one about 550 ms. A change whose band would need more than 2^28 pairs of bases aligned is refused
+with an error that says so, rather than read as keeping or losing the stop.
 
 **Example** (CDS `ATG CTG TTT GTA TTG TGT CGT CTT TAA`, Met Leu Phe Val Leu Cys Arg Leu Ter; and the toy CDS with 3'UTR
 `CCG TAG`):
@@ -1863,6 +1869,7 @@ toy c.16_21delinsGGCGCTAACTAA →  p.Arg6delinsGlyAlaAsn     as c.16_17delinsGGC
   `::a_change_on_both_sides_of_a_kept_stop_is_the_change_before_it`,
   `::a_delins_written_through_a_stop_it_writes_back_is_the_change_before_it`,
   `::a_change_whose_differing_bases_run_to_thousands_is_decided_exactly`, `::the_band_costs_what_the_whole_table_does`,
+  `::one_deletion_through_the_stop_is_not_read_as_several_that_keep_it`,
   `::a_band_that_needs_more_than_the_limit_is_refused`;
   `open_cds_test::a_closed_cds_predicts_duplicating_its_last_residue`;
   `equivalence_test::residues_inserted_before_the_stop_written_as_clinvar_does_are_the_extension_weaver_predicts`,
