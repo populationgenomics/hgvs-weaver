@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 import sys
+
+import pytest
 
 import weaver
 from weaver import refseq
@@ -24,9 +27,9 @@ NC_000099.1\tRefSeq\tCDS\t36\t47\t.\t+\t0\tID=cds-1;Parent=rna-NM_000099.1;prote
 
 
 def provider(tmp_path: pathlib.Path) -> refseq.RefSeqDataProvider:
-    """A provider over the synthetic chromosome and FWD."""
+    """A provider over the synthetic chromosome and FWD, and an unannotated sequence under a custom name."""
     fasta = tmp_path / "genome.fa"
-    fasta.write_text(f">NC_000099.1\n{GENOME}\n")
+    fasta.write_text(f">NC_000099.1\n{GENOME}\n>AMPLICON1\nACGTACGTAC\n")
     gff = tmp_path / "annotation.gff3"
     gff.write_text(GFF3)
     return refseq.RefSeqDataProvider(str(gff), str(fasta))
@@ -65,3 +68,68 @@ def test_a_missing_pysam_is_an_import_error_a_caller_can_catch() -> None:
 def test_a_coding_variant_projects_across_the_intron_the_annotation_places(tmp_path: pathlib.Path) -> None:
     mapper = weaver.VariantMapper(provider(tmp_path))
     assert mapper.c_to_g(weaver.parse("NM_000099.1:c.13T>A")).format() == "NC_000099.1:g.36T>A"
+
+
+@pytest.mark.parametrize(
+    ("ac", "kind"),
+    [
+        ("NC_000098.1", weaver.IdentifierType.GenomicAccession),
+        ("NM_000098.1", weaver.IdentifierType.TranscriptAccession),
+        ("NP_000098.1", weaver.IdentifierType.ProteinAccession),
+    ],
+)
+def test_a_sequence_the_provider_does_not_hold_is_refused_by_name(
+    tmp_path: pathlib.Path,
+    ac: str,
+    kind: weaver.IdentifierType,
+) -> None:
+    with pytest.raises(weaver.DataProviderError, match=re.escape(f"{ac}: not in the reference data")):
+        provider(tmp_path).get_seq(ac, 0, 5, kind)
+
+
+@pytest.mark.parametrize("variant", ["NC_000098.1:g.10del", "NC_000098.1:g.10A>T"])
+def test_a_variant_on_a_sequence_the_reference_lacks_fails_naming_the_sequence(
+    tmp_path: pathlib.Path,
+    variant: str,
+) -> None:
+    mapper = weaver.VariantMapper(provider(tmp_path))
+    with pytest.raises(weaver.DataProviderError, match=re.escape("NC_000098.1: not in the reference data")):
+        mapper.normalize_variant(weaver.parse(variant))
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "bases"),
+    [
+        (55, 70, "CGATC"),  # the 5 bases before the end of the 60
+        (60, 70, ""),
+        (100, 110, ""),
+    ],
+)
+def test_a_range_past_the_end_of_a_held_sequence_answers_the_bases_there(
+    tmp_path: pathlib.Path,
+    start: int,
+    end: int,
+    bases: str,
+) -> None:
+    assert provider(tmp_path).get_seq("NC_000099.1", start, end, weaver.IdentifierType.GenomicAccession) == bases
+
+
+@pytest.mark.parametrize(
+    ("identifier", "kind"),
+    [
+        ("NC_000099.1", "genomic_accession"),
+        ("AMPLICON1", "genomic_accession"),
+        ("NM_000099.1", "transcript_accession"),
+        ("NP_000099.1", "protein_accession"),
+        ("FWD", "gene_symbol"),
+        ("NC_000098.1", "unknown"),
+        ("NM_000098.1", "unknown"),
+        ("AY286018", "unknown"),
+    ],
+)
+def test_an_identifier_is_classified_by_what_the_provider_holds_under_it(
+    tmp_path: pathlib.Path,
+    identifier: str,
+    kind: str,
+) -> None:
+    assert provider(tmp_path).get_identifier_type(identifier) == kind

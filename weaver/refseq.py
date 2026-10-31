@@ -17,6 +17,8 @@ import typing
 
 import pysam.libcfaidx
 
+import weaver
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,39 +45,30 @@ class SequenceProxy:
         self.references: list[str] = []
 
         if self.mode == "replay":
-            if self.cache_path and os.path.exists(self.cache_path):
-                try:
-                    with open(self.cache_path) as f:
-                        self.cache = json.load(f)
+            if not self.cache_path:
+                raise ValueError("replay mode needs a sequence cache: pass cache_path or set WEAVER_SEQ_CACHE")
+            with open(self.cache_path) as f:
+                self.cache = json.load(f)
 
-                    self._known = self._index_recorded_bases(self.cache)
+            self._known = self._index_recorded_bases(self.cache)
 
-                    # Try to get references from manifest first
-                    manifest_data = self.cache.get("_manifest")
-                    if isinstance(manifest_data, dict):
-                        manifest = typing.cast("dict[str, list[str]]", manifest_data)
-                        fname = os.path.basename(self.fasta_path)
-                        if fname in manifest:
-                            self.references = manifest[fname]
-                    else:
-                        # Fallback: extract unique accessions from keys like "AC:start-end"
-                        refs = set()
-                        for key in self.cache:
-                            if ":" in key and not key.startswith("_"):
-                                refs.add(key.split(":")[0])
-                        self.references = list(refs)
-                except (OSError, json.JSONDecodeError) as e:
-                    logger.error("Failed to load sequence cache from %s: %s", self.cache_path, e)
+            # Try to get references from manifest first
+            manifest_data = self.cache.get("_manifest")
+            if isinstance(manifest_data, dict):
+                manifest = typing.cast("dict[str, list[str]]", manifest_data)
+                fname = os.path.basename(self.fasta_path)
+                if fname in manifest:
+                    self.references = manifest[fname]
             else:
-                logger.warning("Replay mode enabled but cache file not found: %s", self.cache_path)
-        elif os.path.exists(fasta_path):
-            try:
-                self.fasta = pysam.libcfaidx.FastaFile(fasta_path)
-                self.references = list(self.fasta.references)
-            except Exception as e:
-                logger.error("Failed to load FASTA from %s: %s", fasta_path, e)
-        elif self.mode != "replay":
-            logger.warning("FASTA file not found: %s", fasta_path)
+                # Fallback: extract unique accessions from keys like "AC:start-end"
+                refs = set()
+                for key in self.cache:
+                    if ":" in key and not key.startswith("_"):
+                        refs.add(key.split(":")[0])
+                self.references = list(refs)
+        else:
+            self.fasta = pysam.libcfaidx.FastaFile(fasta_path)
+            self.references = list(self.fasta.references)
 
     def fetch(self, ac: str, start: int, end: int | None = None) -> str:
         # Normalize end for consistency in the key (None and -1 should be same)
@@ -89,18 +82,13 @@ class SequenceProxy:
                 return self.cache[key]
             return self._replay_range(ac, start, key_end)
 
-        if not self.fasta:
-            return ""
-
-        try:
-            # pysam handles end=-1 or None as end-of-ref
-            seq = str(self.fasta.fetch(ac, start, end).upper())
-            if self.mode == "record":
-                self.cache[key] = seq
-            return seq
-        except Exception as e:
-            logger.error("Error fetching from FASTA for %s: %s", key, e)
-            return ""
+        if ac not in self.fasta:
+            raise weaver.DataProviderError(f"{ac}: not in the reference data")
+        # pysam handles end=-1 or None as end-of-ref, and answers a range past the end with the bases there
+        seq = str(self.fasta.fetch(ac, start, end).upper())
+        if self.mode == "record":
+            self.cache[key] = seq
+        return seq
 
     @staticmethod
     def _index_recorded_bases(cache: dict[str, str]) -> dict[str, dict[int, str]]:
@@ -130,35 +118,31 @@ class SequenceProxy:
         """
         bases = self._known.get(ac)
         if not bases:
-            logger.error("No recorded sequence for %s in cache", ac)
-            return ""
+            raise weaver.DataProviderError(f"{ac}: not in the recorded sequences {self.cache_path}")
         if end is None:
             end = max(bases) + 1
         return "".join(bases.get(i, "N") for i in range(start, max(start, end)))
 
     def save_cache(self) -> None:
         if self.mode == "record" and self.cache_path:
-            try:
-                # Merge with existing cache if it exists
-                existing = {}
-                if os.path.exists(self.cache_path):
-                    with open(self.cache_path) as f:
-                        existing = json.load(f)
+            # Merge with existing cache if it exists
+            existing = {}
+            if os.path.exists(self.cache_path):
+                with open(self.cache_path) as f:
+                    existing = json.load(f)
 
-                # Update sequences
-                existing.update(self.cache)
+            # Update sequences
+            existing.update(self.cache)
 
-                # Update manifest
-                manifest = existing.setdefault("_manifest", {})
-                fname = os.path.basename(self.fasta_path)
-                manifest[fname] = self.references
+            # Update manifest
+            manifest = existing.setdefault("_manifest", {})
+            fname = os.path.basename(self.fasta_path)
+            manifest[fname] = self.references
 
-                os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
-                with open(self.cache_path, "w") as f:
-                    json.dump(existing, f, indent=2)
-                logger.info("Saved cache with %d sequences and manifest for %s", len(existing) - 1, fname)
-            except Exception as e:
-                logger.error("Failed to save sequence cache to %s: %s", self.cache_path, e)
+            os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
+            with open(self.cache_path, "w") as f:
+                json.dump(existing, f, indent=2)
+            logger.info("Saved cache with %d sequences and manifest for %s", len(existing) - 1, fname)
 
 
 class RefSeqDataProvider:
@@ -363,48 +347,54 @@ class RefSeqDataProvider:
                 return exon["transcript_start"] + (exon["reference_end"] - g_0)
         return None
 
-    def get_seq(self, ac: str, start: int, end: int | None, kind: str, force_plus: bool = False) -> str:
-        """Retrieves a sequence from the provider.
-        ...
+    def get_seq(
+        self,
+        ac: str,
+        start: int,
+        end: int | None,
+        kind: str | weaver.IdentifierType,
+        force_plus: bool = False,
+    ) -> str:
+        """Retrieves the bases or residues of ``ac`` in the 0-based half-open range ``[start, end)``.
+
+        A protein is the translation of its transcript's CDS; a transcript is spliced from the genome.
+
+        Raises:
+            weaver.DataProviderError: If the provider holds no sequence ``ac`` of that kind. A range past the end of
+                a sequence it holds is not an error: it answers the bases there, none if it starts past the end.
         """
-        kind = str(kind).lower()
-        if "proteinaccession" in kind or kind in {"p", "protein_accession"}:
+        kind_name = str(kind).lower()
+        if "proteinaccession" in kind_name or kind_name in {"p", "protein_accession"}:
             res = self.accession_map.get(ac)
             if not res:
-                return ""
+                raise weaver.DataProviderError(f"{ac}: not in the reference data")
             tx_ac, chrom = res
-            tx_seq = self._get_tx_seq(tx_ac, chrom, 0, None, force_plus=force_plus).upper()
-
-            tx_info = self.transcripts.get((tx_ac, chrom))
-            if not tx_info or tx_info.get("cds_start_index") is None:
-                return ""
-
+            tx_info = self.transcripts[(tx_ac, chrom)]
             cds_start = tx_info["cds_start_index"]
             cds_end = tx_info["cds_end_index"]
+            if cds_start is None or cds_end is None:
+                raise weaver.DataProviderError(f"{ac}: the exons of {tx_ac} on {chrom} do not hold its CDS")
 
-            if cds_start is not None and cds_end is not None:
-                cds_seq = tx_seq[cds_start : cds_end + 1]
-                translated = self._translate_cds(cds_seq)
-                if end == -1 or end is None:
-                    return translated[start:]
-                return translated[start:end]
-            return ""
+            tx_seq = self._get_tx_seq(tx_ac, chrom, 0, None, force_plus=force_plus).upper()
+            translated = self._translate_cds(tx_seq[cds_start : cds_end + 1])
+            if end == -1 or end is None:
+                return translated[start:]
+            return translated[start:end]
 
-        if "transcript" in kind.lower() or kind.lower() == "c":
+        if "transcript" in kind_name or kind_name == "c":
             # Need to decide which reference to use if multiple exist
             refs = self.tx_to_refs.get(ac)
             if not refs:
                 # Fallback to versionless match
                 base_ac = ac.split(".")[0]
                 refs = self.versionless_tx_to_refs.get(base_ac)
-                if refs:
-                    # Resolve to actual accession in transcripts
-                    for t_id, _ in self.transcripts:
-                        if t_id.startswith(base_ac + "."):
-                            ac = t_id
-                            break
-                else:
-                    return ""
+                if not refs:
+                    raise weaver.DataProviderError(f"{ac}: not in the reference data")
+                # Resolve to actual accession in transcripts
+                for t_id, _ in self.transcripts:
+                    if t_id.startswith(base_ac + "."):
+                        ac = t_id
+                        break
 
             # Prioritize standard NC chromosomes that exist in the current FASTA
             ref_ac = next((r for r in refs if r.startswith("NC_0000") and r in self.fasta.references), None)
@@ -413,24 +403,13 @@ class RefSeqDataProvider:
 
             return self._get_tx_seq(ac, ref_ac, start, end, force_plus=force_plus).upper()
 
-        if "genomic" in kind.lower() or kind == "g":
-            pass  # Fall through to fasta.fetch
-
-        try:
-            if end == -1 or end is None:
-                return str(self.fasta.fetch(ac, start).upper())
-            return str(self.fasta.fetch(ac, start, end).upper())
-        except Exception as e:
-            # Try fuzzy lookup for genomic fetch too?
-            # pysam.fetch usually needs exact match.
-            logger.error("Error fetching genomic seq for %s: %s", ac, e)
-            return ""
+        if end == -1 or end is None:
+            return str(self.fasta.fetch(ac, start).upper())
+        return str(self.fasta.fetch(ac, start, end).upper())
 
     def _get_full_tx_seq(self, tx_ac: str, ref_ac: str) -> str:
         """Builds and caches the full transcript sequence (respecting strand)."""
-        tx = self.transcripts.get((tx_ac, ref_ac))
-        if not tx:
-            return ""
+        tx = self.transcripts[(tx_ac, ref_ac)]
         seq_parts = []
         # Exons are already ordered 5' -> 3' in tx["exons"]
         for exon in tx["exons"]:
@@ -449,10 +428,7 @@ class RefSeqDataProvider:
 
     def _get_tx_seq(self, tx_ac: str, ref_ac: str, start: int, end: int | None, force_plus: bool = False) -> str:
         """Builds a transcript sequence from genomic exons with optional transformations."""
-        tx = self.transcripts.get((tx_ac, ref_ac))
-        if not tx:
-            return ""
-
+        tx = self.transcripts[(tx_ac, ref_ac)]
         full_seq = self._get_full_tx_seq_cached(tx_ac, ref_ac)
 
         if force_plus and tx["strand"] == -1:
@@ -486,7 +462,7 @@ class RefSeqDataProvider:
                         break
 
         if not refs:
-            raise ValueError(f"Transcript {transcript_ac} not found")
+            raise weaver.DataProviderError(f"{transcript_ac}: not in the reference data")
 
         # Prioritize standard NC chromosomes that exist in the current FASTA
         ref_ac = next((r for r in refs if r.startswith("NC_0000") and r in self.fasta.references), None)
@@ -511,9 +487,9 @@ class RefSeqDataProvider:
             # Ambiguous if multiple refs, but usually protein is same
             try:
                 tx = self.get_transcript(symbol, None)
-                if tx and tx.get("protein_id"):
+                if tx.get("protein_id"):
                     return [("protein_accession", tx["protein_id"])]
-            except Exception:  # noqa: S110
+            except weaver.DataProviderError:
                 pass
         if (
             source_kind == IdentifierKind.Protein
@@ -527,19 +503,17 @@ class RefSeqDataProvider:
         return [("gene_symbol", symbol)]
 
     def get_identifier_type(self, identifier: str) -> str:
-        """Determines the type of the identifier."""
-        if identifier.startswith(("NC_", "NW_", "NT_")):
-            return "genomic_accession"
-        if identifier.startswith(("NM_", "NR_", "XM_", "XR_")):
+        """What the provider holds under ``identifier``, whatever its form; ``unknown`` if it holds nothing.
+
+        A transcript or protein the GFF3 annotates, a sequence in the FASTA, or a gene the GFF3 names.
+        """
+        if identifier in self.tx_to_refs:
             return "transcript_accession"
-        if identifier.startswith(("NP_", "XP_")):
+        if identifier in self.accession_map:
             return "protein_accession"
-        # If it's a known gene symbol
+        if identifier in self.fasta.references:
+            return "genomic_accession"
         if identifier in self.gene_to_transcripts:
-            return "gene_symbol"
-        # Fallback heuristic: simplistic assumption that anything else might be a gene symbol
-        # if it doesn't contain a colon (which would imply pre-parsed variant)
-        if ":" not in identifier:
             return "gene_symbol"
         return "unknown"
 
