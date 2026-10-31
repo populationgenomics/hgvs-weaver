@@ -331,13 +331,14 @@ impl Reading {
             .unwrap_or(self.alt_aa.len())
     }
 
-    /// The last reference codon an edit's description covers when a new stop
-    /// ends it: the touched codons, or at least the first changed one, and
-    /// never past the reference's stop.
+    /// One past the last reference residue an edit's description covers when
+    /// a new stop ends it: the codons the edit touches, or at least the first
+    /// changed one, and never the stop, which the protein record does not
+    /// carry as a residue.
     fn ref_end_at_new_stop(&self) -> usize {
         (self.last_codon + 1)
+            .min(self.stop)
             .max(self.first_changed + 1)
-            .min(self.stop + 1)
             .min(self.ref_aa.len())
     }
 
@@ -462,6 +463,9 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
 /// changed residue is the stop itself (then it reads through: an extension).
 fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
+    if i == t.stop && t.alt_aa.get(i).is_some_and(|&c| c != '*') {
+        return out.extension(i);
+    }
     let inserted_end = t.inserted_end();
     if let Some(j) = (i..t.alt_aa.len()).find(|&j| t.alt_aa[j] == '*') {
         if j * 3 >= t.start() && (j + 1) * 3 <= inserted_end {
@@ -470,9 +474,6 @@ fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsEr
             }
             return out.delins(i, t.ref_end_at_new_stop() - 1, &t.alt_aa[i..=j]);
         }
-    }
-    if i == t.stop && t.alt_aa.get(i).is_some_and(|&c| c != '*') {
-        return out.extension(i);
     }
     out.frameshift(i)
 }
@@ -906,10 +907,26 @@ mod tests {
     #[test]
     fn an_in_frame_change_over_the_stop_names_no_residue_past_it() {
         // c.4_*2inv makes GGC TAA from codon 2 on, a stop among the inverted
-        // bases; the codons it touches run two bases into the 3'UTR.
+        // bases; the codons it touches run two bases into the 3'UTR. The
+        // deleted range ends at the last residue the protein has.
         assert_eq!(
             p(CDS, "CCGTATAAGTAAGG", inv(), 3, 23),
-            "NP:p.Lys2_Ter7delinsGlyTer"
+            "NP:p.Lys2_Arg6delinsGlyTer"
+        );
+        // c.16_*3delinsTGGCAATAA: CGC TAA CCG becomes TGG CAA TAA.
+        assert_eq!(
+            p(CDS, UTR, delins("TGGCAATAA"), 15, 24),
+            "NP:p.Arg6delinsTrpGlnTer"
+        );
+    }
+
+    #[test]
+    fn an_out_of_frame_change_whose_first_change_is_the_stop_is_an_extension() {
+        // c.19_21delinsCAATAAG: TAA becomes CAA, then TAA among the inserted
+        // bases.
+        assert_eq!(
+            p(CDS, UTR, delins("CAATAAG"), 18, 21),
+            "NP:p.Ter7GlnextTer1"
         );
     }
 
