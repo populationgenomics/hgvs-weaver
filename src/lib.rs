@@ -73,6 +73,9 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
         e @ (HgvsError::NotAnExonBorder { .. } | HgvsError::OffsetPastIntron { .. }) => {
             PositionOutsideSequenceError::new_err(context + &e.to_string())
         }
+        e @ HgvsError::WrongReferenceKind { .. } => {
+            ValidationError::new_err(context + &e.to_string())
+        }
         HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
         HgvsError::Ambiguous {

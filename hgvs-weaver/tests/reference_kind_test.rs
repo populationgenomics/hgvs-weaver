@@ -9,7 +9,7 @@
 mod support;
 
 use hgvs_weaver::data::{IdentifierType, Strand};
-use hgvs_weaver::error::HgvsError;
+use hgvs_weaver::error::{HgvsError, ReferenceUse};
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::{parse_hgvs_variant, CVariant, GVariant, SequenceVariant};
 use support::{exon, transcript, Provider};
@@ -42,11 +42,48 @@ fn parse(s: &str) -> SequenceVariant {
     parse_hgvs_variant(s).unwrap()
 }
 
-/// `result` refuses the description for the kind of reference it names.
-fn assert_wrong_kind<T: std::fmt::Debug>(result: Result<T, HgvsError>, needs: &str) {
+/// `result` refuses `accession` as the other kind of sequence from the one a
+/// description of coordinate type `coordinate_type` is written on.
+fn assert_refused_description<T: std::fmt::Debug>(
+    result: Result<T, HgvsError>,
+    accession: &str,
+    coordinate_type: &str,
+) {
     match result {
-        Err(HgvsError::ValidationError(msg)) => assert!(msg.contains(needs), "{msg}"),
-        other => panic!("expected a ValidationError saying it {needs}, got {other:?}"),
+        Err(HgvsError::WrongReferenceKind {
+            accession: ac,
+            read_as,
+            ..
+        }) => assert_eq!(
+            (ac.as_str(), read_as),
+            (
+                accession,
+                ReferenceUse::Description(coordinate_type.to_string())
+            )
+        ),
+        other => panic!(
+            "expected {accession} refused for a {coordinate_type}. description, got {other:?}"
+        ),
+    }
+}
+
+/// `result` refuses `accession`, given to an operation as a protein if
+/// `as_protein`, or else as a nucleotide sequence, as the other kind.
+fn assert_refused_argument<T: std::fmt::Debug>(
+    result: Result<T, HgvsError>,
+    accession: &str,
+    as_protein: bool,
+) {
+    match result {
+        Err(HgvsError::WrongReferenceKind {
+            accession: ac,
+            read_as: read_as @ (ReferenceUse::Protein(_) | ReferenceUse::Nucleotide(_)),
+            ..
+        }) => assert_eq!(
+            (ac.as_str(), read_as.needs_protein()),
+            (accession, as_protein)
+        ),
+        other => panic!("expected the argument {accession} refused, got {other:?}"),
     }
 }
 
@@ -54,20 +91,14 @@ fn assert_wrong_kind<T: std::fmt::Debug>(result: Result<T, HgvsError>, needs: &s
 fn validate_refuses_a_protein_description_on_a_transcript() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.validate(&parse("NM_K.1:p.Ala6Pro")),
-        "needs a protein reference",
-    );
+    assert_refused_description(mapper.validate(&parse("NM_K.1:p.Ala6Pro")), "NM_K.1", "p");
 }
 
 #[test]
 fn validate_refuses_a_protein_description_on_a_genome() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.validate(&parse("NC_K.1:p.Gly1Pro")),
-        "needs a protein reference",
-    );
+    assert_refused_description(mapper.validate(&parse("NC_K.1:p.Gly1Pro")), "NC_K.1", "p");
 }
 
 #[test]
@@ -75,9 +106,10 @@ fn normalize_refuses_a_protein_description_on_a_transcript() {
     // Read as residues, base 6 is A, so this would be a mismatch, not L.
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_description(
         mapper.normalize_variant(parse("NM_K.1:p.Leu6Pro")),
-        "needs a protein reference",
+        "NM_K.1",
+        "p",
     );
 }
 
@@ -85,9 +117,10 @@ fn normalize_refuses_a_protein_description_on_a_transcript() {
 fn to_spdi_refuses_a_protein_description_on_a_transcript() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_description(
         mapper.to_spdi(&parse("NM_K.1:p.Ala6Pro"), false),
-        "needs a protein reference",
+        "NM_K.1",
+        "p",
     );
 }
 
@@ -95,34 +128,18 @@ fn to_spdi_refuses_a_protein_description_on_a_transcript() {
 fn validate_refuses_a_nucleotide_description_on_a_protein() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    for (description, says) in [
-        (
-            "NP_K.1:c.2T>A",
-            "a c. description needs a nucleotide reference",
-        ),
-        (
-            "NP_K.1:n.2T>A",
-            "an n. description needs a nucleotide reference",
-        ),
-        (
-            "NP_K.1:r.2u>a",
-            "an r. description needs a nucleotide reference",
-        ),
-        (
-            "NP_K.1:g.4A>T",
-            "a g. description needs a nucleotide reference",
-        ),
-        (
-            "NP_K.1:m.4A>T",
-            "an m. description needs a nucleotide reference",
-        ),
+    for (description, coordinate_type) in [
+        ("NP_K.1:c.2T>A", "c"),
+        ("NP_K.1:n.2T>A", "n"),
+        ("NP_K.1:r.2u>a", "r"),
+        ("NP_K.1:g.4A>T", "g"),
+        ("NP_K.1:m.4A>T", "m"),
     ] {
-        match mapper.validate(&parse(description)) {
-            Err(HgvsError::ValidationError(msg)) => {
-                assert!(msg.contains(says), "{description}: {msg}")
-            }
-            other => panic!("{description}: expected a ValidationError, got {other:?}"),
-        }
+        assert_refused_description(
+            mapper.validate(&parse(description)),
+            "NP_K.1",
+            coordinate_type,
+        );
     }
 }
 
@@ -131,9 +148,10 @@ fn normalize_refuses_a_genomic_description_on_a_protein() {
     // Residue 4 of NP_K.1 is A, so read as a base the description would hold.
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_description(
         mapper.normalize_variant(parse("NP_K.1:g.4A>T")),
-        "needs a nucleotide reference",
+        "NP_K.1",
+        "g",
     );
 }
 
@@ -169,19 +187,17 @@ fn genomic(s: &str) -> GVariant {
 fn c_to_g_refuses_a_coding_description_on_a_protein() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.c_to_g(&coding("NP_K.1:c.2T>A"), None),
-        "needs a nucleotide reference",
-    );
+    assert_refused_description(mapper.c_to_g(&coding("NP_K.1:c.2T>A"), None), "NP_K.1", "c");
 }
 
 #[test]
 fn c_to_g_refuses_a_protein_as_the_genome_to_project_onto() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_argument(
         mapper.c_to_g(&coding("NM_K.1:c.2T>A"), Some("NP_K.1")),
-        "the genome a transcript variant is projected onto needs a nucleotide reference",
+        "NP_K.1",
+        false,
     );
 }
 
@@ -193,7 +209,7 @@ fn n_to_g_refuses_a_non_coding_description_on_a_protein() {
         SequenceVariant::NonCoding(n) => n,
         other => panic!("{other} is not n."),
     };
-    assert_wrong_kind(mapper.n_to_g(&n, None), "needs a nucleotide reference");
+    assert_refused_description(mapper.n_to_g(&n, None), "NP_K.1", "n");
 }
 
 #[test]
@@ -204,27 +220,21 @@ fn r_to_g_refuses_an_rna_description_on_a_protein() {
         SequenceVariant::Rna(r) => r,
         other => panic!("{other} is not r."),
     };
-    assert_wrong_kind(mapper.r_to_g(&r, None), "needs a nucleotide reference");
+    assert_refused_description(mapper.r_to_g(&r, None), "NP_K.1", "r");
 }
 
 #[test]
 fn c_to_p_refuses_a_coding_description_on_a_protein() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.c_to_p(&coding("NP_K.1:c.2T>A"), None),
-        "needs a nucleotide reference",
-    );
+    assert_refused_description(mapper.c_to_p(&coding("NP_K.1:c.2T>A"), None), "NP_K.1", "c");
 }
 
 #[test]
 fn to_vrs_refuses_a_coding_description_on_a_protein() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.to_vrs(&parse("NP_K.1:c.2T>A")),
-        "a c. description needs a nucleotide reference",
-    );
+    assert_refused_description(mapper.to_vrs(&parse("NP_K.1:c.2T>A")), "NP_K.1", "c");
 }
 
 #[test]
@@ -232,9 +242,10 @@ fn g_to_c_refuses_a_genomic_description_on_a_protein() {
     // Residue 4 of NP_K.1 is A, so read as a base the description would hold.
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_description(
         mapper.g_to_c(&genomic("NP_K.1:g.4A>T"), "NM_K.1"),
-        "needs a nucleotide reference",
+        "NP_K.1",
+        "g",
     );
 }
 
@@ -242,9 +253,10 @@ fn g_to_c_refuses_a_genomic_description_on_a_protein() {
 fn g_to_c_refuses_a_protein_as_the_transcript_to_project_onto() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_argument(
         mapper.g_to_c(&genomic("NC_K.1:g.4A>T"), "NP_K.1"),
-        "the transcript g_to_c projects onto needs a nucleotide reference",
+        "NP_K.1",
+        false,
     );
 }
 
@@ -252,29 +264,10 @@ fn g_to_c_refuses_a_protein_as_the_transcript_to_project_onto() {
 fn g_to_c_all_refuses_a_genomic_description_on_a_protein() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_description(
         mapper.g_to_c_all(&genomic("NP_K.1:g.4A>T"), &provider),
-        "needs a nucleotide reference",
-    );
-}
-
-#[test]
-fn to_spdi_names_the_kind_of_description_it_refuses() {
-    let provider = provider();
-    let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.to_spdi(&parse("NP_K.1:c.2T>A"), false),
-        "a c. description needs a nucleotide reference",
-    );
-}
-
-#[test]
-fn g_to_c_names_the_genomic_description_it_refuses() {
-    let provider = provider();
-    let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
-        mapper.g_to_c(&genomic("NP_K.1:g.4A>T"), "NM_K.1"),
-        "a g. description needs a nucleotide reference",
+        "NP_K.1",
+        "g",
     );
 }
 
@@ -282,9 +275,10 @@ fn g_to_c_names_the_genomic_description_it_refuses() {
 fn c_to_p_refuses_a_genome_as_the_protein_to_predict_on() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_argument(
         mapper.c_to_p(&coding("NM_K.1:c.4A>G"), Some("NC_K.1")),
-        "the protein a prediction is written on needs a protein reference",
+        "NC_K.1",
+        true,
     );
 }
 
@@ -292,9 +286,10 @@ fn c_to_p_refuses_a_genome_as_the_protein_to_predict_on() {
 fn c_to_p_refuses_a_transcript_as_the_protein_to_predict_on() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_argument(
         mapper.c_to_p(&coding("NM_K.1:c.4A>G"), Some("NM_K.1")),
-        "the protein a prediction is written on needs a protein reference",
+        "NM_K.1",
+        true,
     );
 }
 
@@ -302,9 +297,10 @@ fn c_to_p_refuses_a_transcript_as_the_protein_to_predict_on() {
 fn protein_allele_refuses_a_genome_as_the_protein_to_predict_on() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    assert_wrong_kind(
+    assert_refused_argument(
         mapper.protein_allele(&coding("NM_K.1:c.4A>G"), Some("NC_K.1")),
-        "the protein a prediction is written on needs a protein reference",
+        "NC_K.1",
+        true,
     );
 }
 
@@ -316,8 +312,14 @@ fn r_to_p_refuses_a_genome_as_the_protein_to_predict_on() {
         SequenceVariant::Rna(r) => r,
         other => panic!("{other} is not r."),
     };
-    assert_wrong_kind(
-        mapper.r_to_p(&r, Some("NC_K.1")),
-        "the protein a prediction is written on needs a protein reference",
-    );
+    assert_refused_argument(mapper.r_to_p(&r, Some("NC_K.1")), "NC_K.1", true);
+}
+
+#[test]
+fn a_refusal_names_a_description_by_the_name_of_its_letter() {
+    // HGVS letters are read by name: an m., an n., an r., but a c., a g.
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    let err = mapper.validate(&parse("NP_K.1:m.4A>T")).unwrap_err();
+    assert!(err.to_string().contains("an m. description"), "{err}");
 }

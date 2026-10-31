@@ -2787,8 +2787,9 @@ validate  NC_000099.1:g.(20_25)del    →  true                             name
 
 **A `p.` description names residues of a protein, and a `g.`, `m.`, `c.`, `n.` or `r.` description bases of a nucleotide
 sequence. Where the data provider classifies the accession as the other kind, the description is refused with a
-`ValidationError` before any of it is read: `validate` raises it rather than answering false. An accession the provider
-cannot classify is read as written.**
+`ValidationError` (`WrongReferenceKind` in Rust, naming the accession, what it was read as and what the provider says it
+is) before any of it is read: `validate` raises it rather than answering false. An accession the provider cannot
+classify is read as written.**
 
 Read on a transcript, a `p.` residue is compared with a base, and four amino acid letters are base letters:
 `NM_003001.3:p.Ala158Pro` validates where base 158 is A, while `p.Leu158Pro` fails as a stated residue the reference

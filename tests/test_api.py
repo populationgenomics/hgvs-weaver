@@ -196,5 +196,5 @@ def test_validate_answers_false_for_an_offset_from_a_base_inside_an_exon() -> No
 
 def test_validate_refuses_a_protein_description_on_a_transcript() -> None:
     """Base 11 of NM_TEST is A, which read as a residue would be Ala11."""
-    with pytest.raises(weaver.ValidationError, match="needs a protein reference"):
+    with pytest.raises(weaver.ValidationError, match="NM_TEST"):
         weaver.parse("NM_TEST:p.Ala11Pro").validate(MockProvider())

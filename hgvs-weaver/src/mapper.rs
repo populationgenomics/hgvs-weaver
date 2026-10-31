@@ -1,7 +1,7 @@
 use crate::allele::CanonicalAllele;
 use crate::coords::TranscriptPos;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
-use crate::error::HgvsError;
+use crate::error::{HgvsError, ReferenceUse};
 use crate::normalize::{self, ExonBounds, PlacedEdit};
 use crate::reference::ReferenceStore;
 use crate::structs::Anchor;
@@ -832,32 +832,26 @@ pub(crate) fn check_reference_kind(
     read_as: ReadAs<'_>,
 ) -> Result<(), HgvsError> {
     let kind = refs.identifier_type(ac)?;
-    let named = match kind {
-        IdentifierType::TranscriptAccession => "a transcript",
-        IdentifierType::GenomicAccession => "a genomic",
-        IdentifierType::ProteinAccession => "a protein",
-        IdentifierType::GeneSymbol | IdentifierType::Unknown => return Ok(()),
-    };
-    let (protein, subject) = match read_as {
-        ReadAs::Description(ct) => {
-            // The letter's name, not the letter, takes the article: an m., a c.
-            let article = if ct.starts_with(['f', 'h', 'l', 'm', 'n', 'o', 'r', 's', 'x']) {
-                "an"
-            } else {
-                "a"
-            };
-            (ct == "p", format!("{article} {ct}. description"))
-        }
-        ReadAs::Protein(what) => (true, what.to_string()),
-        ReadAs::Nucleotide(what) => (false, what.to_string()),
-    };
-    if protein == (kind == IdentifierType::ProteinAccession) {
+    if matches!(kind, IdentifierType::GeneSymbol | IdentifierType::Unknown) {
         return Ok(());
     }
-    let needs = if protein { "a protein" } else { "a nucleotide" };
-    Err(HgvsError::ValidationError(format!(
-        "{ac} is {named} accession, and {subject} needs {needs} reference"
-    )))
+    let read_as = match read_as {
+        ReadAs::Description(ct) if (ct == "p") != (kind == IdentifierType::ProteinAccession) => {
+            ReferenceUse::Description(ct.to_string())
+        }
+        ReadAs::Protein(what) if kind != IdentifierType::ProteinAccession => {
+            ReferenceUse::Protein(what.to_string())
+        }
+        ReadAs::Nucleotide(what) if kind == IdentifierType::ProteinAccession => {
+            ReferenceUse::Nucleotide(what.to_string())
+        }
+        _ => return Ok(()),
+    };
+    Err(HgvsError::WrongReferenceKind {
+        accession: ac.to_string(),
+        read_as,
+        kind,
+    })
 }
 
 /// `result`, with a [`HgvsError::NotAnExonBorder`] or
