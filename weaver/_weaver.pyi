@@ -626,8 +626,11 @@ class VariantMapper:
         or complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range
         bounds as g.(a_b)_(c_d); other terms have no HGVS form.
         CisPhasedBlock comes back as the allele in cis of its members, g.[a;b] (or
-        p.[a;b]), each member read as an Allele; the members must all lie on one
-        sequence, which may be stated once on the block as the spec allows.
+        p.[a;b]); the members must all lie on one sequence, which may be stated
+        once on the block as the spec allows. Nucleotide members whose locations
+        meet are placed together, every placement of each member's edit within
+        its location tried, and the allele is normalised as one; members a
+        protein block names are read one at a time.
 
         The sequence behind the object's refget accession is named by ``accession``
         when given, else looked up through the Refget given at construction; the
@@ -640,6 +643,8 @@ class VariantMapper:
                 it up from the refget accession.
 
         Raises:
+            AmbiguousDescriptionError: If a CisPhasedBlock's members can be placed
+                to make different sequences.
             HGVSError: If the object is malformed, unsupported, or does not match the
                 sequence.
         """

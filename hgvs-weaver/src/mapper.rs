@@ -777,7 +777,7 @@ fn g_base(n: usize, shift: i32) -> Result<crate::coords::HgvsGenomicPos, HgvsErr
 }
 
 /// The g. interval over the 0-based half-open range `[s, e)`.
-fn interval(s: usize, e: usize) -> Result<SimpleInterval, HgvsError> {
+pub(crate) fn interval(s: usize, e: usize) -> Result<SimpleInterval, HgvsError> {
     let position = |i: usize| -> Result<SimplePosition, HgvsError> {
         Ok(SimplePosition {
             base: g_base(i, 1)?.into(),
@@ -826,7 +826,7 @@ fn bounded_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, Hg
 }
 
 /// The `g.` variant with edit `edit` at `pos` on `ac`.
-fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVariant {
+pub(crate) fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVariant {
     GVariant::from_parts(
         ac.to_string(),
         None,
@@ -3584,7 +3584,10 @@ impl<'a> VariantMapper<'a> {
     /// a `CopyNumberCount` comes back as `g.<start+1>_<end>copyN`, and a
     /// `CopyNumberChange` as `g.<start+1>_<end>dup` for a gain or `del` for a
     /// loss (Range bounds as `(a_b)_(c_d)`); a `CisPhasedBlock` comes back as the
-    /// cis allele of its members, `g.[a;b]` (or `p.`). The sequence is identified by
+    /// cis allele of its members, `g.[a;b]` (or `p.`), nucleotide members whose
+    /// locations meet placed together and the allele normalised as one, an
+    /// [`HgvsError::Ambiguous`] where they can be placed to make different
+    /// sequences. The sequence is identified by
     /// its refget accession: `accession` names it when given, else the
     /// mapper's `Refget` lookup must; the digest is checked against the
     /// sequence either way.
@@ -3727,39 +3730,6 @@ impl<'a> VariantMapper<'a> {
             interval(start, end)?,
             edit,
         )))
-    }
-
-    /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`: each member read
-    /// back as the `Allele` it is, on the sequence `accession` or the first
-    /// member's refget accession names; every member must lie on it.
-    fn cis_phased_from_vrs(
-        &self,
-        json: &str,
-        accession: Option<&str>,
-    ) -> Result<crate::SequenceVariant, HgvsError> {
-        let block = VrsCisPhasedBlock::from_json(json)?;
-        if let (Some(reference), Some(first)) = (&block.sequence_reference, block.members.first()) {
-            let stated = &first.location.sequence_reference.refget_accession;
-            if reference.refget_accession != *stated {
-                return Err(HgvsError::ValidationError(format!(
-                    "The CisPhasedBlock is on {} but its members on {stated}",
-                    reference.refget_accession
-                )));
-            }
-        }
-        let mut ac = accession.map(str::to_string);
-        let mut members = Vec::with_capacity(block.members.len());
-        for member in &block.members {
-            let var = self.from_vrs(&member.to_json(), ac.as_deref())?;
-            ac.get_or_insert_with(|| var.ac().to_string());
-            members.push(var);
-        }
-        let ac = ac.ok_or_else(|| {
-            HgvsError::ValidationError("A CisPhasedBlock has at least one member".into())
-        })?;
-        Ok(crate::SequenceVariant::CisPhased(
-            crate::structs::CisPhasedVariant::new(ac, None, members)?,
-        ))
     }
 
     /// `g.<start+1>_<end>copyN` from a VRS `CopyNumberCount`. HGVS has no

@@ -2589,6 +2589,54 @@ proptest! {
         prop_assert!(before.same_sequence(&after, &reference).unwrap(), "{} and {}", cis, normalised);
     }
 
+    /// An allele that reads, rendered as VRS and read back, makes the
+    /// sequence it made: a block's members are placed together, so members
+    /// whose justified locations overlap still read. A block can say less
+    /// than the allele: where a member normalisation leaves apart, a
+    /// duplication written over an identity's bases, is justified over
+    /// another, the block reads back as ambiguous, and one of its readings
+    /// is the allele's sequence. A block whose meeting members have too many
+    /// placements to try is refused.
+    #[test]
+    fn a_cis_allele_read_back_from_vrs_makes_its_sequence((seq, members) in seq_and_allele()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let cis = genomic_cis(&members);
+        // A member with no sequence names only where it acts, and a block of
+        // one beside an insertion at that junction has no listed reading.
+        let Some(before) = mapper.read_cis(&cis).ok().filter(|r| r.unapplied().is_empty()) else {
+            return Ok(());
+        };
+        let Ok(vrs) = mapper.to_vrs_variation(&SequenceVariant::CisPhased(cis.clone())) else {
+            return Ok(());
+        };
+        let reference = mapper.refs.reference("X", G);
+        let makes_it = |back: SequenceVariant| {
+            let back = as_allele(back);
+            mapper
+                .read_cis(&back)
+                .map_err(|e| format!("{back}, which does not read: {e}"))
+                .and_then(|after| match before.same_sequence(&after, &reference).unwrap() {
+                    true => Ok(()),
+                    false => Err(format!("{back}, another sequence")),
+                })
+        };
+        let outcome = match mapper.from_vrs(&vrs.to_json(), Some("X")) {
+            Ok(back) => makes_it(back),
+            Err(hgvs_weaver::HgvsError::Ambiguous { readings, .. }) => {
+                let tried: Vec<_> = readings.into_iter().map(makes_it).collect();
+                match tried.iter().any(Result::is_ok) {
+                    true => Ok(()),
+                    false => Err(format!("ambiguous, no reading its sequence: {tried:?}")),
+                }
+            }
+            // Too many placements to try is refused, not answered.
+            Err(hgvs_weaver::HgvsError::UnsupportedOperation(m)) if m.contains("placements") => Ok(()),
+            Err(e) => Err(format!("an error: {e}")),
+        };
+        prop_assert!(outcome.is_ok(), "{} reads back from VRS as {}", cis, outcome.unwrap_err());
+    }
+
     /// What an allele normalises to states the bases the allele states, as
     /// `normalize` checks before it answers (see
     /// `normalising_a_cis_allele_keeps_its_sequence`).

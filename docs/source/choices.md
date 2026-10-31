@@ -1539,7 +1539,15 @@ members"; 2.0.1's `CisPhasedBlock` drops the condition. Read back one at a time,
 the only reading that returns an answer. Of the deletion's placements g.3_5, g.4_6, g.5_7 and g.6_8, the first two pass
 beside `g.7A>T` and both make `TTCTGTT`, so the block reads back as `g.4_7delinsT`. A block whose members' minimal edits
 can be placed in ways that make different sequences, as a ga4gh.vrs block for either `GAAAAAG` allele above can, is
-[ambiguous](#an-ambiguous-description-is-an-error-that-lists-its-readings), and reading it back gives both.
+[ambiguous](#an-ambiguous-description-is-an-error-that-lists-its-readings), and reading it back gives both. weaver's own
+blocks need the same reading: `NM_X.1:c.[9_12inv;3_8del]` renders as an identity over c.9_12, whose `GGCC` is its own
+reverse complement, beside a deletion justified over c.2_9, and read back one at a time the deletion lands on c.9.
+Placed together it reads back as `NC_X.1:g.[18_23del;24_27=]`. The placements tried together are those of members whose
+locations overlap or touch, every combination of them, and a set with more than 16,384 combinations is refused with
+`UnsupportedOperation` rather than tried; a protein block is read member by member. A block can say less than the allele
+it was rendered from: where normalisation leaves a member apart from one its VRS location overlaps, a duplication of the
+bases an identity names beside a change further along their run, `g.[1_2=;1_2dup;6C>G]` on `TCTCTCTCTC`, the block is
+ambiguous, and one of its readings is the allele.
 
 **Example** (`NM_X.1` and `NC_X.1` as in [the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make); c.4_12
 reads `AAACTGGCC`, codons 2 to 4, and c.4 is g.19; `NM_S.1` is `NM_X.1` with exon 1 ending at c.5, so c.4_9 reads
@@ -1549,6 +1557,7 @@ reads `AAACTGGCC`, codons 2 to 4, and c.4 is g.19; `NM_S.1` is `NM_X.1` with exo
                                   makes
 on TTCAGCAGTT:
 X:g.[3_5del;7A>T]                 TTCTGTT      →  X:g.4_7delinsT       one at a time: g.[6_8del;7A>T], an overlap
+block of g.3_8 → CAG, g.7 → T      TTCTGTT      →  X:g.4_7delinsT       from_vrs: the deletion placed at g.3_5 or g.4_6
 X:g.[4A>T;6_8del]                 TTCTGTT      →  X:g.4_7delinsT
 X:g.4_7delinsT                    TTCTGTT      →  X:g.4_7delinsT
 on TCTCT:
@@ -1589,6 +1598,7 @@ NM_X.1:c.[4del;6=]                AACTG        →  NM_X.1:c.[5del;6=]       no 
 on GAAAAAG:
 X:g.[2del;4A>T]                   GATAAG       →  X:g.3_4delinsT           both deletions justify over g.2_6
 X:g.[6del;4A>T]                   GAATAG       →  X:g.4_5delinsT
+block of g.2_6 → AAAA, g.4 → T     GATAAG or GAATAG  →  ambiguous: X:g.3_4delinsT | X:g.4_5delinsT
 
                                   c.*1_*5 becomes
 NM_X.1:c.[*1C>A;*3G>T]            ACTTA        →  NM_X.1:c.[*1C>A;*3G>T]   no codon outside the CDS
@@ -1680,7 +1690,10 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::members_sharing_bases_across_a_statement_are_refused`,
   `::normalising_an_ambiguous_allele_raises_with_its_readings`, `::normalising_a_contradictory_allele_raises`,
   `::normalising_an_allele_whose_readings_are_not_listed_raises`,
-  `::members_justified_over_one_run_render_as_the_allele_they_make`; `::an_ambiguity_carries_its_readings` and
+  `::members_justified_over_one_run_render_as_the_allele_they_make`,
+  `::a_block_whose_justified_members_overlap_reads_back_as_the_allele_they_make`,
+  `::a_block_whose_members_can_be_placed_to_make_two_sequences_is_ambiguous`,
+  `::an_allele_whose_rendered_members_overlap_round_trips_through_vrs`; `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
   share a member, which reading the allele already refuses;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
@@ -1700,7 +1713,8 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `a_single_variant_that_makes_the_reference_normalises_to_its_statement`,
   `normalising_a_cis_allele_keeps_its_sequence`, `normalising_a_cis_allele_twice_is_normalising_it_once`,
   `normalising_a_cis_allele_keeps_its_stated_bases`, `normalising_a_cis_allele_does_not_depend_on_member_order`,
-  `normalising_a_transcript_cis_allele_keeps_its_genomic_sequence`, `the_generated_alleles_mostly_normalise` and
+  `normalising_a_transcript_cis_allele_keeps_its_genomic_sequence`,
+  `a_cis_allele_read_back_from_vrs_makes_its_sequence`, `the_generated_alleles_mostly_normalise` and
   `the_generated_transcript_alleles_are_mostly_read` (properties);
   `tests/test_cis_phased.py::test_an_allele_normalised_to_one_change_comes_back_as_a_plain_variant`.
 

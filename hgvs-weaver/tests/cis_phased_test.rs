@@ -461,6 +461,82 @@ fn blocks_from_other_producers_parse() {
     ));
 }
 
+/// A `CisPhasedBlock` on `sequence` of Alleles each replacing the 0-based
+/// `[start, end)` with `alt`, as another producer, justifying each Allele
+/// alone, writes one.
+fn block_on(sequence: &str, members: &[(usize, usize, &str)]) -> String {
+    let refget = refget_accession(sequence);
+    let alleles: Vec<String> = members
+        .iter()
+        .map(|(start, end, alt)| {
+            format!(
+                r#"{{"type":"Allele","location":{{"type":"SequenceLocation",
+                    "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+                    "start":{start},"end":{end}}},
+                    "state":{{"type":"LiteralSequenceExpression","sequence":"{alt}"}}}}"#
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"type":"CisPhasedBlock","members":[{}]}}"#,
+        alleles.join(",")
+    )
+}
+
+#[test]
+fn a_block_whose_justified_members_overlap_reads_back_as_the_allele_they_make() {
+    // g.[3_5del;7A>T] on TTCAGCAGTT: the deletion justified over g.3_8
+    // holds g.7. Placed at g.3_5 or g.4_6 it makes TTCTGTT beside 7A>T.
+    let hdp = normalising_provider();
+    let json = block_on("TTCAGCAGTT", &[(2, 8, "CAG"), (6, 7, "T")]);
+    assert_eq!(
+        VariantMapper::with_refget(&hdp, &hdp)
+            .from_vrs(&json, None)
+            .unwrap()
+            .to_string(),
+        "NC_F.1:g.4_7delinsT"
+    );
+}
+
+#[test]
+fn a_block_whose_members_can_be_placed_to_make_two_sequences_is_ambiguous() {
+    // On GAAAAAG the deletion, justified over g.2_6, goes before 4A>T or
+    // after it: GATAAG or GAATAG.
+    let hdp = normalising_provider();
+    let json = block_on("GAAAAAG", &[(1, 6, "AAAA"), (3, 4, "T")]);
+    let Err(HgvsError::Ambiguous { readings, .. }) =
+        VariantMapper::with_refget(&hdp, &hdp).from_vrs(&json, None)
+    else {
+        panic!("not ambiguous");
+    };
+    assert_eq!(
+        readings
+            .iter()
+            .map(|r| r.to_string())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "NC_K.1:g.3_4delinsT".to_string(),
+            "NC_K.1:g.4_5delinsT".to_string()
+        ])
+    );
+}
+
+#[test]
+fn an_allele_whose_rendered_members_overlap_round_trips_through_vrs() {
+    // c.9_12 is GGCC, its own reverse complement, so the inversion is an
+    // identity; the deletion of c.3_8 is justified over c.2_9, which holds c.9.
+    let hdp = normalising_provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = mapper
+        .to_vrs_variation(&parse_hgvs_variant("NM_X.1:c.[9_12inv;3_8del]").unwrap())
+        .unwrap();
+    let SequenceVariant::CisPhased(back) = mapper.from_vrs(&block.to_json(), None).unwrap() else {
+        panic!("not an allele");
+    };
+    assert!(mapper.read_cis(&back).is_ok(), "{back}");
+    assert_eq!(back.to_string(), "NC_X.1:g.[18_23del;24_27=]");
+}
+
 // Reading an allele into the one sequence its members make: the overlap rule
 // of choices.md, "Overlapping members of a cis allele need one reading", and
 // the ambiguity it can end in.
