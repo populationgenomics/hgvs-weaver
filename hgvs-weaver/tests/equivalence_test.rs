@@ -1175,6 +1175,96 @@ fn two_transcript_provider() -> Provider {
         .protein_for("NM_F.1", "NP_E.1")
 }
 
+/// `NC_G.1` holding one transcript's sequence from g.1, read by two genes:
+/// `NM_A.1` from the `ATG` at c.1 encodes `NP_A.1`, `MLMLLLL`, and `NM_B.1`
+/// from the `ATG` two codons on encodes `NP_B.1`, `MLLLL`. g.18 is the first
+/// base of Leu5 of `NP_A.1` and of Leu3 of `NP_B.1`.
+fn two_gene_provider() -> Provider {
+    let transcript = "GGGGGATGCTGATGCTGCTGCTGCTGTAACCGTATAAGTAAGG";
+    let len = transcript.len() as i32;
+    Provider::new()
+        .sequence("NC_G.1", transcript)
+        .sequence("NM_A.1", transcript)
+        .sequence("NM_B.1", transcript)
+        .sequence("NP_A.1", "MLMLLLL")
+        .sequence("NP_B.1", "MLLLL")
+        .transcript(single_exon_transcript(
+            "NM_A.1",
+            "NC_G.1",
+            0,
+            Strand::Plus,
+            5,
+            28,
+            len,
+        ))
+        .transcript(single_exon_transcript(
+            "NM_B.1",
+            "NC_G.1",
+            0,
+            Strand::Plus,
+            11,
+            28,
+            len,
+        ))
+        .protein_for("NM_A.1", "NP_A.1")
+        .protein_for("NM_B.1", "NP_B.1")
+}
+
+#[test]
+fn a_protein_change_is_not_predicted_by_another_genes_transcript() {
+    // On NM_A.1 g.18C>G predicts p.(Leu5Val), the text of a change NP_B.1
+    // can carry; on NM_B.1, whose protein NP_B.1 is, it predicts p.(Leu3Val).
+    let hdp = two_gene_provider();
+    assert_eq!(
+        level_over(&hdp, "NC_G.1:g.18C>G", "NP_B.1:p.Leu5Val"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_protein_change_is_predicted_by_its_own_genes_transcript() {
+    let hdp = two_gene_provider();
+    assert_eq!(
+        level_over(&hdp, "NC_G.1:g.18C>G", "NP_B.1:p.Leu3Val"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_coding_change_does_not_predict_another_genes_protein() {
+    let hdp = two_gene_provider();
+    assert_eq!(
+        level_over(&hdp, "NM_A.1:c.13C>G", "NP_B.1:p.Leu5Val"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_transcript_paired_with_no_protein_is_an_error() {
+    let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    let hdp = Provider::new()
+        .sequence("NM_X.1", transcript)
+        .sequence("NP_X.1", "MKLAYR")
+        .transcript(single_exon_transcript(
+            "NM_X.1",
+            "NC_X.1",
+            100,
+            Strand::Plus,
+            5,
+            25,
+            transcript.len() as i32,
+        ));
+    let mapper = VariantMapper::new(&hdp);
+    let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &parse_hgvs_variant("NM_X.1:c.4A>C").unwrap(),
+        &parse_hgvs_variant("NP_X.1:p.Lys2Gln").unwrap(),
+    );
+    assert!(
+        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("no protein")),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn a_transcript_that_cannot_predict_does_not_hide_one_that_agrees() {
     // g.12del is c.7del on both: p.(Leu3TrpfsTer?) on NM_E.1, nothing on NM_F.1.

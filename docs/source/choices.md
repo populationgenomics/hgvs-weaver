@@ -219,6 +219,7 @@ Variation Representation Specification 2.0.1.
 | [An uncertain position names no one change](#an-uncertain-position-names-no-one-change)                                             |                               agrees                               |        –         |                –                |        –         |
 | [Judging with no protein sequence is an error](#judging-with-no-protein-sequence-is-an-error)                                       |                                 –                                  |        –         |                –                |        –         |
 | [Versions of one protein accession compare on ours](#versions-of-one-protein-accession-compare-on-ours)                             |                                 –                                  |        –         |                –                |        –         |
+| [A protein description is predicted only on its own transcripts](#a-protein-description-is-predicted-only-on-its-own-transcripts)   |                                 –                                  |        –         |                –                |        –         |
 | [A cis allele is the sequence its members make](#a-cis-allele-is-the-sequence-its-members-make)                                     |               agrees on the protein allele it writes               |        –         |                –                |        –         |
 | [Overlapping members of a cis allele need one reading](#overlapping-members-of-a-cis-allele-need-one-reading)                       |                            **differs**                             |        –         |                –                |        –         |
 | [An ambiguous description is an error that lists its readings](#an-ambiguous-description-is-an-error-that-lists-its-readings)       |                                 –                                  |        –         |                –                |        –         |
@@ -3056,6 +3057,37 @@ NP_X.1:p.Lys2Gln     vs  NP_Y.1:p.Lys2Gln   not equivalent
 
 - **Spec (silent):** none.
 - **Tests:** `protein_allele_from_coding_test::a_coding_variant_agrees_with_every_spelling_of_its_consequence`.
+
+### A protein description is predicted only on its own transcripts
+
+**A nucleotide variant is compared with a `p.` description through the coding transcripts the data provider pairs with
+that protein, any version of it. A transcript of another protein contributes nothing, so a variant whose only coding
+transcripts encode other proteins is Different. A transcript the provider pairs with no protein is an error, unless
+another transcript makes the two equivalent.**
+
+A `g.` variant lies on every transcript that overlaps it, and where two genes overlap, or one gene's transcripts read
+different frames, a variant changes a residue of each protein, numbered by each. A prediction made on one gene's
+transcript is a statement about that gene's protein; written with the other protein's accession, its text can coincide
+with a change the other protein could carry and match a description it says nothing about. The pairing is the
+provider's, the same one that names the protein when `c_to_p` is given none; a transcript it pairs with nothing is a
+question it cannot answer, so the pair is refused rather than judged Different. The same holds for a `c.` variant
+compared with the protein of another transcript.
+
+**Example** (`NC_G.1` carries two genes: `NM_A.1` encodes `NP_A.1`, `MLMLLLL`, and `NM_B.1`, from an `ATG` two codons
+on, `NP_B.1`, `MLLLL`; g.18 is in Leu5 of the first and Leu3 of the second):
+
+```text
+NC_G.1:g.18C>G   vs  NP_B.1:p.Leu3Val   Identity: NM_B.1 predicts it
+NC_G.1:g.18C>G   vs  NP_B.1:p.Leu5Val   Different: only NM_A.1 predicts Leu5Val, of NP_A.1
+NM_A.1:c.13C>G   vs  NP_B.1:p.Leu5Val   Different
+NM_X.1:c.4A>C    vs  NP_X.1:p.Lys2Gln   ValidationError when the provider pairs NM_X.1 with no protein
+```
+
+- **Others:** not checked.
+- **Spec (silent):** none; HGVS describes, it does not compare.
+- **Tests:** `equivalence_test::a_protein_change_is_not_predicted_by_another_genes_transcript`,
+  `::a_protein_change_is_predicted_by_its_own_genes_transcript`,
+  `::a_coding_change_does_not_predict_another_genes_protein`, `::a_transcript_paired_with_no_protein_is_an_error`.
 
 ### A cis allele is the sequence its members make
 

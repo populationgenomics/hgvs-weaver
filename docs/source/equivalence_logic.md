@@ -78,12 +78,14 @@ names no stretch of residues to replace (an uncertain range, `p.Met1?`, `p.?`) i
 ### Nucleotide against protein
 
 The nucleotide variant is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or `n.` is projected
-and the `searcher` names the transcripts), and on each its predicted `p.` description is compared with the given one by
-the rule for two protein descriptions ([below](#protein-against-protein)). So a coding change is Identity with its
-prediction in any spelling (`c.1799T>A` against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise Analogous
-when the two can leave the same protein. The pair is as equivalent as the best transcript makes it; a transcript whose
-prediction fails makes the pair an error only when no transcript makes it equivalent, and a description that does not
-read on its protein is an error whatever the transcripts predict.
+and the `searcher` names the transcripts). Of those, only the transcripts the provider pairs with the description's
+protein take part ([the choice](choices.md#a-protein-description-is-predicted-only-on-its-own-transcripts)), and on each
+its predicted `p.` description is compared with the given one by the rule for two protein descriptions
+([below](#protein-against-protein)). So a coding change is Identity with its prediction in any spelling (`c.1799T>A`
+against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise Analogous when the two can leave the same protein.
+The pair is as equivalent as the best transcript makes it; a transcript whose prediction fails makes the pair an error
+only when no transcript makes it equivalent, and a description that does not read on its protein is an error whatever
+the transcripts predict.
 
 A nucleotide allele in cis (`c.`, or `g.`, `n.` or `r.` taken to its coding transcripts) is compared the same way, by
 the prediction read from the sequence its members make together; where that prediction is a protein allele, it is

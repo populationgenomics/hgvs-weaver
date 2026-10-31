@@ -34,7 +34,8 @@ fn provider() -> Provider {
             Strand::Plus,
             Some((0, 3000)),
             vec![],
-        ));
+        ))
+        .protein_for("NM_BRAF", "NP_BRAF");
     // One minus-strand exon: transcript index i is genomic index 4000 - i, so
     // the record is the reverse complement of genome[1000..=4000]: c.35 is a T
     // (over the genome's A) and c.2673 an A (over the genome's T).
