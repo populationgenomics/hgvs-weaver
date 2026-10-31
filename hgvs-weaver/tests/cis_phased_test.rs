@@ -2391,6 +2391,18 @@ fn predicted(hgvs: &str) -> String {
         .to_string()
 }
 
+/// What `c_to_p` predicts for the single variant `hgvs`.
+fn predicted_single(hgvs: &str) -> String {
+    let hdp = protein_provider();
+    let SequenceVariant::Coding(single) = parse_hgvs_variant(hgvs).unwrap() else {
+        panic!("{hgvs} is not a c. variant");
+    };
+    VariantMapper::new(&hdp)
+        .c_to_p(&single, None)
+        .unwrap_or_else(|e| panic!("{hgvs}: {e}"))
+        .to_string()
+}
+
 #[test]
 fn members_in_one_codon_predict_one_residue() {
     // AAA becomes TAT, Tyr; alone the members would be Lys2Ter and Lys2Asn.
@@ -2709,6 +2721,23 @@ fn a_member_in_the_5_utr_beside_a_start_codon_change_is_an_unknown_change_from_m
 }
 
 #[test]
+fn a_5_utr_insertion_whose_3_prime_spelling_passes_a_changed_first_base_is_read_with_it() {
+    // GG|ATG becomes GGAG|CTG. Alone, the insertion's 3'-most spelling is
+    // after c.1, which the substitution changes; together they are
+    // c.1_2insGC.
+    assert_eq!(
+        (
+            predicted("NM_X.1:c.[-2_-1insGA;1A>C]"),
+            predicted_single("NM_X.1:c.1_2insGC")
+        ),
+        (
+            "NP_X.1:p.(Met1?)".to_string(),
+            "NP_X.1:p.(Met1?)".to_string()
+        )
+    );
+}
+
+#[test]
 fn a_member_writing_the_start_codon_back_states_it_unchanged() {
     assert_eq!(
         predicted("NM_X.1:c.[1_3delinsATG;4A>C]"),
@@ -2867,6 +2896,23 @@ fn a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension() {
     assert_eq!(
         predicted("NM_X.1:c.[20del;*2_*3insA]"),
         "NP_X.1:p.(Ter7TyrextTer4)"
+    );
+}
+
+#[test]
+fn a_member_reaching_past_the_stop_whose_change_lies_before_it_is_read_with_the_rest() {
+    // TAT CGC TAA becomes TAT GGC GCT AAC TAA: the duplication's copy goes
+    // after the stop as written, but the change the two members make is
+    // c.16_17delinsGGCGCTAA, before it.
+    assert_eq!(
+        (
+            predicted("NM_X.1:c.[15_16insGG;18_21dup]"),
+            predicted_single("NM_X.1:c.16_17delinsGGCGCTAA")
+        ),
+        (
+            "NP_X.1:p.(Arg6delinsGlyAlaAsn)".to_string(),
+            "NP_X.1:p.(Arg6delinsGlyAlaAsn)".to_string()
+        )
     );
 }
 

@@ -3048,23 +3048,28 @@ Where the members lie is read as it is for one change. Each member is placed on 
 [a single change is](#a-change-to-the-start-codon-is-an-unknown-change-from-met1), and if the change then alters the
 first codon the prediction is `p.(Met1?)`. A member wholly in the 5'UTR, beside changes that leave the first codon,
 makes the protein `p.?`, as it does alone, since weaver does not read the 5'UTR for a new start: `c.[-3G>A;13T>G]` is
-`p.?`, the same as the delins `c.-3_13delinsAGGATGAAACTGGCCG` it makes, which keeps the ATG in place. Two members whose
-3'-most spellings overlap are not read together, and the allele is refused. A change in an intron is read on no codon,
-so an allele with one predicts `p.?`, while identities state the whole codons they cover between them, an intron between
-them or not. A member past the stop codon enters the reading only where translation of the edited sequence reaches it:
-`c.[13T>G;*3G>A]` is `p.(Tyr5Asp)`, while `c.[19T>C;*6T>A]` loses the stop and finds a new one two codons on,
-`p.(Ter7GlnextTer2)`. Where a member past the stop turns the members before it from in frame to out of frame, or back,
-the read-through is neither their frameshift nor their in-frame change, and the allele is refused: `c.[19T>C;*2del]`.
-The exception is a frame shifted at the stop itself and restored past it, which reads in frame as an extension,
-`c.[20del;*2_*3insA]` giving `p.(Ter7TyrextTer4)`. A frameshift that a later member shifts again stays a frameshift,
-read from the sequence. A deletion of the whole CDS, apart from the other members, is `p.0?`; merged with a member
-beside it, it is the delins they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone:
-nothing is stated beside them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to
-read, so `c_to_p` refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a
-contradictory or ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is predicted
-unless the change its members make, or one of the changes it is finally written as, needs a base past the last whole
-codon the record carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is
-`p.[(Ala2Val;Gly10Glu)]` on a ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
+`p.?`, the same as the delins `c.-3_13delinsAGGATGAAACTGGCCG` it makes, which keeps the ATG in place. A member's 3'-most
+spelling is found against the reference, which is not what the allele makes where another member lies on the way, so
+members whose moves reach each other are placed as the one change they make, until no two do, as a single delins of them
+would be: in `c.[-2_-1insGA;1A>C]` the insertion alone moves past c.1, which the substitution changes, and the two
+together are `c.1_2insGC`, `p.(Met1?)`. A change in an intron is read on no codon, so an allele with one predicts `p.?`,
+while identities state the whole codons they cover between them, an intron between them or not. A member past the stop
+codon enters the reading only where translation of the edited sequence reaches it: `c.[13T>G;*3G>A]` is `p.(Tyr5Asp)`,
+while `c.[19T>C;*6T>A]` loses the stop and finds a new one two codons on, `p.(Ter7GlnextTer2)`. Where a member past the
+stop turns the members before it from in frame to out of frame, or back, the read-through is neither their frameshift
+nor their in-frame change, and the allele is refused: `c.[19T>C;*2del]`. A member is past the stop only where the change
+the members make needs a base past it in every spelling: `c.[15_16insGG;18_21dup]` writes its copy after the stop, but
+makes what `c.16_17delinsGGCGCTAA` makes, and is `p.(Arg6delinsGlyAlaAsn)` as that is. The exception is a frame shifted
+at the stop itself and restored past it, which reads in frame as an extension, `c.[20del;*2_*3insA]` giving
+`p.(Ter7TyrextTer4)`. A frameshift that a later member shifts again stays a frameshift, read from the sequence. A
+deletion of the whole CDS, apart from the other members, is `p.0?`; merged with a member beside it, it is the delins
+they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing is stated beside
+them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to read, so `c_to_p`
+refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a contradictory or
+ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is predicted unless the change
+its members make, or one of the changes it is finally written as, needs a base past the last whole codon the record
+carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is `p.[(Ala2Val;Gly10Glu)]` on a
+ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
 
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement (the whole-sequence
@@ -3173,9 +3178,11 @@ NM_X.1:c.[1_3=;5del]                   →  NP_X.1:p.[(Met1=;Lys2AsnfsTer?)]    
 NM_X.1:c.[5del;13_15=]                 →  NP_X.1:p.(Lys2AsnfsTer?)             one after it adds nothing
 NM_X.1:c.[1A>G;13T>G]                  →  NP_X.1:p.(Met1?)
 NM_X.1:c.[-3G>A;13T>G]                 →  NP_X.1:p.?                           the 5'UTR member; the first codon untouched
+NM_X.1:c.[-2_-1insGA;1A>C]             →  NP_X.1:p.(Met1?)                     placed together: c.1_2insGC
 NM_X.1:c.[13T>G;*3G>A]                 →  NP_X.1:p.(Tyr5Asp)                   translation stops before c.*3
 NM_X.1:c.[19T>C;*6T>A]                 →  NP_X.1:p.(Ter7GlnextTer2)            the read-through reaches c.*6
 NM_X.1:c.[19T>C;*2del]                 →  refused: c.*2del shifts the read-through's frame
+NM_X.1:c.[15_16insGG;18_21dup]         →  NP_X.1:p.(Arg6delinsGlyAlaAsn)       as c.16_17delinsGGCGCTAA: nothing past the stop
 NM_X.1:c.[20del;*2_*3insA]             →  NP_X.1:p.(Ter7TyrextTer4)            shifted at the stop, restored past it
 NM_X.1:c.[12C>T;13_15=]                →  NP_X.1:p.(Ala4_Tyr5=)                a silent change and a statement, one run
 NM_S.1:c.[5+2T>A;13T>G]                →  NP_X.1:p.?                           a change in the intron
@@ -3306,6 +3313,7 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::members_only_in_the_3_utr_leave_the_protein_unchanged`,
   `::a_member_changing_the_start_codon_is_an_unknown_change_from_met1`,
   `::a_member_in_the_5_utr_beside_a_start_codon_change_is_an_unknown_change_from_met1`,
+  `::a_5_utr_insertion_whose_3_prime_spelling_passes_a_changed_first_base_is_read_with_it`,
   `::a_member_writing_the_start_codon_back_states_it_unchanged`, `::a_non_aug_start_stated_unchanged_is_met1`,
   `::a_selenocysteine_stated_unchanged_is_sec`, `::a_minus_strand_allele_predicts_from_its_transcript`,
   `::an_intronic_change_beside_a_cds_change_makes_the_protein_unknown`,
@@ -3328,6 +3336,7 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::a_member_deleting_the_whole_cds_predicts_no_protein`, `::a_member_deleting_the_whole_cds_leaves_no_residues`,
   `::a_member_past_the_stop_that_shifts_the_read_through_is_refused`,
   `::a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension`,
+  `::a_member_reaching_past_the_stop_whose_change_lies_before_it_is_read_with_the_rest`,
   `::an_allele_of_one_member_predicts_what_its_member_does`; `an_allele_leaves_the_protein_its_one_delins_leaves`,
   `the_generated_alleles_inside_the_codons_are_mostly_compared` (properties);
   `tests/test_cis_phased.py::test_c_to_p_predicts_the_protein_the_members_make_together`,

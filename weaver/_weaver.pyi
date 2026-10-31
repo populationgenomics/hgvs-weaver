@@ -241,8 +241,8 @@ class VariantMapper:
                 allele in cis of c. members.
             UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own,
                 or an allele with a member at an uncertain position or whose bases
-                are not stated, two members whose 3'-most spellings overlap, or a
-                member past the stop that shifts the frame of the read-through.
+                are not stated, or a member past the stop that shifts the frame of
+                the read-through.
             NoProteinStatementError: If var_c is an identity that covers no whole codon,
                 which states bases and no residue, or an allele that changes
                 nothing and states no whole codon.
