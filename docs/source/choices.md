@@ -574,16 +574,19 @@ change. So the change is written over the source's run alone, as a deletion of t
 the copies it adds, or the run's bases replaced where it adds more than the run holds; a count known only as a range is
 refused. A transcript run that crosses an exon junction is refused, whichever side the repeat is written on: copies
 added to or removed from it could go on either side of the intron, so a `c.` count over it has no single place on the
-genome, and a genomic repeat whose run the next exon continues would be written as that `c.` count. Counting only the
-copies within the starting exon would answer instead, at the price of a `c.` count that is not the transcript's total,
-which the specification defines it to be.
+genome, and a genomic repeat whose run the next exon continues, or whose run crosses an intron from one exon into the
+next, would be written as that `c.` count. A genomic run read on in the transcript's sense past a base the record lacks
+or holds differently is refused for the same reason as a count over it. Counting only the copies within the starting
+exon would answer instead, at the price of a `c.` count that is not the transcript's total, which the specification
+defines it to be.
 
 **Example** (`NC_REP.1` is `TTTTT GCCATT GCCATT GCCATT AAAAA…`; `NM_REP_MINUS.1` reads it on the minus strand, where the
 run is `AATGGC` from c.78. `NM_REV.1` is `ATGAAACAGCAGCAGTTCTAAGG` on the minus strand of `NC_000099.1`, c.4_6 `AAA` at
 g.28_30; `NM_EDGE.1`'s exon 1 ends `GTGT` and its intron opens `GT`; `NM_INT.1` is on the minus strand with c.6+4_7-5
-`AAAA` at g.23_26; `NM_DIFF.1` is `NM_REV.1`'s sequence on the plus strand of `NC_000096.1`, its c.4_6 `AAA` over a
-genomic `AAG` at g.14_16; `NM_GAPI.1` aligns `ATGAAATGACC` to `NC_000091.1` as `5M1I5M`, the genome lacking c.6, the
-last A of the run c.4_6):
+`AAAA` at g.23_26; `NM_MIR.1` is on the minus strand of `NC_000084.1`, where g.18_26 is nine T, c.7, an intron of five
+and c.4_6; `NM_DIFF.1` is `NM_REV.1`'s sequence on the plus strand of `NC_000096.1`, its c.4_6 `AAA` over a genomic
+`AAG` at g.14_16; `NM_GAPI.1` aligns `ATGAAATGACC` to `NC_000091.1` as `5M1I5M`, the genome lacking c.6, the last A of
+the run c.4_6):
 
 ```text
 NM_REP_MINUS.1:c.78AATGGC[4]  →  NC_REP.1:g.6_23GCCATT[4]           the whole run, in plus-strand orientation
@@ -596,6 +599,7 @@ NM_INT.1:c.6+5A[4]            →  NC_000094.1:g.23_26T[5]            three A be
 NC_000094.1:g.25T[4]          →  NM_INT.1:c.6+4_7-5A[6]
 NM_EDGE.1:c.7TG[3]            →  UnsupportedOperation               the run crosses the junction after c.9
 NC_000095.1:g.15A[3]          →  UnsupportedOperation               NM_JX.1's run of A carries on into exon 2
+NC_000084.1:g.18T[10]         →  UnsupportedOperation               the genome's run crosses NM_MIR.1's intron
 NC_000096.1:g.14A[3]          →  NM_DIFF.1:c.5dup                   the record's A at c.6 is not the genome's
 NC_000096.1:g.14A[(2_3)]      →  UnsupportedOperation
 NC_000091.1:g.14A[3]          →  NM_GAPI.1:c.5dup                   the genome lacks c.6

@@ -1678,15 +1678,14 @@ proptest! {
             Err(HgvsError::UnsupportedOperation(m)) if m.contains("exon junction") => return Ok(()),
             Err(err) => return Err(TestCaseError::fail(format!("{vc}: {err}"))),
         };
-        // A run the intron continues is read back on the genome alone, past
-        // bases the record does not share: not this property's concern.
-        let pos = vg.posedit.pos.as_ref().unwrap();
-        let first = pos.start.index().unwrap().0;
-        let last = pos.end.as_ref().map_or(first, |e| e.index().unwrap().0);
-        prop_assume!(exon.reference_start.0 <= first && last <= exon.reference_end.0);
-        let back = mapper
-            .g_to_c(&vg, &g.ac)
-            .map_err(|err| TestCaseError::fail(format!("{vc} projected to {vg}: {err}")))?;
+        let back = match mapper.g_to_c(&vg, &g.ac) {
+            Ok(back) => back,
+            // The genome's run crosses an intron into another exon, or the
+            // transcript's run reaches past it over a base the genome lacks.
+            Err(HgvsError::UnsupportedOperation(m))
+                if m.contains("exon junction") || m.contains("does not share") => return Ok(()),
+            Err(err) => return Err(TestCaseError::fail(format!("{vc} projected to {vg}: {err}"))),
+        };
         let again = mapper
             .c_to_g(&back, None)
             .map_err(|err| TestCaseError::fail(format!("{vc} through {vg} back to {back}: {err}")))?;

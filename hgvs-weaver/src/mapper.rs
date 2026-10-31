@@ -2200,6 +2200,13 @@ impl<'a> VariantMapper<'a> {
             let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
                 (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
             });
+            let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
+            if repeat && !within_one_exon(&am, t_lo as i32, t_hi as i32) {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run across an intron, which the transcript holds across an \
+                     exon junction: the transcript's count has no single place on the genome"
+                )));
+            }
             let (edit, s, e) = if read_over_the_genomic_range(&am, edit, (t_lo, t_hi)) {
                 if touches_run {
                     return Err(ends_in_a_run_across_a_junction(&var_g.to_string()));
@@ -2429,6 +2436,33 @@ impl<'a> VariantMapper<'a> {
         let lo = run_down(&genome, &unit, end)?;
         if lo >= start {
             return Ok((interval, edit));
+        }
+        let record = self
+            .refs
+            .reference(&am.transcript.ac, IdentifierType::TranscriptAccession);
+        let mut exon = None;
+        for i in lo..end {
+            let fp = am.g_to_n_footprint(GenomicPos(i as i32))?;
+            if fp.offset.0 != 0 {
+                continue;
+            }
+            if i < start && !record_holds_the_genomes_base(am, &genome, &record, i)? {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run the transcript continues over a base {} does not \
+                     share with {}: the transcript's count would count it",
+                    am.transcript.ac, var_g.ac
+                )));
+            }
+            let holding = am.exons.iter().position(|x| {
+                x.transcript_start.0 <= fp.range.0 .0 && fp.range.0 .0 < x.transcript_end.0
+            });
+            if exon.is_some() && holding != exon {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run the transcript continues across an exon junction: \
+                     the transcript's count has no single place on the genome"
+                )));
+            }
+            exon = holding.or(exon);
         }
         let more = (start - lo) / unit.len();
         let extended = SimpleInterval {

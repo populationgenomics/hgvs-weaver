@@ -275,6 +275,30 @@ fn intronic_minus() -> Provider {
         ))
 }
 
+/// `NM_MIR.1` on the minus strand of `NC_000084.1`: exon 1 `ATGAAA` (c.1 to
+/// c.6, g.24 to g.29), an intron that reads `AAAAA` in the transcript's
+/// sense (g.19 to g.23), and exon 2 `ACCTAAGG` (c.7 to c.14, g.11 to g.18).
+/// The genome's run of T, g.18_26, is c.7, the intron and c.4_6.
+fn across_the_intron_minus() -> Provider {
+    let pre_mrna = "ATGAAAAAAAAACCTAAGG";
+    Provider::new()
+        .sequence(
+            "NC_000084.1",
+            &format!("{FLANK}{}{FLANK}", revcomp(pre_mrna)),
+        )
+        .sequence("NM_MIR.1", "ATGAAAACCTAAGG")
+        .transcript(transcript(
+            "NM_MIR.1",
+            "NC_000084.1",
+            Strand::Minus,
+            Some((0, 11)),
+            vec![
+                exon((0, 6), (23, 28), Strand::Minus),
+                exon((6, 14), (10, 17), Strand::Minus),
+            ],
+        ))
+}
+
 fn parse(s: &str) -> SequenceVariant {
     parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"))
 }
@@ -565,6 +589,53 @@ fn a_genomic_repeat_the_transcript_continues_across_a_junction_has_no_coding_for
     assert!(
         matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
         "expected UnsupportedOperation naming the junction, got {err:?}"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_whose_run_crosses_an_intron_between_two_exons_has_no_coding_form() {
+    // g.18_26 is nine T: c.7, the intron and c.4_6. The transcript's run of
+    // A, c.4_7, crosses the junction after c.6.
+    let err = VariantMapper::new(&across_the_intron_minus())
+        .g_to_c(&genomic("NC_000084.1:g.18T[10]"), "NM_MIR.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
+        "expected UnsupportedOperation naming the junction, got {err:?}"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_the_transcript_reads_on_over_a_base_the_record_lacks_is_refused() {
+    // NM_DFL.1, `CATGTTTTTTTTTTAAAAA` on the minus strand of NC_000083.1 at
+    // g.3 to g.22 (cigar 1M1D18M): c.-1 is g.22, and g.21, a G the record
+    // lacks, lies between it and c.1. The genome's run of G from g.22 is
+    // g.22_23, the flank's g.23 included; read on downwards in the
+    // transcript's sense, it would take in g.21.
+    let tx = "CATGTTTTTTTTTTAAAAA";
+    let hdp = Provider::new()
+        .sequence("NC_000083.1", "GATTTTTAAAAAAAAAACATGGGA")
+        .sequence("NM_DFL.1", tx)
+        .transcript(transcript(
+            "NM_DFL.1",
+            "NC_000083.1",
+            Strand::Minus,
+            Some((1, 15)),
+            vec![ExonData::new(
+                TranscriptPos(0),
+                TranscriptPos(19),
+                GenomicPos(2),
+                GenomicPos(21),
+                Strand::Minus,
+                "1M1D18M",
+            )],
+        ));
+    let err = VariantMapper::new(&hdp)
+        .g_to_c(&genomic("NC_000083.1:g.22G[6]"), "NM_DFL.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("does not share")),
+        "expected UnsupportedOperation, got {err:?}"
     );
 }
 
