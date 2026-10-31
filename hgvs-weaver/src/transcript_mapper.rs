@@ -299,6 +299,19 @@ impl TranscriptMapper {
         Ok((start, TranscriptPos(end)))
     }
 
+    /// Refuses an intronic offset, at either end of `interval`, counted from a
+    /// base that is not the exon border its sign needs
+    /// ([`HgvsError::NotAnExonBorder`]). An uncertain interval is checked too,
+    /// though it names no one range to project.
+    pub fn check_borders(&self, interval: &BaseOffsetInterval) -> Result<(), HgvsError> {
+        for pos in std::iter::once(&interval.start).chain(&interval.end) {
+            if pos.offset.is_some_and(|o| o.0 != 0) {
+                self.position_to_g(pos)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Resolves a c./n. interval to a half-open 0-based genomic range `[start, end)`
     /// on the transcript's reference, ordered low-to-high regardless of strand.
     /// The range holds the genome bases the interval's bases align to; it is

@@ -766,6 +766,7 @@ validate NM_B.1:c.8-1del      →  true
 validate NM_B.1:c.9-1del      →  false                          c.9 is inside exon 2
 c_to_g   NM_B.1:c.9-1del      →  PositionOutsideSequenceError   not the genomic base of c.8
 validate NM_B.1:c.8+1del      →  false                          +k counts from an exon's last base
+normalize NM_B.1:c.(6+1_8-1)del  →  PositionOutsideSequenceError   an uncertain range is read for its ends too
 validate NM_B.1:c.-3-1del     →  true                           upstream of the transcript's first base
 validate NM_B.1:c.-2-1del     →  false
 validate NM_B.1:c.*3+1del     →  true                           downstream of its last
@@ -788,6 +789,7 @@ c_to_g   NM_GD.1:c.16+1del    →  NC_B.1:g.41del                 not g.40, the 
   `::an_offset_upstream_of_the_transcripts_first_base_validates`,
   `::an_offset_downstream_of_the_transcripts_last_base_validates`,
   `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused`,
+  `::normalize_refuses_an_uncertain_range_with_an_end_offset_from_inside_an_exon`,
   `::an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end`,
   `::an_offset_after_an_exon_the_genome_runs_past_counts_from_the_exons_genome_end` (the rows above), and the file's
   other tests: normalisation, `c_to_p`, `to_spdi`, a range, the minus strand, `n.` and `r.`, an exon starting with a

@@ -3330,6 +3330,7 @@ impl<'a> VariantMapper<'a> {
             return Ok(v);
         };
         if !pos.is_exact() {
+            am.check_borders(pos)?;
             return Ok(v);
         }
         if has_intronic_offset(pos) {
