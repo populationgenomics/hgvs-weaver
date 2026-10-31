@@ -1054,6 +1054,22 @@ proptest! {
 
         let ref_aa = translate(&g.transcript_seq[g.cds_start..]);
         let alt_aa = translate(&alt_tx[g.cds_start..]);
+        if let AaEdit::Ext { alt, end: hgvs_weaver::edits::ExtensionEnd::Stop { distance } } = &vp.posedit.edit {
+            // An extension names the residues before the stop unchanged, the
+            // residue that replaces it, and where the next stop falls.
+            let s = vp.posedit.pos.as_ref().unwrap().start.base.to_index().0 as usize;
+            let translated = up_to_stop(&alt_aa);
+            let named = format!("{}{}", &ref_aa[..s], aa3_to_aa1(alt));
+            prop_assert!(translated.starts_with(&named), "{} does not describe {}", described, translated);
+            match distance {
+                hgvs_weaver::edits::StopDistance::Residues { count } => {
+                    prop_assert_eq!(translated.len(), s + count.get() as usize + 1, "{}", described);
+                }
+                hgvs_weaver::edits::StopDistance::Unknown => prop_assert!(!translated.ends_with('*'), "{}", described),
+                hgvs_weaver::edits::StopDistance::Unstated => prop_assert!(false, "{} states no stop", described),
+            }
+            return Ok(());
+        }
         let Some(applied) = apply_protein(&ref_aa, &vp) else {
             prop_assert!(false, "unmodelled description {described}");
             unreachable!()

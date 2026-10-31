@@ -200,7 +200,7 @@ Variation Representation Specification 2.0.1.
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                                 –                                  |     differs      |                –                |        –         |
 | [The protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)                                         |                               silent                               |        –         |                –                |        –         |
 | [A frameshift that starts at the stop is an extension](#a-frameshift-that-starts-at-the-stop-is-an-extension)                       |                               agrees                               |      agrees      |                –                |      agrees      |
-| [An extension needs the stop codon itself to change](#an-extension-needs-the-stop-codon-itself-to-change)                           |                            **differs**                             |     differs      |                –                |        –         |
+| [Residues added before a kept stop are an extension](#residues-added-before-a-kept-stop-are-an-extension)                           |                               agrees                               |      agrees      |                –                |     differs      |
 | [A stop lost after an earlier change is a frameshift](#a-stop-lost-after-an-earlier-change-is-a-frameshift)                         |                               agrees                               |     differs      |                –                |        –         |
 | [A stop formed inside inserted bases is a delins ending in Ter](#a-stop-formed-inside-inserted-bases-is-a-delins-ending-in-ter)     |                               agrees                               |        –         |                –                |        –         |
 | [In-frame changes are written 3'-most](#in-frame-changes-are-written-3-most)                                                        |                               agrees                               |        –         |                –                | spelling differs |
@@ -1809,51 +1809,60 @@ toy c.17_18del                 →  p.Arg6LeufsTer4        two bases earlier, Ar
   `::stop_loss_is_an_extension_to_the_next_stop`; `real_transcripts_test::biocommons_real_transcript_cases` (EXT01 to
   EXT06).
 
-### An extension needs the stop codon itself to change
+### Residues added before a kept stop are an extension
 
-**An in-frame change just before the stop that leaves the stop intact is an insertion or deletion, even though the
-stop's position is the first residue that differs.**
+**A change that adds residues after the last one is an extension, whether it loses the stop codon or leaves it to be
+read again after them. One that keeps the stop and changes only residues before it is that change: an in-frame deletion
+reaching the stop is a deletion, and a stop codon rewritten as a stop is no change.**
 
-Whether the stop is intact is read from the two sequences, not from where the edit is written, so every spelling of one
+An insertion before the stop, written 3'-most, puts its residues after the last one, so the protein is the reference
+extended at its C-terminal end, which HGVS describes as an extension whether the residues came from an insertion, a
+duplication or a lost stop. Reading it so also makes one protein one description: `toy c.19T>C`, which loses the stop,
+and `c.18_19insCAACCG`, which keeps it, make the same protein and are both `p.Ter7GlnextTer2`.
+
+Whether the stop is kept is read from the two sequences, not from where the edit is written, so every spelling of one
 change reads alike. The bases that differ are aligned with the fewest substitutions, insertions and deletions, and the
 stop is kept when an alignment that costs no more matches its codon to a stop codon read in frame. A change that keeps
-it is described by what it does before the stop: a change that rewrites the stop codon as a stop, or that also changes
-the 3'UTR, in frame or not, is the change to the residues before it. Where a stop codon among the inserted bases could
-be read either as the reference's, with residues inserted before it, or as a new one after the stop was lost, the two
-readings cost the same and the stop is kept.
+it is described by what it does before the stop; what it does to the 3'UTR, in frame or not, is no change to the
+protein.
 
 **Example** (CDS `ATG CTG TTT GTA TTG TGT CGT CTT TAA`, Met Leu Phe Val Leu Cys Arg Leu Ter; and the toy CDS with 3'UTR
 `CCG TAG`):
 
 ```text
-c.21_22insTTGTCT              →  p.Leu8_Ter9insSerLeu      the stop is intact two codons on
+c.21_22insTTGTCT              →  p.Ter9SerextTer2          Ser Leu follow Leu8, written 3'-most
+toy c.18_19insCAA             →  p.Ter7GlnextTer1          as c.19_21delinsCAATAA and c.19_*3delinsCAATAA
+toy c.18_19insCAACCG          →  p.Ter7GlnextTer2          as c.19T>C, which loses the stop
+toy c.13_18dup                →  p.Ter7TyrextTer2          not p.Tyr5_Arg6dup
 toy c.16_18del                →  p.Arg6del                 the stop shifts left but is the same stop
 toy c.13_21delinsTATTAA       →  p.Arg6del                 the same, written through the stop
 toy c.16_21delinsTGGTAA       →  p.Arg6Trp                 TAA rewritten as TAA
 toy c.16_*3delinsTGGTAA       →  p.Arg6Trp                 and the 3'UTR's CCG deleted
 toy c.16_21delinsGGCTAAC      →  p.Arg6Gly                 c.[16C>G;*2dup]: the frame shifts only past the stop
 toy c.16_21delinsGGCGCTAACTAA →  p.Arg6delinsGlyAlaAsn     as c.16_17delinsGGCGCTAA, the same sequence
-toy c.19_21delinsCAACCGTAA    →  p.Arg6_Ter7insGlnPro      as c.19_22delinsCAACCGTAACC
 ```
 
-- **Differs:** biocommons, which writes residues added after the last as an extension: `toy c.18_19insCAA` as
-  `p.(Ter7GlnextTer1)` and `c.21_22insTTGTCT` as `p.(Ter9SerextTer2)`.
-- **Not checked:** VariantValidator, ClinVar.
-- **Spec (differs):** the [insertion](https://hgvs-nomenclature.org/stable/recommendations/protein/insertion/) page
-  describes "insertions extending the full-length amino acid sequence at the C-terminal end with one or more amino
-  acids" as an extension, and the
-  [duplication](https://hgvs-nomenclature.org/stable/recommendations/protein/duplication/) page says the same of
-  duplications. weaver writes residues inserted before a stop it keeps as an insertion, which says which residues were
-  added and that the stop codon is read again after them. So two changes that make one protein can read differently:
-  `toy c.19T>C` is `p.Ter7GlnextTer2`, and `c.18_19insCAACCG` is `p.Arg6_Ter7insGlnPro`.
-- **Tests:** `src/protein.rs::an_insertion_before_the_stop_that_repeats_the_last_residue_is_not_an_extension`,
+- **Agrees:** biocommons, which writes `toy c.18_19insCAA` as `p.(Ter7GlnextTer1)` and `c.21_22insTTGTCT` as
+  `p.(Ter9SerextTer2)`.
+- **Differs:** ClinVar, which writes residues inserted before the stop as an insertion between the last residue and the
+  stop, e.g. `NP_112205.2:p.Ala453_Ter454insGluAla`; equivalence grades that spelling against the extension as the same
+  protein.
+- **Not checked:** VariantValidator.
+- **Spec (agrees):** [insertion](https://hgvs-nomenclature.org/stable/recommendations/protein/insertion/): "insertions
+  extending the full-length amino acid sequence at the C-terminal end with one or more amino acids are described as an
+  Extension"; [duplication](https://hgvs-nomenclature.org/stable/recommendations/protein/duplication/): "duplications
+  extending the amino acid sequence at the C-terminal end with one or more amino acids are described as an Extension".
+- **Tests:** `src/protein.rs::an_insertion_before_the_last_residue_that_repeats_it_is_an_extension`,
+  `::residues_inserted_before_a_kept_stop_are_an_extension_however_the_edit_ends`,
+  `::residues_duplicated_before_the_stop_are_an_extension`,
   `::an_in_frame_deletion_reaching_the_stop_keeps_it_original`,
   `::an_in_frame_change_that_rewrites_the_stop_as_a_stop_keeps_it`,
   `::a_change_on_both_sides_of_a_kept_stop_is_the_change_before_it`,
-  `::residues_inserted_before_a_kept_stop_read_alike_however_the_edit_ends`,
   `::a_delins_written_through_a_stop_it_writes_back_is_the_change_before_it`,
   `::a_deletion_before_the_stop_that_could_cut_into_its_codon_keeps_it`;
-  `one_edited_transcript_is_one_protein_consequence` (properties).
+  `open_cds_test::a_closed_cds_predicts_duplicating_its_last_residue`;
+  `equivalence_test::residues_inserted_before_the_stop_written_as_clinvar_does_are_the_extension_weaver_predicts`;
+  `one_edited_transcript_is_one_protein_consequence` and `in_frame_indels_describe_the_translated_protein` (properties).
 
 ### A stop lost after an earlier change is a frameshift
 

@@ -579,16 +579,17 @@ fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsEr
 }
 
 /// An in-frame edit, or one that keeps the stop and shifts the frame only past
-/// it: a [stop loss](describe_stop_lost) when the stop is not kept; otherwise
-/// the change before the stop, written at its 3'-most equivalent
-/// residues (the shared tail is trimmed), cut at a stop the edit creates, and
-/// classified as nonsense, duplication, insertion, substitution, deletion or
-/// delins.
+/// it: an extension when it first differs at the stop, whether the stop is
+/// lost or read again after residues added before it; a
+/// [stop loss](describe_stop_lost) when the stop is not kept; otherwise the
+/// change before the stop, written at its 3'-most equivalent residues (the
+/// shared tail is trimmed), cut at a stop the edit creates, and classified as
+/// nonsense, duplication, insertion, substitution, deletion or delins.
 fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
-    // An in-frame insertion just before the stop can make the stop position
-    // the first differing residue, but the stop is then read further along,
-    // and the change is an insertion, not a loss.
+    if i == t.stop {
+        return out.extension(i);
+    }
     if t.loses_stop() {
         return describe_stop_lost(t, out);
     }
@@ -639,15 +640,12 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
     out.delins(i, ref_end - 1, ins)
 }
 
-/// An in-frame edit after which no stop is read where the reference's was. A
-/// change first at the stop is an extension; one that starts before it is
-/// nonsense, a delins ending at a stop the edit made, or, where the protein
-/// reads on into the 3'UTR, a frameshift from the first changed residue.
+/// An in-frame edit that changes a residue before the stop, after which no
+/// stop is read where the reference's was: nonsense, a delins ending at a stop
+/// the edit made, or, where the protein reads on into the 3'UTR, a frameshift
+/// from the first changed residue.
 fn describe_stop_lost(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
-    if i == t.stop {
-        return out.extension(i);
-    }
     if t.alt_aa.get(i) == Some(&'*') {
         return out.substitution(i, t.ref_aa[i], '*');
     }
@@ -1031,9 +1029,8 @@ mod tests {
     }
 
     #[test]
-    fn a_duplication_before_the_stop_whose_copy_runs_into_the_stop_codon_keeps_it() {
-        // TAT CGC TAA becomes TAT CGC TAT CGC TAA: the copy could also be read
-        // as inserted after the TA of the stop codon.
+    fn residues_duplicated_before_the_stop_are_an_extension() {
+        // TAT CGC TAA becomes TAT CGC TAT CGC TAA: Tyr Arg follow Arg6.
         assert_eq!(
             p(
                 CDS,
@@ -1045,7 +1042,7 @@ mod tests {
                 12,
                 18
             ),
-            "NP:p.Tyr5_Arg6dup"
+            "NP:p.Ter7TyrextTer2"
         );
     }
 
@@ -1058,24 +1055,25 @@ mod tests {
     }
 
     #[test]
-    fn residues_inserted_before_a_kept_stop_read_alike_however_the_edit_ends() {
+    fn residues_inserted_before_a_kept_stop_are_an_extension_however_the_edit_ends() {
         // CAA CCG inserted before TAA, and a C after it in the last two.
         assert_eq!(
             p(CDS, UTR, delins("CAACCGTAA"), 18, 21),
-            "NP:p.Arg6_Ter7insGlnPro"
+            "NP:p.Ter7GlnextTer2"
         );
         assert_eq!(
             p(CDS, UTR, delins("CAACCGTAAC"), 18, 21),
-            "NP:p.Arg6_Ter7insGlnPro"
+            "NP:p.Ter7GlnextTer2"
         );
         assert_eq!(
             p(CDS, UTR, delins("CAACCGTAACC"), 18, 22),
-            "NP:p.Arg6_Ter7insGlnPro"
+            "NP:p.Ter7GlnextTer2"
         );
-        // CAA before TAA, and a G after it: no reading loses the stop for less.
+        // c.18_19insCAA, and CAA before TAA with a G after it.
+        assert_eq!(p(CDS, UTR, ins("CAA"), 17, 19), "NP:p.Ter7GlnextTer1");
         assert_eq!(
             p(CDS, UTR, delins("CAATAAG"), 18, 21),
-            "NP:p.Arg6_Ter7insGln"
+            "NP:p.Ter7GlnextTer1"
         );
     }
 
@@ -1135,13 +1133,12 @@ mod tests {
     }
 
     #[test]
-    fn an_insertion_before_the_stop_that_repeats_the_last_residue_is_not_an_extension() {
+    fn an_insertion_before_the_last_residue_that_repeats_it_is_an_extension() {
         // M L F V L C R L *  ; insert TTG TCT (Leu Ser) before the last CTT (Leu).
-        // The first differing residue is at the stop's index (Leu == Leu), but
-        // the stop itself is intact two codons on.
+        // Written 3'-most, Ser Leu follow Leu8: the protein is extended.
         let cds = "ATGCTGTTTGTATTGTGTCGTCTTTAA";
         let out = p(cds, "AGTGCTTTAAG", ins("TTGTCT"), 20, 22);
-        assert_eq!(out, "NP:p.Leu8_Ter9insSerLeu");
+        assert_eq!(out, "NP:p.Ter9SerextTer2");
     }
 
     #[test]
