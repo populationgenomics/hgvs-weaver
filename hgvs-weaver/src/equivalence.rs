@@ -467,13 +467,14 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// A nucleotide variant against a protein description: through every
-    /// coding transcript the variant lies on that the provider pairs with the
-    /// description's protein, its prediction compared with the description as
-    /// two protein descriptions are, the prediction leaving the protein the
+    /// coding transcript the variant lies on that encodes the description's
+    /// protein (see `encodes`), its prediction compared with the description
+    /// as two protein descriptions are, the prediction leaving the protein the
     /// edited transcript encodes. A transcript of another protein takes no
-    /// part. The level through the best transcript; a transcript whose
-    /// prediction fails, or that is paired with no protein, is the error only
-    /// when no transcript makes the two equivalent. A nucleotide allele predicts
+    /// part. The level through the best transcript; a transcript on which the
+    /// variant does not read, whose protein cannot be told, or whose
+    /// prediction fails, is the error only when no transcript makes the two
+    /// equivalent. A nucleotide allele predicts
     /// one description or a protein allele, `p.[(Ala4=;Tyr5Asp)]`; a protein
     /// allele on either side is compared as two protein alleles are.
     fn nucleotide_vs_protein(
@@ -494,8 +495,18 @@ impl<'a> VariantEquivalence<'a> {
                 Coding::One(one) => &one.ac,
                 Coding::Cis(cis) => &cis.ac,
             };
-            // A transcript of another protein says nothing of this one.
-            match self.encodes(transcript, ac) {
+            // The variant is checked on its transcript before the transcript
+            // is set aside; a transcript of another protein says nothing of
+            // this one.
+            let on_transcript = match c {
+                Coding::One(one) => SequenceVariant::Coding(one.clone()),
+                Coding::Cis(cis) => SequenceVariant::CisPhased(cis.clone()),
+            };
+            match self
+                .mapper
+                .check_stated(&on_transcript)
+                .and_then(|()| self.encodes(transcript, ac))
+            {
                 Ok(true) => {}
                 Ok(false) => continue,
                 Err(e) => {
@@ -554,32 +565,28 @@ impl<'a> VariantEquivalence<'a> {
         failed.map_or(Ok(best), Err)
     }
 
-    /// Whether the provider pairs `transcript` with a version of `protein`.
+    /// Whether `transcript` encodes `protein`: the provider pairs the two, in
+    /// any version of the protein, or the transcript's CDS translates to the
+    /// protein's sequence, as one of another publisher's would.
     ///
     /// # Errors
     ///
-    /// [`HgvsError::ValidationError`] when it pairs the transcript with no
-    /// protein, so that what it encodes is unknown.
+    /// What the provider raises for a transcript or a protein sequence it
+    /// does not hold, and [`HgvsError::ValidationError`] for a transcript
+    /// with no CDS to translate.
     fn encodes(&self, transcript: &str, protein: &str) -> Result<bool, HgvsError> {
-        let paired: Vec<_> = self
-            .mapper
-            .provider()
-            .get_symbol_accessions(
-                transcript,
-                IdentifierKind::Transcript,
-                IdentifierKind::Protein,
-            )?
-            .into_iter()
-            .filter(|(kind, _)| *kind == crate::data::IdentifierType::ProteinAccession)
-            .collect();
-        if paired.is_empty() {
-            return Err(HgvsError::ValidationError(format!(
-                "{transcript} is paired with no protein, so whether it encodes {protein} is unknown"
-            )));
+        let paired = self.mapper.provider().get_symbol_accessions(
+            transcript,
+            IdentifierKind::Transcript,
+            IdentifierKind::Protein,
+        )?;
+        if paired.iter().any(|(kind, p)| {
+            *kind == crate::data::IdentifierType::ProteinAccession
+                && base_accession(p) == base_accession(protein)
+        }) {
+            return Ok(true);
         }
-        Ok(paired
-            .iter()
-            .any(|(_, p)| base_accession(p) == base_accession(protein)))
+        Ok(self.mapper.encoded_protein(transcript)? == self.reference_protein(protein)?)
     }
 
     /// The coding forms of a nucleotide variant, a single one or an allele in

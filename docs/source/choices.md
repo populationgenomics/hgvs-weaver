@@ -3060,34 +3060,52 @@ NP_X.1:p.Lys2Gln     vs  NP_Y.1:p.Lys2Gln   not equivalent
 
 ### A protein description is predicted only on its own transcripts
 
-**A nucleotide variant is compared with a `p.` description through the coding transcripts the data provider pairs with
-that protein, any version of it. A transcript of another protein contributes nothing, so a variant whose only coding
-transcripts encode other proteins is Different. A transcript the provider pairs with no protein is an error, unless
-another transcript makes the two equivalent.**
+**A nucleotide variant is compared with a `p.` description through the coding transcripts that encode that protein:
+those the data provider pairs with it, in any version, and those whose CDS translates to its sequence. A transcript of
+another protein contributes nothing, so a variant whose only coding transcripts encode other proteins is Different. The
+variant is still read on every transcript first, so a base it states that a transcript lacks is the error it was.**
 
 A `g.` variant lies on every transcript that overlaps it, and where two genes overlap, or one gene's transcripts read
 different frames, a variant changes a residue of each protein, numbered by each. A prediction made on one gene's
 transcript is a statement about that gene's protein; written with the other protein's accession, its text can coincide
-with a change the other protein could carry and match a description it says nothing about. The pairing is the
-provider's, the same one that names the protein when `c_to_p` is given none; a transcript it pairs with nothing is a
-question it cannot answer, so the pair is refused rather than judged Different. The same holds for a `c.` variant
-compared with the protein of another transcript.
+with a change the other protein could carry and match a description it says nothing about. The same holds for a `c.`
+variant compared with the protein of another transcript.
+
+Which protein a transcript encodes is answered two ways. The provider's pairing is the one that names the protein when
+`c_to_p` is given none, and it settles versions: a transcript paired with `NP_X.2` encodes `NP_X.1` for this purpose, as
+[versions of one accession compare on ours](#versions-of-one-protein-accession-compare-on-ours). A pairing names one
+publisher's accession, though, and an Ensembl transcript paired with its `ENSP` encodes the RefSeq protein of the same
+sequence just as well; so does a transcript the provider pairs with nothing. Those are read from the sequence: the
+transcript takes part when its CDS, translated as its record writes it, is the protein's sequence. Comparing names alone
+would set them aside and answer Different with confidence, where the sequences say the prediction is about the protein
+named. Reading the sequence needs the transcript and the protein; a provider that holds neither says so, and that is the
+error, as it is for a prediction that fails, when no transcript makes the two equivalent.
 
 **Example** (`NC_G.1` carries two genes: `NM_A.1` encodes `NP_A.1`, `MLMLLLL`, and `NM_B.1`, from an `ATG` two codons
-on, `NP_B.1`, `MLLLL`; g.18 is in Leu5 of the first and Leu3 of the second):
+on, `NP_B.1`, `MLLLL`; g.18 is in Leu5 of the first and Leu3 of the second. `ENST0001.1` is `NM_X.1`'s sequence, paired
+with `ENSP0001.1`; `NM_U.1` is the same, paired with nothing; both translate to `MKLAYR`, `NP_X.1`):
 
 ```text
-NC_G.1:g.18C>G   vs  NP_B.1:p.Leu3Val   Identity: NM_B.1 predicts it
-NC_G.1:g.18C>G   vs  NP_B.1:p.Leu5Val   Different: only NM_A.1 predicts Leu5Val, of NP_A.1
-NM_A.1:c.13C>G   vs  NP_B.1:p.Leu5Val   Different
-NM_X.1:c.4A>C    vs  NP_X.1:p.Lys2Gln   ValidationError when the provider pairs NM_X.1 with no protein
+NC_G.1:g.18C>G      vs  NP_B.1:p.Leu3Val   Identity: NM_B.1 predicts it
+NC_G.1:g.18C>G      vs  NP_B.1:p.Leu5Val   Different: only NM_A.1 predicts Leu5Val, of NP_A.1
+NM_A.1:c.13C>G      vs  NP_B.1:p.Leu5Val   Different
+NM_A.1:c.13T>G      vs  NP_B.1:p.Leu5Val   ReferenceMismatch: c.13 is a C
+ENST0001.1:c.4A>C   vs  NP_X.1:p.Lys2Gln   Identity: it translates to NP_X.1
+NM_U.1:c.4A>C       vs  NP_X.1:p.Lys2Gln   Identity
+NM_U.1:c.4A>C       vs  NP_Q.1:p.Lys2Gln   Different: NP_Q.1 is MKLAYQ
+NM_ABSENT.1:c.4A>C  vs  NP_X.1:p.Lys2Gln   DataProviderError: no transcript NM_ABSENT.1
 ```
 
 - **Others:** not checked.
 - **Spec (silent):** none; HGVS describes, it does not compare.
 - **Tests:** `equivalence_test::a_protein_change_is_not_predicted_by_another_genes_transcript`,
   `::a_protein_change_is_predicted_by_its_own_genes_transcript`,
-  `::a_coding_change_does_not_predict_another_genes_protein`, `::a_transcript_paired_with_no_protein_is_an_error`.
+  `::a_coding_change_does_not_predict_another_genes_protein`,
+  `::a_change_that_does_not_read_on_another_genes_transcript_is_an_error`,
+  `::a_transcript_paired_with_another_publishers_copy_of_the_protein_predicts_it`,
+  `::an_unpaired_transcript_that_translates_to_the_protein_predicts_it`,
+  `::an_unpaired_transcript_that_translates_to_another_protein_does_not_predict_it`,
+  `::a_transcript_the_provider_does_not_hold_is_its_error`.
 
 ### A cis allele is the sequence its members make
 

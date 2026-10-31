@@ -2484,6 +2484,44 @@ impl<'a> VariantMapper<'a> {
         CanonicalAllele::canonicalize(&np, &protein_ac, &edit)
     }
 
+    /// The protein the CDS of `transcript_ac` encodes, as a protein record
+    /// writes it (the initiator as Met, a selenocysteine as `U`), without its
+    /// stop.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::ValidationError`] when the transcript has no CDS, or one
+    /// open at its 5' end; what the provider raises for a transcript it does
+    /// not hold.
+    pub(crate) fn encoded_protein(&self, transcript_ac: &str) -> Result<String, HgvsError> {
+        let transcript = self.provider().get_transcript(transcript_ac, None)?;
+        if transcript.cds_start == crate::data::CdsStart::Open {
+            return Err(HgvsError::ValidationError(format!(
+                "{transcript_ac}: its CDS is open at the 5' end, so the record carries no start \
+                 codon and its protein is not known"
+            )));
+        }
+        let record = self
+            .refs
+            .reference(transcript_ac, IdentifierType::TranscriptAccession)
+            .whole()?;
+        let (cds_start, cds_end) = cds_bounds(&transcript, record.len())?;
+        let unchanged = crate::protein::CodingChange {
+            coding: record[cds_start..].to_string(),
+            cds_len: cds_end + 1 - cds_start,
+            end_open: transcript.cds_end_open,
+            edit: crate::edits::ResolvedEdit {
+                start: 0,
+                end: 0,
+                ref_: String::new(),
+                alt: String::new(),
+            },
+            protein_ac: String::new(),
+            initiates: transcript.cds_start == crate::data::CdsStart::Initiator,
+        };
+        Ok(crate::protein::proteins(&unchanged)?.0)
+    }
+
     /// The protein a coding variant leaves: no residues when the CDS is
     /// deleted, `None` when nothing can be said (an intronic position, a
     /// disrupted start codon) or the prediction is a statement about residues

@@ -1240,27 +1240,92 @@ fn a_coding_change_does_not_predict_another_genes_protein() {
 }
 
 #[test]
-fn a_transcript_paired_with_no_protein_is_an_error() {
+fn a_change_that_does_not_read_on_another_genes_transcript_is_an_error() {
+    // c.13 of NM_A.1 is a C: the stated T is checked before NM_A.1 is set
+    // aside as a transcript of NP_A.1.
+    let hdp = two_gene_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &parse_hgvs_variant("NM_A.1:c.13T>G").unwrap(),
+        &parse_hgvs_variant("NP_B.1:p.Leu5Val").unwrap(),
+    );
+    assert!(
+        matches!(&result, Err(HgvsError::ReferenceMismatch { expected, .. }) if expected == "T"),
+        "{result:?}"
+    );
+}
+
+/// `NM_X.1`'s sequence under another publisher's names, `ENST0001.1` paired
+/// with `ENSP0001.1`, and once more as `NM_U.1`, paired with no protein; all
+/// three encode `MKLAYR`, as `NP_X.1` is. `NP_Q.1`, `MKLAYQ`, is encoded by
+/// none of them.
+fn other_publisher_provider() -> Provider {
     let transcript = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
-    let hdp = Provider::new()
-        .sequence("NM_X.1", transcript)
+    let len = transcript.len() as i32;
+    Provider::new()
+        .sequence("ENST0001.1", transcript)
+        .sequence("NM_U.1", transcript)
+        .sequence("ENSP0001.1", "MKLAYR")
         .sequence("NP_X.1", "MKLAYR")
+        .sequence("NP_Q.1", "MKLAYQ")
         .transcript(single_exon_transcript(
-            "NM_X.1",
+            "ENST0001.1",
             "NC_X.1",
             100,
             Strand::Plus,
             5,
             25,
-            transcript.len() as i32,
-        ));
+            len,
+        ))
+        .transcript(single_exon_transcript(
+            "NM_U.1",
+            "NC_X.1",
+            100,
+            Strand::Plus,
+            5,
+            25,
+            len,
+        ))
+        .protein_for("ENST0001.1", "ENSP0001.1")
+}
+
+#[test]
+fn a_transcript_paired_with_another_publishers_copy_of_the_protein_predicts_it() {
+    let hdp = other_publisher_provider();
+    assert_eq!(
+        level_over(&hdp, "ENST0001.1:c.4A>C", "NP_X.1:p.Lys2Gln"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn an_unpaired_transcript_that_translates_to_the_protein_predicts_it() {
+    let hdp = other_publisher_provider();
+    assert_eq!(
+        level_over(&hdp, "NM_U.1:c.4A>C", "NP_X.1:p.Lys2Gln"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn an_unpaired_transcript_that_translates_to_another_protein_does_not_predict_it() {
+    let hdp = other_publisher_provider();
+    assert_eq!(
+        level_over(&hdp, "NM_U.1:c.4A>C", "NP_Q.1:p.Lys2Gln"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_transcript_the_provider_does_not_hold_is_its_error() {
+    let hdp = other_publisher_provider();
     let mapper = VariantMapper::new(&hdp);
     let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
-        &parse_hgvs_variant("NM_X.1:c.4A>C").unwrap(),
+        &parse_hgvs_variant("NM_ABSENT.1:c.4A>C").unwrap(),
         &parse_hgvs_variant("NP_X.1:p.Lys2Gln").unwrap(),
     );
     assert!(
-        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("no protein")),
+        matches!(&result, Err(HgvsError::DataProviderError(m)) if m.contains("NM_ABSENT.1")),
         "{result:?}"
     );
 }
