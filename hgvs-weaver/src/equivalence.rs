@@ -953,7 +953,7 @@ impl<'a> VariantEquivalence<'a> {
         let ac = var.ac();
 
         // Use DataProvider to determine if this is a symbol or an accession.
-        let id_type = self.mapper.provider().get_identifier_type(ac)?;
+        let id_type = self.mapper.refs.identifier_type(ac)?;
 
         if id_type == crate::data::IdentifierType::GeneSymbol {
             // An allele on a gene symbol is expanded as its members would be.

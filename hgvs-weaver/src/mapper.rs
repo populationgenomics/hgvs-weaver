@@ -4243,7 +4243,7 @@ impl<'a> VariantMapper<'a> {
 
     /// Whether `ac` names a protein or a nucleotide sequence.
     fn sequence_kind(&self, ac: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(match self.provider().get_identifier_type(ac)? {
+        Ok(match self.refs.identifier_type(ac)? {
             IdentifierType::ProteinAccession => IdentifierType::ProteinAccession,
             _ => IdentifierType::GenomicAccession,
         })

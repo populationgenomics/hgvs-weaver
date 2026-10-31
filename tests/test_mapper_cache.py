@@ -77,6 +77,14 @@ def test_each_accession_is_classified_once_per_mapper() -> None:
     assert provider.kinds_asked == ["NM_TEST.1"]
 
 
+def test_equivalence_classifies_each_accession_once() -> None:
+    provider = CountingProvider()
+    mapper = weaver.VariantMapper(provider)
+    var = weaver.parse("NM_TEST.1:c.4G>A")
+    assert mapper.equivalent(var, var, provider)
+    assert provider.kinds_asked == ["NM_TEST.1"]
+
+
 class Digests:
     """A Refget lookup that answers from a table."""
 
