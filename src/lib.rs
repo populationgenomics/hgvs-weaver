@@ -433,6 +433,21 @@ impl ::hgvs_weaver::refget::Refget for PyRefgetBridge {
     }
 }
 
+/// The name the Python protocol gives an identifier kind.
+fn kind_name(kind: IdentifierKind) -> Result<&'static str, HgvsError> {
+    Ok(match kind {
+        IdentifierKind::Genomic => "g",
+        IdentifierKind::Transcript => "c",
+        IdentifierKind::Protein => "p",
+        IdentifierKind::Gene => "gene",
+        other => {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "the provider protocol has no name for {other:?}"
+            )))
+        }
+    })
+}
+
 impl DataProvider for PyDataProviderBridge {
     fn get_transcript(
         &self,
@@ -488,18 +503,7 @@ impl DataProvider for PyDataProviderBridge {
         target_kind: IdentifierKind,
     ) -> Result<Vec<(::hgvs_weaver::data::IdentifierType, String)>, HgvsError> {
         Python::attach(|py| {
-            let sk = match source_kind {
-                IdentifierKind::Genomic => "g",
-                IdentifierKind::Transcript => "c",
-                IdentifierKind::Protein => "p",
-                IdentifierKind::Gene => "gene",
-            };
-            let tk = match target_kind {
-                IdentifierKind::Genomic => "g",
-                IdentifierKind::Transcript => "c",
-                IdentifierKind::Protein => "p",
-                IdentifierKind::Gene => "gene",
-            };
+            let (sk, tk) = (kind_name(source_kind)?, kind_name(target_kind)?);
             let res = self
                 .provider
                 .bind(py)

@@ -248,7 +248,7 @@ impl DataProvider for Provider {
                 .filter(|(_, np)| np == symbol)
                 .map(|(tx, _)| (IdentifierType::TranscriptAccession, tx.clone()))
                 .collect(),
-            IdentifierKind::Genomic | IdentifierKind::Gene => vec![],
+            _ => vec![],
         })
     }
 
