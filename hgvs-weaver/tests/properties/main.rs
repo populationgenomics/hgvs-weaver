@@ -2815,7 +2815,8 @@ proptest! {
     /// sequences share describes what the narrower one does. The changes are
     /// drawn around the stop, where whether it is kept, and where a stop the
     /// change makes ends its delins, decide the description. A silent change
-    /// names the codons it is written over, so it is left out.
+    /// names the codons it is written over, so it is left out. A record may be
+    /// soft-masked, lowercase where the edit's bases are not.
     #[test]
     fn one_edited_transcript_is_one_protein_consequence(
         codons in prop::collection::vec(sense_codon(), 2..8),
@@ -2825,17 +2826,20 @@ proptest! {
         len in 0usize..10,
         alt in dna(0, 12),
         widen in (0usize..7, 0usize..7),
+        soft_masked in any::<bool>(),
     ) {
         let coding = format!("ATG{}{stop}{utr}", codons.concat());
+        let coding = if soft_masked { coding.to_ascii_lowercase() } else { coding };
         let cds_len = 3 * (codons.len() + 2);
         let start = (cds_len - 3 + at).saturating_sub(6).clamp(3, coding.len());
         let end = (start + len).min(coding.len());
-        if coding[start..end] == alt {
+        if coding[start..end].eq_ignore_ascii_case(&alt) {
             return Ok(());
         }
         let wide_start = start.saturating_sub(widen.0).max(3);
         let wide_end = (end + widen.1).min(coding.len());
-        let wide_alt = format!("{}{alt}{}", &coding[wide_start..start], &coding[end..wide_end]);
+        let wide_alt = format!("{}{alt}{}", &coding[wide_start..start], &coding[end..wide_end])
+            .to_ascii_uppercase();
         let narrow = consequence(&coding, cds_len, start, end, &alt);
         let wide = consequence(&coding, cds_len, wide_start, wide_end, &wide_alt);
         if narrow.as_deref().is_some_and(|d| d.ends_with("=") || d.ends_with("=)")) {

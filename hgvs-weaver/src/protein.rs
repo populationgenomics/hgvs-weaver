@@ -164,16 +164,17 @@ impl Reading {
                 .is_some_and(|c| c.eq_ignore_ascii_case("TGA"))
         };
         let (ref_nt, edited) = (change.coding.as_bytes(), alt_nt.as_bytes());
+        // A soft-masked record is lowercase where an edit's bases are not.
         let prefix = ref_nt
             .iter()
             .zip(edited)
-            .take_while(|(a, b)| a == b)
+            .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
             .count();
         let suffix = ref_nt
             .iter()
             .rev()
             .zip(edited.iter().rev())
-            .take_while(|(a, b)| a == b)
+            .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
             .count();
         let ref_sec = |r: usize| r < stop && ref_aa.get(r) == Some(&'*');
         let alt_sec: Vec<usize> = (0..alt_aa.len())
@@ -1112,6 +1113,17 @@ mod tests {
         // M K L A Y *: TAT TAA becomes TAA, which also reads as the deletion
         // of the stop codon's TA and the T before it.
         assert_eq!(p("ATGAAACTGGCCTATTAA", UTR, del(), 12, 15), "NP:p.Tyr5del");
+    }
+
+    #[test]
+    fn a_soft_masked_record_reads_alike_however_many_bases_the_edit_spells() {
+        // c.16_21delinsTGGCAA, spelled through the 3'UTR's own CCG TAG, on a
+        // record written in lowercase.
+        let (cds, utr) = (CDS.to_ascii_lowercase(), UTR.to_ascii_lowercase());
+        assert_eq!(
+            p(&cds, &utr, delins("TGGCAACCGTAG"), 15, 27),
+            "NP:p.Arg6TrpfsTer4"
+        );
     }
 
     #[test]
