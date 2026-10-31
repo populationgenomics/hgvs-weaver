@@ -3726,6 +3726,10 @@ every spelling of one change is one allele with one identifier.**
 `to_spdi_unambiguous` renders it. The plain `to_spdi` renders the 3'-normalised variant instead, with an insertion
 placed at its second flank as SPDI counts.
 
+A change in a cis allele beside a positional identity is the exception: it is justified only as far as the identities
+either side of it ([members that meet](#members-of-a-cis-allele-that-meet-are-written-as-one-change)), so its Allele in
+the block, and the block's identifier, can differ from what ga4gh.vrs makes of the same members.
+
 **Example** (on `TTCAGCAGTT`, SPDI `sequence:position:deleted:inserted`; and on `ACGT` repeated):
 
 ```text
