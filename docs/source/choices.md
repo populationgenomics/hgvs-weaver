@@ -2533,11 +2533,11 @@ NM_022051.2:c.-1_1insGCC   →  NP_071334.1:p.?        an insertion just before 
   `::an_identity_of_every_codon_but_the_stop_names_its_residues`,
   `::an_identity_in_the_5_utr_makes_no_protein_statement`, `::an_intronic_identity_makes_no_protein_statement`;
   `test_regressions::test_regression_c_360_eq`; `tests/test_no_protein_statement.py`;
-  `equivalence_test::one_base_unchanged_is_not_its_residue_unchanged`,
-  `::an_identity_across_the_whole_transcript_is_not_no_protein`,
+  `statements_test::an_identity_across_the_whole_transcript_is_not_no_protein`,
   `::an_identity_inside_the_codons_is_written_silently_at_its_residues`,
   `::an_intronic_conversion_is_an_unknown_effect`, `::an_upstream_conversion_is_an_unknown_effect`;
-  `equivalence_test::an_identity_from_the_5_utr_into_the_cds_is_the_start_codon_unchanged`,
+  `equivalence_test::one_base_unchanged_is_not_its_residue_unchanged`,
+  `::an_identity_from_the_5_utr_into_the_cds_is_the_start_codon_unchanged`,
   `::an_identity_from_the_5_utr_into_the_cds_is_not_the_whole_protein_unchanged`,
   `::a_silent_change_in_the_stop_codon_is_the_stop_unchanged`, `::a_three_prime_utr_change_is_not_the_stop_unchanged`.
 
@@ -3982,7 +3982,6 @@ NM_X.1:c.[7_9inv;8_10inv]                                      UnsupportedOperat
   `::a_copy_number_reaches_the_junctions_its_copies_go_to`,
   `::a_contradiction_is_reported_before_unlisted_readings_in_any_order`,
   `::unstated_bases_inserted_inside_an_identity_are_contradictory`, `::an_identity_inside_a_copy_number_is_accepted`,
-  `::repeated_members_without_a_sequence_are_carried_with_their_repeats`,
   `::members_combined_in_too_many_ways_to_search_are_refused`,
   `::an_insertion_on_an_exon_junction_read_on_the_genome_fails_its_member`,
   `::a_reading_that_changes_an_identity_is_no_reading`, `::an_identity_over_the_edge_of_a_copy_number_is_accepted`,
