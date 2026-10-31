@@ -66,6 +66,18 @@ fn a_count_whose_alternate_no_protein_could_number_is_refused() {
 }
 
 #[test]
+fn a_range_past_the_run_of_its_unit_is_refused() {
+    // Ala4_Ala6 is the run of Ala; Tyr7 is not a fourth copy.
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4_Tyr7Ala[2]").unwrap();
+    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "AAAY"),
+        "expected ReferenceMismatch finding AAAY, got {err:?}"
+    );
+}
+
+#[test]
 fn a_stop_among_the_new_residues_ends_the_protein() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);

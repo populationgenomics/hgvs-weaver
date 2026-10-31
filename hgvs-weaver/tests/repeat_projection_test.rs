@@ -566,3 +566,13 @@ fn a_count_whose_alternate_no_sequence_could_number_is_refused() {
         "expected ValidationError naming the count, got {err:?}"
     );
 }
+
+#[test]
+fn a_range_past_the_run_of_its_unit_is_refused() {
+    // c.7_15 is CAG three times; c.16_18 is TTC, not a fourth copy.
+    let err = to_genome(&minus(), "NM_REV.1:c.7_18CAG[2]").unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "CAGCAGCAGTTC"),
+        "expected ReferenceMismatch finding CAGCAGCAGTTC, got {err:?}"
+    );
+}

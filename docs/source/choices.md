@@ -2630,10 +2630,10 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
 ### A stated base the reference lacks is an error
 
 **The bases a description states — a substitution's, those written after `del`, `dup` or `inv`, the deleted part of a
-`delins`, an identity's `c.5A=`, a repeat's unit — and the residues a `p.` description names are compared with the
-reference they cite by every operation that reads the description against a sequence. Where they differ the answer is a
-`ReferenceMismatchError` naming the stated and the reference's bases; `validate` is the same comparison answered as true
-or false.**
+`delins`, an identity's `c.5A=`, a repeat's unit, repeated over its range — and the residues a `p.` description names
+are compared with the reference they cite by every operation that reads the description against a sequence. Where they
+differ the answer is a `ReferenceMismatchError` naming the stated and the reference's bases; `validate` is the same
+comparison answered as true or false.**
 
 A stated base is a claim about the reference. When it is not there, the description was written against another version,
 on the other strand, at another position, or with a typo, and no reading of it is safe: using the reference's base
@@ -2662,8 +2662,13 @@ What a base is compared with is the sequence the position numbers:
 
 A count (`del3`, `delins` with no bases) states nothing, and an edit that states nothing is not read for this.
 
+A repeat's range with its unit stated claims copies of the unit over the range: the specification writes the range over
+the repeated stretch (`g.123_191CAG[23]`). A range that runs past the run of its unit states copies the reference lacks,
+and the count, which is of the run, would leave the bases past it out of the change without saying so.
+
 **Example** (`NM_S.1` is spliced from `NC_S.1`, whose g.15 is c.9+1, a G; c.4 is A; the record has C at c.12 where the
-genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S.1` is `MKLAYR`):
+genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S.1` is `MKLAYR`; `NM_REV.1` is
+`ATGAAACAGCAGCAGTTCTAAGG`, three CAG at c.7_15 and TTC at c.16_18):
 
 ```text
 validate NM_S.1:c.9+1G>A        →  true
@@ -2673,6 +2678,7 @@ c_to_g   NM_R.1:c.9+1G>A        →  NC_R.1:g.36C>T                the transcrip
 c_to_g   NM_S.1:c.12T>A         →  ReferenceMismatchError       the genome's T is not the record's C
 c_to_g   NM_S.1:c.12C>A         →  NC_S.1:g.27T>A                the record's C, written for the genome
 c_to_g   NM_S.1:c.4_6CTG[5]     →  ReferenceMismatchError       the unit is not there
+c_to_g   NM_REV.1:c.7_18CAG[2]  →  ReferenceMismatchError       c.16_18 is not a fourth copy
 c_to_p   NM_S.1:c.*3A>T         →  ReferenceMismatchError       though the prediction reads no codon
 g_to_c   NC_S.1:g.15C>A         →  ReferenceMismatchError
 normalize, to_spdi, to_vrs, canonical_allele, equivalent  NC_S.1:g.6C>T  →  ReferenceMismatchError
@@ -2712,7 +2718,9 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
   `::from_spdi_refuses_a_deletion_the_sequence_does_not_carry`, `::p_to_c_refuses_a_residue_the_protein_does_not_carry`,
   `::normalize_refuses_a_residue_the_protein_does_not_carry`, and the file's other tests, one per operation;
   `transcript_coordinates_test::validate_checks_stated_reference_through_transcript_coordinates`;
-  `protein_allele_test::validation_checks_the_named_and_stated_residues`;
+  `repeat_projection_test::a_range_past_the_run_of_its_unit_is_refused`;
+  `protein_allele_test::validation_checks_the_named_and_stated_residues`,
+  `::a_range_past_the_run_of_its_unit_is_refused`;
   `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases` (the
   `validate` cases); `tests/test_validate_stated_bases.py::test_a_base_the_genome_lacks_is_an_error_naming_the_genome`.
 
