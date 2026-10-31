@@ -456,14 +456,14 @@ impl TranscriptMapper {
             return Ok(lo);
         }
         let mut first = 0;
-        let (exon, len) = self
+        let (index, exon, len) = self
             .exons
             .iter()
             .enumerate()
             .find_map(|(i, exon)| {
                 let len = self.exon_tx_len(i);
                 if n_pos.0 < first + len {
-                    return (n_pos.0 >= first).then_some((exon, len));
+                    return (n_pos.0 >= first).then_some((i, exon, len));
                 }
                 first += len;
                 None
@@ -477,6 +477,26 @@ impl TranscriptMapper {
                 accession: self.transcript.ac.clone(),
                 position: written(),
             });
+        }
+        let neighbour = if offset.0 > 0 {
+            self.exons.get(index + 1)
+        } else {
+            index.checked_sub(1).and_then(|i| self.exons.get(i))
+        };
+        if let Some(neighbour) = neighbour {
+            // The genome bases strictly between the two exons' spans.
+            let intron = if exon.reference_start.0 > neighbour.reference_end.0 {
+                exon.reference_start.0 - neighbour.reference_end.0 - 1
+            } else {
+                neighbour.reference_start.0 - exon.reference_end.0 - 1
+            };
+            if offset.0.abs() > intron {
+                return Err(HgvsError::OffsetPastIntron {
+                    accession: self.transcript.ac.clone(),
+                    position: written(),
+                    intron_length: usize::try_from(intron).unwrap_or(0),
+                });
+            }
         }
         // Counted from the exon's end on the genome, which an edge gap in its
         // alignment leaves short of, or past, the border base.

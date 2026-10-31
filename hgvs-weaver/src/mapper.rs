@@ -860,24 +860,32 @@ pub(crate) fn check_reference_kind(
     )))
 }
 
-/// `result`, with a [`HgvsError::NotAnExonBorder`] on `r`'s transcript
-/// naming the position in `r.`, as `r` writes it, rather than in the `c.` or
-/// `n.` spelling it was read through.
+/// `result`, with a [`HgvsError::NotAnExonBorder`] or
+/// [`HgvsError::OffsetPastIntron`] on `r`'s transcript naming the position in
+/// `r.`, as `r` writes it, rather than in the `c.` or `n.` spelling it was read
+/// through.
 fn as_rna_error<T>(r: &RVariant, result: Result<T, HgvsError>) -> Result<T, HgvsError> {
+    let in_rna = |position: String| match position.split_once('.') {
+        Some(("c" | "n", rest)) => format!("r.{rest}"),
+        _ => position,
+    };
     result.map_err(|e| match e {
         HgvsError::NotAnExonBorder {
             accession,
             position,
-        } if accession == r.ac => {
-            let position = match position.split_once('.') {
-                Some(("c" | "n", rest)) => format!("r.{rest}"),
-                _ => position,
-            };
-            HgvsError::NotAnExonBorder {
-                accession,
-                position,
-            }
-        }
+        } if accession == r.ac => HgvsError::NotAnExonBorder {
+            accession,
+            position: in_rna(position),
+        },
+        HgvsError::OffsetPastIntron {
+            accession,
+            position,
+            intron_length,
+        } if accession == r.ac => HgvsError::OffsetPastIntron {
+            accession,
+            position: in_rna(position),
+            intron_length,
+        },
         other => other,
     })
 }
@@ -3172,10 +3180,11 @@ impl<'a> VariantMapper<'a> {
     /// Returns `Ok(true)` when they hold, or when the edit states none (or
     /// only a length); `Ok(false)` where an operation reading the variant
     /// refuses it with [`HgvsError::ReferenceMismatch`],
-    /// [`HgvsError::PositionOutsideSequence`] or
-    /// [`HgvsError::NotAnExonBorder`]: a stated base the reference lacks, a
-    /// position past its end and an intronic offset from a base that is not
-    /// an exon border are each the reference contradicting the description.
+    /// [`HgvsError::PositionOutsideSequence`], [`HgvsError::NotAnExonBorder`]
+    /// or [`HgvsError::OffsetPastIntron`]: a stated base the reference lacks,
+    /// a position past its end, an intronic offset from a base that is not an
+    /// exon border and one past the end of its intron are each the reference
+    /// contradicting the description.
     ///
     /// # Errors
     ///
@@ -3197,7 +3206,8 @@ impl<'a> VariantMapper<'a> {
             Err(
                 HgvsError::ReferenceMismatch { .. }
                 | HgvsError::PositionOutsideSequence { .. }
-                | HgvsError::NotAnExonBorder { .. },
+                | HgvsError::NotAnExonBorder { .. }
+                | HgvsError::OffsetPastIntron { .. },
             ) => Ok(false),
             Err(e) => Err(e),
         }

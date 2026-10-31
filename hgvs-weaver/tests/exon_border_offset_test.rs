@@ -472,3 +472,78 @@ fn a_range_into_the_intron_after_an_edge_gap_round_trips_through_the_transcript(
         );
     }
 }
+
+/// `result` is the refusal of `position` on `accession` as counting past the
+/// end of its intron.
+fn assert_past_its_intron<T: std::fmt::Debug>(
+    result: Result<T, HgvsError>,
+    accession: &str,
+    position: &str,
+) {
+    match result {
+        Err(HgvsError::OffsetPastIntron {
+            accession: ac,
+            position: pos,
+            ..
+        }) => assert_eq!((ac.as_str(), pos.as_str()), (accession, position)),
+        other => {
+            panic!("expected {accession}:{position} refused as past its intron, got {other:?}")
+        }
+    }
+}
+
+#[test]
+fn validate_answers_false_for_an_offset_past_the_end_of_its_intron() {
+    // Intron 2 is g.41 to g.50; c.17+11 would be g.51, c.18 itself.
+    assert!(!validate("NM_B.1:c.17+11del"));
+}
+
+#[test]
+fn an_offset_to_the_last_base_of_its_intron_validates() {
+    assert!(validate("NM_B.1:c.17+10del"));
+}
+
+#[test]
+fn c_to_g_refuses_an_offset_past_the_end_of_its_intron() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_past_its_intron(
+        mapper.c_to_g(&coding("NM_B.1:c.17+11del"), None),
+        "NM_B.1",
+        "c.17+11",
+    );
+}
+
+#[test]
+fn c_to_g_refuses_a_range_ending_past_its_intron() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_past_its_intron(
+        mapper.c_to_g(&coding("NM_B.1:c.17+10_17+11del"), None),
+        "NM_B.1",
+        "c.17+11",
+    );
+}
+
+#[test]
+fn validate_answers_false_for_a_negative_offset_past_the_start_of_its_intron() {
+    // c.18-11 would be g.40, c.17.
+    assert!(!validate("NM_B.1:c.18-11del"));
+}
+
+#[test]
+fn validate_answers_false_for_an_offset_past_its_intron_on_the_minus_strand() {
+    assert!(!validate("NM_M.1:c.17+11del"));
+}
+
+#[test]
+fn an_intron_after_an_edge_gap_runs_from_the_end_of_the_exons_genomic_span() {
+    // NM_GD.1's exon 2 spans g.31 to g.40, so its intron is g.41 to g.50.
+    assert!(!validate("NM_GD.1:c.16+11del"));
+}
+
+#[test]
+fn an_offset_downstream_of_the_transcript_is_not_bounded_by_an_intron() {
+    // c.*3 is g.60 and the genome runs to g.70.
+    assert!(validate("NM_B.1:c.*3+10del"));
+}

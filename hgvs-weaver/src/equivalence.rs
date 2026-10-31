@@ -132,7 +132,8 @@ impl<'a> VariantEquivalence<'a> {
                         e @ (HgvsError::ValidationError(_)
                         | HgvsError::Ambiguous { .. }
                         | HgvsError::PositionOutsideSequence { .. }
-                        | HgvsError::NotAnExonBorder { .. }),
+                        | HgvsError::NotAnExonBorder { .. }
+                        | HgvsError::OffsetPastIntron { .. }),
                     ) = self.mapper.read_cis(&exact)
                     {
                         return Err(e);
