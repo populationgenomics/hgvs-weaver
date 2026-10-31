@@ -104,12 +104,15 @@ pub(crate) struct Reading {
     last_codon: usize,
     /// The first residue that differs, at or after the first touched codon.
     first_changed: usize,
-    /// Where the bases that differ from the reference end in the edited
-    /// sequence: the end of the edit with the tail the two sequences share
-    /// taken off, so however many shared bases an edit spells reads alike.
+    /// The bases that differ, the edit with the prefix and tail the two
+    /// sequences share taken off, so however many shared bases an edit
+    /// spells reads alike: where they start, where they end in the
+    /// reference, and where they end in the edited sequence.
+    changed_start: usize,
+    changed_ref_end: usize,
     changed_end: usize,
-    /// Where the reference's own stop is read in the alternate, when an
-    /// in-frame edit keeps it.
+    /// Where the reference's own stop is read in the alternate, when the
+    /// change keeps it, in frame whatever it does past the stop.
     original_stop: Option<usize>,
     /// Whether translation initiates at the first codon and the edited
     /// sequence's first codon differs from the reference's.
@@ -195,6 +198,7 @@ impl Reading {
         let tail = suffix.min(ref_nt.len().min(edited.len()) - prefix);
         let original_stop = kept_stop(ref_nt, edited, &alt_aa, stop, prefix, suffix);
         let changed_end = edited.len() - tail;
+        let changed_ref_end = ref_nt.len() - tail;
         let first_codon = start / 3;
         let last_codon = if end > start {
             (end - 1) / 3
@@ -218,6 +222,8 @@ impl Reading {
             first_codon,
             last_codon,
             first_changed,
+            changed_start: prefix,
+            changed_ref_end,
             changed_end,
             original_stop,
             start_changed,
@@ -235,16 +241,6 @@ impl Reading {
     /// The change this is a reading of.
     pub(crate) fn change(&self) -> &CodingChange {
         &self.change
-    }
-
-    /// Where the edit starts in the coding sequence.
-    fn start(&self) -> usize {
-        self.change.edit.start
-    }
-
-    /// Where the bases the edit inserts end in the edited sequence.
-    fn inserted_end(&self) -> usize {
-        self.change.edit.start + self.change.edit.alt.len()
     }
 
     /// Refuses a change whose protein cannot be predicted: one that
@@ -338,11 +334,12 @@ impl Reading {
     }
 
     /// One past the last reference residue an edit's description covers when
-    /// a new stop ends it: the codons the edit touches, or at least the first
-    /// changed one, and never the stop, which the protein record does not
-    /// carry as a residue.
+    /// a new stop ends it: the codons the bases that differ touch, or at least
+    /// the first changed one, and never the stop, which the protein record
+    /// does not carry as a residue.
     fn ref_end_at_new_stop(&self) -> usize {
-        (self.last_codon + 1)
+        let last = self.changed_ref_end.max(self.changed_start + 1) - 1;
+        (last / 3 + 1)
             .min(self.stop)
             .max(self.first_changed + 1)
             .min(self.ref_aa.len())
@@ -415,7 +412,7 @@ impl Reading {
             }
             return out.identity(self.first_codon, self.last_codon.min(self.stop));
         }
-        if self.in_frame {
+        if self.in_frame || self.original_stop.is_some() {
             describe_in_frame(self, &out)
         } else {
             describe_frameshift(self, &out)
@@ -436,16 +433,15 @@ pub(crate) fn met1() -> AaInterval {
 }
 
 /// Where the reference's stop codon, residue `stop`, is read in the edited
-/// sequence `alt_nt`, when an in-frame edit keeps it. The two sequences
-/// share a `prefix` and a `suffix`, which overlap where the change is an
-/// insertion or deletion that could be placed anywhere along a repeat. A stop
-/// codon outside the bases between them is kept where they put it. An
-/// insertion or deletion keeps it if some placement leaves the codon whole.
-/// Otherwise the differing bases are read as substitutions over the shorter
-/// run, with the bases added or removed at its 3' end or at its 5' start: the
-/// reading with fewer substitutions decides, and a tie keeps the stop if
-/// either reading does. Read from the two sequences, every spelling of one
-/// change reads alike.
+/// sequence `alt_nt`, when the change keeps it. The two sequences share a
+/// `prefix` and a `suffix`; between them, the bases that differ are aligned
+/// with the fewest substitutions, insertions and deletions, and the stop is
+/// kept when an alignment that costs no more aligns its codon, base for base,
+/// with a stop codon read in frame. The first such stop is where it is read.
+/// What the change does past it is no change to the protein, whatever frame
+/// it leaves the 3'UTR in. Read from the two sequences, every spelling of one
+/// change reads alike. A change whose differing runs are too long to align,
+/// more than [`MAX_ALIGNED`] pairs of bases, is read as losing the stop.
 fn kept_stop(
     ref_nt: &[u8],
     alt_nt: &[u8],
@@ -454,50 +450,83 @@ fn kept_stop(
     prefix: usize,
     suffix: usize,
 ) -> Option<usize> {
-    let net = alt_nt.len() as i64 - ref_nt.len() as i64;
-    if net % 3 != 0 || 3 * stop + 3 > ref_nt.len() {
+    let codon = 3 * stop..3 * stop + 3;
+    if codon.end > ref_nt.len() {
         return None;
     }
-    let shifted = usize::try_from(stop as i64 + net / 3).ok()?;
-    let reads_stop = |k: usize| alt_aa.get(k) == Some(&'*');
+    let net = alt_nt.len() as i64 - ref_nt.len() as i64;
+    let reads_stop_at = |base: i64| {
+        (base % 3 == 0 && base >= 0)
+            .then_some((base / 3) as usize)
+            .filter(|&k| alt_aa.get(k) == Some(&'*'))
+    };
     let tail = suffix.min(ref_nt.len().min(alt_nt.len()) - prefix);
-    let (ref_end, alt_end) = (ref_nt.len() - tail, alt_nt.len() - tail);
-    let codon = 3 * stop..3 * stop + 3;
+    let ref_end = ref_nt.len() - tail;
     if codon.end <= prefix {
-        return reads_stop(stop).then_some(stop);
+        return reads_stop_at(codon.start as i64);
     }
     if codon.start >= ref_end {
-        return reads_stop(shifted).then_some(shifted);
+        return reads_stop_at(codon.start as i64 + net);
     }
-    let overlap = (ref_end - prefix).min(alt_end - prefix);
-    if overlap == 0 {
-        // The 3'-most placement, at `prefix`, cuts the codon; the 5'-most,
-        // `first`, may lie wholly before it.
-        let removed = ref_end - prefix;
-        let first = (ref_nt.len() - suffix.min(ref_nt.len())).saturating_sub(removed);
-        return (first + removed <= codon.start && reads_stop(shifted)).then_some(shifted);
+    // Shared bases on either side, as many as the change adds or removes, let
+    // the alignment place the change wholly before or after the codon.
+    let shift = net.unsigned_abs() as usize;
+    let start = prefix.min(codon.start.saturating_sub(shift));
+    let end = ref_end
+        .max(codon.end + if net < 0 { shift } else { 0 })
+        .min(ref_nt.len());
+    let upper = |s: &[u8]| s.to_ascii_uppercase();
+    let r = upper(&ref_nt[start..end]);
+    let a = upper(&alt_nt[start..(end as i64 + net) as usize]);
+    if r.len().saturating_mul(a.len()) > MAX_ALIGNED {
+        return None;
     }
-    let substitutions = |r: &[u8], a: &[u8]| {
-        r.iter()
-            .zip(a)
-            .filter(|(x, y)| !x.eq_ignore_ascii_case(y))
-            .count()
+    let at = codon.start - start;
+    // The cost of aligning r[..at] with each prefix of a, and of r[at + 3..]
+    // with each suffix, and of the whole.
+    let before = edit_rows(&r[..at], &a);
+    let after: Vec<usize> = {
+        let (rr, ra): (Vec<u8>, Vec<u8>) = (
+            r[at + 3..].iter().rev().copied().collect(),
+            a.iter().rev().copied().collect(),
+        );
+        edit_rows(&rr, &ra).into_iter().rev().collect()
     };
-    let at_3_prime = (codon.end <= prefix + overlap && reads_stop(stop)).then_some(stop);
-    let at_3_prime_cost = substitutions(
-        &ref_nt[prefix..prefix + overlap],
-        &alt_nt[prefix..prefix + overlap],
-    );
-    let at_5_prime = (codon.start >= ref_end - overlap && reads_stop(shifted)).then_some(shifted);
-    let at_5_prime_cost = substitutions(
-        &ref_nt[ref_end - overlap..ref_end],
-        &alt_nt[alt_end - overlap..alt_end],
-    );
-    match at_3_prime_cost.cmp(&at_5_prime_cost) {
-        std::cmp::Ordering::Less => at_3_prime,
-        std::cmp::Ordering::Greater => at_5_prime,
-        std::cmp::Ordering::Equal => at_5_prime.or(at_3_prime),
+    let whole = *edit_rows(&r, &a)
+        .last()
+        .expect("a row has a column per base and one more");
+    (0..(a.len() + 1).saturating_sub(3)).find_map(|j| {
+        let substitutions = r[at..at + 3]
+            .iter()
+            .zip(&a[j..j + 3])
+            .filter(|(x, y)| x != y)
+            .count();
+        (before[j] + substitutions + after[j + 3] == whole)
+            .then(|| reads_stop_at((start + j) as i64))
+            .flatten()
+    })
+}
+
+/// The most pairs of bases [`kept_stop`] aligns.
+const MAX_ALIGNED: usize = 1 << 24;
+
+/// The last row of the edit-distance table of `r` against `a`: entry `j` is
+/// the fewest substitutions, insertions and deletions that make `r` into
+/// `a[..j]`.
+fn edit_rows(r: &[u8], a: &[u8]) -> Vec<usize> {
+    let mut row: Vec<usize> = (0..=a.len()).collect();
+    for (i, x) in r.iter().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, y) in a.iter().enumerate() {
+            let next = (diagonal + usize::from(x != y))
+                .min(row[j] + 1)
+                .min(row[j + 1] + 1);
+            diagonal = row[j + 1];
+            row[j + 1] = next;
+        }
     }
+    row
 }
 
 /// The index of the reference's stop in `ref_aa`, the translation of a CDS
@@ -528,18 +557,18 @@ pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
     Reading::new(change.clone()).describe()
 }
 
-/// An out-of-frame edit: a frameshift, unless a stop formed entirely from the
-/// inserted bases ends translation before the new frame reads a reference
-/// base (then the touched codons are replaced up to that stop), or the first
-/// changed residue is the stop itself (then it reads through: an extension).
+/// An out-of-frame edit that does not keep the stop: a frameshift, unless the
+/// first changed residue is the stop itself (then it reads through: an
+/// extension), or a stop formed entirely from the bases that differ ends
+/// translation before the new frame reads a reference base (then the codons
+/// they touch are replaced up to that stop).
 fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
     if i == t.stop && t.alt_aa.get(i).is_some_and(|&c| c != '*') {
         return out.extension(i);
     }
-    let inserted_end = t.inserted_end();
     if let Some(j) = (i..t.alt_aa.len()).find(|&j| t.alt_aa[j] == '*') {
-        if j * 3 >= t.start() && (j + 1) * 3 <= inserted_end {
+        if j * 3 >= t.changed_start && (j + 1) * 3 <= t.changed_end {
             if j == i {
                 return out.substitution(i, t.ref_aa[i], '*');
             }
@@ -549,8 +578,9 @@ fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsEr
     out.frameshift(i)
 }
 
-/// An in-frame edit: a [stop loss](describe_stop_lost) when no stop is read
-/// where the reference's was; otherwise written at its 3'-most equivalent
+/// An in-frame edit, or one that keeps the stop and shifts the frame only past
+/// it: a [stop loss](describe_stop_lost) when the stop is not kept; otherwise
+/// the change before the stop, written at its 3'-most equivalent
 /// residues (the shared tail is trimmed), cut at a stop the edit creates, and
 /// classified as nonsense, duplication, insertion, substitution, deletion or
 /// delins.
@@ -991,16 +1021,6 @@ mod tests {
     }
 
     #[test]
-    fn an_out_of_frame_change_whose_first_change_is_the_stop_is_an_extension() {
-        // c.19_21delinsCAATAAG: TAA becomes CAA, then TAA among the inserted
-        // bases.
-        assert_eq!(
-            p(CDS, UTR, delins("CAATAAG"), 18, 21),
-            "NP:p.Ter7GlnextTer1"
-        );
-    }
-
-    #[test]
     fn an_in_frame_change_that_rewrites_the_stop_as_a_stop_keeps_it() {
         // CGC TAA becomes TGG TAA: only Arg6 changes.
         assert_eq!(p(CDS, UTR, delins("TGGTAA"), 15, 21), "NP:p.Arg6Trp");
@@ -1027,6 +1047,73 @@ mod tests {
             ),
             "NP:p.Tyr5_Arg6dup"
         );
+    }
+
+    #[test]
+    fn a_change_on_both_sides_of_a_kept_stop_is_the_change_before_it() {
+        // c.[16C>G;*2dup]: CGC TAA CCG becomes GGC TAA CCCG, the frame shifted
+        // only past the stop.
+        assert_eq!(p(CDS, UTR, delins("GGCTAAC"), 15, 21), "NP:p.Arg6Gly");
+        assert_eq!(p(CDS, UTR, delins("GGCTAACC"), 15, 22), "NP:p.Arg6Gly");
+    }
+
+    #[test]
+    fn residues_inserted_before_a_kept_stop_read_alike_however_the_edit_ends() {
+        // CAA CCG inserted before TAA, and a C after it in the last two.
+        assert_eq!(
+            p(CDS, UTR, delins("CAACCGTAA"), 18, 21),
+            "NP:p.Arg6_Ter7insGlnPro"
+        );
+        assert_eq!(
+            p(CDS, UTR, delins("CAACCGTAAC"), 18, 21),
+            "NP:p.Arg6_Ter7insGlnPro"
+        );
+        assert_eq!(
+            p(CDS, UTR, delins("CAACCGTAACC"), 18, 22),
+            "NP:p.Arg6_Ter7insGlnPro"
+        );
+        // CAA before TAA, and a G after it: no reading loses the stop for less.
+        assert_eq!(
+            p(CDS, UTR, delins("CAATAAG"), 18, 21),
+            "NP:p.Arg6_Ter7insGln"
+        );
+    }
+
+    #[test]
+    fn a_delins_written_through_a_stop_it_writes_back_is_the_change_before_it() {
+        // CGC TAA becomes GGC GCT AAC TAA, also c.16_17delinsGGCGCTAA.
+        assert_eq!(
+            p(CDS, UTR, delins("GGCGCTAACTAA"), 15, 21),
+            "NP:p.Arg6delinsGlyAlaAsn"
+        );
+        assert_eq!(
+            p(CDS, UTR, delins("GGCGCTAA"), 15, 17),
+            "NP:p.Arg6delinsGlyAlaAsn"
+        );
+        assert_eq!(p(CDS, UTR, delins("AGCTAA"), 15, 21), "NP:p.Arg6Ser");
+        assert_eq!(p(CDS, UTR, delins("TATTAA"), 12, 21), "NP:p.Arg6del");
+        assert_eq!(p(CDS, UTR, delins("GCCTAA"), 9, 21), "NP:p.Tyr5_Arg6del");
+    }
+
+    #[test]
+    fn a_stop_the_edit_makes_ends_a_delins_over_the_codons_that_differ_however_it_is_spelled() {
+        // c.4_12delinsCTGTAA, spelled through the TAT that follows.
+        assert_eq!(
+            p(CDS, UTR, delins("CTGTAATAT"), 3, 15),
+            "NP:p.Lys2_Ala4delinsLeuTer"
+        );
+        // Out of frame: c.4_12delinsCTGTAAGG, spelled through the TAT.
+        assert_eq!(
+            p(CDS, UTR, delins("CTGTAAGGTAT"), 3, 15),
+            "NP:p.Lys2_Ala4delinsLeuTer"
+        );
+    }
+
+    #[test]
+    fn a_deletion_before_the_stop_that_could_cut_into_its_codon_keeps_it() {
+        // M K L A Y *: TAT TAA becomes TAA, which also reads as the deletion
+        // of the stop codon's TA and the T before it.
+        assert_eq!(p("ATGAAACTGGCCTATTAA", UTR, del(), 12, 15), "NP:p.Tyr5del");
     }
 
     #[test]
