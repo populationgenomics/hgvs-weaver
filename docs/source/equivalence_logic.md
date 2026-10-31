@@ -79,7 +79,8 @@ names no stretch of residues to replace (an uncertain range, `p.Met1?`, `p.?`) i
 
 The nucleotide variant is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or `n.` is projected
 and the `searcher` names the transcripts). Of those, only the transcripts that encode the description's protein take
-part, those the provider pairs with it and those whose CDS translates to its sequence
+part, those the provider pairs with it and those whose CDS translates to its sequence and whose gene the provider names
+the protein among, so that a paralogue's identical copy takes no part
 ([the choice](choices.md#a-protein-description-is-predicted-only-on-its-own-transcripts)), and on each its predicted
 `p.` description is compared with the given one by the rule for two protein descriptions
 ([below](#protein-against-protein)). So a coding change is Identity with its prediction in any spelling (`c.1799T>A`
