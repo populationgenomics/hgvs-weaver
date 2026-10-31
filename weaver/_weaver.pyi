@@ -562,7 +562,8 @@ class VariantMapper:
         normalised.
 
         An allele in cis of nucleotide members is projected to the genome, where the
-        members that overlap, touch or would shift into each other become one Allele;
+        members that overlap, touch or would shift into each other become one Allele,
+        a change justified only up to a positional identity beside it in the allele;
         no codon groups them there, so a c. allele and its g. projection get one
         identifier. One that is a single change there is that change's object;
         otherwise it becomes a CisPhasedBlock whose ``members`` are the Alleles, in

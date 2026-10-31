@@ -3133,6 +3133,16 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        self.canonical_allele_within(var, (0, usize::MAX))
+    }
+
+    /// [`canonical_allele`](Self::canonical_allele) with the region of
+    /// ambiguity of a nucleotide variant kept inside the genomic `bounds`.
+    pub(crate) fn canonical_allele_within(
+        &self,
+        var: &crate::SequenceVariant,
+        bounds: (usize, usize),
+    ) -> Result<CanonicalAllele, HgvsError> {
         if let crate::SequenceVariant::CisPhased(cis) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "A cis allele has one canonical allele per member, not one of its own; \
@@ -3190,7 +3200,7 @@ impl<'a> VariantMapper<'a> {
         let (hgvs_start, hgvs_end) = simple_interval_range(pos)?;
         let reference = self.refs.reference(&g.ac, IdentifierType::GenomicAccession);
         let resolved = edit.resolve(&reference, hgvs_start, hgvs_end)?;
-        CanonicalAllele::canonicalize(&reference, &g.ac, &resolved)
+        CanonicalAllele::canonicalize_within(&reference, &g.ac, &resolved, bounds)
     }
 
     /// The unambiguous SPDI of a variant: its canonical allele, rendered.
@@ -3207,6 +3217,15 @@ impl<'a> VariantMapper<'a> {
     /// breakpoints has Range bounds. A copy-number edit or an imprecise
     /// duplication has no Allele: see [`to_vrs_variation`](Self::to_vrs_variation).
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
+        self.to_vrs_within(var, (0, usize::MAX))
+    }
+
+    /// [`to_vrs`](Self::to_vrs), justified only inside the genomic `bounds`.
+    pub(crate) fn to_vrs_within(
+        &self,
+        var: &crate::SequenceVariant,
+        bounds: (usize, usize),
+    ) -> Result<VrsAllele, HgvsError> {
         if let crate::SequenceVariant::CisPhased(_) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{var} is an allele in cis, which is a VRS CisPhasedBlock, not an Allele; \
@@ -3254,7 +3273,7 @@ impl<'a> VariantMapper<'a> {
         if let Some(length) = na_edit(var).and_then(inserted_length) {
             return self.length_allele(var, length, &syntax, &hgvs);
         }
-        let allele = self.canonical_allele(var)?;
+        let allele = self.canonical_allele_within(var, bounds)?;
         let (kind, molecule) = match var {
             crate::SequenceVariant::Protein(_) => {
                 (IdentifierType::ProteinAccession, VrsMolecule::Protein)
@@ -3456,11 +3475,18 @@ impl<'a> VariantMapper<'a> {
         cis: &crate::structs::CisPhasedVariant,
         var: &crate::SequenceVariant,
     ) -> Result<VrsCisPhasedBlock, HgvsError> {
-        let members = cis
-            .members
-            .iter()
-            .map(|m| self.to_vrs(m))
-            .collect::<Result<Vec<_>, _>>()?;
+        let members = match cis.coordinate_type() {
+            "p" => cis
+                .members
+                .iter()
+                .map(|m| self.to_vrs(m))
+                .collect::<Result<Vec<_>, _>>()?,
+            _ => self
+                .rendered_members(cis)?
+                .iter()
+                .map(|(m, bounds)| self.to_vrs_within(m, *bounds))
+                .collect::<Result<Vec<_>, _>>()?,
+        };
         let Some(first) = members.first() else {
             return Err(HgvsError::ValidationError(
                 "A cis allele needs at least one member".into(),
@@ -3492,7 +3518,9 @@ impl<'a> VariantMapper<'a> {
     /// if contradictory or ambiguous, projected to the genome and normalised
     /// there ([`normalize_variant`](Self::normalize_variant) on the `g.`
     /// allele, so no codon groups members): members that overlap, touch or
-    /// would shift into each other are one Allele, each fully justified. One
+    /// would shift into each other are one Allele, each fully justified, a
+    /// change only up to a positional identity beside it, as its
+    /// normalisation stops there. One
     /// that is a single change there is that change's object, carrying the
     /// allele as written as its expression.
     pub fn to_vrs_variation(

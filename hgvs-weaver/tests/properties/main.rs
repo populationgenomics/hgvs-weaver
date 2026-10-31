@@ -2593,10 +2593,9 @@ proptest! {
     /// sequence it made and renders as the same VRS object: a block's
     /// members are placed together, so members whose justified locations
     /// overlap still read, and of the placements only those rendering as
-    /// the block count. Where `to_vrs` renders two alleles as one block, the
-    /// block reads back as ambiguous: then every reading renders as the
-    /// block and one makes the allele's sequence. A block whose meeting
-    /// members have too many placements to try is refused.
+    /// the block count; no two alleles render as one block, so it is never
+    /// ambiguous. A block whose meeting members have too many placements to
+    /// try is refused.
     #[test]
     fn a_cis_allele_read_back_from_vrs_makes_its_sequence((seq, members) in seq_and_allele()) {
         let hdp = Provider::new().sequence("X", &seq);
@@ -2624,12 +2623,30 @@ proptest! {
                 prop_assert!(renders_as_the_block(&back), "{} reads back as {}, another block", cis, back);
                 prop_assert!(makes_the_allele(&back), "{} reads back as {}, another sequence", cis, back);
             }
-            Err(hgvs_weaver::HgvsError::Ambiguous { readings, .. }) => {
-                prop_assert!(readings.iter().all(renders_as_the_block), "{}: a reading of {:?} is another block", cis, readings);
-                prop_assert!(readings.iter().any(makes_the_allele), "{}: no reading of {:?} is the allele", cis, readings);
-            }
             Err(hgvs_weaver::HgvsError::UnsupportedOperation(_)) => {}
             Err(e) => return Err(TestCaseError::fail(format!("{cis} does not read back from VRS: {e}"))),
+        }
+    }
+
+    /// Two alleles with one VRS identifier make one sequence and state the
+    /// same bases: an identifier is a key for what the allele says.
+    #[test]
+    fn alleles_with_one_vrs_identifier_say_one_thing((seq, a, b) in seq_and_two_alleles()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let (a, b) = (genomic_cis(&a), genomic_cis(&b));
+        let read = |cis: &hgvs_weaver::CisPhasedVariant| {
+            let reading = mapper.read_cis(cis).ok().filter(|r| r.unapplied().is_empty())?;
+            let vrs = mapper.to_vrs_variation(&SequenceVariant::CisPhased(cis.clone())).ok()?;
+            Some((reading, vrs.id().to_string()))
+        };
+        let (Some((ra, ia)), Some((rb, ib))) = (read(&a), read(&b)) else {
+            return Ok(());
+        };
+        if ia == ib {
+            let reference = mapper.refs.reference("X", G);
+            prop_assert!(ra.same_sequence(&rb, &reference).unwrap(), "{} and {} share {}", a, b, ia);
+            prop_assert_eq!(ra.stated(), rb.stated(), "{} and {} share {}", a, b, ia);
         }
     }
 

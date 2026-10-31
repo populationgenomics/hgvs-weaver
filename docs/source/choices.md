@@ -1531,6 +1531,17 @@ different alleles. Merged first, they are `g.3_4delinsT` and `g.4_5delinsT`, two
 differs from a block of members translated one at a time wherever members meet, and that is where such a block can lose
 this information.
 
+A positional identity in the allele bounds the justification. Normalisation keeps a change apart from the bases an
+identity names, and no shift enters them, since the identity says they are as they were; a change's region of ambiguity
+in the allele stops there too. So each change is justified only as far as the identities either side of it, and changes
+whose Alleles then share a base or an insertion point are one Allele. Justified past the identity, two changes either
+side of it in one run would each span the run, and the block would no longer say which comes first: on `ACAACAACAACAA`,
+where `CAA` repeats from g.2, `g.[12_13insA;1_3dup;8_12=]` and `g.[8_12=;12dup;13delinsACAA]` make different sequences
+and were one block. Bounded, the first is a copy of `CAA` before g.8 and an A after g.12, and the second one Allele of
+the two changes after g.12, `g.13delinsAACAA`. An Allele justified short of its whole run is not what ga4gh.vrs makes of
+the change alone, so in such a block weaver's identifier for that member differs from the one the change has alone; the
+block's identifier is the key, and it now names one allele.
+
 `from_vrs` reads a `CisPhasedBlock` back the same way: each member is trimmed to its minimal edit, every placement of
 that edit within the member's justified location is considered, and a combination of placements is a reading when the
 overlap rule accepts it, every member makes its own change, and it states only what the block's reference Alleles state.
@@ -1552,17 +1563,17 @@ is not the block. On `GAAAAAG`, two identical Alleles deleting an A from the run
 twenty-five As two deletions and an insertion of an A make `g.25del`. A reading states nothing a member does not: a
 deletion and an insertion placed side by side would cancel and state the bases between them, which the block does not.
 
-weaver's own blocks need the same reading: `NM_X.1:c.[9_12inv;3_8del]` renders as an identity over c.9_12, whose `GGCC`
-is its own reverse complement, beside a deletion justified over c.2_9, and read back one at a time the deletion lands on
-c.9. Placed together it reads back as `NC_X.1:g.[18_23del;24_27=]`. Where some readings render as the block's own
-Alleles, as one weaver wrote does, only those count, an insertion of the bases before it written as their duplication
-for this, as `normalize` writes it: so `g.[1dup;2_12dup;6_10=]` on `CGCCTAGTTGGTAAG` reads back as itself, not as
-another allele of the same sequence with another identifier. The placements tried together are those of members whose
-locations overlap or touch, every combination of them, and a set with more than 16,384 combinations is refused with
-`UnsupportedOperation` rather than tried; a protein block is read member by member. A block can say less than the allele
-it was rendered from: `to_vrs` renders `g.[12_13insA;1_3dup;8_12=]` on `ACAACAACAACAA` and
-`g.[8_12=;12dup;13delinsACAA]`, which make different sequences, as one block, so reading it back is ambiguous between
-the two.
+weaver's own blocks need the same reading. `NM_X.1:c.[9_12inv;3_8del]` renders as an identity over c.9_12, whose `GGCC`
+is its own reverse complement, beside a deletion justified up to it; read back one at a time, the deletion would be
+placed at its 3'-most spelling alone, on c.9. Placed together it reads back as `NC_X.1:g.[18_23del;24_27=]`. Where some
+readings render as the block's own Alleles, as one weaver wrote does, only those count, an insertion of the bases before
+it written as their duplication for this, as `normalize` writes it: so `g.[1dup;2_12dup;6_10=]` on `CGCCTAGTTGGTAAG`
+reads back as itself, not as another allele of the same sequence with another identifier. The placements tried together
+are those of members whose locations overlap or touch, every combination of them, and a set with more than 16,384
+combinations is refused with `UnsupportedOperation` rather than tried; a protein block is read member by member. A block
+weaver wrote reads back as an allele with its identifier, and the same sequence and statements as the allele, though not
+always in the spelling `normalize` writes: changes `to_vrs` made one Allele come back as one change,
+`g.[8_12=;12dup;13delinsACAA]` as `g.[8_12=;13delinsAACAA]`.
 
 **Example** (`NM_X.1` and `NC_X.1` as in [the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make); c.4_12
 reads `AAACTGGCC`, codons 2 to 4, and c.4 is g.19; `NM_S.1` is `NM_X.1` with exon 1 ending at c.5, so c.4_9 reads
@@ -1720,7 +1731,10 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::an_allele_reads_back_from_its_block_as_it_normalises`,
   `::an_ambiguous_block_lists_the_readings_of_every_ambiguous_set`,
   `::identical_members_of_a_block_each_make_their_change`,
-  `::a_block_of_changes_in_a_run_reads_back_as_the_change_they_make`; `::an_ambiguity_carries_its_readings` and
+  `::a_block_of_changes_in_a_run_reads_back_as_the_change_they_make`,
+  `::alleles_making_different_sequences_across_an_identity_have_different_vrs_identifiers`,
+  `::alleles_across_an_identity_read_back_from_their_blocks`, `alleles_with_one_vrs_identifier_say_one_thing`
+  (property); `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
   share a member, which reading the allele already refuses;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,

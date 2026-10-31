@@ -41,6 +41,9 @@ struct Member {
 /// An Allele as its exact location and the bases it puts there.
 type Key = (usize, usize, String);
 
+/// A member a block renders, and the bounds it is justified within.
+type Rendered = (SV, (usize, usize));
+
 impl VariantMapper<'_> {
     /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`, on the sequence
     /// `accession` or the first member's refget accession names; every member
@@ -360,6 +363,133 @@ impl VariantMapper<'_> {
         rendered.sort_unstable();
         Ok(rendered.iter().eq(keys.iter().copied()))
     }
+}
+
+impl VariantMapper<'_> {
+    /// `cis`, a `g.` allele normalised on its genome, as the members its
+    /// block renders, and the bounds each is justified within. Normalisation
+    /// keeps a change apart from the bases a positional identity names, and
+    /// a change's region of ambiguity stops there too: the identity says
+    /// those bases are as they were. So each change is justified within the
+    /// stretch between the identities either side of it, and changes whose
+    /// Alleles then share a base, or an insertion point, are one change,
+    /// until none do. Without the bound,
+    /// two changes either side of an identity in one run are each justified
+    /// over the whole run, and the block no longer says which comes first:
+    /// two alleles, one identifier.
+    pub(crate) fn rendered_members(
+        &self,
+        cis: &CisPhasedVariant,
+    ) -> Result<Vec<Rendered>, HgvsError> {
+        let whole = (0, usize::MAX);
+        let reference = self
+            .refs
+            .reference(&cis.ac, IdentifierType::GenomicAccession);
+        let mut stated = Vec::new();
+        for m in &cis.members {
+            if let SV::Genomic(g) = m {
+                if g.posedit.edit.is_identity() && m.has_exact_position() {
+                    if let Some(pos) = g.posedit.pos.as_ref() {
+                        stated.push(crate::mapper::simple_interval_range(pos)?);
+                    }
+                }
+            }
+        }
+        let mut members: Vec<Rendered> = Vec::with_capacity(cis.members.len());
+        for m in &cis.members {
+            let bounds = match self.change_core(m)? {
+                Some(core) if !stated.is_empty() => between(&stated, core),
+                _ => whole,
+            };
+            members.push((m.clone(), bounds));
+        }
+        if stated.is_empty() {
+            return Ok(members);
+        }
+        loop {
+            let mut spans = Vec::with_capacity(members.len());
+            for (m, bounds) in &members {
+                spans.push(match self.change_core(m)? {
+                    Some(_) => {
+                        let a = self.canonical_allele_within(m, *bounds)?;
+                        Some((a.start, a.end))
+                    }
+                    None => None,
+                });
+            }
+            let meet = (0..members.len())
+                .flat_map(|i| (i + 1..members.len()).map(move |j| (i, j)))
+                .find_map(|(i, j)| match (spans[i], spans[j]) {
+                    (Some(a), Some(b)) if overlap(a, b) => Some((i, j, a.0.min(b.0), a.1.max(b.1))),
+                    _ => None,
+                });
+            let Some((i, j, lo, hi)) = meet else {
+                return Ok(members);
+            };
+            let pair = vec![members[i].0.clone(), members[j].0.clone()];
+            let reading = self.read_cis(&CisPhasedVariant::new(cis.ac.clone(), None, pair)?)?;
+            let alt = reading.sequence(&reference, lo, hi)?;
+            let ref_ = reference.slice(lo, hi)?;
+            let (edit, s, e) = normalize::minimal_edit(&reference, lo, hi, &ref_, &alt)?;
+            let one = SV::Genomic(g_variant(&cis.ac, interval(s, e)?, edit));
+            let bounds = members[i].1;
+            members.remove(j);
+            members[i] = (one, bounds);
+        }
+    }
+
+    /// The bases `member`, a change at an exact position on the genome,
+    /// alters, trimmed of what it writes back at either end: an insertion
+    /// as the empty range at its junction. `None` for an identity or a
+    /// member without bases to apply.
+    fn change_core(&self, member: &SV) -> Result<Option<(usize, usize)>, HgvsError> {
+        let SV::Genomic(g) = member else {
+            return Ok(None);
+        };
+        if g.posedit.edit.is_identity() || !member.has_exact_position() {
+            return Ok(None);
+        }
+        let Some(pos) = g.posedit.pos.as_ref() else {
+            return Ok(None);
+        };
+        let reference = self.refs.reference(&g.ac, IdentifierType::GenomicAccession);
+        let (s, e) = crate::mapper::simple_interval_range(pos)?;
+        let Ok(resolved) = g.posedit.edit.resolve(&reference, s, e) else {
+            return Ok(None);
+        };
+        let actual = reference.slice(resolved.start, resolved.end)?;
+        let (at, r, _) = crate::structs::strip_common_prefix_suffix(
+            resolved.start as i32,
+            &actual,
+            &resolved.alt,
+        );
+        Ok(Some((at as usize, at as usize + r.len())))
+    }
+}
+
+/// Whether two Allele locations share a base, or one inserts at a point
+/// the other holds or also inserts at.
+fn overlap(a: (usize, usize), b: (usize, usize)) -> bool {
+    let inside = |p: usize, (s, e): (usize, usize)| s < p && p < e || s == e && s == p;
+    (a.0 < b.1 && b.0 < a.1) || (a.0 == a.1 && inside(a.0, b)) || (b.0 == b.1 && inside(b.0, a))
+}
+
+/// The stretch between the `stated` ranges either side of `core`, which
+/// meets none of them inside.
+fn between(stated: &[(usize, usize)], (s, e): (usize, usize)) -> (usize, usize) {
+    let lo = stated
+        .iter()
+        .map(|r| r.1)
+        .filter(|&end| end <= s)
+        .max()
+        .unwrap_or(0);
+    let hi = stated
+        .iter()
+        .map(|r| r.0)
+        .filter(|&start| start >= e)
+        .min()
+        .unwrap_or(usize::MAX);
+    (lo, hi)
 }
 
 /// Whether the Allele `key` puts back the bases its location holds.

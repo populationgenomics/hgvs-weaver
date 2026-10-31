@@ -564,6 +564,47 @@ fn read_back_from_its_block(sequence: &str, allele: &str) -> (String, bool) {
 }
 
 #[test]
+fn alleles_making_different_sequences_across_an_identity_have_different_vrs_identifiers() {
+    // CAA repeats from g.2: the copy goes before the identity's bases in the
+    // first and after them in the second, an A added at g.12_13 in both
+    let sequence = "ACAACAACAACAA";
+    let hdp = Provider::new().sequence("X", sequence);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let id = |allele: &str| {
+        mapper
+            .to_vrs_variation(&parse_hgvs_variant(allele).unwrap())
+            .unwrap()
+            .id()
+            .to_string()
+    };
+    assert_ne!(
+        id("X:g.[12_13insA;1_3dup;8_12=]"),
+        id("X:g.[8_12=;12dup;13delinsACAA]")
+    );
+}
+
+#[test]
+fn alleles_across_an_identity_read_back_from_their_blocks() {
+    // normalize writes the first's insertion 12_13insA beside the identity;
+    // its block's Allele is the A run after it, read back 3'-most, 13dup.
+    // The second's two changes after the identity are one Allele, and one
+    // change read back.
+    for (allele, normalised) in [
+        ("X:g.[12_13insA;1_3dup;8_12=]", "X:g.[5_7dup;8_12=;13dup]"),
+        (
+            "X:g.[8_12=;12dup;13delinsACAA]",
+            "X:g.[8_12=;13delinsAACAA]",
+        ),
+    ] {
+        assert_eq!(
+            read_back_from_its_block("ACAACAACAACAA", allele),
+            (normalised.to_string(), true),
+            "{allele}"
+        );
+    }
+}
+
+#[test]
 fn an_allele_reads_back_from_its_block_as_it_normalises() {
     for (sequence, allele, normalised) in [
         (
