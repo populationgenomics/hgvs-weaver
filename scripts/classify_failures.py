@@ -101,10 +101,7 @@ class CombinedProvider:
             e = min(len(seq), e_idx)
             return seq[int(s) : int(e)]
 
-        # refseq.RefSeqDataProvider.get_seq expects a string for 'kind' in its implementation
-        # but the protocol/stub use IdentifierType.
-        kind_str = str(kind)
-        return self.refseq.get_seq(ac, start, end, kind_str)
+        return self.refseq.get_seq(ac, start, end, kind)
 
     def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]]:
         return self.refseq.get_symbol_accessions(symbol, source_kind, target_kind)
@@ -306,6 +303,7 @@ def classify(row: dict[str, str]) -> str:  # noqa: C901, PLR0912
 
 
 def main() -> None:  # noqa: C901
+    logging.basicConfig(level=logging.INFO)
     if len(sys.argv) < MIN_ARGS_COUNT:
         print("Usage: classify_failures.py <results_tsv>")
         sys.exit(1)

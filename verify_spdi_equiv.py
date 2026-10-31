@@ -1,4 +1,5 @@
 import csv
+import logging
 import sys
 
 from weaver import refseq
@@ -79,6 +80,7 @@ def verify_equivalence(results_file: str) -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     min_args = 2
     if len(sys.argv) < min_args:
         print("Usage: python verify_spdi_equiv.py <results_file>")

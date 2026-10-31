@@ -12,7 +12,7 @@ import hgvs.dataproviders.interface
 import weaver
 from weaver import refseq
 
-# Importable from here for callers written against 1.0, where the class lived in this module.
+# The provider over a RefSeq GFF3 and FASTA, also importable from here.
 RefSeqDataProvider = refseq.RefSeqDataProvider
 
 

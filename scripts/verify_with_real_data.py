@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import weaver
 from weaver import refseq
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     dp = refseq.RefSeqDataProvider(
         gff_path="GRCh38_latest_genomic.gff.gz",
         fasta_path="GCF_000001405.40_GRCh38.p14_genomic.fna",
