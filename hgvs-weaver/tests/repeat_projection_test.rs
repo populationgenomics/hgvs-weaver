@@ -557,3 +557,12 @@ fn a_genomic_repeat_in_an_intron_whose_unit_is_absent_is_refused() {
         "expected ReferenceMismatch finding G, got {err:?}"
     );
 }
+
+#[test]
+fn a_count_whose_alternate_no_sequence_could_number_is_refused() {
+    let err = to_genome(&plus(), "NM_FWD.1:c.5A[2147483647]").unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483647")),
+        "expected ValidationError naming the count, got {err:?}"
+    );
+}

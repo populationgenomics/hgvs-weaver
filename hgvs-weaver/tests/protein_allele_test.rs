@@ -55,6 +55,17 @@ fn substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein() {
 }
 
 #[test]
+fn a_count_whose_alternate_no_protein_could_number_is_refused() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[2147483647]").unwrap();
+    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483647")),
+        "expected ValidationError naming the count, got {err:?}"
+    );
+}
+
+#[test]
 fn a_stop_among_the_new_residues_ends_the_protein() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);

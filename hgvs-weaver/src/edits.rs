@@ -539,6 +539,7 @@ impl NaEdit {
                     Some(u) => u.to_string(),
                     None => fetch(start, end)?,
                 };
+                let copies = copies_that_fit(accession, &unit, *max, start)?;
                 let mut run_end = start;
                 if !unit.is_empty() {
                     while fetch(run_end, run_end + unit.len())?.eq_ignore_ascii_case(&unit) {
@@ -552,7 +553,7 @@ impl NaEdit {
                     start,
                     end: run_end,
                     ref_: fetch(start, run_end)?,
-                    alt: unit.repeat((*max).max(0) as usize),
+                    alt: unit.repeat(copies),
                 });
             }
             NaEdit::None => {
@@ -716,6 +717,7 @@ impl AaEdit {
                     Some(u) => u.clone(),
                     None => fetch(start, end)?,
                 };
+                let copies = copies_that_fit(accession, &unit, *max, start)?;
                 let mut run_end = start;
                 if !unit.is_empty() {
                     while fetch(run_end, run_end + unit.len())? == unit {
@@ -732,7 +734,7 @@ impl AaEdit {
                     start,
                     end: run_end,
                     ref_: fetch(start, run_end)?,
-                    alt: unit.repeat((*max).max(0) as usize),
+                    alt: unit.repeat(copies),
                 });
             }
             AaEdit::Identity { .. } => {
@@ -750,6 +752,34 @@ impl AaEdit {
             alt,
         })
     }
+}
+
+/// The number of copies of `unit` a repeat counting `count` from `start` of
+/// `accession` writes, refused before any is built where the last of them
+/// would lie past the last position a sequence can number.
+///
+/// # Errors
+///
+/// [`HgvsError::ValidationError`] naming the count.
+fn copies_that_fit(
+    accession: &str,
+    unit: &str,
+    count: i32,
+    start: usize,
+) -> Result<usize, HgvsError> {
+    let copies = count.max(0) as usize;
+    let end = unit
+        .len()
+        .checked_mul(copies)
+        .and_then(|length| length.checked_add(start));
+    if end.is_some_and(|end| end <= i32::MAX as usize) {
+        return Ok(copies);
+    }
+    Err(HgvsError::ValidationError(format!(
+        "{count} copies of {unit} from index {start} of {accession} run past position {}, \
+         the last a sequence can have",
+        i32::MAX
+    )))
 }
 
 /// The error for a repeat whose stated unit is not at `start` of `accession`.
