@@ -549,7 +549,8 @@ NC_000099.1:g.26A>G    →  TX_DEL.1:c.15_16insG         the other direction: th
 ### A repeat is projected as its whole run
 
 **A repeat is widened to the full run of its unit on the source before projecting, and the target counts its own run:
-copies the target reads beyond the source's run are added to the count, and a transcript run that crosses an exon
+copies the target reads beyond the source's run are added to the count, unless the run continues over a base the source
+does not share, where the change is written over the source's run alone; and a transcript run that crosses an exon
 junction is refused in either direction.**
 
 A repeat's count is the total number of units in the run read 3' from its first base, on the sequence it is written on.
@@ -564,16 +565,25 @@ the same way. So whether a run continues past an exon's edge depends on how the 
 both exonic counts the record's run, one with an intronic or flanking end counts the genome's, where its bases are.
 Where the target's bases over the run are not the source's, the edit is the minimal one, as
 [for any projection](#a-projection-states-the-bases-of-the-target), and a count known only as a range is refused because
-it has no single alternate there. A transcript run that crosses an exon junction is refused, whichever side the repeat
-is written on: copies added to or removed from it could go on either side of the intron, so a `c.` count over it has no
-single place on the genome, and a genomic repeat whose run the next exon continues would be written as that `c.` count.
-Counting only the copies within the starting exon would answer instead, at the price of a `c.` count that is not the
-transcript's total, which the specification defines it to be.
+it has no single alternate there. The target's run can also continue past the source's over a base the source does not
+share: one the two hold differently, one only the target holds, or one beside a base only the source holds. A count on
+the target would count that base, and the count projected back would write the target's base over the source's: on a
+record holding A where the genome holds G after two A, `g.14A[3]` as `c.4_6A[4]` projects back as `g.16delinsAA`.
+Stopping the count at that base does not help, since `c.4_5A[3]` still counts the record's whole run, which makes no
+change. So the change is written over the source's run alone, as a deletion of the copies it removes, a duplication of
+the copies it adds, or the run's bases replaced where it adds more than the run holds; a count known only as a range is
+refused. A transcript run that crosses an exon junction is refused, whichever side the repeat is written on: copies
+added to or removed from it could go on either side of the intron, so a `c.` count over it has no single place on the
+genome, and a genomic repeat whose run the next exon continues would be written as that `c.` count. Counting only the
+copies within the starting exon would answer instead, at the price of a `c.` count that is not the transcript's total,
+which the specification defines it to be.
 
 **Example** (`NC_REP.1` is `TTTTT GCCATT GCCATT GCCATT AAAAA…`; `NM_REP_MINUS.1` reads it on the minus strand, where the
 run is `AATGGC` from c.78. `NM_REV.1` is `ATGAAACAGCAGCAGTTCTAAGG` on the minus strand of `NC_000099.1`, c.4_6 `AAA` at
 g.28_30; `NM_EDGE.1`'s exon 1 ends `GTGT` and its intron opens `GT`; `NM_INT.1` is on the minus strand with c.6+4_7-5
-`AAAA` at g.23_26):
+`AAAA` at g.23_26; `NM_DIFF.1` is `NM_REV.1`'s sequence on the plus strand of `NC_000096.1`, its c.4_6 `AAA` over a
+genomic `AAG` at g.14_16; `NM_GAPI.1` aligns `ATGAAATGACC` to `NC_000091.1` as `5M1I5M`, the genome lacking c.6, the
+last A of the run c.4_6):
 
 ```text
 NM_REP_MINUS.1:c.78AATGGC[4]  →  NC_REP.1:g.6_23GCCATT[4]           the whole run, in plus-strand orientation
@@ -586,14 +596,17 @@ NM_INT.1:c.6+5A[4]            →  NC_000094.1:g.23_26T[5]            three A be
 NC_000094.1:g.25T[4]          →  NM_INT.1:c.6+4_7-5A[6]
 NM_EDGE.1:c.7TG[3]            →  UnsupportedOperation               the run crosses the junction after c.9
 NC_000095.1:g.15A[3]          →  UnsupportedOperation               NM_JX.1's run of A carries on into exon 2
+NC_000096.1:g.14A[3]          →  NM_DIFF.1:c.5dup                   the record's A at c.6 is not the genome's
+NC_000096.1:g.14A[(2_3)]      →  UnsupportedOperation
+NC_000091.1:g.14A[3]          →  NM_GAPI.1:c.5dup                   the genome lacks c.6
 ```
 
 - **Others:** not checked.
 - **Spec (agrees):** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/): the count
   is the total number of units in the run. Silent on a run that crosses an exon junction.
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`;
-  `repeat_projection_test` (every row above, and the minimal edit over a base the genome does not share);
-  `a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript`,
+  `repeat_projection_test` (every row above, the minimal edit over a base the genome does not share, and the runs the
+  genome continues past the record's); `a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript`,
   `a_genomic_repeat_projected_to_the_transcript_is_the_same_change`,
   `an_intronic_repeat_does_to_the_genome_what_it_does_to_the_pre_mrna` (properties).
 

@@ -4,7 +4,8 @@
 
 mod support;
 
-use hgvs_weaver::data::Strand;
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
+use hgvs_weaver::data::{ExonData, Strand};
 use hgvs_weaver::equivalence::VariantEquivalence;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
@@ -129,6 +130,74 @@ fn record_differs() -> Provider {
             0,
             20,
             TX.len() as i32,
+        ))
+}
+
+/// `NM_DIFF3.1`, [`TX`] on the plus strand of `NC_000089.1` at g.11 to g.33,
+/// except that the genome holds A where the record holds c.7's C: c.4_7 is
+/// `AAAC` on the record and g.14_17 `AAAA` on the genome.
+fn genome_continues_the_run() -> Provider {
+    let mut genome = format!("{FLANK}{TX}{FLANK}").into_bytes();
+    genome[16] = b'A';
+    Provider::new()
+        .sequence("NC_000089.1", &String::from_utf8(genome).unwrap())
+        .sequence("NM_DIFF3.1", TX)
+        .transcript(single_exon_transcript(
+            "NM_DIFF3.1",
+            "NC_000089.1",
+            10,
+            Strand::Plus,
+            0,
+            20,
+            TX.len() as i32,
+        ))
+}
+
+/// `NM_GAPI.1` on the plus strand of `NC_000091.1`: one exon, `ATGAAATGACC`
+/// (c.1 to c.11), aligned as `5M1I5M` to `ATGAATGACC` at g.11 to g.20. The
+/// record's run of A is c.4_6, whose last base the genome lacks; the
+/// genome's is g.14_15.
+fn gap_in_the_genome() -> Provider {
+    Provider::new()
+        .sequence("NC_000091.1", &format!("{FLANK}ATGAATGACC{FLANK}"))
+        .sequence("NM_GAPI.1", "ATGAAATGACC")
+        .transcript(transcript(
+            "NM_GAPI.1",
+            "NC_000091.1",
+            Strand::Plus,
+            Some((0, 8)),
+            vec![ExonData::new(
+                TranscriptPos(0),
+                TranscriptPos(11),
+                GenomicPos(10),
+                GenomicPos(19),
+                Strand::Plus,
+                "5M1I5M",
+            )],
+        ))
+}
+
+/// `NM_GAPD.1` on the plus strand of `NC_000090.1`: one exon, `ATGAATGACC`
+/// (c.1 to c.10), aligned as `5M1D5M` to `ATGAAATGACC` at g.11 to g.21. The
+/// record's run of A is c.4_5; the genome's is g.14_16, whose last base the
+/// record lacks.
+fn gap_in_the_record() -> Provider {
+    Provider::new()
+        .sequence("NC_000090.1", &format!("{FLANK}ATGAAATGACC{FLANK}"))
+        .sequence("NM_GAPD.1", "ATGAATGACC")
+        .transcript(transcript(
+            "NM_GAPD.1",
+            "NC_000090.1",
+            Strand::Plus,
+            Some((0, 8)),
+            vec![ExonData::new(
+                TranscriptPos(0),
+                TranscriptPos(10),
+                GenomicPos(10),
+                GenomicPos(20),
+                Strand::Plus,
+                "5M1D5M",
+            )],
         ))
 }
 
@@ -575,4 +644,71 @@ fn a_range_past_the_run_of_its_unit_is_refused() {
         matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "CAGCAGCAGTTC"),
         "expected ReferenceMismatch finding CAGCAGCAGTTC, got {err:?}"
     );
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_does_not_share_projects_back_to_itself(
+) {
+    // g.14_15 is AA, then the genome's G; the record holds A there, at c.6.
+    let hdp = record_differs();
+    let written = "NC_000096.1:g.14A[3]";
+    let projected = VariantMapper::new(&hdp)
+        .g_to_c(&genomic(written), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(
+        spdi(&hdp, &projected.to_string()),
+        spdi(&hdp, written),
+        "{written} projected to {projected}"
+    );
+}
+
+#[test]
+fn an_uncertain_genomic_count_the_record_continues_over_a_base_the_genome_does_not_share_is_refused(
+) {
+    let err = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.14A[(2_3)]"), "NM_DIFF.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("no single edit")),
+        "expected UnsupportedOperation, got {err:?}"
+    );
+}
+
+#[test]
+fn a_coding_repeat_the_genome_continues_over_a_base_the_record_does_not_share_is_written_over_the_records_run(
+) {
+    // c.4_6 is AAA, then the record's C; the genome holds A there, at g.17.
+    // Three A become four: the genome duplicates the A at g.16 and leaves
+    // g.17 as it is.
+    assert_eq!(
+        to_genome(&genome_continues_the_run(), "NM_DIFF3.1:c.4A[4]").unwrap(),
+        "NC_000089.1:g.16dup"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_lacks_projects_back_to_itself() {
+    // g.14_15 is AA; the record continues the run with c.6, an A the genome
+    // lacks.
+    let hdp = gap_in_the_genome();
+    let written = "NC_000091.1:g.14A[3]";
+    let projected = VariantMapper::new(&hdp)
+        .g_to_c(&genomic(written), "NM_GAPI.1")
+        .unwrap();
+    assert_eq!(
+        spdi(&hdp, &projected.to_string()),
+        spdi(&hdp, written),
+        "{written} projected to {projected}"
+    );
+}
+
+#[test]
+fn a_coding_repeat_the_genome_continues_over_a_base_the_record_lacks_projects_back_to_itself() {
+    // c.4_5 is AA; the genome continues the run with g.16, an A the record
+    // lacks. Two A become three on the record.
+    let hdp = gap_in_the_record();
+    let mapper = VariantMapper::new(&hdp);
+    let on_genome = mapper.c_to_g(&coding("NM_GAPD.1:c.4A[3]"), None).unwrap();
+    let back = mapper.g_to_c(&on_genome, "NM_GAPD.1").unwrap();
+    assert_eq!(back.to_string(), "NM_GAPD.1:c.5dup", "through {on_genome}");
 }
