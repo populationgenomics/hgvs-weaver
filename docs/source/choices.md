@@ -1419,12 +1419,15 @@ One that meets no other member there is carried as given, as a single intronic v
 normalised on the transcript: `c.[7C>T;5+2T>A;4del]` on `NM_S.1` becomes `c.[5del;5+2T>A;7C>T]`, and `c.[5+1G>C;13T>G]`
 stays as written. An intronic member and the members it meets on the genome are merged there, trimmed to what they
 alter, and written back in transcript coordinates with intronic offsets: `c.[5A>T;5+1G>C]` is `c.5_5+1delinsTC` and
-`c.[5+2T>A;5+3A>G]` is `c.5+2_5+3delinsAG`. The result is not shifted, as a single intronic variant is not. What the
-exonic members are written as can reach an intronic member none of them reached, `c.[3del;4_5del;5+2T>A]` becoming
-`c.5_5+2del`, so this repeats until nothing changes. A group is placed where trimming the bases its members are written
-over leaves it, so two spellings of one deletion in an intronic run can be written at two places, as two single intronic
-variants can. An identity is kept as written and joins no group, and an intronic edit written twice is written once, as
-the edit it makes.
+`c.[5+2T>A;5+3A>G]` is `c.5+2_5+3delinsAG`. The result is not shifted, as a single intronic variant is not. It is
+spelled as an exonic group is: an insertion of a copy of the bases beside it is their duplication, `c.[6-4dup;6-3dup]`
+on `NM_S.1`, whose intron ends `TCCAG`, being `c.6-4_6-3dup`; a set of members that makes the reference is set aside as
+the identity of the bases it names, `c.[6-5_6-4insC;6-4del]` being `c.6-5_6-4=` and `c.[5+4delinsA;5+5G>A]` being
+`c.[5+4=;5+5G>A]`; and an `n.` allele on a coding transcript is written in `n.`. What the exonic members are written as
+can reach an intronic member none of them reached, `c.[3del;4_5del;5+2T>A]` becoming `c.5_5+2del`, so this repeats until
+nothing changes. A group is placed where trimming the bases its members are written over leaves it, so two spellings of
+one deletion in an intronic run can be written at two places, as two single intronic variants can. An identity is kept
+as written and joins no group, and an intronic edit written twice is written once, as the edit it makes.
 
 A transcript allele whose members all project to the genome is read there too, and its normalised form has to make the
 same genome. One with no reading on the genome is refused, though it reads on the transcript: on `NM_S.1`,
@@ -1594,6 +1597,8 @@ NM_S.1:c.[4del;6A>T]              ATCTG        →  NM_S.1:c.[5del;6A>T]     the
 NM_S.1:c.4_5insAC                 AACAACTG     →  NM_S.1:c.4_5insAC        not onto the junction, c.5_6insCA
 NM_S.1:c.[4dup;6A>T]              AAA|TCTG     →  NM_S.1:c.[5dup;6A>T]     the copy against c.5: g.20dup
 NM_S.1:c.[5=;6=]                  AA|ACTG      →  NM_S.1:c.[5=;6=]         identities in two exons stay apart
+NM_S.1:c.[6-4dup;6-3dup]          TCCCCAG      →  NM_S.1:c.6-4_6-3dup      the intron's end; not shifted
+NM_S.1:c.[5+4delinsA;5+5G>A]      GTAAA        →  NM_S.1:c.[5+4=;5+5G>A]   c.5+4 written back: a statement
 NM_X.1:c.[4del;6=]                AACTG        →  NM_X.1:c.[5del;6=]       no shift enters c.6
 on GAAAAAG:
 X:g.[2del;4A>T]                   GATAAG       →  X:g.3_4delinsT           both deletions justify over g.2_6
@@ -1687,6 +1692,11 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::intronic_members_that_meet_are_one_change`, `::an_intronic_member_written_twice_is_one_member`,
   `::an_intronic_edit_written_two_ways_is_written_once_whatever_the_order`, `::an_identity_joins_no_intronic_group`,
   `::an_exonic_member_sharing_bases_with_an_intronic_group_joins_it`, `::an_intronic_group_can_be_written_in_the_exon`,
+  `::a_tandem_copy_in_an_intronic_group_is_a_duplication`,
+  `::a_tandem_copy_in_an_intronic_group_on_the_minus_strand_is_a_duplication`,
+  `::an_intronic_group_that_makes_the_reference_is_the_identity_of_its_bases`,
+  `::an_intronic_member_that_makes_the_reference_beside_a_change_is_a_statement`,
+  `::a_non_coding_allele_on_a_coding_transcript_writes_its_intronic_group_back`,
   `::members_sharing_bases_across_a_statement_are_refused`,
   `::normalising_an_ambiguous_allele_raises_with_its_readings`, `::normalising_a_contradictory_allele_raises`,
   `::normalising_an_allele_whose_readings_are_not_listed_raises`,

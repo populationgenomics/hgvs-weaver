@@ -1193,12 +1193,14 @@ impl VariantMapper<'_> {
         // through another, as groups of slots.
         let n = allele.members.len();
         let meets = |a: Span, b: Span| a.0 <= b.1 && b.0 <= a.1;
-        // Identities state bases and are kept as written; they join no group.
-        // Every change meeting another, directly or through a third, is one
-        // group; a group holding an intronic member is merged on the genome.
+        // Statements, identities and the sets of members that make the
+        // reference, join no group. Every change meeting another, directly or
+        // through a third, is one group; a group holding an intronic member
+        // is merged on the genome.
+        let statement = self.settle(cis, &frame, &allele, true)?.statement;
+        let states = |k: usize| allele.members[k].1.is_identity() || statement.chosen.contains(&k);
         let groups = components(n, |a, b| {
-            let changes = !allele.members[a].1.is_identity() && !allele.members[b].1.is_identity();
-            changes && meets(extents[a], extents[b])
+            !states(a) && !states(b) && meets(extents[a], extents[b])
         });
         // Each member's placement: a member placed as another is that member
         // written twice, which the allele keeps once.
@@ -1245,6 +1247,23 @@ impl VariantMapper<'_> {
                 .expect("a group has members");
             members.push(self.merged_on_genome(cis, &frame, &genome, &indices, window)?);
         }
+        // A set that makes the reference with an intronic member is written
+        // as the identity of the bases it names, as one on the transcript is.
+        for &span in &statement.stated {
+            let inside = |k: &usize| {
+                let w = allele.members[*k].1.written();
+                span.0 <= w.0 && w.1 <= span.1
+            };
+            let slots: Vec<usize> = statement.chosen.iter().copied().filter(inside).collect();
+            if !slots.iter().any(|&k| intronic[allele.members[k].0]) {
+                continue;
+            }
+            let indices: Vec<usize> = slots.iter().map(|&k| allele.members[k].0).collect();
+            for &i in &indices {
+                grouped[i] = true;
+            }
+            members.push(self.merged_on_genome(cis, &frame, &genome, &indices, span)?);
+        }
         let mut exonic = Vec::new();
         for (i, m) in cis.members.iter().enumerate() {
             if grouped[i] {
@@ -1288,7 +1307,13 @@ impl VariantMapper<'_> {
         let reading = self.read_cis_on_genome(&group)?;
         let alt = reading.sequence(genome, lo, hi)?;
         let ref_ = Segment::Reference { start: lo, end: hi }.read(genome, 0, hi - lo)?;
+        let transcript = self.provider().get_transcript(&cis.ac, None)?;
+        let minus = transcript
+            .exons
+            .first()
+            .is_some_and(|x| x.alt_strand == crate::data::Strand::Minus);
         let (edit, s, e) = normalize::minimal_edit(genome, lo, hi, &ref_, &alt)?;
+        let (edit, s, e) = as_tandem_copy(genome, edit, s, e, minus)?;
         let placed = PlacedEdit::from_hgvs_range(s, e, edit);
         let (first, last) = crate::mapper::hgvs_positions(&placed);
         let g = crate::structs::GVariant {
@@ -1306,20 +1331,22 @@ impl VariantMapper<'_> {
             },
         };
         let c = self.g_to_c(&g, &cis.ac)?;
-        let coding = {
-            let t = self.provider().get_transcript(&cis.ac, None)?;
-            t.cds_start_index.is_some() && t.cds_end_index.is_some()
-        };
-        let as_n = || {
+        let coding = transcript.cds_start_index.is_some() && transcript.cds_end_index.is_some();
+        let as_n = || -> Result<SV, HgvsError> {
+            let mut posedit = c.posedit.clone();
             if coding {
-                return Err(HgvsError::UnsupportedOperation(format!(
-                    "{cis}: an n. allele on a coding transcript is not written back from the genome"
-                )));
+                let am = crate::transcript_mapper::TranscriptMapper::new(transcript.clone())?;
+                if let Some(pos) = posedit.pos.as_mut() {
+                    numbered_from_the_transcript_start(&am, &mut pos.start)?;
+                    if let Some(end) = pos.end.as_mut() {
+                        numbered_from_the_transcript_start(&am, end)?;
+                    }
+                }
             }
             Ok(SV::NonCoding(crate::structs::NVariant {
                 ac: c.ac.clone(),
                 gene: c.gene.clone(),
-                posedit: c.posedit.clone(),
+                posedit,
             }))
         };
         Ok(match cis.coordinate_type() {
@@ -1780,4 +1807,52 @@ fn identity(start: usize, end: usize) -> PlacedEdit {
             uncertain: false,
         },
     }
+}
+
+/// `edit` over the HGVS range `[s, e)` of `genome`, an insertion of the bases
+/// beside its junction, written as the duplication of those bases it is, as
+/// HGVS prefers: of the bases 5' of the junction on the transcript's strand
+/// (3' on the genome for a `minus` transcript) where they are a copy, else
+/// of those 3'. Any other edit as it is.
+fn as_tandem_copy(
+    genome: &Reference<'_, '_>,
+    edit: NaEdit,
+    s: usize,
+    e: usize,
+    minus: bool,
+) -> Result<(NaEdit, usize, usize), HgvsError> {
+    let NaEdit::Ins { alt: Some(alt), .. } = &edit else {
+        return Ok((edit, s, e));
+    };
+    // An insertion's HGVS range is its two flanking bases.
+    let at = s + 1;
+    let before = at.checked_sub(alt.len()).map(|from| (from, at));
+    let after = Some((at, at + alt.len()));
+    let sides = match minus {
+        false => [before, after],
+        true => [after, before],
+    };
+    for (from, to) in sides.into_iter().flatten() {
+        let bases = genome.slice(from, to)?;
+        if bases.len() == alt.len() && bases.eq_ignore_ascii_case(alt) {
+            let dup = NaEdit::Dup {
+                ref_: None,
+                uncertain: false,
+            };
+            return Ok((dup, from, to));
+        }
+    }
+    Ok((edit, s, e))
+}
+
+/// `pos`, a `c.` position, numbered as `n.` is, from the transcript's
+/// first base.
+fn numbered_from_the_transcript_start(
+    am: &crate::transcript_mapper::TranscriptMapper,
+    pos: &mut crate::structs::BaseOffsetPosition,
+) -> Result<(), HgvsError> {
+    let n = am.c_to_n(pos.base.to_index(), pos.anchor)?;
+    pos.base = n.to_hgvs();
+    pos.anchor = crate::structs::Anchor::TranscriptStart;
+    Ok(())
 }

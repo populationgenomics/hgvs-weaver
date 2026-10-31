@@ -2218,6 +2218,50 @@ fn intronic_members_that_meet_are_one_change() {
 }
 
 #[test]
+fn a_tandem_copy_in_an_intronic_group_is_a_duplication() {
+    // the intron ends TCCAG: two copies of a C make c.6-4_6-3 CC twice
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[6-4dup;6-3dup]"),
+        "NM_S.1:c.6-4_6-3dup"
+    );
+}
+
+#[test]
+fn a_tandem_copy_in_an_intronic_group_on_the_minus_strand_is_a_duplication() {
+    // the intron reads CTGGACTTAC from n.30+1: n.30+3_30+4 GG twice
+    assert_eq!(
+        normalised(&normalising_provider(), "NR_MS.1:n.[30+3dup;30+4dup]"),
+        "NR_MS.1:n.30+3_30+4dup"
+    );
+}
+
+#[test]
+fn an_intronic_group_that_makes_the_reference_is_the_identity_of_its_bases() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[6-5_6-4insC;6-4del]"),
+        "NM_S.1:c.6-5_6-4="
+    );
+}
+
+#[test]
+fn an_intronic_member_that_makes_the_reference_beside_a_change_is_a_statement() {
+    // c.5+4 is an A: the delins writes it back
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5+4delinsA;5+5G>A]"),
+        "NM_S.1:c.[5+4=;5+5G>A]"
+    );
+}
+
+#[test]
+fn a_non_coding_allele_on_a_coding_transcript_writes_its_intronic_group_back() {
+    // n.10 is c.5, the last base of exon 1
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:n.[10+2T>A;10+3A>G]"),
+        "NM_S.1:n.10+2_10+3delinsAG"
+    );
+}
+
+#[test]
 fn a_splice_site_member_that_meets_nothing_is_kept_as_written() {
     assert_eq!(
         normalised(&normalising_provider(), "NM_S.1:c.[5+1G>C;13T>G]"),
