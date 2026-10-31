@@ -122,9 +122,9 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // An allele whose exact members are contradictory or ambiguous is
-        // refused before any spelling can match it; one whose readings are not
-        // listed still matches its own spelling.
+        // An allele whose exact members are contradictory, ambiguous or on a
+        // reference of the wrong kind is refused before any spelling can match
+        // it; one whose readings are not listed still matches its own spelling.
         for var in [var1, var2] {
             if let SequenceVariant::CisPhased(cis) = var {
                 if let Some(exact) = exact_members(cis)? {
@@ -133,7 +133,8 @@ impl<'a> VariantEquivalence<'a> {
                         | HgvsError::Ambiguous { .. }
                         | HgvsError::PositionOutsideSequence { .. }
                         | HgvsError::NotAnExonBorder { .. }
-                        | HgvsError::OffsetPastIntron { .. }),
+                        | HgvsError::OffsetPastIntron { .. }
+                        | HgvsError::WrongReferenceKind { .. }),
                     ) = self.mapper.read_cis(&exact)
                     {
                         return Err(e);

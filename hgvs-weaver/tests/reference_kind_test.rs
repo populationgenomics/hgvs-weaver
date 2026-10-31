@@ -323,3 +323,16 @@ fn a_refusal_names_a_description_by_the_name_of_its_letter() {
     let err = mapper.validate(&parse("NP_K.1:m.4A>T")).unwrap_err();
     assert!(err.to_string().contains("an m. description"), "{err}");
 }
+
+#[test]
+fn equivalence_refuses_a_coding_allele_on_a_protein_before_comparing_its_spelling() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let allele = parse("NP_K.1:c.[4A>T;6A>G]");
+    assert_refused_description(
+        hgvs_weaver::equivalence::VariantEquivalence::new(&mapper, &hdp)
+            .equivalent_level(&allele, &allele),
+        "NP_K.1",
+        "c",
+    );
+}
