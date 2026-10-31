@@ -608,7 +608,9 @@ NC_000091.1:g.14A[3]          →  NM_GAPI.1:c.5dup                   the genome
   `repeat_projection_test` (every row above, the minimal edit over a base the genome does not share, and the runs the
   genome continues past the record's); `a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript`,
   `a_genomic_repeat_projected_to_the_transcript_is_the_same_change`,
-  `an_intronic_repeat_does_to_the_genome_what_it_does_to_the_pre_mrna` (properties).
+  `an_intronic_repeat_does_to_the_genome_what_it_does_to_the_pre_mrna`,
+  `a_genomic_repeat_projected_to_a_record_that_differs_from_the_genome_is_the_same_change`,
+  `a_coding_repeat_on_a_record_that_differs_from_the_genome_projects_back_to_the_same_change` (properties).
 
 ### A position outside every exon is an error
 
