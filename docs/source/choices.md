@@ -184,7 +184,7 @@ Variation Representation Specification 2.0.1.
 | [No normalisation before projecting](#no-normalisation-before-projecting)                                                           |                                    –                                    |        –         |             differs             |        –         |
 | [Gapped exons are projected locally](#gapped-exons-are-projected-locally)                                                           |                                    –                                    |        –         |             differs             |        –         |
 | [A transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion)         |                                    –                                    |     differs      |      differs inside a run       |        –         |
-| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)                                                   |                                 agrees                                  |        –         |                –                |        –         |
+| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)                                                   |    agrees; **differs** on the 3' rule where record and genome differ    |        –         |                –                |        –         |
 | [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)                                             |                                 agrees                                  |     differs      |                –                |        –         |
 | [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position)                                                         |   agrees; silent on a consequence needing a residue the record lacks    |        –         |                –                |        –         |
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                               **differs**                               |        –         |                –                |        –         |
@@ -610,8 +610,13 @@ NC_000091.1:g.14A[3]          →  NM_GAPI.1:c.5dup                   the genome
 ```
 
 - **Others:** not checked.
-- **Spec (agrees):** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/): the count
-  is the total number of units in the run. Silent on a run that crosses an exon junction.
+- **Spec (agrees; differs on the 3' rule):**
+  [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/): the count is the total
+  number of units in the run. Silent on a run that crosses an exon junction. The edits written over the source's run
+  alone, where the target's run goes on over a base the source does not share, depart from the
+  [3' rule](#shift-3-cyclically-over-repeats): shifted 3' on the target, each would take in that base and project as a
+  different change. `NM_DIFF.1:c.5dup` would be `c.6dup`, `NM_DIFF.1:c.4_5insAAA` `c.4_6dup`,
+  `NM_CAGD.1:c.7_8insAGCAGCAGC` `c.7_15dup`, and `NM_GAPI.1:c.5dup` `c.6dup`.
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`;
   `repeat_projection_test` (every row above, the minimal edit over a base the genome does not share, and the runs the
   genome continues past the record's); `a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript`,
