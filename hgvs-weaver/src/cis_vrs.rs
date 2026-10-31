@@ -417,24 +417,44 @@ impl VariantMapper<'_> {
                     None => None,
                 });
             }
-            let meet = (0..members.len())
-                .flat_map(|i| (i + 1..members.len()).map(move |j| (i, j)))
-                .find_map(|(i, j)| match (spans[i], spans[j]) {
-                    (Some(a), Some(b)) if overlap(a, b) => Some((i, j, a.0.min(b.0), a.1.max(b.1))),
-                    _ => None,
-                });
-            let Some((i, j, lo, hi)) = meet else {
+            // The changes whose Alleles meet, directly or through another,
+            // made one change together: one pair at a time, a merged change
+            // written at its own minimal spelling could move past a third
+            // member it meets.
+            let meets = |i: usize, j: usize| match (spans[i], spans[j]) {
+                (Some(a), Some(b)) => overlap(a, b),
+                _ => false,
+            };
+            let Some(first) =
+                (0..members.len()).find(|&i| (0..members.len()).any(|j| j != i && meets(i, j)))
+            else {
                 return Ok(members);
             };
-            let pair = vec![members[i].0.clone(), members[j].0.clone()];
-            let reading = self.read_cis(&CisPhasedVariant::new(cis.ac.clone(), None, pair)?)?;
+            let mut group = vec![first];
+            let mut k = 0;
+            while k < group.len() {
+                for j in 0..members.len() {
+                    if !group.contains(&j) && meets(group[k], j) {
+                        group.push(j);
+                    }
+                }
+                k += 1;
+            }
+            group.sort_unstable();
+            let spans_of: Vec<(usize, usize)> = group.iter().filter_map(|&g| spans[g]).collect();
+            let lo = spans_of.iter().map(|s| s.0).min().unwrap_or(0);
+            let hi = spans_of.iter().map(|s| s.1).max().unwrap_or(0);
+            let together = group.iter().map(|&g| members[g].0.clone()).collect();
+            let reading = self.read_cis(&CisPhasedVariant::new(cis.ac.clone(), None, together)?)?;
             let alt = reading.sequence(&reference, lo, hi)?;
             let ref_ = reference.slice(lo, hi)?;
             let (edit, s, e) = normalize::minimal_edit(&reference, lo, hi, &ref_, &alt)?;
             let one = SV::Genomic(g_variant(&cis.ac, interval(s, e)?, edit));
-            let bounds = members[i].1;
-            members.remove(j);
-            members[i] = (one, bounds);
+            let bounds = members[group[0]].1;
+            for &g in group.iter().rev() {
+                members.remove(g);
+            }
+            members.insert(group[0], (one, bounds));
         }
     }
 
@@ -468,9 +488,10 @@ impl VariantMapper<'_> {
 }
 
 /// Whether two Allele locations share a base, or one inserts at a point
-/// the other holds or also inserts at.
+/// the other holds, borders or also inserts at: two insertions there would
+/// leave their order unsaid.
 fn overlap(a: (usize, usize), b: (usize, usize)) -> bool {
-    let inside = |p: usize, (s, e): (usize, usize)| s < p && p < e || s == e && s == p;
+    let inside = |p: usize, (s, e): (usize, usize)| s <= p && p <= e;
     (a.0 < b.1 && b.0 < a.1) || (a.0 == a.1 && inside(a.0, b)) || (b.0 == b.1 && inside(b.0, a))
 }
 

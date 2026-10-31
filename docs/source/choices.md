@@ -1546,13 +1546,16 @@ this information.
 A positional identity in the allele bounds the justification. Normalisation keeps a change apart from the bases an
 identity names, and no shift enters them, since the identity says they are as they were; a change's region of ambiguity
 in the allele stops there too. So each change is justified only as far as the identities either side of it, and changes
-whose Alleles then share a base or an insertion point are one Allele. Justified past the identity, two changes either
-side of it in one run would each span the run, and the block would no longer say which comes first: on `ACAACAACAACAA`,
-where `CAA` repeats from g.2, `g.[12_13insA;1_3dup;8_12=]` and `g.[8_12=;12dup;13delinsACAA]` make different sequences
-and were one block. Bounded, the first is a copy of `CAA` before g.8 and an A after g.12, and the second one Allele of
-the two changes after g.12, `g.13delinsAACAA`. An Allele justified short of its whole run is not what ga4gh.vrs makes of
-the change alone, so in such a block weaver's identifier for that member differs from the one the change has alone; the
-block's identifier is the key, and it now names one allele.
+whose Alleles then share a base, or where one inserts at a point the other holds or borders, are one Allele; all the
+changes that meet so, directly or through another, are merged at once, since one pair merged and written at its own
+minimal spelling can move past a third change it meets. Justified past the identity, two changes either side of it in
+one run would each span the run, and the block would no longer say which comes first: on `ACAACAACAACAA`, where `CAA`
+repeats from g.2, `g.[12_13insA;1_3dup;8_12=]` and `g.[8_12=;12dup;13delinsACAA]` make different sequences and were one
+block. Bounded, the first is a copy of `CAA` before g.8 and an A after g.12, and the second one Allele of the two
+changes after g.12. On `GCGGGCGGGCGGGCGGGCGGG`, `g.[1_2=;8_9insG;1_4dup;11_12inv]` is one Allele of the three changes
+after the identity, `g.13_14insGCCCG` read back, and not that of `g.10_11insCCGGC`. An Allele justified short of its
+whole run is not what ga4gh.vrs makes of the change alone, so in such a block weaver's identifier for that member
+differs from the one the change has alone; the block's identifier is the key, and it now names one allele.
 
 `from_vrs` reads a `CisPhasedBlock` back the same way: each member is trimmed to its minimal edit, every placement of
 that edit within the member's justified location is considered, and a combination of placements is a reading when the
@@ -1751,8 +1754,9 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `::identical_members_of_a_block_each_make_their_change`,
   `::a_block_of_changes_in_a_run_reads_back_as_the_change_they_make`,
   `::alleles_making_different_sequences_across_an_identity_have_different_vrs_identifiers`,
-  `::alleles_across_an_identity_read_back_from_their_blocks`, `alleles_with_one_vrs_identifier_say_one_thing`
-  (property); `::an_ambiguity_carries_its_readings` and
+  `::alleles_across_an_identity_read_back_from_their_blocks`,
+  `::changes_meeting_after_an_identity_render_as_the_one_change_they_make_together`,
+  `alleles_with_one_vrs_identifier_say_one_thing` (property); `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
   share a member, which reading the allele already refuses;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,

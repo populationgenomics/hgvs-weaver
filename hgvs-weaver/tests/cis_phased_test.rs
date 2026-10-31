@@ -584,6 +584,31 @@ fn alleles_making_different_sequences_across_an_identity_have_different_vrs_iden
 }
 
 #[test]
+fn changes_meeting_after_an_identity_render_as_the_one_change_they_make_together() {
+    // the duplications of GCGG and of g.9 and the inversion of g.11_12 all
+    // meet once justified past the identity; merged two at a time, the
+    // first pair's change was written past the inversion
+    let sequence = "GCGGGCGGGCGGGCGGGCGGG";
+    let allele = "X:g.[1_2=;8_9insG;1_4dup;11_12inv]";
+    let hdp = Provider::new().sequence("X", sequence);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let other = mapper
+        .to_vrs_variation(&parse_hgvs_variant("X:g.[1_2=;10_11insCCGGC]").unwrap())
+        .unwrap();
+    assert_ne!(
+        mapper
+            .to_vrs_variation(&parse_hgvs_variant(allele).unwrap())
+            .unwrap()
+            .id(),
+        other.id()
+    );
+    assert_eq!(
+        read_back_from_its_block(sequence, allele),
+        ("X:g.[1_2=;13_14insGCCCG]".to_string(), true)
+    );
+}
+
+#[test]
 fn alleles_across_an_identity_read_back_from_their_blocks() {
     // The first reads back as it normalises. The second's duplication copies
     // the identity's last base, and normalize keeps it as written; its
