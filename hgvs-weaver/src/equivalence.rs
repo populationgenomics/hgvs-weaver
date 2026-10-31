@@ -953,57 +953,34 @@ impl<'a> VariantEquivalence<'a> {
         let id_type = self.mapper.provider().get_identifier_type(ac)?;
 
         if id_type == crate::data::IdentifierType::GeneSymbol {
-            let target_kind = match var {
-                SequenceVariant::Protein(_) => IdentifierKind::Protein,
-                SequenceVariant::Coding(_)
-                | SequenceVariant::NonCoding(_)
-                | SequenceVariant::Rna(_) => IdentifierKind::Transcript,
-                _ => IdentifierKind::Genomic,
+            // An allele on a gene symbol is expanded as its members would be.
+            use crate::data::IdentifierType as T;
+            let (target_kind, compatible): (IdentifierKind, &[T]) = match var.coordinate_type() {
+                "p" => (IdentifierKind::Protein, &[T::ProteinAccession]),
+                "c" | "n" | "r" => (IdentifierKind::Transcript, &[T::TranscriptAccession]),
+                "g" => (
+                    IdentifierKind::Genomic,
+                    &[T::GenomicAccession, T::TranscriptAccession],
+                ),
+                _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
             };
 
-            // Try symbol expansion.
             let accessions = self.mapper.provider().get_symbol_accessions(
                 ac,
                 IdentifierKind::Gene,
                 target_kind,
             )?;
-
-            if !accessions.is_empty() {
-                let mut expanded = Vec::new();
-                for (ac_type, new_ac) in accessions {
-                    // Only expand into compatible types.
-                    let is_compatible = match (var, ac_type) {
-                        (
-                            SequenceVariant::Protein(_),
-                            crate::data::IdentifierType::ProteinAccession,
-                        ) => true,
-                        (
-                            SequenceVariant::Coding(_)
-                            | SequenceVariant::NonCoding(_)
-                            | SequenceVariant::Rna(_),
-                            crate::data::IdentifierType::TranscriptAccession,
-                        ) => true,
-                        (
-                            SequenceVariant::Genomic(_) | SequenceVariant::Mitochondrial(_),
-                            crate::data::IdentifierType::GenomicAccession,
-                        ) => true,
-                        // Allow g. on transcripts if specifically provided
-                        (
-                            SequenceVariant::Genomic(_),
-                            crate::data::IdentifierType::TranscriptAccession,
-                        ) => true,
-                        _ => false,
-                    };
-
-                    if is_compatible {
-                        let mut v = var.clone();
-                        v.set_ac(new_ac);
-                        expanded.push(v);
-                    }
-                }
-                if !expanded.is_empty() {
-                    return Ok(expanded);
-                }
+            let expanded: Vec<SequenceVariant> = accessions
+                .into_iter()
+                .filter(|(ac_type, _)| compatible.contains(ac_type))
+                .map(|(_, new_ac)| {
+                    let mut v = var.clone();
+                    v.set_ac(new_ac);
+                    v
+                })
+                .collect();
+            if !expanded.is_empty() {
+                return Ok(expanded);
             }
         }
 
