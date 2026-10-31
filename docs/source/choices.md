@@ -973,7 +973,9 @@ of the sequence the variant is written on.** On a transcript the shift stays wit
 An insertion that repeats the bases immediately before it becomes a duplication, and an insertion that slides has its
 bases rotated by how far it moved. An insertion does not slide past the last base of the sequence, after which HGVS has
 no position to name; one read there, from SPDI or VRS, is a delins of that base, or the duplication it is, and one
-written there is refused
+written there is refused. A protein is the exception: the position after its last residue is its stop, whether or not
+the provider serves it, so an insertion read there is an insertion before the stop
+([a protein allele sees the stop](#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none))
 ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
 
 **Example** (on `ACGT` repeated, and on the ten bases `TTCAGCAGTT`):
@@ -988,6 +990,7 @@ on TTCAGCAGTT:  g.3_5del       →  g.6_8del                       the first CAG
 on GGGGGGGGG:   g.2_3insGA     →  g.3_4insAG                     slid one base, so rotated by one
 on TTCAGCAGTT:  g.9_10insTA    →  g.9_10insTA                    not g.10_11insAT, after the last base
 on TTCAGCAGTT:  NC_…:9:T:TA    →  g.10delinsTA                   g.10_11insA is past the end
+on MAAAKL:      NP_…:6::Q      →  p.Leu6_Ter7insGln              the stop follows Leu6
 ```
 
 - **Agrees:** biocommons, VariantValidator and ClinVar.
@@ -1001,7 +1004,7 @@ on TTCAGCAGTT:  NC_…:9:T:TA    →  g.10delinsTA                   g.10_11insA
 - **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`,
   `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
   `::an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication`,
-  `::an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue`;
+  `::an_spdi_insertion_after_the_last_residue_reads_as_an_insertion_before_the_stop`;
   `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
   `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
   `::shift_5_mirrors_shift_3` (the last two rows above, read from the 0-based ranges those tests assert);
@@ -3850,27 +3853,37 @@ plain to_spdi NC_TEST.1:g.1013A>G          →  NC_TEST.1:1012:A:G
 
 ### A protein allele sees the stop, and a lost stop has none
 
-**A `p.` description is read against its protein with the stop after the last residue, whether or not the provider
-serves the stop. A change that keeps the stop, or makes one, has an allele ending at the last residue; a change that
-removes the stop and writes none has no allele, and is an error. Reading an SPDI or VRS Allele back, one past the stop
-or one that removes it is refused. In equivalence, a lost stop reads on: the residues it writes, then more in unknown
-number, at least one of them where it writes none past the reference's own.**
+**A protein is read with its stop after the last residue, whether or not the provider serves it: by a `p.` description,
+by the allele it makes, and by an SPDI or VRS Allele read back. A change that keeps the stop, or makes one, has an
+allele ending at the last residue, and one that leaves the protein as it was is no change, written `p.Ter7=`. A change
+that removes the stop and writes none has no allele, and is an error, whichever way it is read. In equivalence, a lost
+stop reads on: the residues it writes, then more in unknown number, at least one of them where it writes none past the
+reference's own.**
 
 A protein sequence usually ends at its last residue, and the stop is the position after it: `MKLAYR`, with `Ter7`. Read
 on the residues alone, an edit at that position touched nothing, so `p.Ter7del` was the empty allele, `p.Ter7Gln` the
-allele of `p.Arg6_Ter7insGln`, and a provider serving `MKLAYR*` gave the same descriptions other alleles. Reading the
-stop in its place, as equivalence already did, gives each the change it describes. A stop deleted, or replaced by
-residues with no stop after them, lets translation run on into the 3'UTR, which HGVS writes as an extension,
-`p.Ter7GlnextTer?`. How far it runs is in the transcript, not the protein, so no allele on the protein holds it: an
-allele ending at the last residue would claim the protein ends there, and one that deletes the stop character would be
-read by every other tool as that same, unchanged protein. That is the refusal a frameshift and an extension already get,
-for the same reason. The other route, refusing every allele that touches the stop, would also refuse `p.Arg6_Ter7insGln`
-and `p.Arg6_Ter7delinsArgGlnTer`, whose allele is known.
+allele of `p.Arg6_Ter7insGln`, a delins that states the `Ter` it replaces, as a prediction does, was refused for a
+residue the record does not hold, and a provider serving `MKLAYR*` gave the same descriptions other alleles and the same
+SPDI other variants. Reading the stop in its place, as equivalence already did, gives each the change it describes and
+makes the two servings one: `NP:6::Q` reads back as the insertion before the stop, `p.Arg6_Ter7insGln`, on either, where
+on the residues alone it was a delins of Arg6.
 
-In equivalence the same description leaves an open protein, matched by any that begins with it. With no residue of its
-own past the reference's, `p.Ter7del` would then begin as the reference does and could be read as no change at all,
-which a description of a change never means; it is read as `p.Ter7XaaextTer?`, the stop replaced by a residue it does
-not name. A coding change that loses the stop has its allele, read from the 3'UTR it translates
+A stop deleted, or replaced by residues with no stop after them, lets translation run on into the 3'UTR, which HGVS
+writes as an extension, `p.Ter7GlnextTer?`. How far it runs is in the transcript, not the protein, so no allele on the
+protein holds it: an allele ending at the last residue would claim the protein ends there, and one that deletes the stop
+character would be read by every other tool as that same, unchanged protein. That is the refusal a frameshift and an
+extension already get, for the same reason. The other route, refusing every allele that touches the stop, would also
+refuse `p.Arg6_Ter7insGln` and `p.Arg6_Ter7delinsArgGlnTer`, whose allele is known.
+
+A change whose new stop leaves every residue as it was, `p.Arg6_Ter7dup` (`R*R*`, ended at the first stop) or
+`p.Ter7dup`, is no change, and its allele is the empty one at the stop, so that one protein has one SPDI; it reads back
+as `p.Ter7=`, the stop unchanged, which is that allele. An identity written over residues keeps them, `p.Arg6_Ter7=`
+stating Arg6, as `p.Arg6=` does.
+
+In equivalence a lost stop leaves an open protein, matched by any that begins with it. With no residue of its own past
+the reference's, `p.Ter7del` would then begin as the reference does and could be read as no change at all, which a
+description of a change never means; it is read as `p.Ter7XaaextTer?`, the stop replaced by a residue it does not name.
+A coding change that loses the stop has its allele, read from the 3'UTR it translates
 ([protein alleles](#protein-alleles-come-from-the-coding-change)).
 
 **Example** (`NP_X.1` is `MKLAYR`; `NP_S.1` is `MKLAYR*`; on the test proteins, `MKLAAAYRQ` with and without its stop):
@@ -3880,12 +3893,16 @@ NP_X.1:p.Ter7del                   →  UnsupportedOperation: it loses the stop
 NP_X.1:p.Ter7Gln                   →  UnsupportedOperation: it loses the stop
 NP_X.1:p.Arg6_Ter7insGln           →  NP_X.1:6::Q
 NP_X.1:p.Arg6_Ter7delinsArgGlnTer  →  NP_X.1:6::Q            the same allele
+NP_X.1:p.Arg6_Ter7dup              →  NP_X.1:6::             no change, as p.Ter7dup and p.Ter7=
+from_spdi NP_X.1:6::Q              →  NP_X.1:p.Arg6_Ter7insGln, as on NP_S.1
+from_spdi NP_X.1:6::*              →  NP_X.1:p.Ter7=
+from_spdi NP_S.1:6:*:*G            →  NP_S.1:p.Ter7=         a residue after the stop is none of the protein
 from_spdi NP_S.1:7::G              →  ValidationError: past the stop
 from_spdi NP_S.1:6:*:G             →  UnsupportedOperation: it loses the stop
-from_spdi NP_S.1:6:*:G*            →  NP_S.1:p.Arg6_Ter7insGly
 
-NP_X.1:p.Ter7del            vs  NP_X.1:p.Ter7GlnextTer?   Analogous: both read on past Arg6
-NP_X.1:p.[Arg6Gln;Ter7del]  vs  NP_X.1:p.Arg6Gln          Different: the stop is lost
+NP_X.1:p.Ter7del                  vs  NP_X.1:p.Ter7GlnextTer?       Analogous: both read on past Arg6
+NP_X.1:p.[Arg6Gln;Ter7del]        vs  NP_X.1:p.Arg6Gln              Different: the stop is lost
+NM_X.1:c.[17_18delinsAG;19T>C]    vs  NP_X.1:p.[Arg6Gln;Ter7Gln]    Analogous: Ter7 is read at the stop
 ```
 
 - **Others:** not checked.
@@ -3893,13 +3910,20 @@ NP_X.1:p.[Arg6Gln;Ter7del]  vs  NP_X.1:p.Arg6Gln          Different: the stop is
   [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): a change of the stop codon that
   adds residues is an extension, of unknown length when no new stop is found, `p.Ter327ArgextTer?`. VRS 2.0.1 places an
   allele on the protein sequence and says nothing of a stop it does not carry.
-- **Tests:** `protein_allele_test::a_lost_stop_has_no_allele_whether_the_protein_is_served_with_its_stop_or_not`,
-  `::a_change_at_the_stop_that_keeps_it_has_an_allele`, `::an_allele_past_the_stop_is_refused`,
-  `::an_allele_that_loses_the_stop_is_refused`,
-  `::an_allele_that_replaces_the_stop_with_residues_and_a_stop_is_an_insertion`;
+- **Tests:** `protein_allele_test::a_deleted_stop_has_no_allele`, `::a_deleted_stop_served_has_no_allele`,
+  `::a_stop_made_a_residue_has_no_allele`, `::a_stop_made_a_residue_served_has_no_allele`,
+  `::a_stop_deleted_with_the_residue_before_it_has_no_allele`,
+  `::a_stop_deleted_with_the_residue_before_it_served_has_no_allele`, `::a_duplication_across_the_stop_is_no_change`,
+  `::a_duplication_across_the_stop_served_is_no_change`, `::a_repeat_across_the_stop_is_no_change`,
+  `::an_insertion_after_the_last_residue_is_one_before_the_stop`,
+  `::a_stop_inserted_after_the_last_residue_is_the_stop_unchanged`, `::a_residue_after_the_stop_is_the_stop_unchanged`,
+  `::no_change_at_the_stop_is_the_stop_unchanged`, `::an_allele_deleting_the_stop_is_refused`,
+  `::an_allele_replacing_the_stop_with_a_residue_is_refused`,
+  `::an_allele_deleting_the_stop_and_the_residue_before_it_is_refused`, `::an_allele_past_the_stop_is_refused`;
+  `one_spelling_test::an_spdi_insertion_after_the_last_residue_reads_as_an_insertion_before_the_stop`;
   `equivalence_test::a_deleted_stop_beside_a_change_is_not_the_change_alone`,
   `::an_extension_naming_no_residue_beside_a_change_is_not_the_change_alone`,
-  `::a_deleted_stop_is_an_extension_of_unknown_length`.
+  `::a_coding_allele_that_loses_the_stop_is_a_protein_allele_changing_it`.
 
 ### A transcript variant's allele is on the genome
 

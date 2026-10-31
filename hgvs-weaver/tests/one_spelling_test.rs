@@ -277,9 +277,9 @@ fn an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication(
 }
 
 #[test]
-fn an_spdi_insertion_after_the_last_residue_reads_as_a_delins_of_the_last_residue() {
+fn an_spdi_insertion_after_the_last_residue_reads_as_an_insertion_before_the_stop() {
     assert_eq!(
         from_spdi("NP_000099.1:6::Q"),
-        "NP_000099.1:p.Leu6delinsLeuGln"
+        "NP_000099.1:p.Leu6_Ter7insGln"
     );
 }

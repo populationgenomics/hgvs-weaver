@@ -1462,6 +1462,19 @@ fn an_extension_naming_no_residue_beside_a_change_is_not_the_change_alone() {
 }
 
 #[test]
+fn a_coding_allele_that_loses_the_stop_is_a_protein_allele_changing_it() {
+    // c.[17_18delinsAG;19T>C] makes CAG CAA of CGC TAA, Arg6Gln and Ter7Gln,
+    // and reads on into the 3'UTR: the protein allele reads Ter7 at the stop.
+    assert_eq!(
+        coding_level(
+            "NM_X.1:c.[17_18delinsAG;19T>C]",
+            "NP_X.1:p.[Arg6Gln;Ter7Gln]"
+        ),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
 fn a_deleted_stop_is_an_extension_of_unknown_length() {
     assert_eq!(
         coding_level("NP_X.1:p.Ter7del", "NP_X.1:p.Ter7GlnextTer?"),

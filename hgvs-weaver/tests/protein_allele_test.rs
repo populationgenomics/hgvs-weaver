@@ -97,74 +97,115 @@ fn provider_with_stop() -> Provider {
 }
 
 /// The canonical allele of `hgvs` on `ac`, as SPDI, or the error.
-fn spdi_on(mapper: &VariantMapper, ac: &str, hgvs: &str) -> Result<String, HgvsError> {
+fn spdi_on(ac: &str, hgvs: &str) -> Result<String, HgvsError> {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
     mapper.to_spdi_unambiguous(&parse_hgvs_variant(&format!("{ac}:{hgvs}")).unwrap())
 }
 
-#[test]
-fn a_lost_stop_has_no_allele_whether_the_protein_is_served_with_its_stop_or_not() {
+/// The variant an SPDI reads back as, printed, or the error.
+fn read_back(spdi: &str) -> Result<String, HgvsError> {
     let hdp = provider_with_stop();
     let mapper = VariantMapper::new(&hdp);
-    for ac in [NP, NP_WITH_STOP] {
-        for hgvs in ["p.Ter10del", "p.Ter10Gly", "p.Gln9_Ter10del"] {
-            let out = spdi_on(&mapper, ac, hgvs);
-            assert!(
-                matches!(&out, Err(HgvsError::UnsupportedOperation(m)) if m.contains("stop")),
-                "{ac}:{hgvs} gave {out:?}"
-            );
-        }
-    }
+    mapper.from_spdi(spdi).map(|v| v.to_string())
 }
 
-#[test]
-fn a_change_at_the_stop_that_keeps_it_has_an_allele() {
-    let hdp = provider_with_stop();
-    let mapper = VariantMapper::new(&hdp);
-    for ac in [NP, NP_WITH_STOP] {
-        for hgvs in ["p.Gln9_Ter10insGly", "p.Gln9_Ter10delinsGlnGlyTer"] {
-            assert_eq!(
-                spdi_on(&mapper, ac, hgvs).unwrap(),
-                format!("{ac}:9::G"),
-                "{hgvs}"
+/// One test per case: on `$ac`, `$hgvs` loses the stop, so it has no allele.
+macro_rules! a_lost_stop_has_no_allele {
+    ($($name:ident: $ac:expr, $hgvs:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            let out = spdi_on($ac, $hgvs);
+            assert!(
+                matches!(&out, Err(HgvsError::UnsupportedOperation(m)) if m.contains("loses the stop")),
+                "{out:?}"
             );
         }
-    }
+    )*};
+}
+
+a_lost_stop_has_no_allele! {
+    a_deleted_stop_has_no_allele: NP, "p.Ter10del";
+    a_deleted_stop_served_has_no_allele: NP_WITH_STOP, "p.Ter10del";
+    a_stop_made_a_residue_has_no_allele: NP, "p.Ter10Gly";
+    a_stop_made_a_residue_served_has_no_allele: NP_WITH_STOP, "p.Ter10Gly";
+    a_stop_deleted_with_the_residue_before_it_has_no_allele: NP, "p.Gln9_Ter10del";
+    a_stop_deleted_with_the_residue_before_it_served_has_no_allele: NP_WITH_STOP, "p.Gln9_Ter10del";
+}
+
+/// One test per case: on `$ac`, `$hgvs` has the allele `$ac:$spdi`.
+macro_rules! the_allele_is {
+    ($($name:ident: $ac:expr, $hgvs:literal => $spdi:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!(spdi_on($ac, $hgvs).unwrap(), format!("{}:{}", $ac, $spdi));
+        }
+    )*};
+}
+
+the_allele_is! {
+    an_insertion_before_the_stop_is_an_allele: NP, "p.Gln9_Ter10insGly" => "9::G";
+    an_insertion_before_the_stop_served_is_an_allele: NP_WITH_STOP, "p.Gln9_Ter10insGly" => "9::G";
+    a_delins_that_keeps_the_stop_is_the_insertion: NP, "p.Gln9_Ter10delinsGlnGlyTer" => "9::G";
+    a_delins_that_keeps_the_stop_served_is_the_insertion: NP_WITH_STOP, "p.Gln9_Ter10delinsGlnGlyTer" => "9::G";
+    a_duplication_across_the_stop_is_no_change: NP, "p.Gln9_Ter10dup" => "9::";
+    a_duplication_across_the_stop_served_is_no_change: NP_WITH_STOP, "p.Gln9_Ter10dup" => "9::";
+    a_repeat_across_the_stop_is_no_change: NP, "p.Gln9_Ter10[2]" => "9::";
+    a_duplicated_stop_is_no_change: NP, "p.Ter10dup" => "9::";
+    the_stop_unchanged_is_no_change: NP, "p.Ter10=" => "9::";
+}
+
+/// One test per case: the SPDI `$spdi` reads back as `$hgvs`.
+macro_rules! reads_back_as {
+    ($($name:ident: $spdi:literal => $hgvs:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!(read_back($spdi).unwrap(), $hgvs);
+        }
+    )*};
+}
+
+reads_back_as! {
+    an_insertion_after_the_last_residue_is_one_before_the_stop:
+        "NP_TEST.1:9::G" => "NP_TEST.1:p.Gln9_Ter10insGly";
+    an_insertion_after_the_last_residue_served_is_one_before_the_stop:
+        "NP_STOP.1:9::G" => "NP_STOP.1:p.Gln9_Ter10insGly";
+    a_stop_replaced_by_residues_and_a_stop_is_an_insertion_before_it:
+        "NP_STOP.1:9:*:G*" => "NP_STOP.1:p.Gln9_Ter10insGly";
+    a_stop_inserted_after_the_last_residue_is_the_stop_unchanged:
+        "NP_TEST.1:9::*" => "NP_TEST.1:p.Ter10=";
+    a_residue_after_the_stop_is_the_stop_unchanged:
+        "NP_STOP.1:9:*:*G" => "NP_STOP.1:p.Ter10=";
+    no_change_at_the_stop_is_the_stop_unchanged:
+        "NP_TEST.1:9::" => "NP_TEST.1:p.Ter10=";
+}
+
+/// One test per case: the SPDI `$spdi` removes the stop and makes none.
+macro_rules! an_allele_that_loses_the_stop_is_refused {
+    ($($name:ident: $spdi:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            let out = read_back($spdi);
+            assert!(
+                matches!(&out, Err(HgvsError::UnsupportedOperation(m)) if m.contains("loses the stop")),
+                "{out:?}"
+            );
+        }
+    )*};
+}
+
+an_allele_that_loses_the_stop_is_refused! {
+    an_allele_deleting_the_stop_is_refused: "NP_STOP.1:9:*:";
+    an_allele_replacing_the_stop_with_a_residue_is_refused: "NP_STOP.1:9:*:G";
+    an_allele_deleting_the_stop_and_the_residue_before_it_is_refused: "NP_STOP.1:8:Q*:";
 }
 
 #[test]
 fn an_allele_past_the_stop_is_refused() {
-    let hdp = provider_with_stop();
-    let mapper = VariantMapper::new(&hdp);
-    let out = mapper.from_spdi(&format!("{NP_WITH_STOP}:10::G"));
+    let out = read_back("NP_STOP.1:10::G");
     assert!(
-        matches!(&out, Err(HgvsError::ValidationError(m)) if m.contains("stop")),
+        matches!(&out, Err(HgvsError::ValidationError(m)) if m.contains("past it")),
         "{out:?}"
-    );
-}
-
-#[test]
-fn an_allele_that_loses_the_stop_is_refused() {
-    let hdp = provider_with_stop();
-    let mapper = VariantMapper::new(&hdp);
-    for spdi in ["9:*:", "9:*:G", "8:Q*:"] {
-        let out = mapper.from_spdi(&format!("{NP_WITH_STOP}:{spdi}"));
-        assert!(
-            matches!(&out, Err(HgvsError::UnsupportedOperation(m)) if m.contains("stop")),
-            "{spdi} gave {out:?}"
-        );
-    }
-}
-
-#[test]
-fn an_allele_that_replaces_the_stop_with_residues_and_a_stop_is_an_insertion() {
-    let hdp = provider_with_stop();
-    let mapper = VariantMapper::new(&hdp);
-    assert_eq!(
-        mapper
-            .from_spdi(&format!("{NP_WITH_STOP}:9:*:G*"))
-            .unwrap()
-            .to_string(),
-        "NP_STOP.1:p.Gln9_Ter10insGly"
     );
 }
 
