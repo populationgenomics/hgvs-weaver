@@ -468,9 +468,7 @@ impl TranscriptMapper {
                 first += len;
                 None
             })
-            .ok_or_else(|| {
-                HgvsError::ValidationError("Transcript position out of exon bounds".into())
-            })?;
+            .ok_or_else(|| self.outside_the_transcript(n_pos, &written()))?;
         let border = if offset.0 > 0 { first + len - 1 } else { first };
         if n_pos.0 != border {
             return Err(HgvsError::NotAnExonBorder {
@@ -507,6 +505,26 @@ impl TranscriptMapper {
             (Strand::Minus, true) => start - offset.0,
             (Strand::Minus, false) => end - offset.0,
         }))
+    }
+
+    /// The refusal of an intronic offset from `n_pos`, a base the transcript
+    /// does not have, as that base itself is refused: past its last base,
+    /// [`HgvsError::PositionOutsideSequence`]; before its first, a
+    /// `ValidationError`.
+    fn outside_the_transcript(&self, n_pos: TranscriptPos, written: &str) -> HgvsError {
+        let length: i32 = (0..self.exons.len()).map(|i| self.exon_tx_len(i)).sum();
+        match (usize::try_from(n_pos.0), usize::try_from(length)) {
+            (Ok(start), Ok(length)) => HgvsError::PositionOutsideSequence {
+                accession: self.transcript.ac.clone(),
+                start,
+                end: start + 1,
+                length,
+            },
+            _ => HgvsError::ValidationError(format!(
+                "{}:{written} counts from a base before the transcript's first",
+                self.transcript.ac
+            )),
+        }
     }
 
     /// The index (transcript order) of the exon holding a transcript index,

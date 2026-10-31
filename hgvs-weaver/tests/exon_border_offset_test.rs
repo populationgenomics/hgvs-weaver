@@ -547,3 +547,32 @@ fn an_offset_downstream_of_the_transcript_is_not_bounded_by_an_intron() {
     // c.*3 is g.60 and the genome runs to g.70.
     assert!(validate("NM_B.1:c.*3+10del"));
 }
+
+#[test]
+fn validate_answers_false_for_an_offset_from_a_base_past_the_transcripts_end() {
+    // c.*3 is the transcript's last base; c.*4 is not one of its bases.
+    assert!(!validate("NM_B.1:c.*4+1del"));
+}
+
+#[test]
+fn c_to_g_refuses_an_offset_from_a_base_past_the_transcripts_end_as_outside_it() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    match mapper.c_to_g(&coding("NM_B.1:c.*4+1del"), None) {
+        Err(HgvsError::PositionOutsideSequence {
+            accession, length, ..
+        }) => assert_eq!((accession.as_str(), length), ("NM_B.1", 30)),
+        other => panic!("expected NM_B.1's 30 bases to be named, got {other:?}"),
+    }
+}
+
+#[test]
+fn validate_refuses_an_offset_from_a_base_before_the_transcripts_first_as_that_base_is() {
+    // c.-3 is the transcript's first base; c.-4del is a ValidationError too.
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert!(matches!(
+        mapper.validate(&parse("NM_B.1:c.-4-1del")),
+        Err(HgvsError::ValidationError(_))
+    ));
+}

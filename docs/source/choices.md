@@ -757,7 +757,10 @@ how a genomic position in the intron is numbered on the transcript, so a project
 HGVS does not allow a variant beyond a transcript's ends to be described on that transcript. weaver still reads `c.-N-k`
 from the first base and `c.*N+k` from the last as positions upstream and downstream, as it writes a genomic position
 there when projecting to the transcript; this entry does not change that. Having no neighbouring exon, such an offset
-has no intron to stay inside, and is bounded only by the genome's ends.
+has no intron to stay inside, and is bounded only by the genome's ends. An offset from a base the transcript does not
+have is refused as that base is: past the last base, a `PositionOutsideSequenceError` and `validate` false; before the
+first, a `ValidationError`
+([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
 
 **Example** (`NM_B.1` has three exons, c.-3 to c.7, c.8 to c.17 and c.18 to c.\*3; `NR_GAP.1`'s second exon lacks one
 base of its genomic span, so it carries n.11 to n.19 and the third exon starts at n.20; `NM_GI.1`'s second exon, on
@@ -774,6 +777,7 @@ normalize NM_B.1:c.(6+1_8-1)del  →  PositionOutsideSequenceError   an uncertai
 validate NM_B.1:c.-3-1del     →  true                           upstream of the transcript's first base
 validate NM_B.1:c.-2-1del     →  false
 validate NM_B.1:c.*3+1del     →  true                           downstream of its last
+validate NM_B.1:c.*4+1del     →  false                          c.*4 is past the transcript, as for c.*4del
 validate NR_GAP.1:n.19+1del   →  true
 validate NR_GAP.1:n.20+1del   →  false                          n.20 starts exon 3
 c_to_g   NM_GI.1:c.18+1del    →  NC_B.1:g.41del                 c.18 is a base the genome lacks; exon 2 ends at g.40
@@ -793,6 +797,7 @@ c_to_g   NM_GD.1:c.16+1del    →  NC_B.1:g.41del                 not g.40, the 
   `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused`,
   `::normalize_refuses_an_uncertain_range_with_an_end_offset_from_inside_an_exon`,
   `::validate_answers_false_for_an_offset_past_the_end_of_its_intron`,
+  `::validate_answers_false_for_an_offset_from_a_base_past_the_transcripts_end`,
   `::an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end`,
   `::an_offset_after_an_exon_the_genome_runs_past_counts_from_the_exons_genome_end` (the rows above), and the file's
   other tests: normalisation, `c_to_p`, `to_spdi`, a range, the minus strand, `n.` and `r.`, an exon starting with a
