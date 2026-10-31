@@ -148,6 +148,8 @@ the_allele_is! {
     an_insertion_before_the_stop_served_is_an_allele: NP_WITH_STOP, "p.Gln9_Ter10insGly" => "9::G";
     a_delins_that_keeps_the_stop_is_the_insertion: NP, "p.Gln9_Ter10delinsGlnGlyTer" => "9::G";
     a_delins_that_keeps_the_stop_served_is_the_insertion: NP_WITH_STOP, "p.Gln9_Ter10delinsGlnGlyTer" => "9::G";
+    an_extension_by_one_named_residue_is_its_insertion: NP, "p.Ter10GlyextTer1" => "9::G";
+    an_extension_by_one_named_residue_served_is_its_insertion: NP_WITH_STOP, "p.Ter10GlyextTer1" => "9::G";
     a_duplication_across_the_stop_is_no_change: NP, "p.Gln9_Ter10dup" => "9::";
     a_duplication_across_the_stop_served_is_no_change: NP_WITH_STOP, "p.Gln9_Ter10dup" => "9::";
     a_repeat_across_the_stop_is_no_change: NP, "p.Gln9_Ter10[2]" => "9::";
@@ -166,12 +168,16 @@ macro_rules! reads_back_as {
 }
 
 reads_back_as! {
-    an_insertion_after_the_last_residue_is_one_before_the_stop:
-        "NP_TEST.1:9::G" => "NP_TEST.1:p.Gln9_Ter10insGly";
-    an_insertion_after_the_last_residue_served_is_one_before_the_stop:
-        "NP_STOP.1:9::G" => "NP_STOP.1:p.Gln9_Ter10insGly";
-    a_stop_replaced_by_residues_and_a_stop_is_an_insertion_before_it:
-        "NP_STOP.1:9:*:G*" => "NP_STOP.1:p.Gln9_Ter10insGly";
+    an_insertion_after_the_last_residue_is_an_extension:
+        "NP_TEST.1:9::G" => "NP_TEST.1:p.Ter10GlyextTer1";
+    an_insertion_after_the_last_residue_served_is_an_extension:
+        "NP_STOP.1:9::G" => "NP_STOP.1:p.Ter10GlyextTer1";
+    a_stop_replaced_by_residues_and_a_stop_is_an_extension:
+        "NP_STOP.1:9:*:G*" => "NP_STOP.1:p.Ter10GlyextTer1";
+    two_residues_inserted_after_the_last_residue_are_an_extension_by_two:
+        "NP_TEST.1:9::GA" => "NP_TEST.1:p.Ter10GlyextTer2";
+    a_residue_inserted_inside_the_protein_is_an_insertion:
+        "NP_TEST.1:8::G" => "NP_TEST.1:p.Arg8_Gln9insGly";
     a_stop_inserted_after_the_last_residue_is_the_stop_unchanged:
         "NP_TEST.1:9::*" => "NP_TEST.1:p.Ter10=";
     a_residue_after_the_stop_is_the_stop_unchanged:
@@ -232,6 +238,8 @@ the_vrs_reads_back_as! {
         "NP_TEST.1:p.Ter10delinsTer" => "NP_TEST.1:p.Ter10=";
     two_copies_of_the_stop_read_back_from_vrs_as_the_stop_unchanged:
         "NP_TEST.1:p.Ter10[2]" => "NP_TEST.1:p.Ter10=";
+    an_extension_by_one_residue_reads_back_from_vrs_as_itself:
+        "NP_TEST.1:p.Ter10GlyextTer1" => "NP_TEST.1:p.Ter10GlyextTer1";
     a_cis_allele_with_the_stop_unchanged_reads_back_from_vrs:
         "NP_TEST.1:p.[Tyr7His;Ter10=]" => "NP_TEST.1:p.[Tyr7His;Ter10=]";
 }

@@ -638,6 +638,63 @@ fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize),
     Ok((start as usize, last as usize + 1))
 }
 
+/// The residues a C-terminal extension at the stop of a protein of
+/// `residues` residues adds, where it names every one: `p.Ter7GlnextTer1`
+/// adds Gln. `None` for any other edit, and for an extension whose residues
+/// after the first are not named, which describes a consequence.
+fn named_extension(
+    edit: &crate::edits::AaEdit,
+    start: usize,
+    residues: usize,
+) -> Result<Option<String>, HgvsError> {
+    let crate::edits::AaEdit::Ext { alt, end } = edit else {
+        return Ok(None);
+    };
+    if matches!(end, crate::edits::ExtensionEnd::Upstream { .. }) || start != residues {
+        return Ok(None);
+    }
+    let added = crate::utils::residues_1(alt)?;
+    let named = !added.is_empty()
+        && !added.contains('*')
+        && end.residues_to_stop().map(|n| n.get() as usize) == Some(added.len());
+    Ok(named.then_some(added))
+}
+
+/// `p.Ter#XxxextTerN`: the residues `added` after the last of a protein of
+/// `residues` residues, before its stop, written as the extension HGVS
+/// makes of an insertion at the C-terminal end. Only the first added residue
+/// is named.
+fn extension_variant(ac: &str, residues: usize, added: &str) -> Result<PVariant, HgvsError> {
+    use crate::edits::{AaEdit, ExtensionEnd, StopDistance};
+    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
+    let count = u32::try_from(added.len())
+        .ok()
+        .and_then(std::num::NonZeroU32::new)
+        .ok_or_else(|| HgvsError::ValidationError(format!("{ac}: no residues added")))?;
+    Ok(PVariant {
+        ac: ac.to_string(),
+        gene: None,
+        posedit: PosEdit {
+            pos: Some(AaInterval {
+                start: AAPosition {
+                    base: ProteinPos(residues as i32).to_hgvs(),
+                    aa: "Ter".to_string(),
+                },
+                end: None,
+                uncertain: false,
+            }),
+            edit: AaEdit::Ext {
+                alt: crate::utils::seq1_to_aa3(&added[..1]),
+                end: ExtensionEnd::Stop {
+                    distance: StopDistance::Residues { count },
+                },
+            },
+            uncertain: false,
+            predicted: false,
+        },
+    })
+}
+
 /// A change to `protein`, read with its stop after the last residue: a stop
 /// among the new residues ends the protein there, so every residue from it
 /// to the stop goes too, and p.Tyr165Ter and p.Ala164_Tyr165insTer are one
@@ -3308,8 +3365,18 @@ impl<'a> VariantMapper<'a> {
             let with_stop = ProteinWithStop::of(&reference)?;
             let store = ReferenceStore::new(&with_stop);
             let shown = with_stop.reference(&store);
+            let residues = with_stop.residues().len();
+            let edit = match named_extension(&vp.posedit.edit, start, residues)? {
+                Some(added) => crate::edits::ResolvedEdit {
+                    start: residues,
+                    end: residues,
+                    ref_: String::new(),
+                    alt: added,
+                },
+                None => vp.posedit.edit.resolve(&shown, start, end)?,
+            };
             let resolved = ended_at_stop(
-                vp.posedit.edit.resolve(&shown, start, end)?,
+                edit,
                 with_stop.residues(),
                 vp.posedit.edit.is_identity(),
                 || vp.to_string(),
@@ -4103,6 +4170,16 @@ impl<'a> VariantMapper<'a> {
             &ExonBounds::unspliced(),
         )?;
         let (s, e) = placed.hgvs_range();
+        if let crate::edits::NaEdit::Ins {
+            alt: Some(added), ..
+        } = &placed.edit
+        {
+            if s + 1 == residues && e == residues + 1 {
+                return Ok(crate::SequenceVariant::Protein(extension_variant(
+                    ac, residues, added,
+                )?));
+            }
+        }
         Ok(crate::SequenceVariant::Protein(protein_variant(
             ac,
             &shown,

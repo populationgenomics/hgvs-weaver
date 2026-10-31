@@ -1541,6 +1541,14 @@ fn an_n_terminal_extension_is_the_residues_it_adds_before_the_protein() {
 }
 
 #[test]
+fn an_insertion_before_the_stop_is_the_extension_by_its_residue() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Arg6_Ter7insGln", "NP_X.1:p.Ter7GlnextTer1"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
 fn a_deleted_stop_beside_a_change_is_not_the_change_alone() {
     assert_eq!(
         coding_level("NP_X.1:p.[Arg6Gln;Ter7del]", "NP_X.1:p.Arg6Gln"),
