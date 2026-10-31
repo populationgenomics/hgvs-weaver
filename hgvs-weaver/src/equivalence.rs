@@ -964,7 +964,7 @@ impl<'a> VariantEquivalence<'a> {
             // Try symbol expansion.
             let accessions = self.mapper.provider().get_symbol_accessions(
                 ac,
-                IdentifierKind::Genomic,
+                IdentifierKind::Gene,
                 target_kind,
             )?;
 

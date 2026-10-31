@@ -1392,6 +1392,26 @@ fn an_unpaired_transcript_that_translates_to_another_protein_does_not_predict_it
 }
 
 #[test]
+fn a_coding_change_on_a_gene_symbol_is_that_change_on_the_genes_transcript() {
+    let hdp = same_sequence_provider()
+        .identifier_type("XG", hgvs_weaver::data::IdentifierType::GeneSymbol);
+    assert_eq!(
+        level_over(&hdp, "XG:c.4A>C", "NM_X.1:c.4A>C"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_protein_change_on_a_gene_symbol_is_that_change_on_the_genes_protein() {
+    let hdp = same_sequence_provider()
+        .identifier_type("XG", hgvs_weaver::data::IdentifierType::GeneSymbol);
+    assert_eq!(
+        level_over(&hdp, "XG:p.Lys2Gln", "NP_X.1:p.Lys2Gln"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
 fn a_transcript_the_provider_does_not_hold_is_its_error() {
     let hdp = same_sequence_provider();
     let mapper = VariantMapper::new(&hdp);
