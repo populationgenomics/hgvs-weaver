@@ -720,7 +720,7 @@ impl AaEdit {
                 };
                 let unit = match &stated {
                     Some(u) => {
-                        units_over_range(accession, u, start, end, &fetch)?;
+                        repeat_units_over_range(accession, u, start, end, &fetch)?;
                         u.clone()
                     }
                     None => fetch(start, end)?,
@@ -787,14 +787,14 @@ fn copies_that_fit(
     )))
 }
 
-/// Refuses a protein repeat whose stated `unit` is not what `accession`
-/// holds from `start`, repeated over `[start, end)`, or over one unit where
-/// the range is shorter.
+/// Refuses a protein repeat whose stated `unit`, in 1-letter code, is not
+/// what `accession` holds from `start`, repeated over `[start, end)`, or over
+/// one unit where the range is shorter.
 ///
 /// # Errors
 ///
 /// [`HgvsError::ReferenceMismatch`] naming the stated and the held residues.
-fn units_over_range(
+pub(crate) fn repeat_units_over_range(
     accession: &str,
     unit: &str,
     start: usize,

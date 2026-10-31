@@ -65,12 +65,35 @@ fn a_count_whose_alternate_no_protein_could_number_is_refused() {
     );
 }
 
+// HGVS writes a protein repeat's range as its unit (`p.Ala4_Ala5[3]`); a
+// unit stated after a range of bare positions is the legacy form the parser
+// also reads (`p.2346GT[3]`), and the only one whose range can run past the
+// run of its unit.
+
 #[test]
-fn a_range_past_the_run_of_its_unit_is_refused() {
+fn a_range_past_the_run_of_its_unit_has_no_allele() {
     // Ala4_Ala6 is the run of Ala; Tyr7 is not a fourth copy.
     let hdp = provider();
-    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4_Tyr7Ala[2]").unwrap();
+    let var = parse_hgvs_variant("NP_TEST.1:p.4_7A[2]").unwrap();
     let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "AAAY"),
+        "expected ReferenceMismatch finding AAAY, got {err:?}"
+    );
+}
+
+#[test]
+fn a_range_past_the_run_of_its_unit_does_not_validate() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.4_7A[2]").unwrap();
+    assert!(!VariantMapper::new(&hdp).validate(&var).unwrap());
+}
+
+#[test]
+fn a_range_past_the_run_of_its_unit_is_not_normalised() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.4_7A[2]").unwrap();
+    let err = VariantMapper::new(&hdp).normalize_variant(var).unwrap_err();
     assert!(
         matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "AAAY"),
         "expected ReferenceMismatch finding AAAY, got {err:?}"

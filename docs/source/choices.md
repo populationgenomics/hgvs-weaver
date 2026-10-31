@@ -2683,7 +2683,9 @@ A count (`del3`, `delins` with no bases) states nothing, and an edit that states
 
 A repeat's range with its unit stated claims copies of the unit over the range: the specification writes the range over
 the repeated stretch (`g.123_191CAG[23]`). A range that runs past the run of its unit states copies the reference lacks,
-and the count, which is of the run, would leave the bases past it out of the change without saying so.
+and the count, which is of the run, would leave the bases past it out of the change without saying so. A `p.` repeat
+states no unit in HGVS, whose range is the unit (`p.Arg65_Ser67[12]`); the parser also reads a unit after bare positions
+(`p.2346GT[3]`), and that unit is held to the same rule by every operation, `validate` included.
 
 **Example** (`NM_S.1` is spliced from `NC_S.1`, whose g.15 is c.9+1, a G; c.4 is A; the record has C at c.12 where the
 genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S.1` is `MKLAYR`; `NM_REV.1` is
@@ -2739,7 +2741,8 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
   `transcript_coordinates_test::validate_checks_stated_reference_through_transcript_coordinates`;
   `repeat_projection_test::a_range_past_the_run_of_its_unit_is_refused`;
   `protein_allele_test::validation_checks_the_named_and_stated_residues`,
-  `::a_range_past_the_run_of_its_unit_is_refused`;
+  `::a_range_past_the_run_of_its_unit_has_no_allele`, `::a_range_past_the_run_of_its_unit_does_not_validate`,
+  `::a_range_past_the_run_of_its_unit_is_not_normalised`;
   `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases` (the
   `validate` cases); `tests/test_validate_stated_bases.py::test_a_base_the_genome_lacks_is_an_error_naming_the_genome`.
 

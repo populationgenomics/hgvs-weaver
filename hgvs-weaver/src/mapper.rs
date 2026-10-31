@@ -1115,8 +1115,13 @@ pub(crate) fn residue_range(
     } = &vp.posedit.edit
     {
         if !crate::edits::is_length(unit) {
-            let n = crate::utils::residues_1(unit)?.len();
-            check(unit, start, start + n)?;
+            crate::edits::repeat_units_over_range(
+                reference.accession(),
+                &crate::utils::residues_1(unit)?,
+                start,
+                end,
+                |s, e| reference.slice(s, e),
+            )?;
         }
     }
     Ok((start, end))
