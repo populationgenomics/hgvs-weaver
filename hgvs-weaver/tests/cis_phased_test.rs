@@ -3211,6 +3211,21 @@ fn a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension() {
 }
 
 #[test]
+fn a_stop_lost_with_a_copy_past_it_is_the_extension_its_delins_is() {
+    // TAA CC G becomes CAA CCC G: the read-through gains a base
+    assert_eq!(
+        (
+            predicted("NM_X.1:c.[19T>C;*2dup]"),
+            predicted_single("NM_X.1:c.19_*3delinsCAACCCG")
+        ),
+        (
+            "NP_X.1:p.(Ter7GlnextTer3)".to_string(),
+            "NP_X.1:p.(Ter7GlnextTer3)".to_string()
+        )
+    );
+}
+
+#[test]
 fn a_member_reaching_past_the_stop_whose_change_lies_before_it_is_read_with_the_rest() {
     // TAT CGC TAA becomes TAT GGC GCT AAC TAA: the duplication's copy goes
     // after the stop as written, but the change the two members make is

@@ -3411,6 +3411,7 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   `::a_member_past_the_stop_that_shifts_the_read_through_is_refused`,
   `::a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension`,
   `::a_member_reaching_past_the_stop_whose_change_lies_before_it_is_read_with_the_rest`,
+  `::a_stop_lost_with_a_copy_past_it_is_the_extension_its_delins_is`,
   `::an_allele_of_one_member_predicts_what_its_member_does`; `an_allele_leaves_the_protein_its_one_delins_leaves`,
   `the_generated_alleles_inside_the_codons_are_mostly_compared` (properties);
   `tests/test_cis_phased.py::test_c_to_p_predicts_the_protein_the_members_make_together`,
