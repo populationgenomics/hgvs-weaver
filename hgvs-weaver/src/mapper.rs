@@ -813,6 +813,8 @@ impl DataProvider for ProteinWithStop {
 pub(crate) enum ReadAs<'a> {
     /// The accession a description of this coordinate type is written on.
     Description(&'a str),
+    /// A protein an operation is given, named as its caller knows it.
+    Protein(&'static str),
     /// A nucleotide sequence an operation is given, named as its caller knows it.
     Nucleotide(&'static str),
 }
@@ -846,6 +848,7 @@ pub(crate) fn check_reference_kind(
             };
             (ct == "p", format!("{article} {ct}. description"))
         }
+        ReadAs::Protein(what) => (true, what.to_string()),
         ReadAs::Nucleotide(what) => (false, what.to_string()),
     };
     if protein == (kind == IdentifierType::ProteinAccession) {
@@ -2575,7 +2578,8 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to;
-    /// a `transcript_ac` the provider classifies as a protein is refused.
+    /// a `transcript_ac` the provider classifies as a protein is refused, as is
+    /// a `protein_ac` it classifies as a nucleotide sequence.
     pub(crate) fn protein_accession(
         &self,
         transcript_ac: &str,
@@ -2583,6 +2587,11 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<String, HgvsError> {
         check_reference_kind(self.provider(), transcript_ac, ReadAs::Description("c"))?;
         if let Some(ac) = protein_ac {
+            check_reference_kind(
+                self.provider(),
+                ac,
+                ReadAs::Protein("the protein a prediction is written on"),
+            )?;
             return Ok(ac.to_string());
         }
         Ok(self

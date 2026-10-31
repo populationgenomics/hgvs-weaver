@@ -277,3 +277,47 @@ fn g_to_c_names_the_genomic_description_it_refuses() {
         "a g. description needs a nucleotide reference",
     );
 }
+
+#[test]
+fn c_to_p_refuses_a_genome_as_the_protein_to_predict_on() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.c_to_p(&coding("NM_K.1:c.4A>G"), Some("NC_K.1")),
+        "the protein a prediction is written on needs a protein reference",
+    );
+}
+
+#[test]
+fn c_to_p_refuses_a_transcript_as_the_protein_to_predict_on() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.c_to_p(&coding("NM_K.1:c.4A>G"), Some("NM_K.1")),
+        "the protein a prediction is written on needs a protein reference",
+    );
+}
+
+#[test]
+fn protein_allele_refuses_a_genome_as_the_protein_to_predict_on() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.protein_allele(&coding("NM_K.1:c.4A>G"), Some("NC_K.1")),
+        "the protein a prediction is written on needs a protein reference",
+    );
+}
+
+#[test]
+fn r_to_p_refuses_a_genome_as_the_protein_to_predict_on() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    let r = match parse("NM_K.1:r.4a>g") {
+        SequenceVariant::Rna(r) => r,
+        other => panic!("{other} is not r."),
+    };
+    assert_wrong_kind(
+        mapper.r_to_p(&r, Some("NC_K.1")),
+        "the protein a prediction is written on needs a protein reference",
+    );
+}
