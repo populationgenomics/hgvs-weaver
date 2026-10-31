@@ -2900,7 +2900,7 @@ NP_W.1:p.Arg12?      vs  NP_W.1:p.Arg13Gly  Different
 
 **`p.Met1ext-N` is read as the protein with N residues added before Met1: the first a Met, or the residue named after
 `ext`, the rest unknown. A residue written before `ext` is what Met1 becomes. An upstream extension written at any
-residue but Met1 has no reading, and is an error.**
+residue but Met1, or with a stop for Met1 or the residues it adds, has no reading, and is an error.**
 
 A new start upstream of Met1 leaves every residue of the protein in place and adds a run before it, so equivalence
 compares it as that protein, with an unknown residue matching any. The specification glosses `p.Met1ext-5` as a new
@@ -2928,6 +2928,7 @@ NP_X.1:p.Met1ext-5      vs  NP_X.1:p.Met1extLeu-5               Different: the n
 NP_X.1:p.Met1ext-5      vs  NP_X.1:p.Ter7GlnextTer?             Different: added before Met1, not after Arg6
 NP_X.1:p.Met1Valext-4   vs  NP_X.1:p.Met1_Lys2insArgSerThrVal   Analogous: MXXXVKLAYR and MRSTVKLAYR
 NP_X.1:p.Lys2ext-5      vs  NP_X.1:p.Met1ext-5                  ValidationError: no reading
+NP_X.1:p.Met1Terext-3   vs  NP_X.1:p.Met1ext-3                  ValidationError: it would stop before the protein
 ```
 
 - **Others:** not checked.
@@ -2940,7 +2941,8 @@ NP_X.1:p.Lys2ext-5      vs  NP_X.1:p.Met1ext-5                  ValidationError:
   `::an_n_terminal_extension_is_a_met_and_unknown_residues_before_met1`,
   `::an_n_terminal_extension_from_another_residue_is_not_one_from_a_met`,
   `::an_n_terminal_extension_is_the_residues_it_adds_before_the_protein`,
-  `::an_upstream_extension_from_a_residue_past_met1_is_an_error`.
+  `::an_upstream_extension_from_a_residue_past_met1_is_an_error`,
+  `::an_upstream_extension_that_makes_met1_a_stop_is_an_error`.
 
 ### An uncertain position names no one change
 

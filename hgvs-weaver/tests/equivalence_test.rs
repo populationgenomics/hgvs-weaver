@@ -1550,3 +1550,17 @@ fn an_upstream_extension_from_a_residue_past_met1_is_an_error() {
         "{result:?}"
     );
 }
+
+#[test]
+fn an_upstream_extension_that_makes_met1_a_stop_is_an_error() {
+    let hdp = coding_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let result = VariantEquivalence::new(&mapper, &hdp).equivalent_level(
+        &parse_hgvs_variant("NP_X.1:p.Met1Terext-3").unwrap(),
+        &parse_hgvs_variant("NP_X.1:p.Met1ext-3").unwrap(),
+    );
+    assert!(
+        matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("stop")),
+        "{result:?}"
+    );
+}

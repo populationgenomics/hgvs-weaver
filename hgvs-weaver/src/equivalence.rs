@@ -800,6 +800,12 @@ impl<'a> VariantEquivalence<'a> {
                     added.push('X');
                 }
                 let met1 = crate::utils::residues_1(alt)?;
+                if met1.contains('*') || added.contains('*') {
+                    return Err(HgvsError::ValidationError(format!(
+                        "{vp} writes a stop in an N-terminal extension, which then ends before \
+                         the protein it extends, so it has no reading"
+                    )));
+                }
                 let end = if met1.is_empty() { 0 } else { 1 };
                 added.push_str(&met1);
                 (0, end, added, false)
