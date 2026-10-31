@@ -533,7 +533,7 @@ fn project_repeat(
                     repeat.max
                 )));
             }
-            return edit_within(target, (t_lo, t_hi), &target_ref, &alt);
+            return edit_within(target, (t_lo, t_hi), &unit, &target_ref, &alt);
         }
     }
     let more = (run_end - t_hi) / unit.len();
@@ -622,15 +622,19 @@ fn record_holds_the_genomes_base(
     Ok(on_record.eq_ignore_ascii_case(&genome.slice(g, g + 1)?))
 }
 
-/// The edit that turns `target_ref`, the target's copies of a unit over
+/// The edit that turns `target_ref`, the target's copies of `unit` over
 /// `[t_lo, t_hi)`, into `alt`, more or fewer copies, written over those bases
 /// alone: copies removed are a deletion within the range, and copies added a
-/// duplication of the range's last copies, or the range's bases replaced
-/// where more are added than the range holds. An insertion after the range
-/// would name the base past it as a flank, which the change leaves alone.
+/// duplication of the range's last copies, or, where more are added than the
+/// range holds, an insertion between two of its bases, after its first copy
+/// or else after its first base with the unit read from there. Only a range
+/// of one base has no such pair, and its base is replaced. An insertion after
+/// the range would name the base past it as a flank, which the change leaves
+/// alone.
 fn edit_within(
     target: &crate::reference::Reference<'_, '_>,
     (t_lo, t_hi): (usize, usize),
+    unit: &str,
     target_ref: &str,
     alt: &str,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
@@ -646,12 +650,27 @@ fn edit_within(
         };
         return Ok((dup, t_hi - added, t_hi));
     }
-    let delins = NaEdit::RefAlt {
-        ref_: Some(String::new()),
-        alt: Some(alt.to_string()),
+    let copies = added / unit.len();
+    let (at, inserted) = if target_ref.len() >= 2 * unit.len() {
+        (t_lo + unit.len(), unit.repeat(copies))
+    } else if unit.len() >= 2 {
+        (
+            t_lo + 1,
+            format!("{}{}", &unit[1..], &unit[..1]).repeat(copies),
+        )
+    } else {
+        let delins = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(alt.to_string()),
+            uncertain: false,
+        };
+        return Ok((delins, t_lo, t_hi));
+    };
+    let insertion = NaEdit::Ins {
+        alt: Some(inserted),
         uncertain: false,
     };
-    Ok((delins, t_lo, t_hi))
+    Ok((insertion, at - 1, at + 1))
 }
 
 /// A transcript repeat at an intronic position of a minus-strand transcript,

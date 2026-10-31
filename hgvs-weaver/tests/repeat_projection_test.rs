@@ -153,6 +153,26 @@ fn genome_continues_the_run() -> Provider {
         ))
 }
 
+/// `NM_CAGD.1`, [`TX`] on the plus strand of `NC_000088.1` at g.11 to g.33,
+/// except that the genome holds T where the record holds c.10's C: the
+/// record's run of CAG is c.7_15, the genome's one copy at g.17_19.
+fn cag_differs() -> Provider {
+    let mut genome = format!("{FLANK}{TX}{FLANK}").into_bytes();
+    genome[19] = b'T';
+    Provider::new()
+        .sequence("NC_000088.1", &String::from_utf8(genome).unwrap())
+        .sequence("NM_CAGD.1", TX)
+        .transcript(single_exon_transcript(
+            "NM_CAGD.1",
+            "NC_000088.1",
+            10,
+            Strand::Plus,
+            0,
+            20,
+            TX.len() as i32,
+        ))
+}
+
 /// `NM_GAPI.1` on the plus strand of `NC_000091.1`: one exon, `ATGAAATGACC`
 /// (c.1 to c.11), aligned as `5M1I5M` to `ATGAATGACC` at g.11 to g.20. The
 /// record's run of A is c.4_6, whose last base the genome lacks; the
@@ -736,6 +756,40 @@ fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_does_not_share_p
     let written = "NC_000096.1:g.14A[3]";
     let projected = VariantMapper::new(&hdp)
         .g_to_c(&genomic(written), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(
+        spdi(&hdp, &projected.to_string()),
+        spdi(&hdp, written),
+        "{written} projected to {projected}"
+    );
+}
+
+#[test]
+fn more_copies_than_the_run_holds_are_inserted_between_its_own_bases() {
+    // g.14_15 is AA, then the genome's G; the record holds A there, at c.6.
+    // Two A become five: three inserted between c.4 and c.5.
+    let projected = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.14A[5]"), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_DIFF.1:c.4_5insAAA");
+}
+
+#[test]
+fn more_copies_of_a_longer_unit_than_the_run_holds_are_inserted_inside_its_one_copy() {
+    // One CAG at g.17_19 becomes four; the record's run goes on at c.10. The
+    // three copies go in after c.7, read from there as AGC.
+    let projected = VariantMapper::new(&cag_differs())
+        .g_to_c(&genomic("NC_000088.1:g.17CAG[4]"), "NM_CAGD.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_CAGD.1:c.7_8insAGCAGCAGC");
+}
+
+#[test]
+fn more_copies_inserted_inside_one_copy_project_back_to_the_same_change() {
+    let hdp = cag_differs();
+    let written = "NC_000088.1:g.17CAG[4]";
+    let projected = VariantMapper::new(&hdp)
+        .g_to_c(&genomic(written), "NM_CAGD.1")
         .unwrap();
     assert_eq!(
         spdi(&hdp, &projected.to_string()),
