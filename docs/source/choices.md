@@ -572,7 +572,9 @@ record holding A where the genome holds G after two A, `g.14A[3]` as `c.4_6A[4]`
 Stopping the count at that base does not help, since `c.4_5A[3]` still counts the record's whole run, which makes no
 change. So the change is written over the source's run alone, as a deletion of the copies it removes, a duplication of
 the copies it adds, or, where it adds more than the run holds, an insertion between two of the run's own bases; a count
-known only as a range is refused. A transcript run that crosses an exon junction is refused, whichever side the repeat
+known only as a range is refused. These are deliberately not the record's 3' form: normalised on the record,
+`NM_DIFF.1:c.5dup` is `c.6dup`, which duplicates the base the two sequences hold differently and projects as
+`g.16delinsAA`, a different change. A transcript run that crosses an exon junction is refused, whichever side the repeat
 is written on: copies added to or removed from it could go on either side of the intron, so a `c.` count over it has no
 single place on the genome, and a genomic repeat whose run the next exon continues, or whose run crosses an intron from
 one exon into the next, would be written as that `c.` count. A genomic run read on in the transcript's sense past a base
