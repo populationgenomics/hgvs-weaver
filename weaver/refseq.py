@@ -164,7 +164,6 @@ class RefSeqDataProvider:
         self.gene_to_transcripts: dict[str, list[str]] = collections.defaultdict(list)
         self.chrom_to_transcripts: dict[str, list[typing.Any]] = collections.defaultdict(list)
         self.accession_map: dict[str, tuple[str, str]] = {}  # protein_id -> tx_id
-        self.versionless_tx_to_refs: dict[str, list[str]] = collections.defaultdict(list)
         self.mane_select: dict[str, str] = {}  # gene_name -> tx_ac (MANE Select)
 
         self._load_gff()
@@ -318,7 +317,6 @@ class RefSeqDataProvider:
             }
             self.transcripts[(tx_id, chrom)] = record
             self.tx_to_refs[tx_id].append(chrom)
-            self.versionless_tx_to_refs[tx_id.split(".")[0]].append(chrom)
             self.chrom_to_transcripts[chrom].append(record)
 
             if protein_id:
@@ -382,26 +380,7 @@ class RefSeqDataProvider:
             return translated[start:end]
 
         if "transcript" in kind_name or kind_name == "c":
-            # Need to decide which reference to use if multiple exist
-            refs = self.tx_to_refs.get(ac)
-            if not refs:
-                # Fallback to versionless match
-                base_ac = ac.split(".")[0]
-                refs = self.versionless_tx_to_refs.get(base_ac)
-                if not refs:
-                    raise weaver.DataProviderError(f"{ac}: not in the reference data")
-                # Resolve to actual accession in transcripts
-                for t_id, _ in self.transcripts:
-                    if t_id.startswith(base_ac + "."):
-                        ac = t_id
-                        break
-
-            # Prioritize standard NC chromosomes that exist in the current FASTA
-            ref_ac = next((r for r in refs if r.startswith("NC_0000") and r in self.fasta.references), None)
-            if not ref_ac:
-                ref_ac = next((r for r in refs if r in self.fasta.references), refs[0])
-
-            return self._get_tx_seq(ac, ref_ac, start, end, force_plus=force_plus).upper()
+            return self._get_tx_seq(ac, self._default_reference(ac), start, end, force_plus=force_plus).upper()
 
         if end == -1 or end is None:
             return str(self.fasta.fetch(ac, start).upper())
@@ -443,33 +422,25 @@ class RefSeqDataProvider:
         """Returns the transcript model for the given accession."""
         if reference_ac:
             tx = self.transcripts.get((transcript_ac, reference_ac))
-            if tx:
-                return tx
+            if tx is None:
+                raise weaver.DataProviderError(f"{transcript_ac}: not placed on {reference_ac}")
+            return tx
 
-        refs = self.tx_to_refs.get(transcript_ac)
+        return self.transcripts[(transcript_ac, self._default_reference(transcript_ac))]
 
+    def _default_reference(self, tx_ac: str) -> str:
+        """The reference a transcript is read on when none is named: a primary chromosome in the FASTA if any.
+
+        Raises:
+            weaver.DataProviderError: If the GFF3 places no transcript under exactly ``tx_ac``, version included.
+        """
+        refs = self.tx_to_refs.get(tx_ac)
         if not refs:
-            # Fallback to versionless match
-            base_ac = transcript_ac.split(".")[0]
-            refs = self.versionless_tx_to_refs.get(base_ac)
-            if refs:
-                # Find the actual accession in transcripts that matches this base and first ref
-                # (Assuming version increments are mostly sequence/annotation stable for mapping if no choice)
-                # We need to pick one exact tx_id.
-                for (t_id, _), _ in self.transcripts.items():
-                    if t_id.startswith(base_ac + "."):
-                        transcript_ac = t_id
-                        break
-
-        if not refs:
-            raise weaver.DataProviderError(f"{transcript_ac}: not in the reference data")
-
-        # Prioritize standard NC chromosomes that exist in the current FASTA
+            raise weaver.DataProviderError(f"{tx_ac}: not in the reference data")
         ref_ac = next((r for r in refs if r.startswith("NC_0000") and r in self.fasta.references), None)
         if not ref_ac:
             ref_ac = next((r for r in refs if r in self.fasta.references), refs[0])
-
-        return self.transcripts[(transcript_ac, ref_ac)]
+        return ref_ac
 
     def get_transcripts_for_region(self, chrom: str, start: int, end: int) -> list[str]:
         """Finds transcripts overlapping a genomic region."""

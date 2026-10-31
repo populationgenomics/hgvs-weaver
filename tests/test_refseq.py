@@ -33,12 +33,12 @@ def live_sequences(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WEAVER_SEQ_CACHE", raising=False)
 
 
-def provider(tmp_path: pathlib.Path) -> refseq.RefSeqDataProvider:
+def provider(tmp_path: pathlib.Path, gff3: str = GFF3) -> refseq.RefSeqDataProvider:
     """A provider over the synthetic chromosome and FWD, and an unannotated sequence under a custom name."""
     fasta = tmp_path / "genome.fa"
     fasta.write_text(f">NC_000099.1\n{GENOME}\n>AMPLICON1\nACGTACGTAC\n")
     gff = tmp_path / "annotation.gff3"
-    gff.write_text(GFF3)
+    gff.write_text(gff3)
     return refseq.RefSeqDataProvider(str(gff), str(fasta))
 
 
@@ -140,3 +140,56 @@ def test_an_identifier_is_classified_by_what_the_provider_holds_under_it(
     kind: str,
 ) -> None:
     assert provider(tmp_path).get_identifier_type(identifier) == kind
+
+
+# Two versions of REV's transcript, each on a different sequence: .1 on AMPLICON1, .2 on NC_000099.1.
+TWO_VERSIONS = (
+    GFF3
+    + "AMPLICON1\tRefSeq\tmRNA\t1\t10\t.\t-\t.\tID=rna-NM_000097.1;gene=REV;transcript_id=NM_000097.1\n"
+    + "AMPLICON1\tRefSeq\texon\t1\t10\t.\t-\t.\tParent=rna-NM_000097.1;transcript_id=NM_000097.1\n"
+    + "NC_000099.1\tRefSeq\tmRNA\t51\t60\t.\t-\t.\tID=rna-NM_000097.2;gene=REV;transcript_id=NM_000097.2\n"
+    + "NC_000099.1\tRefSeq\texon\t51\t60\t.\t-\t.\tParent=rna-NM_000097.2;transcript_id=NM_000097.2\n"
+)
+
+
+@pytest.mark.parametrize("ac", ["NM_000097.3", "NM_000097"])
+def test_a_transcript_version_the_annotation_lacks_has_no_sequence(tmp_path: pathlib.Path, ac: str) -> None:
+    with pytest.raises(weaver.DataProviderError, match=re.escape(f"{ac}: not in the reference data")):
+        provider(tmp_path, TWO_VERSIONS).get_seq(ac, 0, 5, weaver.IdentifierType.TranscriptAccession)
+
+
+@pytest.mark.parametrize("ac", ["NM_000097.3", "NM_000097"])
+def test_a_transcript_version_the_annotation_lacks_has_no_model(tmp_path: pathlib.Path, ac: str) -> None:
+    with pytest.raises(weaver.DataProviderError, match=re.escape(f"{ac}: not in the reference data")):
+        provider(tmp_path, TWO_VERSIONS).get_transcript(ac, None)
+
+
+@pytest.mark.parametrize(("ac", "reference"), [("NM_000097.1", "AMPLICON1"), ("NM_000097.2", "NC_000099.1")])
+def test_each_transcript_version_is_placed_where_the_annotation_places_it(
+    tmp_path: pathlib.Path,
+    ac: str,
+    reference: str,
+) -> None:
+    assert provider(tmp_path, TWO_VERSIONS).get_transcript(ac, None)["reference_accession"] == reference
+
+
+def test_a_transcript_version_is_read_from_its_own_placement(tmp_path: pathlib.Path) -> None:
+    # NM_000097.2 is g.51-60 of NC_000099.1, TCGATCGATC, read on the minus strand.
+    rev = provider(tmp_path, TWO_VERSIONS).get_seq("NM_000097.2", 0, 10, weaver.IdentifierType.TranscriptAccession)
+    assert rev == "GATCGATCGA"
+
+
+@pytest.mark.parametrize(("identifier", "kind"), [("NM_000097.2", "transcript_accession"), ("NM_000097.3", "unknown")])
+def test_an_identifier_is_a_transcript_exactly_when_its_version_is_annotated(
+    tmp_path: pathlib.Path,
+    identifier: str,
+    kind: str,
+) -> None:
+    assert provider(tmp_path, TWO_VERSIONS).get_identifier_type(identifier) == kind
+
+
+def test_a_transcript_asked_for_on_a_sequence_the_annotation_does_not_place_it_on_has_no_model(
+    tmp_path: pathlib.Path,
+) -> None:
+    with pytest.raises(weaver.DataProviderError, match=re.escape("NM_000097.1: not placed on NC_000099.1")):
+        provider(tmp_path, TWO_VERSIONS).get_transcript("NM_000097.1", "NC_000099.1")
