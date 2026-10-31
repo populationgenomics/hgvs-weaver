@@ -517,12 +517,15 @@ fn project_repeat(
         (t_lo, t_hi),
         Some(target.length()?),
     )?;
-    let resolved = repeat.edit().resolve(source, s_lo, s_hi)?;
+    // The run and the count are all a count needs; the copies are built only
+    // for an edit that writes them out.
+    let run_end = repeat_run_end(&repeat.edit(), &unit, source, (s_lo, s_hi))?;
     let orient = |b: &str| match strand {
         crate::data::Strand::Minus => crate::utils::reverse_complement(b),
         crate::data::Strand::Plus => b.to_string(),
     };
-    let (source_ref, alt) = (orient(&resolved.ref_), orient(&resolved.alt));
+    let source_ref = orient(&source.slice(s_lo, run_end)?);
+    let alt = || orient(&unit.repeat(repeat.max.max(0) as usize));
     let target_ref = target.slice(t_lo, t_hi)?;
     if target_ref != source_ref {
         if repeat.min != repeat.max {
@@ -534,7 +537,7 @@ fn project_repeat(
                 repeat.max
             )));
         }
-        return normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt);
+        return normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt());
     }
     let unit = orient(&unit);
     // Short of `t_hi` where the unit is absent from the range altogether.
@@ -554,7 +557,7 @@ fn project_repeat(
                     repeat.max
                 )));
             }
-            return edit_within(target, (t_lo, t_hi), &unit, &target_ref, &alt);
+            return edit_within(target, (t_lo, t_hi), &unit, &target_ref, &alt());
         }
     }
     let more = (run_end - t_hi) / unit.len();

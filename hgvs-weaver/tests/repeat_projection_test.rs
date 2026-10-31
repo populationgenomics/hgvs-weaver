@@ -853,3 +853,19 @@ fn a_coding_repeat_the_genome_continues_over_a_base_the_record_lacks_projects_ba
         "{written} through {on_genome} back to {back}"
     );
 }
+
+#[test]
+fn a_count_near_the_limit_projects_to_the_genome_as_a_count() {
+    assert_eq!(
+        to_genome(&minus(), "NM_REV.1:c.5A[2000000000]").unwrap(),
+        "NC_000099.1:g.28_30T[2000000001]"
+    );
+}
+
+#[test]
+fn a_count_near_the_limit_projects_to_the_transcript_as_a_count() {
+    let projected = VariantMapper::new(&plus())
+        .g_to_c(&genomic("NC_000098.1:g.15A[2000000000]"), "NM_FWD.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_FWD.1:c.5_6A[2000000000]");
+}
