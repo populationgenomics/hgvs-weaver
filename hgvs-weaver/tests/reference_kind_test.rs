@@ -95,18 +95,32 @@ fn to_spdi_refuses_a_protein_description_on_a_transcript() {
 fn validate_refuses_a_nucleotide_description_on_a_protein() {
     let provider = provider();
     let mapper = VariantMapper::new(&provider);
-    for description in [
-        "NP_K.1:c.2T>A",
-        "NP_K.1:n.2T>A",
-        "NP_K.1:r.2u>a",
-        "NP_K.1:g.4A>T",
-        "NP_K.1:m.4A>T",
+    for (description, says) in [
+        (
+            "NP_K.1:c.2T>A",
+            "a c. description needs a nucleotide reference",
+        ),
+        (
+            "NP_K.1:n.2T>A",
+            "an n. description needs a nucleotide reference",
+        ),
+        (
+            "NP_K.1:r.2u>a",
+            "an r. description needs a nucleotide reference",
+        ),
+        (
+            "NP_K.1:g.4A>T",
+            "a g. description needs a nucleotide reference",
+        ),
+        (
+            "NP_K.1:m.4A>T",
+            "an m. description needs a nucleotide reference",
+        ),
     ] {
         match mapper.validate(&parse(description)) {
-            Err(HgvsError::ValidationError(msg)) => assert!(
-                msg.contains("needs a nucleotide reference"),
-                "{description}: {msg}"
-            ),
+            Err(HgvsError::ValidationError(msg)) => {
+                assert!(msg.contains(says), "{description}: {msg}")
+            }
             other => panic!("{description}: expected a ValidationError, got {other:?}"),
         }
     }
@@ -167,7 +181,7 @@ fn c_to_g_refuses_a_protein_as_the_genome_to_project_onto() {
     let mapper = VariantMapper::new(&provider);
     assert_wrong_kind(
         mapper.c_to_g(&coding("NM_K.1:c.2T>A"), Some("NP_K.1")),
-        "needs a nucleotide reference",
+        "the genome a transcript variant is projected onto needs a nucleotide reference",
     );
 }
 
@@ -209,7 +223,7 @@ fn to_vrs_refuses_a_coding_description_on_a_protein() {
     let mapper = VariantMapper::new(&provider);
     assert_wrong_kind(
         mapper.to_vrs(&parse("NP_K.1:c.2T>A")),
-        "needs a nucleotide reference",
+        "a c. description needs a nucleotide reference",
     );
 }
 
@@ -230,7 +244,7 @@ fn g_to_c_refuses_a_protein_as_the_transcript_to_project_onto() {
     let mapper = VariantMapper::new(&provider);
     assert_wrong_kind(
         mapper.g_to_c(&genomic("NC_K.1:g.4A>T"), "NP_K.1"),
-        "needs a nucleotide reference",
+        "the transcript g_to_c projects onto needs a nucleotide reference",
     );
 }
 
@@ -241,5 +255,25 @@ fn g_to_c_all_refuses_a_genomic_description_on_a_protein() {
     assert_wrong_kind(
         mapper.g_to_c_all(&genomic("NP_K.1:g.4A>T"), &provider),
         "needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn to_spdi_names_the_kind_of_description_it_refuses() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.to_spdi(&parse("NP_K.1:c.2T>A"), false),
+        "a c. description needs a nucleotide reference",
+    );
+}
+
+#[test]
+fn g_to_c_names_the_genomic_description_it_refuses() {
+    let provider = provider();
+    let mapper = VariantMapper::new(&provider);
+    assert_wrong_kind(
+        mapper.g_to_c(&genomic("NP_K.1:g.4A>T"), "NM_K.1"),
+        "a g. description needs a nucleotide reference",
     );
 }

@@ -209,7 +209,13 @@ impl VariantMapper<'_> {
         protein_ac: Option<&str>,
     ) -> Result<Prediction, HgvsError> {
         let protein_ac = self.protein_accession(&cis.ac, protein_ac)?;
-        let transcript = self.transcript(&cis.ac, None)?;
+        let transcript = self.transcript(
+            (
+                &cis.ac,
+                crate::mapper::ReadAs::Description(crate::Variant::coordinate_type(cis)),
+            ),
+            None,
+        )?;
         if transcript.cds_start == crate::data::CdsStart::Open {
             return Err(HgvsError::ValidationError(format!(
                 "{}: its CDS is open at the 5' end, so the record carries no start codon and no protein \
