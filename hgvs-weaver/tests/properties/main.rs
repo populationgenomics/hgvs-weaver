@@ -2755,3 +2755,80 @@ proptest! {
         prop_assert_eq!(left(&cis), left(&delins), "{} and {}", cis, delins);
     }
 }
+
+/// A sense codon: any of the 61 the standard table reads as a residue.
+fn sense_codon() -> impl Strategy<Value = String> {
+    let codons: Vec<String> = BASES
+        .iter()
+        .flat_map(|a| {
+            BASES
+                .iter()
+                .flat_map(move |b| BASES.iter().map(move |c| format!("{a}{b}{c}")))
+        })
+        .filter(|c| translate_codon(c) != Some('*'))
+        .collect();
+    prop::sample::select(codons)
+}
+
+/// The protein consequence of the delins `[start, end)` to `alt` on `coding`,
+/// a CDS of `cds_len` bases and its 3'UTR, or `None` where none is predicted.
+fn consequence(
+    coding: &str,
+    cds_len: usize,
+    start: usize,
+    end: usize,
+    alt: &str,
+) -> Option<String> {
+    let edit = NaEdit::RefAlt {
+        ref_: None,
+        alt: Some(alt.to_string()),
+        uncertain: false,
+    };
+    let resolved = edit
+        .resolve_with("NM_PROP.1", start, end, |s, e| Ok(coding[s..e].to_string()))
+        .unwrap();
+    let change = hgvs_weaver::protein::CodingChange::new(coding, cds_len, resolved, "NP_PROP.1");
+    hgvs_weaver::protein::describe(&change)
+        .ok()
+        .map(|v| v.to_string())
+}
+
+proptest! {
+    /// One edited transcript is one protein consequence, however the change
+    /// that makes it is spelled: a delins widened over bases the two
+    /// sequences share describes what the narrower one does. The changes are
+    /// drawn around the stop, where whether it is kept, and where a stop the
+    /// change makes ends its delins, decide the description. A silent change
+    /// names the codons it is written over, so it is left out.
+    #[test]
+    fn one_edited_transcript_is_one_protein_consequence(
+        codons in prop::collection::vec(sense_codon(), 2..8),
+        stop in prop::sample::select(vec!["TAA", "TAG", "TGA"]),
+        utr in dna(0, 15),
+        at in 0usize..13,
+        len in 0usize..10,
+        alt in dna(0, 12),
+        widen in (0usize..7, 0usize..7),
+    ) {
+        let coding = format!("ATG{}{stop}{utr}", codons.concat());
+        let cds_len = 3 * (codons.len() + 2);
+        let start = (cds_len - 3 + at).saturating_sub(6).clamp(3, coding.len());
+        let end = (start + len).min(coding.len());
+        if coding[start..end] == alt {
+            return Ok(());
+        }
+        let wide_start = start.saturating_sub(widen.0).max(3);
+        let wide_end = (end + widen.1).min(coding.len());
+        let wide_alt = format!("{}{alt}{}", &coding[wide_start..start], &coding[end..wide_end]);
+        let narrow = consequence(&coding, cds_len, start, end, &alt);
+        let wide = consequence(&coding, cds_len, wide_start, wide_end, &wide_alt);
+        if narrow.as_deref().is_some_and(|d| d.ends_with("=") || d.ends_with("=)")) {
+            return Ok(());
+        }
+        prop_assert_eq!(
+            &narrow, &wide,
+            "c.{}_{}delins{} and c.{}_{}delins{} on {}",
+            start + 1, end, alt, wide_start + 1, wide_end, wide_alt, coding
+        );
+    }
+}
