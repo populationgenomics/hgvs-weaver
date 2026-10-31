@@ -708,6 +708,17 @@ fn a_count_whose_alternate_no_sequence_could_number_is_refused() {
 }
 
 #[test]
+fn a_count_the_transcript_could_number_but_the_genome_could_not_is_refused() {
+    // On NM_FWD.1's 23 bases, c.5_6 becoming this many A is a sequence
+    // shorter than 2^31; on NC_000098.1's 43 it is longer.
+    let err = to_genome(&plus(), "NM_FWD.1:c.5A[2147483617]").unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483617")),
+        "expected ValidationError naming the count, got {err:?}"
+    );
+}
+
+#[test]
 fn a_range_past_the_run_of_its_unit_is_refused() {
     // c.7_15 is CAG three times; c.16_18 is TTC, not a fourth copy.
     let err = to_genome(&minus(), "NM_REV.1:c.7_18CAG[2]").unwrap_err();

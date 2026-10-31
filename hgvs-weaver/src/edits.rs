@@ -492,18 +492,38 @@ impl NaEdit {
         end: usize,
     ) -> Result<ResolvedEdit, HgvsError> {
         reference.check_range(start, end)?;
-        self.resolve_with(reference.accession(), start, end, |s, e| {
-            reference.slice(s, e)
-        })
+        self.resolve_in(
+            reference.accession(),
+            start,
+            end,
+            Some(&|| reference.length()),
+            |s, e| reference.slice(s, e),
+        )
     }
 
     /// As [`resolve`](Self::resolve), reading the bases of `accession`
-    /// through `fetch`.
+    /// through `fetch`. With no length to bound it, a repeat is refused only
+    /// where its copies alone would run past the last position a sequence can
+    /// number.
     pub fn resolve_with(
         &self,
         accession: &str,
         start: usize,
         end: usize,
+        fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+    ) -> Result<ResolvedEdit, HgvsError> {
+        self.resolve_in(accession, start, end, None, fetch)
+    }
+
+    /// As [`resolve_with`](Self::resolve_with), for a sequence whose length
+    /// `length` gives: a repeat is refused, before its copies are built, where
+    /// the sequence it makes would be longer than a sequence can number.
+    pub(crate) fn resolve_in(
+        &self,
+        accession: &str,
+        start: usize,
+        end: usize,
+        length: Option<SequenceLength<'_>>,
         fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
     ) -> Result<ResolvedEdit, HgvsError> {
         self.check_stated(accession, start, end, &fetch)?;
@@ -544,7 +564,6 @@ impl NaEdit {
                     Some(u) => u.to_string(),
                     None => fetch(start, end)?,
                 };
-                let copies = copies_that_fit(accession, &unit, *max, start)?;
                 let mut run_end = start;
                 if !unit.is_empty() {
                     while fetch(run_end, run_end + unit.len())?.eq_ignore_ascii_case(&unit) {
@@ -554,6 +573,9 @@ impl NaEdit {
                 if run_end == start {
                     run_end = end;
                 }
+                let length = length.map(|length| length()).transpose()?;
+                let copies =
+                    copies_that_fit(accession, unit.len(), *max, (start, run_end), length)?;
                 return Ok(ResolvedEdit {
                     start,
                     end: run_end,
@@ -654,24 +676,44 @@ impl AaEdit {
         start: usize,
         end: usize,
     ) -> Result<ResolvedEdit, HgvsError> {
-        self.resolve_with(reference.accession(), start, end, |s, e| {
-            reference.slice(s, e)
-        })
+        self.resolve_in(
+            reference.accession(),
+            start,
+            end,
+            Some(&|| reference.length()),
+            |s, e| reference.slice(s, e),
+        )
     }
 
     /// [`AaEdit::resolve`] with `fetch(start, end)` supplying the residues of
-    /// `accession`.
+    /// `accession`. With no length to bound it, a repeat is refused only where
+    /// its copies alone would run past the last position a sequence can
+    /// number.
+    pub fn resolve_with(
+        &self,
+        accession: &str,
+        start: usize,
+        end: usize,
+        fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
+    ) -> Result<ResolvedEdit, HgvsError> {
+        self.resolve_in(accession, start, end, None, fetch)
+    }
+
+    /// As [`resolve_with`](Self::resolve_with), for a protein whose length
+    /// `length` gives: a repeat is refused, before its copies are built, where
+    /// the protein it makes would be longer than a sequence can number.
     ///
     /// Edits that describe a consequence rather than a sequence (frameshift,
     /// extension, `p.?`, `p.0`, `p.Xxx1?`) cannot be resolved and are
     /// unsupported. The reference is what the sequence holds; a repeat unit
     /// stated where the sequence does not carry it is a
     /// [`HgvsError::ReferenceMismatch`].
-    pub fn resolve_with(
+    pub(crate) fn resolve_in(
         &self,
         accession: &str,
         start: usize,
         end: usize,
+        length: Option<SequenceLength<'_>>,
         fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
     ) -> Result<ResolvedEdit, HgvsError> {
         use crate::utils::residues_1;
@@ -725,7 +767,6 @@ impl AaEdit {
                     }
                     None => fetch(start, end)?,
                 };
-                let copies = copies_that_fit(accession, &unit, *max, start)?;
                 let mut run_end = start;
                 if !unit.is_empty() {
                     while fetch(run_end, run_end + unit.len())? == unit {
@@ -735,6 +776,9 @@ impl AaEdit {
                 if run_end == start {
                     run_end = end;
                 }
+                let length = length.map(|length| length()).transpose()?;
+                let copies =
+                    copies_that_fit(accession, unit.len(), *max, (start, run_end), length)?;
                 return Ok(ResolvedEdit {
                     start,
                     end: run_end,
@@ -759,30 +803,40 @@ impl AaEdit {
     }
 }
 
-/// The number of copies of `unit` a repeat counting `count` from `start` of
-/// `accession` writes, refused before any is built where the last of them
-/// would lie past the last position a sequence can number.
+/// The length of the sequence an edit is resolved on, read when a repeat
+/// needs it.
+pub(crate) type SequenceLength<'a> = &'a dyn Fn() -> Result<usize, HgvsError>;
+
+/// The number of copies a repeat of a `unit_len`-long unit counting `count`
+/// writes over `[start, run_end)` of `accession`, refused before any is built
+/// where the sequence it makes would be longer than a sequence can number
+/// (positions are i32): the `length` the sequence has, less the run, plus
+/// the copies; or, with no length, the bases before the run plus the copies.
 ///
 /// # Errors
 ///
 /// [`HgvsError::ValidationError`] naming the count.
-fn copies_that_fit(
+pub(crate) fn copies_that_fit(
     accession: &str,
-    unit: &str,
+    unit_len: usize,
     count: i32,
-    start: usize,
+    (start, run_end): (usize, usize),
+    length: Option<usize>,
 ) -> Result<usize, HgvsError> {
     let copies = count.max(0) as usize;
-    let end = unit
-        .len()
+    let kept = match length {
+        Some(length) => length.saturating_sub(run_end - start),
+        None => start,
+    };
+    let made = unit_len
         .checked_mul(copies)
-        .and_then(|length| length.checked_add(start));
-    if end.is_some_and(|end| end <= i32::MAX as usize) {
+        .and_then(|added| added.checked_add(kept));
+    if made.is_some_and(|made| made <= i32::MAX as usize) {
         return Ok(copies);
     }
     Err(HgvsError::ValidationError(format!(
-        "{count} copies of {unit} from index {start} of {accession} run past position {}, \
-         the last a sequence can have",
+        "{count} copies of a {unit_len}-long unit over [{start}, {run_end}) of {accession} make \
+         a sequence longer than {}, the most positions a sequence can have",
         i32::MAX
     )))
 }

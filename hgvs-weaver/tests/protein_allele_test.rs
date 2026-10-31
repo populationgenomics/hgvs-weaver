@@ -65,6 +65,19 @@ fn a_count_whose_alternate_no_protein_could_number_is_refused() {
     );
 }
 
+#[test]
+fn a_count_whose_protein_no_sequence_could_number_is_refused() {
+    // Ala4 plus this many copies fits before the run's end, but with the
+    // three residues after the run, Tyr Arg Gln, the protein is too long.
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[2147483643]").unwrap();
+    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains("2147483643")),
+        "expected ValidationError naming the count, got {err:?}"
+    );
+}
+
 // HGVS writes a protein repeat's range as its unit (`p.Ala4_Ala5[3]`); a
 // unit stated after a range of bare positions is the legacy form the parser
 // also reads (`p.2346GT[3]`), and the only one whose range can run past the

@@ -488,6 +488,14 @@ fn project_repeat(
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
     let (source, (s_lo, s_hi)) = source;
     let (target, (t_lo, t_hi), shared) = target;
+    let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
+    crate::edits::copies_that_fit(
+        target.accession(),
+        unit.len(),
+        repeat.max,
+        (t_lo, t_hi),
+        Some(target.length()?),
+    )?;
     let resolved = repeat.edit().resolve(source, s_lo, s_hi)?;
     let orient = |b: &str| match strand {
         crate::data::Strand::Minus => crate::utils::reverse_complement(b),
@@ -507,7 +515,6 @@ fn project_repeat(
         }
         return normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt);
     }
-    let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
     let unit = orient(&unit);
     // Short of `t_hi` where the unit is absent from the range altogether.
     let run_end = run_up(target, &unit, t_lo)?;
@@ -698,6 +705,17 @@ fn project_edit_over_run(
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
     let (source, named, wide) = source;
+    if let Some(repeat) = Repeat::of(edit) {
+        let unit =
+            crate::edits::repeat_unit(&repeat.unit, named.0, named.1, |s, e| source.slice(s, e))?;
+        crate::edits::copies_that_fit(
+            target.accession(),
+            unit.len(),
+            repeat.max,
+            target_range,
+            Some(target.length()?),
+        )?;
+    }
     let resolved = edit.resolve(source, named.0, named.1)?;
     let (w_lo, w_hi) = (wide.0.min(resolved.start), wide.1.max(resolved.end));
     let source_ref = source.slice(w_lo, w_hi)?;
@@ -740,12 +758,19 @@ fn project_over_genomic_range(
         crate::data::Strand::Plus => b.to_string(),
     };
     let read = orient(record);
-    let resolved = edit.resolve_with(genome.accession(), 0, read.len(), |s, e| {
-        Ok(read
-            .get(s..e.min(read.len()))
-            .unwrap_or_default()
-            .to_string())
-    })?;
+    let genome_length = || genome.length();
+    let resolved = edit.resolve_in(
+        genome.accession(),
+        0,
+        read.len(),
+        Some(&genome_length),
+        |s, e| {
+            Ok(read
+                .get(s..e.min(read.len()))
+                .unwrap_or_default()
+                .to_string())
+        },
+    )?;
     let made = format!(
         "{}{}{}",
         &read[..resolved.start],
