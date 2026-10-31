@@ -200,6 +200,42 @@ an_allele_that_loses_the_stop_is_refused! {
     an_allele_deleting_the_stop_and_the_residue_before_it_is_refused: "NP_STOP.1:8:Q*:";
 }
 
+/// The variant `hgvs`'s VRS reads back as, printed, or the error.
+fn vrs_read_back(hgvs: &str) -> Result<String, HgvsError> {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
+    let vrs = mapper.to_vrs_variation(&parse_hgvs_variant(hgvs).unwrap())?;
+    mapper
+        .from_vrs(&vrs.to_json(), Some(NP))
+        .map(|v| v.to_string())
+}
+
+/// One test per case: `$hgvs`'s VRS reads back as `$back`.
+macro_rules! the_vrs_reads_back_as {
+    ($($name:ident: $hgvs:literal => $back:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!(vrs_read_back($hgvs).unwrap(), $back);
+        }
+    )*};
+}
+
+the_vrs_reads_back_as! {
+    the_stop_unchanged_reads_back_from_vrs: "NP_TEST.1:p.Ter10=" => "NP_TEST.1:p.Ter10=";
+    a_duplicated_stop_reads_back_from_vrs_as_the_stop_unchanged:
+        "NP_TEST.1:p.Ter10dup" => "NP_TEST.1:p.Ter10=";
+    a_duplication_across_the_stop_reads_back_from_vrs_as_the_stop_unchanged:
+        "NP_TEST.1:p.Gln9_Ter10dup" => "NP_TEST.1:p.Ter10=";
+    a_stop_inserted_before_the_stop_reads_back_from_vrs_as_the_stop_unchanged:
+        "NP_TEST.1:p.Gln9_Ter10insTer" => "NP_TEST.1:p.Ter10=";
+    a_stop_replaced_by_itself_reads_back_from_vrs_as_the_stop_unchanged:
+        "NP_TEST.1:p.Ter10delinsTer" => "NP_TEST.1:p.Ter10=";
+    two_copies_of_the_stop_read_back_from_vrs_as_the_stop_unchanged:
+        "NP_TEST.1:p.Ter10[2]" => "NP_TEST.1:p.Ter10=";
+    a_cis_allele_with_the_stop_unchanged_reads_back_from_vrs:
+        "NP_TEST.1:p.[Tyr7His;Ter10=]" => "NP_TEST.1:p.[Tyr7His;Ter10=]";
+}
+
 #[test]
 fn an_allele_past_the_stop_is_refused() {
     let out = read_back("NP_STOP.1:10::G");
