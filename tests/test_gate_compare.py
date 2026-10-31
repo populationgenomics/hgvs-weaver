@@ -109,3 +109,45 @@ def test_a_moved_verdict_on_biocommons_answer_is_counted(
     assert "ref_equiv: 1 rows moved" in out
     assert re.search(r"1  Analogous -> Different", out)
     assert "rs_equiv: 0 rows moved" in out
+
+
+@pytest.mark.parametrize(
+    ("was", "now", "direction"),
+    [
+        ("p.(Gly115_Cys116del)", "p.(Gly115Ter)", "del -> Ter"),
+        ("p.(Ser346delinsAsnGly)", "p.(Ser346AsnfsTer12)", "delins -> fs"),
+        ("p.(Ter110Gln)", "p.(Ter110GlnextTer4)", "sub -> ext"),
+        ("p.(Ala372_Val373insAspAla)", "p.(Asp371_Ala372dup)", "ins -> dup"),
+        ("p.(Gly115_Cys116del)", "p.(Cys116_Gly117del)", "del -> del"),
+        ("p.(Lys2=)", "p.[(Lys2=;Tyr5Asp)]", "= -> allele"),
+        ("p.(Met1?)", "p.0?", "? -> 0"),
+    ],
+)
+def test_a_moved_protein_is_counted_by_the_kind_of_edit_on_each_side(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+    was: str,
+    now: str,
+    direction: str,
+) -> None:
+    baseline = write(tmp_path / "old.tsv", [output_row(rs_p=was), output_row(variant_nuc="NM_TEST.1:c.5C>T")])
+    gate.compare(
+        baseline,
+        write(tmp_path / "new.tsv", [output_row(rs_p=now), output_row(variant_nuc="NM_TEST.1:c.5C>T")]),
+    )
+    out = capsys.readouterr().out
+    assert "rs_p: 1 rows moved" in out
+    assert re.search(
+        rf"1  {re.escape(direction)}\n +e\.g\. NM_TEST\.1:c\.4G>A: {re.escape(repr(was))} -> {re.escape(repr(now))}",
+        out,
+    )
+
+
+def test_a_protein_moved_from_one_error_to_another_is_counted_without_an_example(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline = write(tmp_path / "old.tsv", [output_row(rs_p="ERR:no transcript NM_TEST.1")])
+    gate.compare(baseline, write(tmp_path / "new.tsv", [output_row(rs_p="ERR:transcript NM_TEST.1 not found")]))
+    out = capsys.readouterr().out
+    assert re.search(r"rs_p: 1 rows moved\n +1  error -> error\n(?! +e\.g\.)", out)

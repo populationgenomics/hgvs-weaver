@@ -20,20 +20,24 @@ import argparse
 import collections
 import csv
 import dataclasses
+import functools
 import hashlib
 import pathlib
 import sys
 import urllib.request
+from collections.abc import Callable, Iterable, Mapping
 
 from weaver.cli import validate
 
 NCBI = "https://ftp.ncbi.nlm.nih.gov"
 HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
 # The SPDI column against ClinVar's; the equivalence verdicts as they stand, biocommons' answer judged by weaver's
-# equivalence among them; the protein column only as answered, an error or blank, since ClinVar's protein strings
-# carry an NP accession and a spelling weaver's do not share.
+# equivalence among them; weaver's protein text against its own in the baseline, a moved row counted by the kind of
+# edit on each side. ClinVar's protein is judged by the verdicts, not by its text, whose accession and spelling are
+# not weaver's.
 COMPARED = (("rs_spdi", "spdi"), ("rs_equiv", None), ("rs_nuc_equiv", None), ("ref_equiv", None), ("rs_p", None))
 VERDICTS = frozenset({"rs_equiv", "rs_nuc_equiv", "ref_equiv"})
+PROTEINS = frozenset({"rs_p"})
 JUDGED = frozenset({"Identity", "Analogous", "Different"})
 
 
@@ -211,8 +215,38 @@ def _load(path: pathlib.Path) -> tuple[list[str], dict[str, dict[str, str]]]:
         return list(reader.fieldnames or []), rows
 
 
-def _state(row: dict[str, str], column: str, truth: str | None) -> str:
-    """The kind of answer a cell holds, by which a moved row is counted: a verdict as itself, an error as error."""
+def _protein_kind(description: str) -> str:
+    """The kind of edit a protein description writes, by which a moved protein is counted.
+
+    One of del, dup, ins, delins, fs, ext, Ter (a nonsense change), = (no change), sub (another residue),
+    ? (unknown), 0 (no protein) or allele; error and blank for a cell that holds no description. Read from the
+    text, with or without an accession or parentheses, so that a description weaver cannot parse has a kind too.
+    """
+    if not description:
+        return "blank"
+    if description.startswith("ERR"):
+        return "error"
+    body = description.rpartition(":")[2].removeprefix("p.")
+    if body.startswith("["):
+        return "allele"
+    body = body.removeprefix("(").removesuffix(")")
+    if body in {"0", "0?"}:
+        return "0"
+    for edit in ("fs", "ext", "delins", "del", "dup", "ins"):
+        if edit in body:
+            return edit
+    if body.endswith("="):
+        return "="
+    if body.endswith(("Ter", "*")):
+        return "Ter"
+    if body.endswith("?"):
+        return "?"
+    return "sub"
+
+
+def _state(row: Mapping[str, str], column: str, truth: str | None) -> str:
+    """The kind of answer a cell holds, by which a moved row is counted: a verdict as itself, a protein by the kind
+    of its edit, an error as error."""
     value = row[column]
     if not value:
         return "blank"
@@ -220,6 +254,8 @@ def _state(row: dict[str, str], column: str, truth: str | None) -> str:
         return "error"
     if column in VERDICTS:
         return value
+    if column in PROTEINS:
+        return _protein_kind(value)
     if truth is None:
         return "answered"
     return "match" if value == row[truth] else "mismatch"
@@ -228,8 +264,9 @@ def _state(row: dict[str, str], column: str, truth: str | None) -> str:
 def compare(baseline: pathlib.Path, output: pathlib.Path) -> None:
     """Print, per compared column, the rows that moved between two validation outputs and in which direction.
 
-    A column one of the two outputs lacks is reported absent rather than compared. Then the output's rows on
-    which weaver's two verdicts against ClinVar's protein disagree: through its own c_to_p, and directly.
+    A protein whose text moved is counted by the kind of edit each run writes it as (del -> Ter). A column one of
+    the two outputs lacks is reported absent rather than compared. Then the output's rows on which weaver's two
+    verdicts against ClinVar's protein disagree: through its own c_to_p, and directly.
     """
     (before_fields, before), (after_fields, after) = _load(baseline), _load(output)
     shared = before.keys() & after.keys()
@@ -242,16 +279,8 @@ def compare(baseline: pathlib.Path, output: pathlib.Path) -> None:
         if absent:
             print(f"{column}: absent from {' and '.join(absent)}; not compared")
             continue
-        moved: collections.Counter[str] = collections.Counter()
-        examples: list[tuple[str, str, str]] = []
-        for key in sorted(shared):
-            a, b = before[key], after[key]
-            if a[column] != b[column]:
-                kinds = (_state(a, column, truth), _state(b, column, truth))
-                moved[f"{kinds[0]} -> {kinds[1]}"] += 1
-                if len(examples) < 5 and kinds != ("error", "error"):
-                    examples.append((key, a[column][:60], b[column][:60]))
-        line = f"{column}: {sum(moved.values())} rows moved"
+        moved = _moved(before, after, shared, column, functools.partial(_state, column=column, truth=truth))
+        line = f"{column}: {moved.total()} rows moved"
         if truth is not None:
             pct = [
                 100 * sum(_state(r, column, truth) == "match" for r in rows.values()) / len(rows)
@@ -259,13 +288,53 @@ def compare(baseline: pathlib.Path, output: pathlib.Path) -> None:
             ]
             line += f"; identity {pct[0]:.3f}% -> {pct[1]:.3f}%"
         print(line)
-        for kind, n in moved.most_common():
-            print(f"    {n:6d}  {kind}")
-        for key, was, now in examples:
-            print(f"    e.g. {key}: {was!r} -> {now!r}")
+        moved.print()
 
     if "rs_nuc_equiv" in after_fields:
         _print_disagreements(after)
+
+
+@dataclasses.dataclass
+class _Moves:
+    """The rows whose cell moved between two runs, counted by direction (the cell's state before and after)."""
+
+    counts: collections.Counter[str] = dataclasses.field(default_factory=collections.Counter)
+    examples: dict[str, list[tuple[str, str, str]]] = dataclasses.field(
+        default_factory=lambda: collections.defaultdict(list),
+    )
+
+    def total(self) -> int:
+        return self.counts.total()
+
+    def print(self) -> None:
+        for direction, n in self.counts.most_common():
+            print(f"    {n:6d}  {direction}")
+            for key, was, now in self.examples.get(direction, []):
+                print(f"        e.g. {key}: {was!r} -> {now!r}")
+
+
+def _moved(
+    before: Mapping[str, Mapping[str, str]],
+    after: Mapping[str, Mapping[str, str]],
+    keys: Iterable[str],
+    column: str,
+    state: Callable[[Mapping[str, str]], str],
+) -> _Moves:
+    """The rows of `keys` whose `column` differs between the two runs, with up to three examples a direction.
+
+    A move from one error to another gets no example: an error's text says nothing about what weaver writes.
+    """
+    moves = _Moves()
+    for key in sorted(keys):
+        a, b = before[key], after[key]
+        if a[column] == b[column]:
+            continue
+        kinds = (state(a), state(b))
+        direction = f"{kinds[0]} -> {kinds[1]}"
+        moves.counts[direction] += 1
+        if len(moves.examples[direction]) < 3 and kinds != ("error", "error"):
+            moves.examples[direction].append((key, a[column][:60], b[column][:60]))
+    return moves
 
 
 def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
