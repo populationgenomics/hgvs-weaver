@@ -48,7 +48,8 @@ impl VariantMapper<'_> {
     /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`, on the sequence
     /// `accession` or the first member's refget accession names; every member
     /// must lie on it. A nucleotide block is read with its members placed
-    /// together and normalised as one allele; a protein block member by member.
+    /// together and normalised as one allele; a protein block member by
+    /// member, written in residue order whatever order the block lists them in.
     pub(crate) fn cis_phased_from_vrs(
         &self,
         json: &str,
@@ -75,7 +76,8 @@ impl VariantMapper<'_> {
             HgvsError::ValidationError("A CisPhasedBlock has at least one member".into())
         })?;
         if members.iter().any(|m| matches!(m.alone, SV::Protein(_))) {
-            let alone = members.into_iter().map(|m| m.alone).collect();
+            let mut alone: Vec<SV> = members.into_iter().map(|m| m.alone).collect();
+            alone.sort_by_key(residues);
             return Ok(SV::CisPhased(CisPhasedVariant::new(ac, None, alone)?));
         }
         self.placed_together(&ac, members)
@@ -610,4 +612,18 @@ fn inserts(member: &SV) -> bool {
             crate::edits::NaEdit::Ins { .. } | crate::edits::NaEdit::Dup { .. }
         )
     )
+}
+
+/// The first and last residue `member` names, 0-based, to order a protein
+/// block's members as the protein reads; `None` for a member that names none.
+fn residues(member: &SV) -> Option<(i32, i32)> {
+    let SV::Protein(p) = member else {
+        return None;
+    };
+    let pos = p.posedit.pos.as_ref()?;
+    let start = pos.start.base.to_index().0;
+    Some((
+        start,
+        pos.end.as_ref().map_or(start, |e| e.base.to_index().0),
+    ))
 }

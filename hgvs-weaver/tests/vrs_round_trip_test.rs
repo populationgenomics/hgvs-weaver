@@ -405,3 +405,15 @@ fn a_block_of_two_identical_insertions_after_a_base_reads_back_as_ambiguous() {
         BTreeSet::from(["X:g.4dup".to_string(), "X:g.4_5insAA".to_string()])
     );
 }
+
+#[test]
+fn a_protein_block_reads_back_in_residue_order() {
+    // MKLAAAYRQ: Tyr7His listed before Lys2Asn, as a block's digest order may.
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = block_on(PROTEIN, &[(6, 7, "H"), (1, 2, "N")]);
+    assert_eq!(
+        mapper.from_vrs(&block, None).unwrap().to_string(),
+        "NP_TEST.1:p.[Lys2Asn;Tyr7His]"
+    );
+}

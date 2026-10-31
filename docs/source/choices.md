@@ -1587,9 +1587,10 @@ readings render as the block's own Alleles, as one weaver wrote does, only those
 it written as their duplication for this, as `normalize` writes it: so `g.[1dup;2_12dup;6_10=]` on `CGCCTAGTTGGTAAG`
 reads back as itself, not as another allele of the same sequence with another identifier. The placements tried together
 are those of members whose locations overlap or touch, every combination of them, and a set with more than 16,384
-combinations is refused with `UnsupportedOperation` rather than tried; a protein block is read member by member. A block
-weaver wrote reads back as an allele with its identifier, and the same sequence and statements as the allele, though not
-always in the spelling `normalize` writes: changes `to_vrs` made one Allele come back as one change,
+combinations is refused with `UnsupportedOperation` rather than tried; a protein block is read member by member, its
+members written in residue order as a nucleotide block's come back in genome order, whatever order the block lists them
+in. A block weaver wrote reads back as an allele with its identifier, and the same sequence and statements as the
+allele, though not always in the spelling `normalize` writes: changes `to_vrs` made one Allele come back as one change,
 `g.[8_12=;12dup;13delinsACAA]` as `g.[8_12=;13delinsAACAA]`.
 
 **Example** (`NM_X.1` and `NC_X.1` as in [the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make); c.4_12
@@ -1761,6 +1762,7 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   `alleles_with_one_vrs_identifier_say_one_thing` (property); `::an_ambiguity_carries_its_readings` and
   `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
   share a member, which reading the allele already refuses;
+  `vrs_round_trip_test::a_protein_block_reads_back_in_residue_order`;
   `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
   `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
   `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_completes_a_copy`,
