@@ -3160,15 +3160,34 @@ impl<'a> VariantMapper<'a> {
                 .refs
                 .reference(&vp.ac, IdentifierType::ProteinAccession);
             let (start, end) = residue_range(vp, &reference)?;
-            let mut resolved = vp.posedit.edit.resolve(&reference, start, end)?;
-            // A stop among the new residues ends the protein there: everything
-            // from it to the end of the reference goes too. p.Tyr165Ter and
-            // p.Ala164_Tyr165insTer are then the same allele.
-            if let Some(k) = resolved.alt.find('*') {
-                let len = reference.whole()?.trim_end_matches('*').len();
-                resolved.alt.truncate(k);
-                resolved.end = len.max(resolved.start);
-                resolved.ref_ = reference.slice(resolved.start, resolved.end)?;
+            // Read with its stop whether or not the provider serves it, so
+            // that an edit at the stop sees it.
+            let protein = reference.whole()?.trim_end_matches('*').to_string();
+            let len = protein.len();
+            let with_stop = format!("{protein}*");
+            let mut resolved =
+                vp.posedit
+                    .edit
+                    .resolve_with(reference.accession(), start, end, |s, e| {
+                        let s = s.min(with_stop.len());
+                        Ok(with_stop[s..e.clamp(s, with_stop.len())].to_string())
+                    })?;
+            match resolved.alt.find('*') {
+                // A stop among the new residues ends the protein there:
+                // everything from it to the end of the reference goes too.
+                // p.Tyr165Ter and p.Ala164_Tyr165insTer are then the same allele.
+                Some(k) => {
+                    resolved.alt.truncate(k);
+                    resolved.end = len.max(resolved.start);
+                    resolved.ref_ = protein[resolved.start.min(len)..resolved.end].to_string();
+                }
+                None if resolved.end > len => {
+                    return Err(HgvsError::UnsupportedOperation(format!(
+                        "{vp} loses the stop, so the protein reads on into residues its \
+                         sequence does not carry: it describes a consequence, not a sequence"
+                    )))
+                }
+                None => {}
             }
             return CanonicalAllele::canonicalize(&reference, &vp.ac, &resolved);
         }
@@ -3887,6 +3906,21 @@ impl<'a> VariantMapper<'a> {
             return Err(HgvsError::ValidationError(format!(
                 "{ac} is shorter than position {end}"
             )));
+        }
+        if kind == IdentifierType::ProteinAccession {
+            let len = reference.whole()?.trim_end_matches('*').len();
+            if start > len {
+                return Err(HgvsError::ValidationError(format!(
+                    "{ac} ends at its stop, residue {}; an allele at {start} lies past it",
+                    len + 1
+                )));
+            }
+            if end > len && !alt.contains('*') {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "An allele replacing the stop of {ac} with no stop loses it, so the protein \
+                     reads on into residues the allele does not carry"
+                )));
+            }
         }
         let (edit, s, e) = normalize::minimal_edit(&reference, start, end, &ref_, &alt)?;
         let placed = normalize::normalize(

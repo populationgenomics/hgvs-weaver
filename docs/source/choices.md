@@ -223,6 +223,7 @@ Variation Representation Specification 2.0.1.
 | [Overlapping members of a cis allele need one reading](#overlapping-members-of-a-cis-allele-need-one-reading)                       |                            **differs**                             |        –         |                –                |        –         |
 | [An ambiguous description is an error that lists its readings](#an-ambiguous-description-is-an-error-that-lists-its-readings)       |                                 –                                  |        –         |                –                |        –         |
 | [The canonical allele is fully justified](#the-canonical-allele-is-fully-justified)                                                 |                               agrees                               |        –         |                –                |        –         |
+| [A protein allele sees the stop, and a lost stop has none](#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none)                |                     agrees; silent on alleles                      |        –         |                –                |        –         |
 | [A transcript variant's allele is on the genome](#a-transcript-variants-allele-is-on-the-genome)                                    |                               silent                               |        –         |                –                |        –         |
 | [Refget accessions are computed over the normalised sequence](#refget-accessions-are-computed-over-the-normalised-sequence)         |                               agrees                               |        –         |                –                |        –         |
 | [Uncertain breakpoints become Range bounds](#uncertain-breakpoints-become-range-bounds)                                             |                               agrees                               |        –         |                –                |        –         |
@@ -3788,6 +3789,59 @@ plain to_spdi NC_TEST.1:g.1013A>G          →  NC_TEST.1:1012:A:G
   `::literal_insertion_stays_literal_and_substitution_is_trimmed` (read from the 0-based ranges they assert);
   `transcript_coordinates_test::plain_spdi_places_an_insertion_at_its_second_flank`;
   `ambiguous_range_is_sound_and_complete` and `vrs_and_spdi_round_trip` (properties).
+
+### A protein allele sees the stop, and a lost stop has none
+
+**A `p.` description is read against its protein with the stop after the last residue, whether or not the provider
+serves the stop. A change that keeps the stop, or makes one, has an allele ending at the last residue; a change that
+removes the stop and writes none has no allele, and is an error. Reading an SPDI or VRS Allele back, one past the stop
+or one that removes it is refused. In equivalence, a lost stop reads on: the residues it writes, then more in unknown
+number, at least one of them where it writes none past the reference's own.**
+
+A protein sequence usually ends at its last residue, and the stop is the position after it: `MKLAYR`, with `Ter7`. Read
+on the residues alone, an edit at that position touched nothing, so `p.Ter7del` was the empty allele, `p.Ter7Gln` the
+allele of `p.Arg6_Ter7insGln`, and a provider serving `MKLAYR*` gave the same descriptions other alleles. Reading the
+stop in its place, as equivalence already did, gives each the change it describes. A stop deleted, or replaced by
+residues with no stop after them, lets translation run on into the 3'UTR, which HGVS writes as an extension,
+`p.Ter7GlnextTer?`. How far it runs is in the transcript, not the protein, so no allele on the protein holds it: an
+allele ending at the last residue would claim the protein ends there, and one that deletes the stop character would be
+read by every other tool as that same, unchanged protein. That is the refusal a frameshift and an extension already get,
+for the same reason. The other route, refusing every allele that touches the stop, would also refuse `p.Arg6_Ter7insGln`
+and `p.Arg6_Ter7delinsArgGlnTer`, whose allele is known.
+
+In equivalence the same description leaves an open protein, matched by any that begins with it. With no residue of its
+own past the reference's, `p.Ter7del` would then begin as the reference does and could be read as no change at all,
+which a description of a change never means; it is read as `p.Ter7XaaextTer?`, the stop replaced by a residue it does
+not name. A coding change that loses the stop has its allele, read from the 3'UTR it translates
+([protein alleles](#protein-alleles-come-from-the-coding-change)).
+
+**Example** (`NP_X.1` is `MKLAYR`; `NP_S.1` is `MKLAYR*`; on the test proteins, `MKLAAAYRQ` with and without its stop):
+
+```text
+NP_X.1:p.Ter7del                   →  UnsupportedOperation: it loses the stop
+NP_X.1:p.Ter7Gln                   →  UnsupportedOperation: it loses the stop
+NP_X.1:p.Arg6_Ter7insGln           →  NP_X.1:6::Q
+NP_X.1:p.Arg6_Ter7delinsArgGlnTer  →  NP_X.1:6::Q            the same allele
+from_spdi NP_S.1:7::G              →  ValidationError: past the stop
+from_spdi NP_S.1:6:*:G             →  UnsupportedOperation: it loses the stop
+from_spdi NP_S.1:6:*:G*            →  NP_S.1:p.Arg6_Ter7insGly
+
+NP_X.1:p.Ter7del            vs  NP_X.1:p.Ter7GlnextTer?   Analogous: both read on past Arg6
+NP_X.1:p.[Arg6Gln;Ter7del]  vs  NP_X.1:p.Arg6Gln          Different: the stop is lost
+```
+
+- **Others:** not checked.
+- **Spec (agrees; silent on alleles):**
+  [extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/): a change of the stop codon that
+  adds residues is an extension, of unknown length when no new stop is found, `p.Ter327ArgextTer?`. VRS 2.0.1 places an
+  allele on the protein sequence and says nothing of a stop it does not carry.
+- **Tests:** `protein_allele_test::a_lost_stop_has_no_allele_whether_the_protein_is_served_with_its_stop_or_not`,
+  `::a_change_at_the_stop_that_keeps_it_has_an_allele`, `::an_allele_past_the_stop_is_refused`,
+  `::an_allele_that_loses_the_stop_is_refused`,
+  `::an_allele_that_replaces_the_stop_with_residues_and_a_stop_is_an_insertion`;
+  `equivalence_test::a_deleted_stop_beside_a_change_is_not_the_change_alone`,
+  `::an_extension_naming_no_residue_beside_a_change_is_not_the_change_alone`,
+  `::a_deleted_stop_is_an_extension_of_unknown_length`.
 
 ### A transcript variant's allele is on the genome
 

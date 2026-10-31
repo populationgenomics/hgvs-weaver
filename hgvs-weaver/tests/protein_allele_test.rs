@@ -3,6 +3,7 @@
 
 mod support;
 
+use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::parse_hgvs_variant;
 use hgvs_weaver::vrs::{refget_accession, VrsBound};
@@ -86,6 +87,85 @@ fn consequences_have_no_allele() {
         let out = spdi(&mapper, hgvs);
         assert!(out.starts_with("ERR:"), "{hgvs} gave {out}");
     }
+}
+
+/// `NP_TEST.1` as a provider may serve it, with its stop.
+const NP_WITH_STOP: &str = "NP_STOP.1";
+
+fn provider_with_stop() -> Provider {
+    provider().sequence(NP_WITH_STOP, &format!("{PROTEIN}*"))
+}
+
+/// The canonical allele of `hgvs` on `ac`, as SPDI, or the error.
+fn spdi_on(mapper: &VariantMapper, ac: &str, hgvs: &str) -> Result<String, HgvsError> {
+    mapper.to_spdi_unambiguous(&parse_hgvs_variant(&format!("{ac}:{hgvs}")).unwrap())
+}
+
+#[test]
+fn a_lost_stop_has_no_allele_whether_the_protein_is_served_with_its_stop_or_not() {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
+    for ac in [NP, NP_WITH_STOP] {
+        for hgvs in ["p.Ter10del", "p.Ter10Gly", "p.Gln9_Ter10del"] {
+            let out = spdi_on(&mapper, ac, hgvs);
+            assert!(
+                matches!(&out, Err(HgvsError::UnsupportedOperation(m)) if m.contains("stop")),
+                "{ac}:{hgvs} gave {out:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_change_at_the_stop_that_keeps_it_has_an_allele() {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
+    for ac in [NP, NP_WITH_STOP] {
+        for hgvs in ["p.Gln9_Ter10insGly", "p.Gln9_Ter10delinsGlnGlyTer"] {
+            assert_eq!(
+                spdi_on(&mapper, ac, hgvs).unwrap(),
+                format!("{ac}:9::G"),
+                "{hgvs}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_allele_past_the_stop_is_refused() {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
+    let out = mapper.from_spdi(&format!("{NP_WITH_STOP}:10::G"));
+    assert!(
+        matches!(&out, Err(HgvsError::ValidationError(m)) if m.contains("stop")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn an_allele_that_loses_the_stop_is_refused() {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
+    for spdi in ["9:*:", "9:*:G", "8:Q*:"] {
+        let out = mapper.from_spdi(&format!("{NP_WITH_STOP}:{spdi}"));
+        assert!(
+            matches!(&out, Err(HgvsError::UnsupportedOperation(m)) if m.contains("stop")),
+            "{spdi} gave {out:?}"
+        );
+    }
+}
+
+#[test]
+fn an_allele_that_replaces_the_stop_with_residues_and_a_stop_is_an_insertion() {
+    let hdp = provider_with_stop();
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        mapper
+            .from_spdi(&format!("{NP_WITH_STOP}:9:*:G*"))
+            .unwrap()
+            .to_string(),
+        "NP_STOP.1:p.Gln9_Ter10insGly"
+    );
 }
 
 #[test]

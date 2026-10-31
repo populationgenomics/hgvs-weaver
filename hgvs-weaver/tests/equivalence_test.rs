@@ -1291,6 +1291,30 @@ fn an_n_terminal_extension_is_the_residues_it_adds_before_the_protein() {
 }
 
 #[test]
+fn a_deleted_stop_beside_a_change_is_not_the_change_alone() {
+    assert_eq!(
+        coding_level("NP_X.1:p.[Arg6Gln;Ter7del]", "NP_X.1:p.Arg6Gln"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn an_extension_naming_no_residue_beside_a_change_is_not_the_change_alone() {
+    assert_eq!(
+        coding_level("NP_X.1:p.[Arg6Gln;Ter7extTer?]", "NP_X.1:p.Arg6Gln"),
+        EquivalenceLevel::Different
+    );
+}
+
+#[test]
+fn a_deleted_stop_is_an_extension_of_unknown_length() {
+    assert_eq!(
+        coding_level("NP_X.1:p.Ter7del", "NP_X.1:p.Ter7GlnextTer?"),
+        EquivalenceLevel::Analogous
+    );
+}
+
+#[test]
 fn an_upstream_extension_from_a_residue_past_met1_is_an_error() {
     let hdp = coding_provider();
     let mapper = VariantMapper::new(&hdp);

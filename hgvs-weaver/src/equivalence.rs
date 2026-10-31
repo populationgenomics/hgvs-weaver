@@ -765,6 +765,13 @@ impl<'a> VariantEquivalence<'a> {
             None => (end, alt),
         };
         let start = start.min(len);
+        // A lost stop that writes nothing in place of the reference's own
+        // residues reads on by at least one: a stop straight after them
+        // would leave the protein as it is.
+        let alt = match open && protein.get(start..) == Some(alt.as_str()) {
+            true => alt + "X",
+            false => alt,
+        };
         Ok(ProteinRead::Edit(ProteinEdit {
             start,
             end: end.clamp(start, len),

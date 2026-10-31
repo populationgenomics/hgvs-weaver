@@ -125,7 +125,9 @@ read against the reference protein:
   `X`, which matches any residue), then ends;
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
   substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
-  number. An open outcome matches any outcome it is a prefix of;
+  number. An open outcome matches any outcome it is a prefix of. One that writes nothing past the reference's own
+  residues, `p.Ter7del`, has at least one more, so that it never leaves the protein as it is
+  ([the choice](choices.md#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none));
 - an N-terminal extension `p.Met1ext-5` leaves the reference with five residues added before Met1, a Met and four it
   does not name ([the choice](choices.md#an-n-terminal-extension-adds-residues-before-met1));
 - `p.0` and `p.0?` leave no protein;
