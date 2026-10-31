@@ -670,8 +670,9 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
         ref_end = t.ref_end_at_new_stop();
     }
 
-    // Nonsense: the first changed residue is a stop.
-    if t.alt_aa.get(i) == Some(&'*') && i < alt_end {
+    // Nonsense: the first changed residue is a stop, one the edit made or the
+    // reference's own brought forward by a deletion that reaches it.
+    if t.alt_aa.get(i) == Some(&'*') {
         return out.substitution(i, t.ref_aa[i], '*');
     }
 
@@ -1071,9 +1072,13 @@ mod tests {
     }
 
     #[test]
-    fn an_in_frame_deletion_reaching_the_stop_keeps_it_original() {
-        // Delete R (codon 5): the stop shifts left but is the same stop.
-        assert_eq!(p(CDS, UTR, del(), 15, 18), "NP:p.Arg6del");
+    fn a_deletion_that_brings_the_stop_forward_is_nonsense() {
+        // Delete Arg6, or Tyr5 and Arg6: the stop is read where they were.
+        assert_eq!(p(CDS, UTR, del(), 15, 18), "NP:p.Arg6Ter");
+        assert_eq!(p(CDS, UTR, del(), 12, 18), "NP:p.Tyr5Ter");
+        // M K L A Y *: TAT TAA becomes TAA, which also reads as the deletion
+        // of the stop codon's TA and the T before it.
+        assert_eq!(p("ATGAAACTGGCCTATTAA", UTR, del(), 12, 15), "NP:p.Tyr5Ter");
     }
 
     #[test]
@@ -1232,8 +1237,8 @@ mod tests {
             "NP:p.Arg6delinsGlyAlaAsn"
         );
         assert_eq!(p(CDS, UTR, delins("AGCTAA"), 15, 21), "NP:p.Arg6Ser");
-        assert_eq!(p(CDS, UTR, delins("TATTAA"), 12, 21), "NP:p.Arg6del");
-        assert_eq!(p(CDS, UTR, delins("GCCTAA"), 9, 21), "NP:p.Tyr5_Arg6del");
+        assert_eq!(p(CDS, UTR, delins("TATTAA"), 12, 21), "NP:p.Arg6Ter");
+        assert_eq!(p(CDS, UTR, delins("GCCTAA"), 9, 21), "NP:p.Tyr5Ter");
     }
 
     #[test]
@@ -1248,13 +1253,6 @@ mod tests {
             p(CDS, UTR, delins("CTGTAAGGTAT"), 3, 15),
             "NP:p.Lys2_Ala4delinsLeuTer"
         );
-    }
-
-    #[test]
-    fn a_deletion_before_the_stop_that_could_cut_into_its_codon_keeps_it() {
-        // M K L A Y *: TAT TAA becomes TAA, which also reads as the deletion
-        // of the stop codon's TA and the T before it.
-        assert_eq!(p("ATGAAACTGGCCTATTAA", UTR, del(), 12, 15), "NP:p.Tyr5del");
     }
 
     #[test]
@@ -1283,7 +1281,8 @@ mod tests {
         let sec = "ATGAAATGACTGTAA";
         assert_eq!(p(sec, UTR, sub("A", "C"), 3, 4), "NP:p.Lys2Gln");
         assert_eq!(p(sec, UTR, sub("C", "G"), 9, 10), "NP:p.Leu4Val");
-        assert_eq!(p(sec, UTR, del(), 9, 12), "NP:p.Leu4del");
+        // Deleting Leu4, the last residue, brings the real stop forward.
+        assert_eq!(p(sec, UTR, del(), 9, 12), "NP:p.Leu4Ter");
     }
 
     #[test]

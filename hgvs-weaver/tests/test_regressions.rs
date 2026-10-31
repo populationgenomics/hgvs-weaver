@@ -96,36 +96,18 @@ fn repeat_provider() -> Provider {
 }
 
 #[test]
-fn test_regression_gln4del_vs_ter() -> Result<(), HgvsError> {
+fn a_deletion_in_a_run_before_the_stop_is_nonsense_at_its_last_residue() -> Result<(), HgvsError> {
     let hdp = repeat_provider();
     let mapper = VariantMapper::new(&hdp);
-
-    // c.4_6del
-    let v_c = hgvs_weaver::parse_hgvs_variant("NM_001.1:c.4_6del")?;
-
-    if let SequenceVariant::Coding(vc) = v_c {
-        // Generate p.
-        let vp = mapper.c_to_p(&vc, Some("NP_001.1"))?;
-        let vp_str = vp.to_string();
-        println!("Generated: {}", vp_str);
-
-        // Assert we get p.Gln4del (or equivalent del) AND NOT p.Gln4Ter
-        assert!(
-            vp_str.contains("del"),
-            "Expected 'del' in {}, got {}",
-            vp_str,
-            vp_str
-        );
-        assert!(
-            !vp_str.contains("Ter"),
-            "Did not expect 'Ter' in {}, got {}",
-            vp_str,
-            vp_str
-        );
-    } else {
-        panic!("Parsed wrong type");
-    }
-
+    // M Q Q Q *: one Gln of the run, written 3'-most, is the last residue, and
+    // the stop is read where it was.
+    let SequenceVariant::Coding(vc) = hgvs_weaver::parse_hgvs_variant("NM_001.1:c.4_6del")? else {
+        panic!("NM_001.1:c.4_6del is not a coding variant");
+    };
+    assert_eq!(
+        mapper.c_to_p(&vc, Some("NP_001.1"))?.to_string(),
+        "NP_001.1:p.(Gln4Ter)"
+    );
     Ok(())
 }
 
