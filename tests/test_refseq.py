@@ -26,6 +26,13 @@ NC_000099.1\tRefSeq\tCDS\t36\t47\t.\t+\t0\tID=cds-1;Parent=rna-NM_000099.1;prote
 """
 
 
+@pytest.fixture(autouse=True)
+def live_sequences(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reads the FASTA, whatever sequence-cache mode the environment running the tests asks for."""
+    monkeypatch.delenv("WEAVER_SEQ_MODE", raising=False)
+    monkeypatch.delenv("WEAVER_SEQ_CACHE", raising=False)
+
+
 def provider(tmp_path: pathlib.Path) -> refseq.RefSeqDataProvider:
     """A provider over the synthetic chromosome and FWD, and an unannotated sequence under a custom name."""
     fasta = tmp_path / "genome.fa"
