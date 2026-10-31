@@ -193,3 +193,44 @@ def test_a_transcript_asked_for_on_a_sequence_the_annotation_does_not_place_it_o
 ) -> None:
     with pytest.raises(weaver.DataProviderError, match=re.escape("NM_000097.1: not placed on NC_000099.1")):
         provider(tmp_path, TWO_VERSIONS).get_transcript("NM_000097.1", "NC_000099.1")
+
+
+@pytest.mark.parametrize(
+    ("ac", "kind", "start", "end"),
+    [
+        ("NC_000099.1", weaver.IdentifierType.GenomicAccession, 10, 5),
+        ("NC_000099.1", weaver.IdentifierType.GenomicAccession, -5, 5),
+        ("NC_000099.1", weaver.IdentifierType.GenomicAccession, 0, -1),
+        ("NM_000099.1", weaver.IdentifierType.TranscriptAccession, -5, 5),
+        ("NP_000099.1", weaver.IdentifierType.ProteinAccession, 3, 1),
+    ],
+)
+def test_a_range_that_is_not_one_is_refused_naming_the_sequence_and_the_range(
+    tmp_path: pathlib.Path,
+    ac: str,
+    kind: weaver.IdentifierType,
+    start: int,
+    end: int,
+) -> None:
+    with pytest.raises(weaver.DataProviderError, match=re.escape(f"{ac}: [{start}, {end}) is not a range")):
+        provider(tmp_path).get_seq(ac, start, end, kind)
+
+
+def recorded(tmp_path: pathlib.Path, start: int, end: int | None) -> refseq.SequenceProxy:
+    """A proxy replaying what a recording proxy read of NC_000099.1 over ``[start, end)``."""
+    fasta = tmp_path / "genome.fa"
+    fasta.write_text(f">NC_000099.1\n{GENOME}\n")
+    cache = tmp_path / "cache" / "sequences.json"
+    recording = refseq.SequenceProxy(str(fasta), str(cache), "record")
+    recording.fetch("NC_000099.1", start, end)
+    recording.save_cache()
+    return refseq.SequenceProxy(str(fasta), str(cache), "replay")
+
+
+def test_a_replayed_read_to_the_end_answers_what_the_recorded_one_did(tmp_path: pathlib.Path) -> None:
+    assert recorded(tmp_path, 50, None).fetch("NC_000099.1", 50, None) == "TCGATCGATC"
+
+
+def test_a_replayed_read_of_a_range_that_is_not_one_is_refused(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(weaver.DataProviderError, match=re.escape("NC_000099.1: [0, -1) is not a range")):
+        recorded(tmp_path, 50, None).fetch("NC_000099.1", 0, -1)

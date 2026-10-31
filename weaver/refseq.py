@@ -22,6 +22,16 @@ import weaver
 logger = logging.getLogger(__name__)
 
 
+def _check_range(ac: str, start: int, end: int | None) -> None:
+    """Refuses a range that starts before the sequence or ends before it starts.
+
+    Raises:
+        weaver.DataProviderError: Naming ``ac`` and the range.
+    """
+    if start < 0 or (end is not None and end < start):
+        raise weaver.DataProviderError(f"{ac}: [{start}, {end}) is not a range")
+
+
 class IdentifierKind:
     """Enum for sequence identifier types."""
 
@@ -71,20 +81,23 @@ class SequenceProxy:
             self.references = list(self.fasta.references)
 
     def fetch(self, ac: str, start: int, end: int | None = None) -> str:
-        # Normalize end for consistency in the key (None and -1 should be same)
-        key_end = end
-        if end == -1:
-            key_end = None
-        key = f"{ac}:{start}-{key_end}"
+        """The bases of ``ac`` in ``[start, end)``, to the end of the sequence where ``end`` is None.
+
+        A range past the end of the sequence answers the bases there, none if it starts past the end.
+
+        Raises:
+            weaver.DataProviderError: If ``ac`` is not held, or ``[start, end)`` is not a range.
+        """
+        _check_range(ac, start, end)
+        key = f"{ac}:{start}-{end}"
 
         if self.mode == "replay":
             if key in self.cache:
                 return self.cache[key]
-            return self._replay_range(ac, start, key_end)
+            return self._replay_range(ac, start, end)
 
         if ac not in self.fasta:
             raise weaver.DataProviderError(f"{ac}: not in the reference data")
-        # pysam handles end=-1 or None as end-of-ref, and answers a range past the end with the bases there
         seq = str(self.fasta.fetch(ac, start, end).upper())
         if self.mode == "record":
             self.cache[key] = seq
@@ -358,9 +371,11 @@ class RefSeqDataProvider:
         A protein is the translation of its transcript's CDS; a transcript is spliced from the genome.
 
         Raises:
-            weaver.DataProviderError: If the provider holds no sequence ``ac`` of that kind. A range past the end of
-                a sequence it holds is not an error: it answers the bases there, none if it starts past the end.
+            weaver.DataProviderError: If the provider holds no sequence ``ac`` of that kind, or ``[start, end)`` is
+                not a range. A range past the end of a sequence it holds is not an error: it answers the bases
+                there, none if it starts past the end.
         """
+        _check_range(ac, start, end)
         kind_name = str(kind).lower()
         if "proteinaccession" in kind_name or kind_name in {"p", "protein_accession"}:
             res = self.accession_map.get(ac)
@@ -375,16 +390,12 @@ class RefSeqDataProvider:
 
             tx_seq = self._get_tx_seq(tx_ac, chrom, 0, None, force_plus=force_plus).upper()
             translated = self._translate_cds(tx_seq[cds_start : cds_end + 1])
-            if end == -1 or end is None:
-                return translated[start:]
             return translated[start:end]
 
         if "transcript" in kind_name or kind_name == "c":
             return self._get_tx_seq(ac, self._default_reference(ac), start, end, force_plus=force_plus).upper()
 
-        if end == -1 or end is None:
-            return str(self.fasta.fetch(ac, start).upper())
-        return str(self.fasta.fetch(ac, start, end).upper())
+        return self.fasta.fetch(ac, start, end)
 
     def _get_full_tx_seq(self, tx_ac: str, ref_ac: str) -> str:
         """Builds and caches the full transcript sequence (respecting strand)."""
@@ -414,8 +425,6 @@ class RefSeqDataProvider:
             # reverse_complement(natural_seq) gives genomic-plus orientation
             full_seq = self.reverse_complement(full_seq)
 
-        if end == -1 or end is None:
-            return full_seq[start:]
         return full_seq[start:end]
 
     def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> dict[str, typing.Any]:
