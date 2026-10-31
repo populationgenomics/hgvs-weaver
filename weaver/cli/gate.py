@@ -12,29 +12,43 @@ validation itself.
 
 The downloads are a few gigabytes, the Entrez status fetch about twenty minutes, and the builds about
 fifteen; they happen once. The gate dependency group installs what this needs, Python 3.12 or later.
+
+With --clinvar-proteins, the gate also predicts the protein of every coding indel in ClinVar's HGVS report
+over the same store, and compares the predictions with ClinVar's spelling and, given
+--clinvar-proteins-baseline, with an earlier report's, row by row.
 """
 
 from __future__ import annotations
 
 import argparse
 import collections
+import concurrent.futures
 import csv
 import dataclasses
+import datetime
 import functools
+import gzip
 import hashlib
 import pathlib
+import re
 import sys
 import urllib.request
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
+
+import tqdm
 
 from weaver.cli import validate
 
 NCBI = "https://ftp.ncbi.nlm.nih.gov"
 HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
+# ClinVar's every HGVS expression, nucleotide beside protein; republished weekly.
+CLINVAR_HGVS_URL = f"{NCBI}/pub/clinvar/tab_delimited/hgvs4variation.txt.gz"
+PROTEIN_FIELDS = ("variant_nuc", "variant_prot", "rs_p")
+# A frameshift's new residue and stop, which its short form p.Arg97fs leaves out.
+_FRAMESHIFT = re.compile(r"(\d+)(?:[A-Z][a-z]{2})?fs(?:Ter(?:\d+|\?))?$")
 # The SPDI column against ClinVar's; the equivalence verdicts as they stand, biocommons' answer judged by weaver's
 # equivalence among them; weaver's protein text against its own in the baseline, a moved row counted by the kind of
-# edit on each side. ClinVar's protein is judged by the verdicts, not by its text, whose accession and spelling are
-# not weaver's.
+# edit on each side.
 COMPARED = (("rs_spdi", "spdi"), ("rs_equiv", None), ("rs_nuc_equiv", None), ("ref_equiv", None), ("rs_p", None))
 VERDICTS = frozenset({"rs_equiv", "rs_nuc_equiv", "ref_equiv"})
 PROTEINS = frozenset({"rs_p"})
@@ -224,7 +238,7 @@ def _protein_kind(description: str) -> str:
     """
     if not description:
         return "blank"
-    if description.startswith("ERR"):
+    if description.startswith("ERR") or description == "PANIC":
         return "error"
     body = description.rpartition(":")[2].removeprefix("p.")
     if body.startswith("["):
@@ -245,8 +259,7 @@ def _protein_kind(description: str) -> str:
 
 
 def _state(row: Mapping[str, str], column: str, truth: str | None) -> str:
-    """The kind of answer a cell holds, by which a moved row is counted: a verdict as itself, a protein by the kind
-    of its edit, an error as error."""
+    """The kind of answer a cell holds, by which a moved row is counted; a protein by the kind of its edit."""
     value = row[column]
     if not value:
         return "blank"
@@ -299,7 +312,7 @@ class _Moves:
     """The rows whose cell moved between two runs, counted by direction (the cell's state before and after)."""
 
     counts: collections.Counter[str] = dataclasses.field(default_factory=collections.Counter)
-    examples: dict[str, list[tuple[str, str, str]]] = dataclasses.field(
+    examples: collections.defaultdict[str, list[tuple[str, str, str]]] = dataclasses.field(
         default_factory=lambda: collections.defaultdict(list),
     )
 
@@ -381,6 +394,147 @@ def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
                 print(f"        e.g. {row['variant_nuc']}  ClinVar {row['variant_prot']}  weaver {row['rs_p'][:60]!r}")
 
 
+def clinvar_proteins(hgvs4variation: pathlib.Path) -> list[tuple[str, str]]:
+    """The coding indels in ClinVar's HGVS report, each an NM_ c. description and the NP_ protein ClinVar names.
+
+    Every nucleotide change but a single substitution: the 100k validation already holds thousands of
+    substitutions, which weaver writes one way, and few of the deletions, duplications, insertions and delins
+    whose protein spelling weaver chooses. An allele, c.[...], is kept whatever its members. A pair ClinVar lists
+    more than once is returned once, in the order first listed.
+    """
+    pairs: dict[tuple[str, str], None] = {}
+    with gzip.open(hgvs4variation, "rt", newline="") as fh:
+        header: list[str] | None = None
+        for line in fh:
+            if line.startswith("#"):
+                if line.startswith("#Symbol\t"):
+                    header = line[1:].rstrip("\n").split("\t")
+                continue
+            if header is None:
+                raise ValueError(f"{hgvs4variation}: no #Symbol header line before the first row")
+            row = dict(zip(header, line.rstrip("\n").split("\t"), strict=True))
+            nuc, change, prot = row["NucleotideExpression"], row["NucleotideChange"], row["ProteinExpression"]
+            if not (nuc.startswith("NM_") and ":c." in nuc and prot.startswith("NP_")):
+                continue
+            if ">" in change and "[" not in change:
+                continue
+            pairs[nuc, prot] = None
+    return list(pairs)
+
+
+def predict_proteins(
+    pairs: Sequence[tuple[str, str]],
+    output: pathlib.Path,
+    *,
+    store: pathlib.Path,
+    genome: pathlib.Path,
+    workers: int,
+) -> None:
+    """weaver's protein for each pair, on ClinVar's protein, over the validation's worker pool, written to `output`.
+
+    The report is written beside `output` and moved into place whole, so an interrupted run leaves no report that
+    could later pass for a baseline.
+    """
+    part = output.with_name(output.name + ".part")
+    with (
+        part.open("w", newline="") as fh,
+        concurrent.futures.ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=validate.init_worker,
+            initargs=(str(store), str(genome)),
+        ) as pool,
+    ):
+        writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        writer.writerow(PROTEIN_FIELDS)
+        predictions = pool.map(validate.predict_protein, pairs, chunksize=1000)
+        for (nuc, prot), predicted in tqdm.tqdm(zip(pairs, predictions, strict=True), total=len(pairs)):
+            writer.writerow((nuc, prot, predicted))
+    part.replace(output)
+
+
+def _spells(predicted: str, clinvar: str) -> bool:
+    """Whether weaver's protein spells ClinVar's, parentheses and a stop written * or Ter aside.
+
+    A frameshift ClinVar writes short, p.Arg97fs, is compared in that form: HGVS allows it, and ClinVar writes
+    nearly every frameshift so, where weaver writes the new residue and the stop, p.(Arg97ProfsTer23).
+    """
+    predicted, clinvar = (d.replace("(", "").replace(")", "").replace("*", "Ter") for d in (predicted, clinvar))
+    if clinvar.endswith("fs"):
+        predicted, clinvar = (_FRAMESHIFT.sub(r"\1fs", d) for d in (predicted, clinvar))
+    return predicted == clinvar
+
+
+def _load_proteins(path: pathlib.Path) -> dict[str, dict[str, str]]:
+    """A protein report's rows, by nucleotide description and ClinVar's protein."""
+    with path.open(newline="") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        missing = set(PROTEIN_FIELDS) - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"{path}: not a protein report; no column {', '.join(sorted(missing))}")
+        rows: dict[str, dict[str, str]] = {}
+        for row in reader:
+            key = f"{row['variant_nuc']} {row['variant_prot']}"
+            if key in rows:
+                raise ValueError(f"{path}: {key} is listed twice")
+            rows[key] = row
+        return rows
+
+
+@dataclasses.dataclass
+class _Agreement:
+    """The rows weaver answered and those of them it spells as ClinVar does, by the kind of ClinVar's edit."""
+
+    answered: collections.Counter[str] = dataclasses.field(default_factory=collections.Counter)
+    agree: collections.Counter[str] = dataclasses.field(default_factory=collections.Counter)
+
+    @classmethod
+    def of(cls, rows: Iterable[Mapping[str, str]]) -> _Agreement:
+        """The agreement over `rows`; a row weaver answered with an error is not counted."""
+        agreement = cls()
+        for row in rows:
+            if _protein_kind(row["rs_p"]) in {"error", "blank"}:
+                continue
+            kind = _protein_kind(row["variant_prot"])
+            agreement.answered[kind] += 1
+            agreement.agree[kind] += _spells(row["rs_p"], row["variant_prot"])
+        return agreement
+
+    def __str__(self) -> str:
+        return _share(self.answered.total(), self.agree.total())
+
+    def print_by_kind(self) -> None:
+        for kind, answered in self.answered.most_common():
+            print(f"    ClinVar {kind}: {_share(answered, self.agree[kind])}")
+
+
+def _share(answered: int, agree: int) -> str:
+    share = f" ({100 * agree / answered:.3f}%)" if answered else ""
+    return f"{answered} answered, {agree} of them spelled as ClinVar spells them{share}"
+
+
+def compare_proteins(baseline: pathlib.Path | None, output: pathlib.Path) -> None:
+    """Print how often a protein report's predictions spell ClinVar's protein, and what moved since a baseline.
+
+    First the output's agreement with ClinVar's spelling, in all and by the kind of ClinVar's edit. Given a
+    baseline, over the rows both reports hold: each run's agreement, and the rows whose prediction moved, counted
+    by the kind of edit each run writes (del -> Ter).
+    """
+    after = _load_proteins(output)
+    agreement = _Agreement.of(after.values())
+    print(f"\n{output.name}: {len(after)} rows; {agreement}")
+    agreement.print_by_kind()
+    if baseline is None:
+        return
+    before = _load_proteins(baseline)
+    shared = before.keys() & after.keys()
+    print(f"{baseline.name}: {len(before)} rows; {len(shared)} shared")
+    for path, rows in ((baseline, before), (output, after)):
+        print(f"    on the shared rows, {path.name}: {_Agreement.of(rows[key] for key in shared)}")
+    moved = _moved(before, after, shared, "rs_p", lambda row: _protein_kind(row["rs_p"]))
+    print(f"rs_p: {moved.total()} rows moved")
+    moved.print()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data", type=pathlib.Path, required=True, help="where inputs, shards, store and genome live")
@@ -402,17 +556,44 @@ def main(argv: list[str] | None = None) -> None:
         help="the release the historical set beside it is anchored on",
     )
     parser.add_argument("--mane", default="MANE.GRCh38.v1.5.summary.txt.gz", help="the MANE summary's file name")
+    parser.add_argument(
+        "--clinvar-proteins",
+        type=pathlib.Path,
+        default=None,
+        help="also predict the protein of every coding indel in ClinVar's HGVS report, to this TSV",
+    )
+    parser.add_argument(
+        "--clinvar-proteins-baseline",
+        type=pathlib.Path,
+        default=None,
+        help="an earlier --clinvar-proteins report to compare with, row by row",
+    )
     args = parser.parse_args(argv)
+    if args.clinvar_proteins_baseline is not None and args.clinvar_proteins is None:
+        parser.error("--clinvar-proteins-baseline compares a --clinvar-proteins report; name the report to write")
+    for written, read in ((args.output, args.baseline), (args.clinvar_proteins, args.clinvar_proteins_baseline)):
+        if written is not None and read is not None and written.resolve() == read.resolve():
+            parser.error(f"{written} is both written and the baseline it is compared with")
 
     release = Release(args.release, args.accession, args.assembly, args.anchor, args.mane)
     inputs = fetch(release, args.data / "ncbi")
     store, genome = build(release, inputs, args.data)
+    proteins: tuple[pathlib.Path, list[tuple[str, str]]] | None = None
+    if args.clinvar_proteins is not None:
+        hgvs4variation = download(CLINVAR_HGVS_URL, args.data / "clinvar" / "hgvs4variation.txt.gz")
+        fetched = datetime.datetime.fromtimestamp(hgvs4variation.stat().st_mtime, tz=datetime.UTC).date()
+        proteins = (args.clinvar_proteins, clinvar_proteins(hgvs4variation))
+        print(f"{len(proteins[1])} coding indels from ClinVar's HGVS report, fetched {fetched}")
     validate.main([
         str(args.variants), "--no-ferro", "--workers", str(args.workers),
         "--store", str(store), "--genome", str(genome), "--output-file", str(args.output),
     ])  # fmt: skip
     if args.baseline is not None:
         compare(args.baseline, args.output)
+    if proteins is not None:
+        report, pairs = proteins
+        predict_proteins(pairs, report, store=store, genome=genome, workers=args.workers)
+        compare_proteins(args.clinvar_proteins_baseline, report)
 
 
 if __name__ == "__main__":

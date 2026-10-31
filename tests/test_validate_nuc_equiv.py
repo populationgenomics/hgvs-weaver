@@ -1,4 +1,6 @@
-"""weaver-validate's rs_nuc_equiv: weaver's verdict on a row's nucleotide description against ClinVar's protein one."""
+"""weaver-validate's worker: rs_nuc_equiv, its verdict on a nucleotide description against ClinVar's protein, and
+the protein it predicts for the gate's ClinVar report.
+"""
 
 from __future__ import annotations
 
@@ -131,3 +133,16 @@ def test_a_description_that_cannot_be_judged_is_an_error_in_the_column(
 @pytest.mark.usefixtures("worker")
 def test_a_row_without_a_clinvar_protein_has_no_verdict() -> None:
     assert validate.process_variant(row("NM_TEST.1:c.4G>A", ""))["rs_nuc_equiv"] == ""
+
+
+@pytest.mark.usefixtures("worker")
+@pytest.mark.parametrize("protein_ac", ["NP_TEST.1", "NP_OTHER.2"])
+def test_a_protein_is_predicted_on_the_accession_clinvar_names(protein_ac: str) -> None:
+    assert validate.predict_protein(("NM_TEST.1:c.4G>A", f"{protein_ac}:p.Ala2Thr")) == f"{protein_ac}:p.(Ala2Thr)"
+
+
+@pytest.mark.usefixtures("worker")
+def test_a_protein_that_cannot_be_predicted_is_an_error() -> None:
+    result = validate.predict_protein(("NM_TEST.1:c.4T>A", "NP_TEST.1:p.Ala2Thr"))
+    assert result.startswith("ERR:")
+    assert "expected T, found G" in result

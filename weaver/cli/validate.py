@@ -227,6 +227,28 @@ def process_variant(row: dict[str, str]) -> dict[str, str]:
     return res_row
 
 
+def predict_protein(pair: tuple[str, str]) -> str:
+    """weaver's protein for a coding variant, on the protein named beside it, or ERR: and the error.
+
+    Args:
+        pair: The c. description and a p. description whose accession names the protein to predict on.
+
+    Raises:
+        RuntimeError: If init_worker has not run in this process.
+    """
+    if _worker is None:
+        raise RuntimeError("predict_protein runs in a pool whose initializer is init_worker")
+    variant_nuc, variant_prot = pair
+    try:
+        return _worker.mapper.c_to_p(weaver.parse(variant_nuc), variant_prot.partition(":")[0]).format()
+    except Exception as e:
+        return f"ERR:{e}"
+    except BaseException as e:
+        if type(e).__name__ != "PanicException":  # pyo3's, raised for a Rust panic; it is no Exception
+            raise
+        return "PANIC"
+
+
 def nuc_equivalence(
     mapper: weaver.VariantMapper,
     searcher: weaver.TranscriptSearch,
