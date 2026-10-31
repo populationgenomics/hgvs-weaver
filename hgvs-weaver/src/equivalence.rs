@@ -566,16 +566,22 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// Whether `transcript` encodes `protein`: the provider pairs the two, in
-    /// any version of the protein, or the transcript's CDS translates to the
-    /// protein's sequence, as one of another publisher's would.
+    /// any version of the protein; or the transcript is of the protein's gene
+    /// and its CDS translates to the protein's sequence, as another
+    /// publisher's transcript, or one the provider pairs with nothing, would.
+    /// A paralogue that encodes the same sequence is of another gene, and
+    /// does not.
     ///
     /// # Errors
     ///
     /// What the provider raises for a transcript or a protein sequence it
-    /// does not hold, and [`HgvsError::ValidationError`] for a transcript
-    /// with no CDS to translate.
+    /// does not hold; [`HgvsError::ValidationError`] for a transcript with no
+    /// CDS to translate, and for one whose translation is the protein's when
+    /// the provider pairs the protein with no transcript, so that its gene,
+    /// and whether the transcript is a paralogue, is unknown.
     fn encodes(&self, transcript: &str, protein: &str) -> Result<bool, HgvsError> {
-        let paired = self.mapper.provider().get_symbol_accessions(
+        let provider = self.mapper.provider();
+        let paired = provider.get_symbol_accessions(
             transcript,
             IdentifierKind::Transcript,
             IdentifierKind::Protein,
@@ -586,7 +592,27 @@ impl<'a> VariantEquivalence<'a> {
         }) {
             return Ok(true);
         }
-        Ok(self.mapper.encoded_protein(transcript)? == self.reference_protein(protein)?)
+        if self.mapper.encoded_protein(transcript)? != self.reference_protein(protein)? {
+            return Ok(false);
+        }
+        let mut genes = Vec::new();
+        for (kind, tx) in provider.get_symbol_accessions(
+            protein,
+            IdentifierKind::Protein,
+            IdentifierKind::Transcript,
+        )? {
+            if kind == crate::data::IdentifierType::TranscriptAccession {
+                genes.push(provider.get_transcript(&tx, None)?.gene);
+            }
+        }
+        if genes.is_empty() {
+            return Err(HgvsError::ValidationError(format!(
+                "{transcript} translates to {protein}, but no transcript is paired with {protein} \
+                 to name its gene, so whether {transcript} encodes it or a paralogue's copy is unknown"
+            )));
+        }
+        let gene = provider.get_transcript(transcript, None)?.gene;
+        Ok(genes.contains(&gene))
     }
 
     /// The coding forms of a nucleotide variant, a single one or an allele in
