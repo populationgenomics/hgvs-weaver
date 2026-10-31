@@ -23,7 +23,7 @@ pyo3::create_exception!(
     _weaver,
     PositionOutsideSequenceError,
     HGVSError,
-    "A description names a position its reference does not have: past the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. Raised by every operation that reads the positions; Variant.validate answers False instead."
+    "A description names a position its reference does not have: past the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first) names no position of the transcript either. Raised by every operation that reads the positions; Variant.validate answers False instead."
 );
 
 pyo3::create_exception!(
@@ -70,6 +70,9 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
         } => PositionOutsideSequenceError::new_err(format!(
             "{context}{accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
         )),
+        e @ HgvsError::NotAnExonBorder { .. } => {
+            PositionOutsideSequenceError::new_err(context + &e.to_string())
+        }
         HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
         HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
         HgvsError::Ambiguous {

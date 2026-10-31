@@ -3038,10 +3038,11 @@ impl<'a> VariantMapper<'a> {
     ///
     /// Returns `Ok(true)` when they hold, or when the edit states none (or
     /// only a length); `Ok(false)` where an operation reading the variant
-    /// refuses it with [`HgvsError::ReferenceMismatch`] or
-    /// [`HgvsError::PositionOutsideSequence`]: a stated base the reference
-    /// lacks and a position it does not have are both the reference
-    /// contradicting the description.
+    /// refuses it with [`HgvsError::ReferenceMismatch`],
+    /// [`HgvsError::PositionOutsideSequence`] or
+    /// [`HgvsError::NotAnExonBorder`]: a stated base the reference lacks, a
+    /// position past its end and an intronic offset from a base that is not
+    /// an exon border are each the reference contradicting the description.
     ///
     /// # Errors
     ///
@@ -3053,7 +3054,9 @@ impl<'a> VariantMapper<'a> {
         match self.check_stated(var) {
             Ok(()) => Ok(true),
             Err(
-                HgvsError::ReferenceMismatch { .. } | HgvsError::PositionOutsideSequence { .. },
+                HgvsError::ReferenceMismatch { .. }
+                | HgvsError::PositionOutsideSequence { .. }
+                | HgvsError::NotAnExonBorder { .. },
             ) => Ok(false),
             Err(e) => Err(e),
         }

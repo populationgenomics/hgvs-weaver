@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import typing
 
+import pytest
+
 import weaver
 
 
@@ -23,17 +25,25 @@ class MockProvider:
             "exons": [
                 {
                     "transcript_start": 0,
-                    "transcript_end": 100,
+                    "transcript_end": 20,
                     "reference_start": 1000,
-                    "reference_end": 1100,
+                    "reference_end": 1019,
                     "alt_strand": 1,
-                    "cigar": "100=",
+                    "cigar": "20=",
+                },
+                {
+                    "transcript_start": 20,
+                    "transcript_end": 100,
+                    "reference_start": 1030,
+                    "reference_end": 1109,
+                    "alt_strand": 1,
+                    "cigar": "80=",
                 },
             ],
         }
 
     def get_seq(self, ac: str, start: int, end: int | None, _kind: str) -> str:
-        """Returns a mock sequence: the transcript, and the genome carrying it at index 1000."""
+        """Returns a mock sequence: the transcript, and the genome carrying its first exon at index 1000."""
         # Index 10 is c.1: ATG GGG CCC AAA ...
         seq = "A" * 10 + "ATGGGGCCCAAA" + "A" * 100
         if ac.startswith("NC_"):
@@ -157,3 +167,14 @@ def test_intronic() -> None:
     v_c = weaver.parse("NM_TEST:c.10+1A>G")
     v_g = mapper.c_to_g(v_c, "NC_TEST.1")
     assert v_g.format() == "NC_TEST.1:g.1021A>G"
+
+
+def test_an_offset_from_a_base_inside_an_exon_raises_position_outside_sequence_error() -> None:
+    """c.10 is the last base of exon 1, so c.9 has no base after it in the intron."""
+    mapper = weaver.VariantMapper(MockProvider())
+    with pytest.raises(weaver.PositionOutsideSequenceError, match=r"NM_TEST:c\.9\+1 "):
+        mapper.c_to_g(weaver.parse("NM_TEST:c.9+1del"), "NC_TEST.1")
+
+
+def test_validate_answers_false_for_an_offset_from_a_base_inside_an_exon() -> None:
+    assert not weaver.parse("NM_TEST:c.9+1del").validate(MockProvider())

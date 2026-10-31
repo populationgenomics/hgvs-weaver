@@ -50,8 +50,10 @@ class PositionOutsideSequenceError(HGVSError):
     The reference ends at the end of the genome for g. and m., of the transcript record for an
     exonic c., n. or r. position, of the protein for p., where a protein served without its stop has
     the stop one past its last residue. An insertion needs both its flanking bases, so one after the
-    last base is outside too. Raised by every operation that reads the positions; Variant.validate
-    answers False instead.
+    last base is outside too. An intronic offset counted from a base that is not the exon border its
+    sign needs (+k from the last base of an exon, -k from the first) names no position of the
+    transcript either. Raised by every operation that reads the positions; Variant.validate answers
+    False instead.
     """
 
 class ReferenceMismatchError(HGVSError):

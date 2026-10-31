@@ -47,6 +47,12 @@ pub enum HgvsError {
         end: usize,
         length: usize,
     },
+    /// An intronic offset counted from a base that is not the exon border its
+    /// sign needs: `+k` counts from the last base of an exon, `-k` from the
+    /// first, and the transcript's first and last bases count outward. The
+    /// transcript `accession` has no position `position`, written as given
+    /// (`c.9-1`).
+    NotAnExonBorder { accession: String, position: String },
     /// A description that makes no statement about the protein: an identity
     /// that covers no whole codon. HGVS has no `p.` form for it; `p.(=)`
     /// would claim the whole protein, and `p.?` an effect.
@@ -99,6 +105,15 @@ impl fmt::Display for HgvsError {
             } => write!(
                 f,
                 "Position outside the sequence: {accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
+            ),
+            HgvsError::NotAnExonBorder {
+                accession,
+                position,
+            } => write!(
+                f,
+                "Not an exon border: {accession}:{position} counts an intronic offset from a base \
+                 that is not an exon border; +k counts from the last base of an exon and -k from \
+                 the first"
             ),
             HgvsError::NoProteinStatement(msg) => write!(f, "No protein statement: {msg}"),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),

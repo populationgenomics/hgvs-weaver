@@ -188,6 +188,7 @@ Variation Representation Specification 2.0.1.
 | [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)                                             |                                 agrees                                  |     differs      |                –                |        –         |
 | [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position)                                                         |   agrees; silent on a consequence needing a residue the record lacks    |        –         |                –                |        –         |
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                               **differs**                               |        –         |                –                |        –         |
+| [An intronic offset counts from an exon border](#an-intronic-offset-counts-from-an-exon-border)                                     |             agrees; **differs** on the transcript's flanks              |        –         |                –                |        –         |
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |                        agrees; silent on `r.(?)`                        |        –         |             differs             |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          |                  agrees; silent on what `c.=` implies                   |     differs      |                –                |        –         |
 | [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |                    agrees; silent on the duplication                    |        –         |                –                |        –         |
@@ -704,8 +705,8 @@ normalisation leaves it where it is. The bases it states are read on the genome,
 NC_D.1:g.53A>G          →  NM_SPLICED.1:c.40+3A>G      carried as given
 NM_SPLICED.1:c.40+3A>G  →  NC_D.1:g.53A>G              and back
 
-normalize NM_PLUS10.1:c.30_30+1insA   →  NM_PLUS10.1:c.30_30+1insA    unchanged, not an error
-normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
+normalize NM_PLUS10.1:c.*60_*60+1insA   →  NM_PLUS10.1:c.*60_*60+1insA    unchanged, not an error
+normalize NM_MINUS10.1:c.*60+5del         →  NM_MINUS10.1:c.*60+5del
 ```
 
 - **Others:** not checked.
@@ -723,6 +724,57 @@ normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
 - **Tests:** `projection_reference_test::an_intronic_position_has_no_transcript_base_to_re_read`;
   `transcript_coordinates_test::normalize_leaves_intronic_coding_variants_as_written`;
   `intron_offsets_agree_from_either_exon` (property).
+
+### An intronic offset counts from an exon border
+
+**An offset `+k` counts from the last base of an exon and `-k` from the first, and the transcript's first and last bases
+count outward, upstream and downstream of it. An offset from any other base names a position the transcript does not
+have: projection, normalisation, the protein consequence, SPDI and VRS refuse it with a `PositionOutsideSequenceError`
+(`NotAnExonBorder` in Rust), and `validate` answers false. The border is the exon's border on the transcript, so in a
+gapped exon it is the exon's last transcript base, wherever the exon's genomic span ends.**
+
+Read as "k bases along the genome from c.N", an offset from a base inside an exon lands on another base of that exon: a
+description numbered against one exon structure validates against a base it never named. An intronic description is
+evidence of the structure it was numbered against — `c.782-2` holds only on a transcript with an exon starting at c.782
+— and that evidence is what a caller testing several candidate transcripts needs. `validate` answers false rather than
+raising for the reason it does for a position past the end
+([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)): the
+description is well formed, and another transcript may have the border it names.
+
+HGVS does not allow a variant beyond a transcript's ends to be described on that transcript. weaver still reads `c.-N-k`
+from the first base and `c.*N+k` from the last as positions upstream and downstream, as it writes a genomic position
+there when projecting to the transcript; this entry does not change that.
+
+**Example** (`NM_B.1` has three exons, c.-3 to c.7, c.8 to c.17 and c.18 to c.\*3; `NR_GAP.1`'s second exon lacks one
+base of its genomic span, so it carries n.11 to n.19 and the third exon starts at n.20):
+
+```text
+validate NM_B.1:c.8-1del      →  true
+validate NM_B.1:c.9-1del      →  false                          c.9 is inside exon 2
+c_to_g   NM_B.1:c.9-1del      →  PositionOutsideSequenceError   not the genomic base of c.8
+validate NM_B.1:c.8+1del      →  false                          +k counts from an exon's last base
+validate NM_B.1:c.-3-1del     →  true                           upstream of the transcript's first base
+validate NM_B.1:c.-2-1del     →  false
+validate NM_B.1:c.*3+1del     →  true                           downstream of its last
+validate NR_GAP.1:n.19+1del   →  true
+validate NR_GAP.1:n.20+1del   →  false                          n.20 starts exon 3
+```
+
+- **Others:** not checked.
+- **Spec (agrees; differs on the transcript's flanks):**
+  [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotides at the 5' end of an intron are
+  numbered relative to the last nucleotide of the directly upstream exon, followed by a `+`", and those at the 3' end
+  "relative to the first nucleotide of the directly downstream exon, followed by a `-`"; it is "not allowed to describe
+  variants in nucleotides beyond the boundaries of a transcript reference sequence, using that transcript reference
+  sequence", which weaver does not enforce.
+- **Tests:** `exon_border_offset_test::validate_answers_false_for_an_offset_before_a_base_inside_an_exon`,
+  `::c_to_g_refuses_an_offset_from_a_base_inside_an_exon`,
+  `::validate_answers_false_for_an_offset_after_the_first_base_of_an_exon`,
+  `::an_offset_upstream_of_the_transcripts_first_base_validates`,
+  `::an_offset_downstream_of_the_transcripts_last_base_validates`,
+  `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused` (the rows above), and the file's other tests:
+  normalisation, `c_to_p`, `to_spdi`, a range, the minus strand, `n.` and `r.`;
+  `tests/test_api.py::test_an_offset_from_a_base_inside_an_exon_raises_position_outside_sequence_error`.
 
 ### Mitochondrial and RNA descriptions share the DNA machinery
 

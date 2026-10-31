@@ -131,7 +131,8 @@ impl<'a> VariantEquivalence<'a> {
                     if let Err(
                         e @ (HgvsError::ValidationError(_)
                         | HgvsError::Ambiguous { .. }
-                        | HgvsError::PositionOutsideSequence { .. }),
+                        | HgvsError::PositionOutsideSequence { .. }
+                        | HgvsError::NotAnExonBorder { .. }),
                     ) = self.mapper.read_cis(&exact)
                     {
                         return Err(e);

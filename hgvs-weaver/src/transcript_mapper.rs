@@ -240,7 +240,9 @@ impl TranscriptMapper {
     /// [`Self::position_to_g_range`].
     pub fn position_to_g(&self, pos: &BaseOffsetPosition) -> Result<GenomicPos, HgvsError> {
         let n = self.c_to_n(pos.base.to_index(), pos.anchor)?;
-        self.n_to_g(n, pos.offset.unwrap_or(IntronicOffset(0)))
+        self.offset_to_g(n, pos.offset.unwrap_or(IntronicOffset(0)), &|| {
+            written_position(pos)
+        })
     }
 
     /// Resolves a c./n. position, including any intronic offset, to the
@@ -259,7 +261,7 @@ impl TranscriptMapper {
         let n = self.c_to_n(pos.base.to_index(), pos.anchor)?;
         match pos.offset {
             Some(offset) if offset.0 != 0 => {
-                let g = self.n_to_g(n, offset)?;
+                let g = self.offset_to_g(n, offset, &|| written_position(pos))?;
                 let end = g.0.checked_add(1).ok_or_else(|| {
                     HgvsError::ValidationError("Genomic end position overflow".into())
                 })?;
@@ -396,18 +398,34 @@ impl TranscriptMapper {
     /// What a transcript index occupies on the genome: its range, and for a
     /// base the genome lacks the run it belongs to. See [`Self::n_to_g_range`].
     pub fn n_to_g_footprint(&self, n_pos: TranscriptPos) -> Result<Footprint, HgvsError> {
-        let (_, footprint) = self.place(n_pos)?;
+        let (_, _, footprint) = self.place(n_pos)?;
         Ok(footprint)
     }
 
     /// Maps a 0-based transcript position and offset to a 0-based genomic position.
-    /// An exonic base the genome lacks has none and is an error.
+    /// An exonic base the genome lacks has none and is an error, as is a
+    /// nonzero offset from a base that is not the exon border its sign
+    /// needs ([`HgvsError::NotAnExonBorder`]).
     pub fn n_to_g(
         &self,
         n_pos: TranscriptPos,
         offset: IntronicOffset,
     ) -> Result<GenomicPos, HgvsError> {
+        self.offset_to_g(n_pos, offset, &|| {
+            format!("n.{}{:+}", n_pos.0 + 1, offset.0)
+        })
+    }
+
+    /// [`n_to_g`](Self::n_to_g), naming the position as `written` gives it
+    /// when it is not one the transcript has.
+    fn offset_to_g(
+        &self,
+        n_pos: TranscriptPos,
+        offset: IntronicOffset,
+        written: &dyn Fn() -> String,
+    ) -> Result<GenomicPos, HgvsError> {
         let (
+            exon_index,
             exon,
             Footprint {
                 range: (lo, hi), ..
@@ -421,15 +439,29 @@ impl TranscriptMapper {
                 self.transcript.reference_accession,
             )));
         }
+        if offset.0 != 0 {
+            let first: i32 = (0..exon_index).map(|i| self.exon_tx_len(i)).sum();
+            let border = if offset.0 > 0 {
+                first + self.exon_tx_len(exon_index) - 1
+            } else {
+                first
+            };
+            if n_pos.0 != border {
+                return Err(HgvsError::NotAnExonBorder {
+                    accession: self.transcript.ac.clone(),
+                    position: written(),
+                });
+            }
+        }
         Ok(GenomicPos(match exon.alt_strand {
             Strand::Plus => lo.0 + offset.0,
             Strand::Minus => lo.0 - offset.0,
         }))
     }
 
-    /// The exon holding a transcript index, and what the index occupies on
-    /// the reference.
-    fn place(&self, n_pos: TranscriptPos) -> Result<(&ExonData, Footprint), HgvsError> {
+    /// The index (transcript order) of the exon holding a transcript index,
+    /// the exon, and what the index occupies on the reference.
+    fn place(&self, n_pos: TranscriptPos) -> Result<(usize, &ExonData, Footprint), HgvsError> {
         let mut curr_n = 0;
         for (i, exon) in self.exons.iter().enumerate() {
             let (e_start, e_end) = (exon.reference_start.0, exon.reference_end.0);
@@ -472,12 +504,23 @@ impl TranscriptMapper {
                 Strand::Plus => (GenomicPos(e_start + a), GenomicPos(e_start + b)),
                 Strand::Minus => (GenomicPos(e_end + 1 - b), GenomicPos(e_end + 1 - a)),
             };
-            return Ok((exon, Footprint { range, gap_run }));
+            return Ok((i, exon, Footprint { range, gap_run }));
         }
         Err(HgvsError::ValidationError(
             "Transcript position out of exon bounds".into(),
         ))
     }
+}
+
+/// A c. or n. position as written: `n.` when numbered from the transcript
+/// start, `c.` when numbered from the CDS.
+fn written_position(pos: &BaseOffsetPosition) -> String {
+    let prefix = if pos.anchor == Anchor::TranscriptStart {
+        "n"
+    } else {
+        "c"
+    };
+    format!("{prefix}.{pos}")
 }
 
 #[cfg(test)]
