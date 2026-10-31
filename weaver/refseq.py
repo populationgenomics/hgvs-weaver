@@ -38,6 +38,7 @@ class IdentifierKind:
     Genomic = "g"
     Transcript = "c"
     Protein = "p"
+    Gene = "gene"
 
 
 class SequenceProxy:
@@ -469,15 +470,15 @@ class RefSeqDataProvider:
     ) -> list[tuple[weaver.IdentifierType, str]]:
         """The accessions ``symbol`` maps to, by the kinds weaver asks for; any other pair is empty.
 
-        ``g -> c``: a gene's transcripts; ``g -> p``: a gene's proteins; ``c -> p``: a transcript's protein;
-        ``p -> c``: a protein's transcript. weaver names a gene symbol's kind ``g``.
+        ``gene -> c``: a gene's transcripts; ``gene -> p``: a gene's proteins; ``c -> p``: a transcript's protein;
+        ``p -> c``: a protein's transcript.
         """
-        if source_kind == IdentifierKind.Genomic and target_kind == IdentifierKind.Transcript:
+        if source_kind == IdentifierKind.Gene and target_kind == IdentifierKind.Transcript:
             return [
                 (weaver.IdentifierType.TranscriptAccession, tx_ac)
                 for tx_ac in dict.fromkeys(self.gene_to_transcripts.get(symbol, []))
             ]
-        if source_kind == IdentifierKind.Genomic and target_kind == IdentifierKind.Protein:
+        if source_kind == IdentifierKind.Gene and target_kind == IdentifierKind.Protein:
             proteins = (self._protein_of(tx_ac) for tx_ac in self.gene_to_transcripts.get(symbol, []))
             return [(weaver.IdentifierType.ProteinAccession, ac) for ac in dict.fromkeys(proteins) if ac]
         if source_kind == IdentifierKind.Transcript and target_kind == IdentifierKind.Protein:

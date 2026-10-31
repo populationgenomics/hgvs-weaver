@@ -239,14 +239,15 @@ def test_a_replayed_read_of_a_range_that_is_not_one_is_refused(tmp_path: pathlib
 @pytest.mark.parametrize(
     ("symbol", "source", "target", "accessions"),
     [
-        ("FWD", "g", "c", [(weaver.IdentifierType.TranscriptAccession, "NM_000099.1")]),
-        ("FWD", "g", "p", [(weaver.IdentifierType.ProteinAccession, "NP_000099.1")]),
+        ("FWD", "gene", "c", [(weaver.IdentifierType.TranscriptAccession, "NM_000099.1")]),
+        ("FWD", "gene", "p", [(weaver.IdentifierType.ProteinAccession, "NP_000099.1")]),
         ("NM_000099.1", "c", "p", [(weaver.IdentifierType.ProteinAccession, "NP_000099.1")]),
         ("NP_000099.1", "p", "c", [(weaver.IdentifierType.TranscriptAccession, "NM_000099.1")]),
-        ("REV", "g", "p", []),
+        ("REV", "gene", "p", []),
         ("NM_000097.2", "c", "p", []),
-        ("NOSUCH", "g", "c", []),
+        ("NOSUCH", "gene", "c", []),
         ("NM_000099.1", "c", "g", []),
+        ("FWD", "g", "c", []),
     ],
 )
 def test_a_symbol_maps_to_the_accessions_of_the_kind_asked_for(
