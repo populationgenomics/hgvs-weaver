@@ -574,8 +574,7 @@ impl NaEdit {
                     run_end = end;
                 }
                 let length = length.map(|length| length()).transpose()?;
-                let copies =
-                    copies_that_fit(accession, unit.len(), *max, (start, run_end), length)?;
+                let copies = copies_that_fit(accession, &unit, *max, (start, run_end), length)?;
                 return Ok(ResolvedEdit {
                     start,
                     end: run_end,
@@ -777,8 +776,7 @@ impl AaEdit {
                     run_end = end;
                 }
                 let length = length.map(|length| length()).transpose()?;
-                let copies =
-                    copies_that_fit(accession, unit.len(), *max, (start, run_end), length)?;
+                let copies = copies_that_fit(accession, &unit, *max, (start, run_end), length)?;
                 return Ok(ResolvedEdit {
                     start,
                     end: run_end,
@@ -807,22 +805,52 @@ impl AaEdit {
 /// needs it.
 pub(crate) type SequenceLength<'a> = &'a dyn Fn() -> Result<usize, HgvsError>;
 
-/// The number of copies a repeat of a `unit_len`-long unit counting `count`
-/// writes over `[start, run_end)` of `accession`, refused before any is built
-/// where the sequence it makes would be longer than a sequence can number
-/// (positions are i32): the `length` the sequence has, less the run, plus
-/// the copies; or, with no length, the bases before the run plus the copies.
+/// The most bases, or residues for a protein, a repeat's copies may spell
+/// out. A description of a few bytes could otherwise cost gigabytes to
+/// resolve; real expansions, such as a DMPK CTG expansion of about 12 kb,
+/// are far below it.
+pub const MAX_REPEAT_ALTERNATE: usize = 10_000_000;
+
+/// Refuses a repeat of `unit` counting `count` whose copies would be longer
+/// than [`MAX_REPEAT_ALTERNATE`].
+///
+/// # Errors
+///
+/// [`HgvsError::ValidationError`] naming the count, the unit and the cap.
+pub(crate) fn within_the_repeat_cap(unit: &str, count: i32) -> Result<(), HgvsError> {
+    let copies = count.max(0) as usize;
+    if unit
+        .len()
+        .checked_mul(copies)
+        .is_some_and(|length| length <= MAX_REPEAT_ALTERNATE)
+    {
+        return Ok(());
+    }
+    Err(HgvsError::ValidationError(format!(
+        "{count} copies of {unit} are longer than {MAX_REPEAT_ALTERNATE}, the most a repeat \
+         may spell out"
+    )))
+}
+
+/// The number of copies a repeat of `unit` counting `count` writes over
+/// `[start, run_end)` of `accession`, refused before any is built where they
+/// are more than [`MAX_REPEAT_ALTERNATE`], or where the sequence they make
+/// would be longer than a sequence can number (positions are i32): the
+/// `length` the sequence has, less the run, plus the copies; or, with no
+/// length, the bases before the run plus the copies.
 ///
 /// # Errors
 ///
 /// [`HgvsError::ValidationError`] naming the count.
 pub(crate) fn copies_that_fit(
     accession: &str,
-    unit_len: usize,
+    unit: &str,
     count: i32,
     (start, run_end): (usize, usize),
     length: Option<usize>,
 ) -> Result<usize, HgvsError> {
+    within_the_repeat_cap(unit, count)?;
+    let unit_len = unit.len();
     let copies = count.max(0) as usize;
     let kept = match length {
         Some(length) => length.saturating_sub(run_end - start),

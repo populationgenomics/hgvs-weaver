@@ -213,6 +213,7 @@ impl Repeat {
             .checked_add(more)
             .zip(self.max.checked_add(more))
             .ok_or_else(overflow)?;
+        crate::edits::within_the_repeat_cap(&unit, max)?;
         Ok(crate::edits::NaEdit::Repeat {
             ref_: Some(unit),
             min,
@@ -220,6 +221,21 @@ impl Repeat {
             uncertain: self.uncertain,
         })
     }
+}
+
+/// Refuses `edit`, where it is a repeat, whose copies would be more than
+/// [`crate::edits::MAX_REPEAT_ALTERNATE`]: its unit is the one it states, or
+/// else the bases `[start, end)` hold on `reference`.
+fn repeat_within_the_cap(
+    edit: &crate::edits::NaEdit,
+    reference: &crate::reference::Reference<'_, '_>,
+    (start, end): (usize, usize),
+) -> Result<(), HgvsError> {
+    let Some(repeat) = Repeat::of(edit) else {
+        return Ok(());
+    };
+    let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| reference.slice(s, e))?;
+    crate::edits::within_the_repeat_cap(&unit, repeat.max)
 }
 
 /// Whether transcript indices `[start, end)` lie in one exon.
@@ -520,7 +536,7 @@ fn project_repeat(
     let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
     crate::edits::copies_that_fit(
         target.accession(),
-        unit.len(),
+        &unit,
         repeat.max,
         (t_lo, t_hi),
         Some(target.length()?),
@@ -809,7 +825,7 @@ fn project_edit_over_run(
             crate::edits::repeat_unit(&repeat.unit, named.0, named.1, |s, e| source.slice(s, e))?;
         crate::edits::copies_that_fit(
             target.accession(),
-            unit.len(),
+            &unit,
             repeat.max,
             target_range,
             Some(target.length()?),
@@ -2251,6 +2267,10 @@ impl<'a> VariantMapper<'a> {
                 "{var_g} has an uncertain position, which a transcript interval cannot carry"
             )));
         }
+        let genome = self
+            .refs
+            .reference(&var_g.ac, IdentifierType::GenomicAccession);
+        repeat_within_the_cap(&var_g.posedit.edit, &genome, simple_interval_range(pos)?)?;
         let run = self.repeat_run_g(var_g, pos)?;
         let run = match run {
             Some(run) => Some(self.transcript_run_g(&am, var_g, run)?),
@@ -2764,6 +2784,9 @@ impl<'a> VariantMapper<'a> {
                 .posedit()
                 .edit
                 .check_against(&target, lo, hi, am.transcript.strand)?;
+            repeat_within_the_cap(edit, &target, (lo, hi))?;
+        } else {
+            repeat_within_the_cap(edit, &source, named)?;
         }
         let minus = am.transcript.strand == crate::data::Strand::Minus;
         let intronic_repeat_on_minus = Repeat::of(edit).filter(|_| minus && !exonic);

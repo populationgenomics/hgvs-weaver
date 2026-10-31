@@ -6,6 +6,7 @@ mod support;
 
 use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{ExonData, Strand};
+use hgvs_weaver::edits::MAX_REPEAT_ALTERNATE;
 use hgvs_weaver::equivalence::VariantEquivalence;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
@@ -875,22 +876,6 @@ fn a_coding_repeat_the_genome_continues_over_a_base_the_record_lacks_projects_ba
 }
 
 #[test]
-fn a_count_near_the_limit_projects_to_the_genome_as_a_count() {
-    assert_eq!(
-        to_genome(&minus(), "NM_REV.1:c.5A[2000000000]").unwrap(),
-        "NC_000099.1:g.28_30T[2000000001]"
-    );
-}
-
-#[test]
-fn a_count_near_the_limit_projects_to_the_transcript_as_a_count() {
-    let projected = VariantMapper::new(&plus())
-        .g_to_c(&genomic("NC_000098.1:g.15A[2000000000]"), "NM_FWD.1")
-        .unwrap();
-    assert_eq!(projected.to_string(), "NM_FWD.1:c.5_6A[2000000000]");
-}
-
-#[test]
 fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_does_not_share_is_the_duplication_of_its_last_copy(
 ) {
     let projected = VariantMapper::new(&record_differs())
@@ -906,4 +891,105 @@ fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_lacks_is_the_dup
         .g_to_c(&genomic("NC_000091.1:g.14A[3]"), "NM_GAPI.1")
         .unwrap();
     assert_eq!(projected.to_string(), "NM_GAPI.1:c.5dup");
+}
+
+/// Asserts `result` is the refusal of a repeat whose copies are longer than
+/// the cap.
+fn refused_at_the_cap<T: std::fmt::Debug>(result: Result<T, HgvsError>) {
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains(&MAX_REPEAT_ALTERNATE.to_string())),
+        "expected ValidationError naming the cap, got {err:?}"
+    );
+}
+
+/// One more copy of A at g.15 of NC_000098.1 than the cap allows.
+const OVER_THE_CAP: &str = "NC_000098.1:g.15A[10000001]";
+
+#[test]
+fn a_repeat_over_the_cap_has_no_allele() {
+    refused_at_the_cap(VariantMapper::new(&plus()).canonical_allele(&parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_has_no_spdi() {
+    refused_at_the_cap(VariantMapper::new(&plus()).to_spdi_unambiguous(&parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_has_no_vrs() {
+    refused_at_the_cap(VariantMapper::new(&plus()).to_vrs(&parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_normalised() {
+    refused_at_the_cap(VariantMapper::new(&plus()).normalize_variant(parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_judged() {
+    let hdp = plus();
+    let mapper = VariantMapper::new(&hdp);
+    refused_at_the_cap(
+        VariantEquivalence::new(&mapper, &hdp)
+            .equivalent(&parse(OVER_THE_CAP), &parse("NC_000098.1:g.15_16dup")),
+    );
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_projected_to_the_transcript() {
+    refused_at_the_cap(VariantMapper::new(&plus()).g_to_c(&genomic(OVER_THE_CAP), "NM_FWD.1"));
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_projected_to_the_genome() {
+    refused_at_the_cap(to_genome(&plus(), "NM_FWD.1:c.5A[10000001]"));
+}
+
+#[test]
+fn a_count_the_genome_grows_past_the_cap_is_refused() {
+    // c.5_6 is two A; the genome's run has c.4 as well, one copy more.
+    refused_at_the_cap(to_genome(&minus(), "NM_REV.1:c.5A[10000000]"));
+}
+
+#[test]
+fn a_repeat_at_the_cap_has_an_allele() {
+    let allele = VariantMapper::new(&plus())
+        .canonical_allele(&parse("NC_000098.1:g.15A[10000000]"))
+        .unwrap();
+    assert_eq!(
+        allele.alternate.len() - allele.reference.len(),
+        10_000_000 - 2
+    );
+}
+
+#[test]
+fn a_repeat_at_the_cap_projects_to_the_genome() {
+    assert_eq!(
+        to_genome(&plus(), "NM_FWD.1:c.5A[10000000]").unwrap(),
+        "NC_000098.1:g.15_16A[10000000]"
+    );
+}
+
+#[test]
+fn a_repeat_at_the_cap_projects_to_the_transcript() {
+    let projected = VariantMapper::new(&plus())
+        .g_to_c(&genomic("NC_000098.1:g.15A[10000000]"), "NM_FWD.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_FWD.1:c.5_6A[10000000]");
+}
+
+#[test]
+fn the_cap_counts_the_bases_of_a_longer_units_copies() {
+    // 3,333,334 copies of CAG are 10,000,002 bases.
+    refused_at_the_cap(to_genome(&plus(), "NM_FWD.1:c.10CAG[3333334]"));
+}
+
+#[test]
+fn copies_of_a_longer_unit_within_the_cap_are_answered() {
+    // 3,333,333 copies of CAG are 9,999,999 bases.
+    assert_eq!(
+        to_genome(&plus(), "NM_FWD.1:c.10CAG[3333333]").unwrap(),
+        "NC_000098.1:g.20_25CAG[3333333]"
+    );
 }

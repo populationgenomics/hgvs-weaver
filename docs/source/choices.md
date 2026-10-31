@@ -197,6 +197,7 @@ Variation Representation Specification 2.0.1.
 | [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                                 agrees                                  |   agrees on g.   |                –                |        –         |
 | [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                                 agrees                                  |     differs      |             agrees              |        –         |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                                 agrees                                  |        –         |                –                |      agrees      |
+| [A repeat spells out at most ten million bases](#a-repeat-spells-out-at-most-ten-million-bases)                                     |                                 silent                                  |        –         |                –                |        –         |
 | [Members of a cis allele that meet are written as one change](#members-of-a-cis-allele-that-meet-are-written-as-one-change)         |                               **differs**                               |        –         |                –                |        –         |
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                                    –                                    |     differs      |                –                |        –         |
 | [The protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)                                         |                                 silent                                  |        –         |                –                |        –         |
@@ -1379,6 +1380,38 @@ NC_REP.1:g.23_24insGCCATT
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`;
   `protein_allele_test::substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein`;
   `equivalence_cases_test::test_analogous_repeat_equivalence`, `::test_multi_unit_repeat_equivalence`.
+
+### A repeat spells out at most ten million bases
+
+**A repeat whose copies would be longer than 10,000,000 bases, or residues for a protein repeat, is a `ValidationError`
+naming the count, the unit and the cap, refused before any copy is built by every operation that reads it: resolving it,
+its canonical allele, SPDI and VRS, equivalence, normalisation and projection, a count the target's run grows past the
+cap included.**
+
+This is a limit of the implementation, not a reading of HGVS. weaver resolves a repeat to the bases its copies spell
+out, so the cost of a description is the length of its alternate, not of its text: `NM_REV.1:c.5A[2147483647]` is thirty
+bytes and would cost gigabytes. Real expansions are far below the cap: a DMPK CTG expansion of a few thousand copies is
+about 12 kb. A representation of a repeat that does not spell out its copies would remove the limit. The cap is
+`MAX_REPEAT_ALTERNATE` in `hgvs-weaver/src/edits.rs`.
+
+**Example** (`NC_000098.1` holds two A at g.15_16, and `NM_FWD.1`'s c.5_6 are those two):
+
+```text
+NC_000098.1:g.15A[10000000]    →  NM_FWD.1:c.5_6A[10000000]
+NC_000098.1:g.15A[10000001]    →  ValidationError        10,000,001 copies of A
+NM_FWD.1:c.10CAG[3333334]      →  ValidationError        10,000,002 bases
+```
+
+- **Others:** not checked.
+- **Spec (silent):** the nomenclature sets no limit on a repeat's count.
+- **Tests:** `repeat_projection_test::a_repeat_over_the_cap_has_no_allele`, `::a_repeat_over_the_cap_has_no_spdi`,
+  `::a_repeat_over_the_cap_has_no_vrs`, `::a_repeat_over_the_cap_is_not_normalised`,
+  `::a_repeat_over_the_cap_is_not_judged`, `::a_repeat_over_the_cap_is_not_projected_to_the_transcript`,
+  `::a_repeat_over_the_cap_is_not_projected_to_the_genome`, `::a_count_the_genome_grows_past_the_cap_is_refused`,
+  `::a_repeat_at_the_cap_has_an_allele`, `::a_repeat_at_the_cap_projects_to_the_genome`,
+  `::a_repeat_at_the_cap_projects_to_the_transcript`, `::the_cap_counts_the_bases_of_a_longer_units_copies`,
+  `::copies_of_a_longer_unit_within_the_cap_are_answered`;
+  `protein_allele_test::a_protein_repeat_over_the_cap_has_no_allele`, `::a_protein_repeat_at_the_cap_has_an_allele`.
 
 ### Members of a cis allele that meet are written as one change
 
