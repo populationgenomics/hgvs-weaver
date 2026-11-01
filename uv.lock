@@ -839,10 +839,6 @@ wheels = [
 name = "hgvs-weaver"
 version = "1.1.0"
 source = { editable = "." }
-dependencies = [
-    { name = "defusedxml" },
-    { name = "maturin" },
-]
 
 [package.optional-dependencies]
 refseq = [
@@ -862,6 +858,7 @@ validation = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "defusedxml" },
     { name = "hgvs" },
     { name = "maturin" },
     { name = "myst-parser", version = "4.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -888,10 +885,8 @@ gate = [
 [package.metadata]
 requires-dist = [
     { name = "bioutils", marker = "extra == 'validation'" },
-    { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "hgvs-weaver-data", marker = "python_full_version >= '3.12' and extra == 'validation'", specifier = ">=0.1.2" },
     { name = "matplotlib", marker = "extra == 'validation'" },
-    { name = "maturin", specifier = ">=1.11.5" },
     { name = "pandas", marker = "extra == 'validation'" },
     { name = "parsley", marker = "extra == 'validation'" },
     { name = "pysam", marker = "extra == 'refseq'" },
@@ -903,6 +898,7 @@ provides-extras = ["refseq", "validation"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "hgvs", specifier = ">=1.5" },
     { name = "maturin", specifier = ">=1.11.5" },
     { name = "myst-parser" },

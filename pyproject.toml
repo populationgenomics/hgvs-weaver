@@ -6,10 +6,7 @@ build-backend = "maturin"
 name = "hgvs-weaver"
 version = "1.1.0"
 description = "High-performance HGVS parser for Python (Rust powered)"
-dependencies = [
-    "defusedxml>=0.7.1",
-    "maturin>=1.11.5",
-]
+dependencies = []
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
@@ -45,6 +42,8 @@ gate = [
     "bioutils",
 ]
 dev = [
+    # scripts/fetch_gff.py parses NCBI's XML with it; nothing in the package imports it.
+    "defusedxml>=0.7.1",
     # The Python suite imports the biocommons adapter, so hgvs is a test dependency; its database driver,
     # sequence repository and shell are overridden out below.
     "hgvs>=1.5",
