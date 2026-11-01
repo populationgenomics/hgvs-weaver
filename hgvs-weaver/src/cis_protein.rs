@@ -125,9 +125,8 @@ impl VariantMapper<'_> {
     /// [`HgvsError::NoProteinStatement`] for an allele that makes the
     /// reference and states no whole codon; [`HgvsError::CisMember`] naming
     /// a member no sequence can be built from, an uncertain position among
-    /// them; [`HgvsError::UnsupportedOperation`] for two members whose
-    /// 3'-most spellings overlap, or a member past the stop that shifts the
-    /// frame of the read-through; and what [`read_cis`](Self::read_cis)
+    /// them; [`HgvsError::UnsupportedOperation`] for a member past the stop
+    /// that shifts the frame of the read-through; and what [`read_cis`](Self::read_cis)
     /// raises for a contradictory or ambiguous allele.
     pub fn c_to_p_cis(
         &self,
@@ -364,11 +363,12 @@ impl VariantMapper<'_> {
 
     /// What the edits an allele makes on its transcript, sorted and apart,
     /// predict together: each placed on its 3'-most spelling as a single
-    /// change is, then the ones in the CDS read as one change. A change to
-    /// an initiator is `p.(Met1?)`, and one wholly in the 5'UTR beside
-    /// changes that leave the first codon makes the protein `p.?`. An edit
-    /// past the stop codon enters the reading only where translation of the
-    /// edited sequence reaches it.
+    /// change is, those whose moves reach each other as the one change they
+    /// make, then the ones in the CDS read as one change. A change to an
+    /// initiator is `p.(Met1?)`, and one wholly in the 5'UTR beside changes
+    /// that leave the first codon makes the protein `p.?`. An edit past the
+    /// stop codon enters the reading only where translation of the edited
+    /// sequence reaches it.
     fn read_changes(&self, cds: &Cds, edits: Vec<ResolvedEdit>) -> Result<Changes, HgvsError> {
         let statement = |pos, s| Ok(Changes::Statement(cds.statement(pos, s)));
         if edits
@@ -377,28 +377,9 @@ impl VariantMapper<'_> {
         {
             return statement(None, ProteinStatement::NoProtein { uncertain: true });
         }
-        let mut upstream = false;
-        let mut placed: Vec<ResolvedEdit> = Vec::new();
-        for edit in edits {
-            match place_on_coding(&cds.ref_seq, edit, cds.start, cds.initiates) {
-                Placement::AcrossStart => {
-                    return statement(Some(cds.residues().first()?), ProteinStatement::Unknown)
-                }
-                Placement::FivePrimeUtr => upstream = true,
-                Placement::Cds(e) => placed.push(ResolvedEdit {
-                    start: e.start - cds.start,
-                    end: e.end - cds.start,
-                    ..e
-                }),
-            }
-        }
-        if placed.windows(2).any(|w| w[0].end > w[1].start) {
-            return Err(HgvsError::UnsupportedOperation(format!(
-                "{}: two members, each written at its 3'-most place, overlap, so the codons they \
-                 change together are not read",
-                cds.cis
-            )));
-        }
+        let Some((placed, upstream)) = placed_together(cds, edits) else {
+            return statement(Some(cds.residues().first()?), ProteinStatement::Unknown);
+        };
         if placed.is_empty() {
             let s = match upstream {
                 true => ProteinStatement::Unknown,
@@ -427,6 +408,82 @@ impl VariantMapper<'_> {
             edits: placed[..read].to_vec(),
         })
     }
+}
+
+/// The edits `edits`, sorted and apart on the transcript, each placed as a
+/// single change is by [`place_on_coding`]: those in the CDS relative to its
+/// first base and sorted, and whether any lies wholly in the 5'UTR. `None`
+/// when one changes the first codon from upstream. An edit is moved to its
+/// 3'-most spelling against the reference, which is not what the allele
+/// makes where another edit lies on the way, so edits whose reaches, from
+/// where they are written to where they are placed, overlap or touch are
+/// placed as the one change they make together, until no two meet.
+fn placed_together(cds: &Cds, edits: Vec<ResolvedEdit>) -> Option<(Vec<ResolvedEdit>, bool)> {
+    let mut groups: Vec<Vec<ResolvedEdit>> = edits.into_iter().map(|e| vec![e]).collect();
+    loop {
+        let mut upstream = false;
+        let mut placed: Vec<ResolvedEdit> = Vec::new();
+        let mut reaches: Vec<(usize, usize)> = Vec::with_capacity(groups.len());
+        for group in &groups {
+            let edit = combined(&cds.ref_seq, group);
+            reaches.push(reach(&cds.ref_seq, &edit, cds.start));
+            match place_on_coding(&cds.ref_seq, edit, cds.start, cds.initiates) {
+                Placement::AcrossStart => return None,
+                Placement::FivePrimeUtr => upstream = true,
+                Placement::Cds(e) => placed.push(ResolvedEdit {
+                    start: e.start - cds.start,
+                    end: e.end - cds.start,
+                    ..e
+                }),
+            }
+        }
+        let meet = (0..groups.len())
+            .flat_map(|i| (i + 1..groups.len()).map(move |j| (i, j)))
+            .find(|&(i, j)| reaches[i].0 <= reaches[j].1 && reaches[j].0 <= reaches[i].1);
+        let Some((i, j)) = meet else {
+            placed.sort_by_key(|e| (e.start, e.end));
+            return Some((placed, upstream));
+        };
+        let other = groups.remove(j);
+        groups[i].extend(other);
+        groups[i].sort_by_key(|e| (e.start, e.end));
+    }
+}
+
+/// The bases `edit` reaches as [`place_on_coding`] places it on `ref_seq`:
+/// from where it is written to the end of its 3'-most spelling for an edit
+/// that starts at or before the first CDS base, which is moved; where it is
+/// written for any other, which is not.
+fn reach(ref_seq: &str, edit: &ResolvedEdit, cds_start: usize) -> (usize, usize) {
+    if edit.start > cds_start {
+        return (edit.start, edit.end);
+    }
+    let (_, (_, end)) = spellings(ref_seq.as_bytes(), edit);
+    (edit.start, edit.end.max(end))
+}
+
+/// The 5'-most and 3'-most spellings of `edit` on `reference`, each as the
+/// 0-based half-open range of reference bases it replaces.
+fn spellings(reference: &[u8], edit: &ResolvedEdit) -> ((usize, usize), (usize, usize)) {
+    let edited = [
+        &reference[..edit.start],
+        edit.alt.as_bytes(),
+        &reference[edit.end..],
+    ]
+    .concat();
+    let same = |(x, y): &(&u8, &u8)| x.eq_ignore_ascii_case(y);
+    let room = reference.len().min(edited.len());
+    let prefix = reference.iter().zip(&edited).take_while(same).count();
+    let suffix = reference
+        .iter()
+        .rev()
+        .zip(edited.iter().rev())
+        .take_while(same)
+        .count();
+    (
+        (prefix.min(room - suffix), reference.len() - suffix),
+        (prefix, reference.len() - suffix.min(room - prefix)),
+    )
 }
 
 /// What the edits an allele makes predict together.
@@ -470,7 +527,10 @@ fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<(Reading, usize), 
         return Ok((early, in_cds));
     }
     let all = Reading::new(cds.change(placed))?;
-    if all.in_frame() != early.in_frame() && (all.changes_before_stop() || !all.in_frame()) {
+    if all.in_frame() != early.in_frame()
+        && (all.changes_before_stop() || !all.in_frame())
+        && needs_base_past_stop(cds, placed)
+    {
         return Err(HgvsError::UnsupportedOperation(format!(
             "{}: a member past the stop codon changes the frame the read-through is translated in, \
              so the protein it makes is not predicted",
@@ -478,6 +538,15 @@ fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<(Reading, usize), 
         )));
     }
     Ok((all, placed.len()))
+}
+
+/// Whether every spelling of the change the edits `placed`, relative to the
+/// first CDS base, make together needs a base past the stop codon: its
+/// 5'-most spelling inserts after the stop or replaces a base past it.
+fn needs_base_past_stop(cds: &Cds, placed: &[ResolvedEdit]) -> bool {
+    let coding = &cds.ref_seq[cds.start..];
+    let ((start, end), _) = spellings(coding.as_bytes(), &combined(coding, placed));
+    start >= cds.len || end > cds.len
 }
 
 /// Refuses an allele with a member no sequence can be built from: an

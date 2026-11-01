@@ -2518,6 +2518,41 @@ fn as_allele(v: SequenceVariant) -> hgvs_weaver::CisPhasedVariant {
 /// refuses it, which normalising it must then do too, or where normalising
 /// refuses it as not yet normalised, which
 /// [`the_generated_alleles_mostly_normalise`] bounds.
+/// The 0-based half-open range a `g.` member is written over.
+fn written_range(member: &SequenceVariant) -> Option<(i32, i32)> {
+    let SequenceVariant::Genomic(g) = member else {
+        return None;
+    };
+    let pos = g.posedit.pos.as_ref()?;
+    let start = pos.start.index().ok()?.0;
+    let end = pos
+        .end
+        .as_ref()
+        .map_or(Some(start), |e| e.index().ok().map(|i| i.0))?;
+    Some((start, end + 1))
+}
+
+/// Whether a duplication in `cis` copies bases an identity member states.
+fn copies_stated_bases(cis: &hgvs_weaver::CisPhasedVariant) -> bool {
+    let of = |want: fn(&NaEdit) -> bool| -> Vec<(i32, i32)> {
+        cis.members
+            .iter()
+            .filter(|m| matches!(m, SequenceVariant::Genomic(g) if want(&g.posedit.edit)))
+            .filter_map(written_range)
+            .collect()
+    };
+    let stated = of(|e| matches!(e, NaEdit::RefAlt { alt: None, .. }));
+    let copied = of(|e| matches!(e, NaEdit::Dup { .. }));
+    copied
+        .iter()
+        .any(|&(s, e)| stated.iter().any(|&(a, b)| s < b && a < e))
+}
+
+/// Whether `member` is an inversion.
+fn is_inversion(member: &SequenceVariant) -> bool {
+    matches!(member, SequenceVariant::Genomic(g) if matches!(g.posedit.edit, NaEdit::Inv { .. }))
+}
+
 fn normalised_if_read(
     mapper: &VariantMapper,
     members: &[PlacedHgvs],
@@ -2587,6 +2622,95 @@ proptest! {
             .read_cis(&normalised)
             .map_err(|e| TestCaseError::fail(format!("{cis} normalises to {normalised}, which does not read: {e}")))?;
         prop_assert!(before.same_sequence(&after, &reference).unwrap(), "{} and {}", cis, normalised);
+    }
+
+    /// An allele that reads, rendered as VRS and read back, makes the
+    /// sequence it made and renders as the same VRS object: a block's
+    /// members are placed together, so members whose justified locations
+    /// overlap still read, and of the placements only those rendering as
+    /// the block count. No two alleles render as one block, so it is not
+    /// ambiguous, and a block reads back in the spelling `normalize` writes.
+    /// A block whose meeting members have too many placements to try is
+    /// refused.
+    ///
+    /// Two spellings remain one change. `normalize` keeps an inversion whose
+    /// end bases it leaves as written, g.16_18inv, where reading back writes
+    /// the change it makes, g.17A>T, as for a single variant. And it keeps a
+    /// duplication of stated bases whose copy goes outside them as written,
+    /// g.[1_5=;5dup], where the insertion it is normalises as
+    /// g.[1_5=;5_6insA] (#128); the property skips alleles with one.
+    #[test]
+    fn a_cis_allele_read_back_from_vrs_makes_its_sequence((seq, members) in seq_and_allele()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let cis = genomic_cis(&members);
+        // A member with no sequence names only where it acts, and a block of
+        // one beside an insertion at that junction has no listed reading.
+        let Some(before) = mapper.read_cis(&cis).ok().filter(|r| r.unapplied().is_empty()) else {
+            return Ok(());
+        };
+        let Ok(vrs) = mapper.to_vrs_variation(&SequenceVariant::CisPhased(cis.clone())) else {
+            return Ok(());
+        };
+        let normalised = mapper
+            .normalize_variant(SequenceVariant::CisPhased(cis.clone()))
+            .ok();
+        // #128: a duplication of stated bases keeps a second normal form.
+        let copy_of_stated = copies_stated_bases(&cis)
+            || normalised
+                .clone()
+                .is_some_and(|n| copies_stated_bases(&as_allele(n)));
+        let reference = mapper.refs.reference("X", G);
+        let renders_as_the_block = |back: &SequenceVariant| {
+            mapper.to_vrs_variation(back).is_ok_and(|v| v.id() == vrs.id())
+        };
+        let makes_the_allele = |back: &SequenceVariant| {
+            mapper
+                .read_cis(&as_allele(back.clone()))
+                .is_ok_and(|after| before.same_sequence(&after, &reference).unwrap())
+        };
+        match mapper.from_vrs(&vrs.to_json(), Some("X")) {
+            Ok(back) => {
+                prop_assert!(renders_as_the_block(&back), "{} reads back as {}, another block", cis, back);
+                prop_assert!(makes_the_allele(&back), "{} reads back as {}, another sequence", cis, back);
+                let block = matches!(vrs, hgvs_weaver::vrs::VrsVariation::CisPhasedBlock(_));
+                if let (true, Some(normalised)) = (block, &normalised) {
+                    // #128 for the duplications of stated bases.
+                    let one_spelling = !as_allele(normalised.clone()).members.iter().any(is_inversion)
+                        && !copy_of_stated
+                        && !copies_stated_bases(&as_allele(back.clone()));
+                    if one_spelling {
+                        prop_assert_eq!(back.to_string(), normalised.to_string(), "{} reads back otherwise than it normalises", cis);
+                    }
+                }
+            }
+            // #128: its block can read back ambiguous.
+            Err(hgvs_weaver::HgvsError::Ambiguous { .. }) if copy_of_stated => {}
+            Err(hgvs_weaver::HgvsError::UnsupportedOperation(_)) => {}
+            Err(e) => return Err(TestCaseError::fail(format!("{cis} does not read back from VRS: {e}"))),
+        }
+    }
+
+    /// Two alleles with one VRS identifier make one sequence and state the
+    /// same bases: an identifier is a key for what the allele says.
+    #[test]
+    fn alleles_with_one_vrs_identifier_say_one_thing((seq, a, b) in seq_and_two_alleles()) {
+        let hdp = Provider::new().sequence("X", &seq);
+        let mapper = VariantMapper::new(&hdp);
+        let (a, b) = (genomic_cis(&a), genomic_cis(&b));
+        let read = |cis: &hgvs_weaver::CisPhasedVariant| {
+            let reading = mapper.read_cis(cis).ok().filter(|r| r.unapplied().is_empty())?;
+            let vrs = mapper.to_vrs_variation(&SequenceVariant::CisPhased(cis.clone())).ok()?;
+            Some((reading, vrs.id().to_string()))
+        };
+        let (Some((ra, ia)), Some((rb, ib))) = (read(&a), read(&b)) else {
+            return Ok(());
+        };
+        if ia == ib {
+            let reference = mapper.refs.reference("X", G);
+            prop_assert!(ra.same_sequence(&rb, &reference).unwrap(), "{} and {} share {}", a, b, ia);
+            prop_assert_eq!(ra.stated(), rb.stated(), "{} and {} share {}", a, b, ia);
+        }
     }
 
     /// What an allele normalises to states the bases the allele states, as

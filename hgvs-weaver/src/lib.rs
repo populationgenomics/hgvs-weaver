@@ -175,6 +175,7 @@ pub mod allele;
 pub mod cigar;
 pub mod cis;
 mod cis_protein;
+mod cis_vrs;
 pub mod coords;
 pub mod data;
 pub mod edits;

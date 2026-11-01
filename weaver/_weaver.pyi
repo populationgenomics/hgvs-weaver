@@ -241,8 +241,8 @@ class VariantMapper:
                 allele in cis of c. members.
             UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own,
                 or an allele with a member at an uncertain position or whose bases
-                are not stated, two members whose 3'-most spellings overlap, or a
-                member past the stop that shifts the frame of the read-through.
+                are not stated, or a member past the stop that shifts the frame of
+                the read-through.
             NoProteinStatementError: If var_c is an identity that covers no whole codon,
                 which states bases and no residue, or an allele that changes
                 nothing and states no whole codon.
@@ -562,7 +562,8 @@ class VariantMapper:
         normalised.
 
         An allele in cis of nucleotide members is projected to the genome, where the
-        members that overlap, touch or would shift into each other become one Allele;
+        members that overlap, touch or would shift into each other become one Allele,
+        a change justified only up to a positional identity beside it in the allele;
         no codon groups them there, so a c. allele and its g. projection get one
         identifier. One that is a single change there is that change's object;
         otherwise it becomes a CisPhasedBlock whose ``members`` are the Alleles, in
@@ -626,8 +627,11 @@ class VariantMapper:
         or complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range
         bounds as g.(a_b)_(c_d); other terms have no HGVS form.
         CisPhasedBlock comes back as the allele in cis of its members, g.[a;b] (or
-        p.[a;b]), each member read as an Allele; the members must all lie on one
-        sequence, which may be stated once on the block as the spec allows.
+        p.[a;b]); the members must all lie on one sequence, which may be stated
+        once on the block as the spec allows. Nucleotide members whose locations
+        meet are placed together, every placement of each member's edit within
+        its location tried, and the allele is normalised as one; members a
+        protein block names are read one at a time.
 
         The sequence behind the object's refget accession is named by ``accession``
         when given, else looked up through the Refget given at construction; the
@@ -640,6 +644,8 @@ class VariantMapper:
                 it up from the refget accession.
 
         Raises:
+            AmbiguousDescriptionError: If a CisPhasedBlock's members can be placed
+                to make different sequences.
             HGVSError: If the object is malformed, unsupported, or does not match the
                 sequence.
         """

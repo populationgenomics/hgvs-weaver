@@ -777,7 +777,7 @@ fn g_base(n: usize, shift: i32) -> Result<crate::coords::HgvsGenomicPos, HgvsErr
 }
 
 /// The g. interval over the 0-based half-open range `[s, e)`.
-fn interval(s: usize, e: usize) -> Result<SimpleInterval, HgvsError> {
+pub(crate) fn interval(s: usize, e: usize) -> Result<SimpleInterval, HgvsError> {
     let position = |i: usize| -> Result<SimplePosition, HgvsError> {
         Ok(SimplePosition {
             base: g_base(i, 1)?.into(),
@@ -826,7 +826,7 @@ fn bounded_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, Hg
 }
 
 /// The `g.` variant with edit `edit` at `pos` on `ac`.
-fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVariant {
+pub(crate) fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVariant {
     GVariant::from_parts(
         ac.to_string(),
         None,
@@ -3133,6 +3133,16 @@ impl<'a> VariantMapper<'a> {
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<CanonicalAllele, HgvsError> {
+        self.canonical_allele_within(var, (0, usize::MAX))
+    }
+
+    /// [`canonical_allele`](Self::canonical_allele) with the region of
+    /// ambiguity of a nucleotide variant kept inside the genomic `bounds`.
+    pub(crate) fn canonical_allele_within(
+        &self,
+        var: &crate::SequenceVariant,
+        bounds: (usize, usize),
+    ) -> Result<CanonicalAllele, HgvsError> {
         if let crate::SequenceVariant::CisPhased(cis) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "A cis allele has one canonical allele per member, not one of its own; \
@@ -3190,7 +3200,7 @@ impl<'a> VariantMapper<'a> {
         let (hgvs_start, hgvs_end) = simple_interval_range(pos)?;
         let reference = self.refs.reference(&g.ac, IdentifierType::GenomicAccession);
         let resolved = edit.resolve(&reference, hgvs_start, hgvs_end)?;
-        CanonicalAllele::canonicalize(&reference, &g.ac, &resolved)
+        CanonicalAllele::canonicalize_within(&reference, &g.ac, &resolved, bounds)
     }
 
     /// The unambiguous SPDI of a variant: its canonical allele, rendered.
@@ -3207,6 +3217,15 @@ impl<'a> VariantMapper<'a> {
     /// breakpoints has Range bounds. A copy-number edit or an imprecise
     /// duplication has no Allele: see [`to_vrs_variation`](Self::to_vrs_variation).
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
+        self.to_vrs_within(var, (0, usize::MAX))
+    }
+
+    /// [`to_vrs`](Self::to_vrs), justified only inside the genomic `bounds`.
+    pub(crate) fn to_vrs_within(
+        &self,
+        var: &crate::SequenceVariant,
+        bounds: (usize, usize),
+    ) -> Result<VrsAllele, HgvsError> {
         if let crate::SequenceVariant::CisPhased(_) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{var} is an allele in cis, which is a VRS CisPhasedBlock, not an Allele; \
@@ -3254,7 +3273,7 @@ impl<'a> VariantMapper<'a> {
         if let Some(length) = na_edit(var).and_then(inserted_length) {
             return self.length_allele(var, length, &syntax, &hgvs);
         }
-        let allele = self.canonical_allele(var)?;
+        let allele = self.canonical_allele_within(var, bounds)?;
         let (kind, molecule) = match var {
             crate::SequenceVariant::Protein(_) => {
                 (IdentifierType::ProteinAccession, VrsMolecule::Protein)
@@ -3456,11 +3475,18 @@ impl<'a> VariantMapper<'a> {
         cis: &crate::structs::CisPhasedVariant,
         var: &crate::SequenceVariant,
     ) -> Result<VrsCisPhasedBlock, HgvsError> {
-        let members = cis
-            .members
-            .iter()
-            .map(|m| self.to_vrs(m))
-            .collect::<Result<Vec<_>, _>>()?;
+        let members = match cis.coordinate_type() {
+            "p" => cis
+                .members
+                .iter()
+                .map(|m| self.to_vrs(m))
+                .collect::<Result<Vec<_>, _>>()?,
+            _ => self
+                .rendered_members(cis)?
+                .iter()
+                .map(|(m, bounds)| self.to_vrs_within(m, *bounds))
+                .collect::<Result<Vec<_>, _>>()?,
+        };
         let Some(first) = members.first() else {
             return Err(HgvsError::ValidationError(
                 "A cis allele needs at least one member".into(),
@@ -3492,7 +3518,9 @@ impl<'a> VariantMapper<'a> {
     /// if contradictory or ambiguous, projected to the genome and normalised
     /// there ([`normalize_variant`](Self::normalize_variant) on the `g.`
     /// allele, so no codon groups members): members that overlap, touch or
-    /// would shift into each other are one Allele, each fully justified. One
+    /// would shift into each other are one Allele, each fully justified, a
+    /// change only up to a positional identity beside it, as its
+    /// normalisation stops there. One
     /// that is a single change there is that change's object, carrying the
     /// allele as written as its expression.
     pub fn to_vrs_variation(
@@ -3584,7 +3612,10 @@ impl<'a> VariantMapper<'a> {
     /// a `CopyNumberCount` comes back as `g.<start+1>_<end>copyN`, and a
     /// `CopyNumberChange` as `g.<start+1>_<end>dup` for a gain or `del` for a
     /// loss (Range bounds as `(a_b)_(c_d)`); a `CisPhasedBlock` comes back as the
-    /// cis allele of its members, `g.[a;b]` (or `p.`). The sequence is identified by
+    /// cis allele of its members, `g.[a;b]` (or `p.`), nucleotide members whose
+    /// locations meet placed together and the allele normalised as one, an
+    /// [`HgvsError::Ambiguous`] where they can be placed to make different
+    /// sequences. The sequence is identified by
     /// its refget accession: `accession` names it when given, else the
     /// mapper's `Refget` lookup must; the digest is checked against the
     /// sequence either way.
@@ -3727,39 +3758,6 @@ impl<'a> VariantMapper<'a> {
             interval(start, end)?,
             edit,
         )))
-    }
-
-    /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`: each member read
-    /// back as the `Allele` it is, on the sequence `accession` or the first
-    /// member's refget accession names; every member must lie on it.
-    fn cis_phased_from_vrs(
-        &self,
-        json: &str,
-        accession: Option<&str>,
-    ) -> Result<crate::SequenceVariant, HgvsError> {
-        let block = VrsCisPhasedBlock::from_json(json)?;
-        if let (Some(reference), Some(first)) = (&block.sequence_reference, block.members.first()) {
-            let stated = &first.location.sequence_reference.refget_accession;
-            if reference.refget_accession != *stated {
-                return Err(HgvsError::ValidationError(format!(
-                    "The CisPhasedBlock is on {} but its members on {stated}",
-                    reference.refget_accession
-                )));
-            }
-        }
-        let mut ac = accession.map(str::to_string);
-        let mut members = Vec::with_capacity(block.members.len());
-        for member in &block.members {
-            let var = self.from_vrs(&member.to_json(), ac.as_deref())?;
-            ac.get_or_insert_with(|| var.ac().to_string());
-            members.push(var);
-        }
-        let ac = ac.ok_or_else(|| {
-            HgvsError::ValidationError("A CisPhasedBlock has at least one member".into())
-        })?;
-        Ok(crate::SequenceVariant::CisPhased(
-            crate::structs::CisPhasedVariant::new(ac, None, members)?,
-        ))
     }
 
     /// `g.<start+1>_<end>copyN` from a VRS `CopyNumberCount`. HGVS has no

@@ -461,6 +461,260 @@ fn blocks_from_other_producers_parse() {
     ));
 }
 
+/// A `CisPhasedBlock` on `sequence` of Alleles each replacing the 0-based
+/// `[start, end)` with `alt`, as another producer, justifying each Allele
+/// alone, writes one.
+fn block_on(sequence: &str, members: &[(usize, usize, &str)]) -> String {
+    let refget = refget_accession(sequence);
+    let alleles: Vec<String> = members
+        .iter()
+        .map(|(start, end, alt)| {
+            format!(
+                r#"{{"type":"Allele","location":{{"type":"SequenceLocation",
+                    "sequenceReference":{{"type":"SequenceReference","refgetAccession":"{refget}"}},
+                    "start":{start},"end":{end}}},
+                    "state":{{"type":"LiteralSequenceExpression","sequence":"{alt}"}}}}"#
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"type":"CisPhasedBlock","members":[{}]}}"#,
+        alleles.join(",")
+    )
+}
+
+#[test]
+fn a_block_whose_justified_members_overlap_reads_back_as_the_allele_they_make() {
+    // g.[3_5del;7A>T] on TTCAGCAGTT: the deletion justified over g.3_8
+    // holds g.7. Placed at g.3_5 or g.4_6 it makes TTCTGTT beside 7A>T.
+    let hdp = normalising_provider();
+    let json = block_on("TTCAGCAGTT", &[(2, 8, "CAG"), (6, 7, "T")]);
+    assert_eq!(
+        VariantMapper::with_refget(&hdp, &hdp)
+            .from_vrs(&json, None)
+            .unwrap()
+            .to_string(),
+        "NC_F.1:g.4_7delinsT"
+    );
+}
+
+#[test]
+fn a_block_whose_members_can_be_placed_to_make_two_sequences_is_ambiguous() {
+    // On GAAAAAG the deletion, justified over g.2_6, goes before 4A>T or
+    // after it: GATAAG or GAATAG.
+    let hdp = normalising_provider();
+    let json = block_on("GAAAAAG", &[(1, 6, "AAAA"), (3, 4, "T")]);
+    let Err(HgvsError::Ambiguous { readings, .. }) =
+        VariantMapper::with_refget(&hdp, &hdp).from_vrs(&json, None)
+    else {
+        panic!("not ambiguous");
+    };
+    assert_eq!(
+        readings
+            .iter()
+            .map(|r| r.to_string())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "NC_K.1:g.3_4delinsT".to_string(),
+            "NC_K.1:g.4_5delinsT".to_string()
+        ])
+    );
+}
+
+#[test]
+fn an_allele_whose_rendered_members_overlap_round_trips_through_vrs() {
+    // c.9_12 is GGCC, its own reverse complement, so the inversion is an
+    // identity; the deletion of c.3_8 is justified over c.2_9, which holds c.9.
+    let hdp = normalising_provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = mapper
+        .to_vrs_variation(&parse_hgvs_variant("NM_X.1:c.[9_12inv;3_8del]").unwrap())
+        .unwrap();
+    let SequenceVariant::CisPhased(back) = mapper.from_vrs(&block.to_json(), None).unwrap() else {
+        panic!("not an allele");
+    };
+    assert!(mapper.read_cis(&back).is_ok(), "{back}");
+    assert_eq!(back.to_string(), "NC_X.1:g.[18_23del;24_27=]");
+}
+
+#[test]
+fn a_block_whose_members_change_one_base_two_ways_is_contradictory() {
+    // g.2 deleted and g.2 made T: no placement of either moves
+    let hdp = normalising_provider();
+    let json = block_on("GAAAAAG", &[(1, 2, ""), (1, 2, "T")]);
+    assert!(matches!(
+        VariantMapper::with_refget(&hdp, &hdp).from_vrs(&json, None),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+/// What `allele` on `X`, which is `sequence`, reads back from its own VRS
+/// block as, and whether its block's identifier comes back with it.
+fn read_back_from_its_block(sequence: &str, allele: &str) -> (String, bool) {
+    let hdp = Provider::new().sequence("X", sequence);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = mapper
+        .to_vrs_variation(&parse_hgvs_variant(allele).unwrap())
+        .unwrap();
+    let back = mapper
+        .from_vrs(&block.to_json(), None)
+        .unwrap_or_else(|e| panic!("{allele}: {e}"));
+    let same_id = mapper.to_vrs_variation(&back).unwrap().id() == block.id();
+    (back.to_string(), same_id)
+}
+
+#[test]
+fn alleles_making_different_sequences_across_an_identity_have_different_vrs_identifiers() {
+    // CAA repeats from g.2: the copy goes before the identity's bases in the
+    // first and after them in the second, an A added at g.12_13 in both
+    let sequence = "ACAACAACAACAA";
+    let hdp = Provider::new().sequence("X", sequence);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let id = |allele: &str| {
+        mapper
+            .to_vrs_variation(&parse_hgvs_variant(allele).unwrap())
+            .unwrap()
+            .id()
+            .to_string()
+    };
+    assert_ne!(
+        id("X:g.[12_13insA;1_3dup;8_12=]"),
+        id("X:g.[8_12=;12dup;13delinsACAA]")
+    );
+}
+
+#[test]
+fn changes_meeting_after_an_identity_render_as_the_one_change_they_make_together() {
+    // the duplications of GCGG and of g.9 and the inversion of g.11_12 all
+    // meet once justified past the identity; merged two at a time, the
+    // first pair's change was written past the inversion
+    let sequence = "GCGGGCGGGCGGGCGGGCGGG";
+    let allele = "X:g.[1_2=;8_9insG;1_4dup;11_12inv]";
+    let hdp = Provider::new().sequence("X", sequence);
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let other = mapper
+        .to_vrs_variation(&parse_hgvs_variant("X:g.[1_2=;10_11insCCGGC]").unwrap())
+        .unwrap();
+    assert_ne!(
+        mapper
+            .to_vrs_variation(&parse_hgvs_variant(allele).unwrap())
+            .unwrap()
+            .id(),
+        other.id()
+    );
+    assert_eq!(
+        read_back_from_its_block(sequence, allele),
+        ("X:g.[1_2=;13_14insGCCCG]".to_string(), true)
+    );
+}
+
+#[test]
+fn alleles_across_an_identity_read_back_from_their_blocks() {
+    // The first reads back as it normalises. The second's duplication copies
+    // the identity's last base, and normalize keeps it as written; its
+    // block, one Allele of the two changes after the identity, reads back as
+    // the one change they make.
+    for (allele, normalised) in [
+        ("X:g.[12_13insA;1_3dup;8_12=]", "X:g.[5_7dup;8_12=;13dup]"),
+        ("X:g.[8_12=;12dup;13delinsACAA]", "X:g.[8_12=;12_13insAACA]"),
+    ] {
+        assert_eq!(
+            read_back_from_its_block("ACAACAACAACAA", allele),
+            (normalised.to_string(), true),
+            "{allele}"
+        );
+    }
+}
+
+#[test]
+fn an_allele_reads_back_from_its_block_as_it_normalises() {
+    for (sequence, allele, normalised) in [
+        (
+            "A".repeat(19),
+            "X:g.[2_3inv;14_15dup;4_5=]",
+            "X:g.[2_3inv;4_5=;18_19dup]",
+        ),
+        (
+            "T".repeat(22),
+            "X:g.[17del;12_16=;10_11insCACTC]",
+            "X:g.[10_11insCACTC;12_16=;22del]",
+        ),
+        (
+            "CGCCTAGTTGGTAAG".to_string(),
+            "X:g.[1dup;2_12dup;6_10=]",
+            "X:g.[1dup;2_12dup;6_10=]",
+        ),
+        (
+            "GGCCTTCCACT".to_string(),
+            "X:g.[2_6=;9_10inv;5_8dup]",
+            "X:g.[2_6=;5_8dup;9_10inv]",
+        ),
+        (
+            "CGCCTAGTTGGTAAG".to_string(),
+            "X:g.[10_14=;8_9=;2_9dup]",
+            "X:g.[2_9dup;8_9=;10_14=]",
+        ),
+        ("GAAAAAG".to_string(), "X:g.[3_4=;6del]", "X:g.[3_4=;6del]"),
+    ] {
+        assert_eq!(
+            read_back_from_its_block(&sequence, allele),
+            (normalised.to_string(), true),
+            "{allele}"
+        );
+    }
+}
+
+#[test]
+fn an_ambiguous_block_lists_the_readings_of_every_ambiguous_set() {
+    // each deletion goes either side of the substitution in its run
+    let hdp = Provider::new().sequence("X", "GAAAAAGCTTTTTC");
+    let json = block_on(
+        "GAAAAAGCTTTTTC",
+        &[(1, 6, "AAAA"), (3, 4, "T"), (8, 13, "TTTT"), (10, 11, "G")],
+    );
+    let Err(HgvsError::Ambiguous { readings, .. }) =
+        VariantMapper::with_refget(&hdp, &hdp).from_vrs(&json, None)
+    else {
+        panic!("not ambiguous");
+    };
+    assert_eq!(readings.len(), 4);
+}
+
+#[test]
+fn identical_members_of_a_block_each_make_their_change() {
+    let hdp = normalising_provider();
+    let json = block_on("GAAAAAG", &[(1, 6, "AAAA"), (1, 6, "AAAA")]);
+    assert_eq!(
+        VariantMapper::with_refget(&hdp, &hdp)
+            .from_vrs(&json, None)
+            .unwrap()
+            .to_string(),
+        "NC_K.1:g.5_6del"
+    );
+}
+
+#[test]
+fn a_block_of_changes_in_a_run_reads_back_as_the_change_they_make() {
+    // two deletions and an insertion of an A, each justified over the run
+    let run = "A".repeat(25);
+    let hdp = Provider::new().sequence("X", &run);
+    let json = block_on(
+        &run,
+        &[
+            (0, 25, &"A".repeat(24)),
+            (0, 25, &"A".repeat(24)),
+            (0, 25, &"A".repeat(26)),
+        ],
+    );
+    assert_eq!(
+        VariantMapper::with_refget(&hdp, &hdp)
+            .from_vrs(&json, None)
+            .unwrap()
+            .to_string(),
+        "X:g.25del"
+    );
+}
+
 // Reading an allele into the one sequence its members make: the overlap rule
 // of choices.md, "Overlapping members of a cis allele need one reading", and
 // the ambiguity it can end in.
@@ -1433,6 +1687,15 @@ fn a_repeat_member_the_intron_continues_with_whole_copies_is_left_as_written() {
 }
 
 #[test]
+fn a_repeat_member_whose_genome_run_touches_an_intronic_member_is_left_beside_it() {
+    // the genome's run of GT is c.6_9+2; c.9+3 is the intron's A
+    assert_eq!(
+        normalised(&exon_edge(), "NM_EDGE.1:c.[6GT[2];9+3A>C]"),
+        "NM_EDGE.1:c.[6GT[2];9+3A>C]"
+    );
+}
+
+#[test]
 fn a_repeat_member_the_intron_completes_a_copy_of_is_left_as_written() {
     assert_eq!(
         normalised(&exon_edge(), "NM_EDGE.1:c.[2T>C;7TG[1]]"),
@@ -1699,6 +1962,35 @@ fn a_shift_stops_short_of_an_identity() {
         normalised(&normalising_provider(), "NM_X.1:c.[4del;6=]"),
         "NM_X.1:c.[5del;6=]"
     );
+}
+
+#[test]
+fn an_insertion_after_an_identity_is_written_3_prime_most_beyond_it() {
+    // ACAACAACAACAA: g.13 is the A after the identity's run, so an A
+    // inserted after g.12 is a copy of g.13
+    let hdp = Provider::new().sequence("X", "ACAACAACAACAA");
+    for allele in ["X:g.[8_12=;12_13insA]", "X:g.[8_12=;13dup]"] {
+        assert_eq!(normalised(&hdp, allele), "X:g.[8_12=;13dup]", "{allele}");
+    }
+}
+
+#[test]
+fn a_duplication_of_a_stated_base_is_left_as_written() {
+    let hdp = Provider::new().sequence("X", "ACAACAACAACAA");
+    assert_eq!(normalised(&hdp, "X:g.[8_12=;12dup]"), "X:g.[8_12=;12dup]");
+}
+
+#[test]
+fn an_insertion_before_an_identity_copying_the_base_before_it_is_its_duplication() {
+    // g.3_4 is AA, then the identity from g.5: the A goes against it
+    let hdp = Provider::new().sequence("X", "ACAACAACAACAA");
+    for allele in [
+        "X:g.[3_4insA;5_7=]",
+        "X:g.[4_5insA;5_7=]",
+        "X:g.[4dup;5_7=]",
+    ] {
+        assert_eq!(normalised(&hdp, allele), "X:g.[4dup;5_7=]", "{allele}");
+    }
 }
 
 #[test]
@@ -2142,6 +2434,50 @@ fn intronic_members_that_meet_are_one_change() {
 }
 
 #[test]
+fn a_tandem_copy_in_an_intronic_group_is_a_duplication() {
+    // the intron ends TCCAG: two copies of a C make c.6-4_6-3 CC twice
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[6-4dup;6-3dup]"),
+        "NM_S.1:c.6-4_6-3dup"
+    );
+}
+
+#[test]
+fn a_tandem_copy_in_an_intronic_group_on_the_minus_strand_is_a_duplication() {
+    // the intron reads CTGGACTTAC from n.30+1: n.30+3_30+4 GG twice
+    assert_eq!(
+        normalised(&normalising_provider(), "NR_MS.1:n.[30+3dup;30+4dup]"),
+        "NR_MS.1:n.30+3_30+4dup"
+    );
+}
+
+#[test]
+fn an_intronic_group_that_makes_the_reference_is_the_identity_of_its_bases() {
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[6-5_6-4insC;6-4del]"),
+        "NM_S.1:c.6-5_6-4="
+    );
+}
+
+#[test]
+fn an_intronic_member_that_makes_the_reference_beside_a_change_is_a_statement() {
+    // c.5+4 is an A: the delins writes it back
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:c.[5+4delinsA;5+5G>A]"),
+        "NM_S.1:c.[5+4=;5+5G>A]"
+    );
+}
+
+#[test]
+fn a_non_coding_allele_on_a_coding_transcript_writes_its_intronic_group_back() {
+    // n.10 is c.5, the last base of exon 1
+    assert_eq!(
+        normalised(&normalising_provider(), "NM_S.1:n.[10+2T>A;10+3A>G]"),
+        "NM_S.1:n.10+2_10+3delinsAG"
+    );
+}
+
+#[test]
 fn a_splice_site_member_that_meets_nothing_is_kept_as_written() {
     assert_eq!(
         normalised(&normalising_provider(), "NM_S.1:c.[5+1G>C;13T>G]"),
@@ -2387,6 +2723,18 @@ fn predict(hgvs: &str) -> Result<SequenceVariant, HgvsError> {
 
 fn predicted(hgvs: &str) -> String {
     predict(hgvs)
+        .unwrap_or_else(|e| panic!("{hgvs}: {e}"))
+        .to_string()
+}
+
+/// What `c_to_p` predicts for the single variant `hgvs`.
+fn predicted_single(hgvs: &str) -> String {
+    let hdp = protein_provider();
+    let SequenceVariant::Coding(single) = parse_hgvs_variant(hgvs).unwrap() else {
+        panic!("{hgvs} is not a c. variant");
+    };
+    VariantMapper::new(&hdp)
+        .c_to_p(&single, None)
         .unwrap_or_else(|e| panic!("{hgvs}: {e}"))
         .to_string()
 }
@@ -2709,6 +3057,23 @@ fn a_member_in_the_5_utr_beside_a_start_codon_change_is_an_unknown_change_from_m
 }
 
 #[test]
+fn a_5_utr_insertion_whose_3_prime_spelling_passes_a_changed_first_base_is_read_with_it() {
+    // GG|ATG becomes GGAG|CTG. Alone, the insertion's 3'-most spelling is
+    // after c.1, which the substitution changes; together they are
+    // c.1_2insGC.
+    assert_eq!(
+        (
+            predicted("NM_X.1:c.[-2_-1insGA;1A>C]"),
+            predicted_single("NM_X.1:c.1_2insGC")
+        ),
+        (
+            "NP_X.1:p.(Met1?)".to_string(),
+            "NP_X.1:p.(Met1?)".to_string()
+        )
+    );
+}
+
+#[test]
 fn a_member_writing_the_start_codon_back_states_it_unchanged() {
     assert_eq!(
         predicted("NM_X.1:c.[1_3delinsATG;4A>C]"),
@@ -2867,6 +3232,38 @@ fn a_frame_shifted_at_the_stop_and_restored_past_it_is_an_extension() {
     assert_eq!(
         predicted("NM_X.1:c.[20del;*2_*3insA]"),
         "NP_X.1:p.(Ter7TyrextTer4)"
+    );
+}
+
+#[test]
+fn a_stop_lost_with_a_copy_past_it_is_the_extension_its_delins_is() {
+    // TAA CC G becomes CAA CCC G: the read-through gains a base
+    assert_eq!(
+        (
+            predicted("NM_X.1:c.[19T>C;*2dup]"),
+            predicted_single("NM_X.1:c.19_*3delinsCAACCCG")
+        ),
+        (
+            "NP_X.1:p.(Ter7GlnextTer3)".to_string(),
+            "NP_X.1:p.(Ter7GlnextTer3)".to_string()
+        )
+    );
+}
+
+#[test]
+fn a_member_reaching_past_the_stop_whose_change_lies_before_it_is_read_with_the_rest() {
+    // TAT CGC TAA becomes TAT GGC GCT AAC TAA: the duplication's copy goes
+    // after the stop as written, but the change the two members make is
+    // c.16_17delinsGGCGCTAA, before it.
+    assert_eq!(
+        (
+            predicted("NM_X.1:c.[15_16insGG;18_21dup]"),
+            predicted_single("NM_X.1:c.16_17delinsGGCGCTAA")
+        ),
+        (
+            "NP_X.1:p.(Arg6delinsGlyAlaAsn)".to_string(),
+            "NP_X.1:p.(Arg6delinsGlyAlaAsn)".to_string()
+        )
     );
 }
 

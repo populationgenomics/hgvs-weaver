@@ -64,6 +64,19 @@ impl CanonicalAllele {
         accession: &str,
         resolved: &ResolvedEdit,
     ) -> Result<Self, HgvsError> {
+        Self::canonicalize_within(reference, accession, resolved, (0, usize::MAX))
+    }
+
+    /// [`canonicalize`](Self::canonicalize), with the region of ambiguity
+    /// kept inside the 0-based half-open `bounds`, which hold the edit: an
+    /// allele in cis whose other members state the bases outside them
+    /// unchanged has no ambiguity there.
+    pub(crate) fn canonicalize_within(
+        reference: &Reference<'_, '_>,
+        accession: &str,
+        resolved: &ResolvedEdit,
+        (lo, hi): (usize, usize),
+    ) -> Result<Self, HgvsError> {
         let accession = accession.to_string();
         // The allele describes the sequence, so its reference is what the
         // sequence holds at the range, whatever bases the variant stated. A
@@ -102,6 +115,7 @@ impl CanonicalAllele {
             alt: a.clone(),
         };
         let (u_start, u_end) = ambiguous_range(reference, &trimmed)?;
+        let (u_start, u_end) = (u_start.max(lo).min(at), u_end.min(hi).max(trimmed.end));
         let widened_ref = reference.slice(u_start, u_end)?;
         let widened_alt = format!(
             "{}{}{}",
