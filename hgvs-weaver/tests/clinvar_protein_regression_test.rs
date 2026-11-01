@@ -1,3 +1,5 @@
+mod support;
+
 use hgvs_weaver::data::{DataProvider, ExonData, IdentifierKind, IdentifierType, TranscriptData};
 use hgvs_weaver::structs::{GenomicPos, TranscriptPos};
 use hgvs_weaver::{parse_hgvs_variant, HgvsError, SequenceVariant, VariantMapper};
@@ -47,8 +49,8 @@ impl DataProvider for MockDataProvider {
     ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
         Ok(vec![])
     }
-    fn get_identifier_type(&self, _identifier: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(IdentifierType::TranscriptAccession)
+    fn get_identifier_type(&self, identifier: &str) -> Result<IdentifierType, HgvsError> {
+        Ok(support::identifier_type_from_prefix(identifier))
     }
 }
 
