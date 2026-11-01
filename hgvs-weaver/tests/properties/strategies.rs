@@ -280,10 +280,11 @@ impl Gene {
             self.exons.clone(),
         )
     }
-    /// The gene's transcript, genome and protein, served by one provider.
+    /// The gene's transcript, genome and protein, served by one provider. The
+    /// protein carries no `*` for its stop, as a RefSeq protein record does.
     pub fn provider(&self) -> Provider {
         let protein =
-            hgvs_weaver::utils::translate(&self.transcript_seq[self.cds_start..=self.cds_end]);
+            hgvs_weaver::utils::translate(&self.transcript_seq[self.cds_start..self.cds_end - 2]);
         Provider::new()
             .sequence(&self.ac, &self.transcript_seq)
             .sequence(&self.reference_ac, &self.genome)

@@ -5,9 +5,10 @@
 //! else is derived here: both translations, the first residue that changes,
 //! and, crucially, where every stop codon in the alternate protein came from.
 //! Because the edit is known at the nucleotide level, a stop codon is the
-//! reference's own stop exactly when the edit is in frame, lies wholly before
-//! the stop codon, and the stop lands at its shifted index. Every other stop
-//! was created by the edit, so nothing has to guess from the edit's kind.
+//! reference's own stop exactly when the edit is in frame and a stop is read
+//! at the reference stop's shifted index. Every other stop was created by the
+//! edit or read on from the 3'UTR, so nothing has to guess from the edit's
+//! kind.
 
 use crate::edits::{AaEdit, ExtensionEnd, ProteinStatement, ResolvedEdit, StopDistance};
 use crate::error::HgvsError;
@@ -103,15 +104,23 @@ pub(crate) struct Reading {
     last_codon: usize,
     /// The first residue that differs, at or after the first touched codon.
     first_changed: usize,
-    /// Whether the edit left the reference's own stop codon intact.
-    stop_intact: bool,
+    /// The bases that differ, the edit with the prefix and tail the two
+    /// sequences share taken off, so however many shared bases an edit
+    /// spells reads alike: where they start, where they end in the
+    /// reference, and where they end in the edited sequence.
+    changed_start: usize,
+    changed_ref_end: usize,
+    changed_end: usize,
+    /// Where the reference's own stop is read in the alternate, when the
+    /// change keeps it, in frame whatever it does past the stop.
+    original_stop: Option<usize>,
     /// Whether translation initiates at the first codon and the edited
     /// sequence's first codon differs from the reference's.
     start_changed: bool,
 }
 
 impl Reading {
-    pub(crate) fn new(mut change: CodingChange) -> Self {
+    pub(crate) fn new(mut change: CodingChange) -> Result<Self, HgvsError> {
         if change.end_open {
             change.coding.truncate(change.cds_len);
         }
@@ -155,16 +164,17 @@ impl Reading {
                 .is_some_and(|c| c.eq_ignore_ascii_case("TGA"))
         };
         let (ref_nt, edited) = (change.coding.as_bytes(), alt_nt.as_bytes());
+        // A soft-masked record is lowercase where an edit's bases are not.
         let prefix = ref_nt
             .iter()
             .zip(edited)
-            .take_while(|(a, b)| a == b)
+            .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
             .count();
         let suffix = ref_nt
             .iter()
             .rev()
             .zip(edited.iter().rev())
-            .take_while(|(a, b)| a == b)
+            .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
             .count();
         let ref_sec = |r: usize| r < stop && ref_aa.get(r) == Some(&'*');
         let alt_sec: Vec<usize> = (0..alt_aa.len())
@@ -186,6 +196,10 @@ impl Reading {
         for j in alt_sec {
             alt_aa[j] = 'U';
         }
+        let tail = suffix.min(ref_nt.len().min(edited.len()) - prefix);
+        let original_stop = kept_stop(ref_nt, edited, &alt_aa, stop, (prefix, suffix, tail))?;
+        let changed_end = edited.len() - tail;
+        let changed_ref_end = ref_nt.len() - tail;
         let first_codon = start / 3;
         let last_codon = if end > start {
             (end - 1) / 3
@@ -199,7 +213,7 @@ impl Reading {
         {
             first_changed += 1;
         }
-        Reading {
+        Ok(Reading {
             change,
             ref_aa,
             alt_aa,
@@ -209,9 +223,12 @@ impl Reading {
             first_codon,
             last_codon,
             first_changed,
-            stop_intact: end <= stop * 3,
+            changed_start: prefix,
+            changed_ref_end,
+            changed_end,
+            original_stop,
             start_changed,
-        }
+        })
     }
 
     /// The edit changes the first codon: whether translation starts, and
@@ -225,16 +242,6 @@ impl Reading {
     /// The change this is a reading of.
     pub(crate) fn change(&self) -> &CodingChange {
         &self.change
-    }
-
-    /// Where the edit starts in the coding sequence.
-    fn start(&self) -> usize {
-        self.change.edit.start
-    }
-
-    /// Where the bases the edit inserts end in the edited sequence.
-    fn inserted_end(&self) -> usize {
-        self.change.edit.start + self.change.edit.alt.len()
     }
 
     /// Refuses a change whose protein cannot be predicted: one that
@@ -269,7 +276,7 @@ impl Reading {
             true
         } else if self.start_changed || self.first_changed > self.stop {
             false
-        } else if !self.in_frame || (self.stop < self.ref_aa.len() && !self.stop_intact) {
+        } else if !self.in_frame || self.loses_stop() {
             !self.alt_aa[self.first_changed.min(self.alt_aa.len())..].contains(&'*')
         } else {
             self.ref_aa != self.alt_aa
@@ -314,11 +321,9 @@ impl Reading {
         self.ref_aa == self.alt_aa || self.first_changed > self.stop
     }
 
-    /// Where the reference's own stop sits in the alternate, for an in-frame
-    /// edit that left it intact.
-    fn original_stop_in_alt(&self) -> Option<usize> {
-        (self.in_frame && self.stop_intact)
-            .then(|| (self.stop as i64 + self.net / 3).max(0) as usize)
+    /// The reference has a stop, and the edit does not keep it.
+    fn loses_stop(&self) -> bool {
+        self.stop < self.ref_aa.len() && self.original_stop.is_none()
     }
 
     /// Where the alternate protein ends: its first stop.
@@ -329,12 +334,25 @@ impl Reading {
             .unwrap_or(self.alt_aa.len())
     }
 
-    /// The last reference codon an edit's description covers when a new stop
-    /// ends it: the touched codons, or at least the first changed one.
+    /// One past the last reference residue an edit's description covers when
+    /// a new stop ends it: the codons the bases that differ touch, or at least
+    /// the first changed one, and never the stop, which the protein record
+    /// does not carry as a residue.
     fn ref_end_at_new_stop(&self) -> usize {
-        (self.last_codon + 1)
+        let last = self.changed_ref_end.max(self.changed_start + 1) - 1;
+        (last / 3 + 1)
+            .min(self.stop)
             .max(self.first_changed + 1)
             .min(self.ref_aa.len())
+    }
+
+    /// The first stop of the alternate at or after residue `i`, when its codon
+    /// ends within the bases that differ from the reference: a stop the edit
+    /// made, not one read on from the 3'UTR.
+    fn stop_made_by_edit(&self, i: usize) -> Option<usize> {
+        (i..self.alt_aa.len())
+            .find(|&j| self.alt_aa[j] == '*')
+            .filter(|&j| (j + 1) * 3 <= self.changed_end)
     }
 
     /// Whether the alternate protein ends at a stop rather than at the end of
@@ -395,7 +413,7 @@ impl Reading {
             }
             return out.identity(self.first_codon, self.last_codon.min(self.stop));
         }
-        if self.in_frame {
+        if self.in_frame || self.original_stop.is_some() {
             describe_in_frame(self, &out)
         } else {
             describe_frameshift(self, &out)
@@ -413,6 +431,205 @@ pub(crate) fn met1() -> AaInterval {
         end: None,
         uncertain: false,
     }
+}
+
+/// Where the reference's stop codon, residue `stop`, is read in the edited
+/// sequence `alt_nt`, when the change keeps it. The two sequences share a
+/// `prefix` and a `suffix`, which overlap where the change is an insertion or
+/// deletion that could be placed anywhere along a repeat; `tail` is the
+/// suffix that does not. A stop codon outside the bases between them is kept
+/// where they put it, and one a deletion cuts is kept if the deletion can be
+/// placed wholly before it. Otherwise the bases that differ, and only those,
+/// are aligned at the least [cost](alignment_row), and the stop is kept when
+/// an alignment that costs no more aligns its codon, base for base, with a
+/// stop codon read in frame. The first such stop is where it is read. What
+/// the change does past it is no change to the protein, whatever frame it
+/// leaves the 3'UTR in. Read from the two sequences, every spelling of one
+/// change reads alike.
+///
+/// # Errors
+///
+/// [`HgvsError::UnsupportedOperation`] when deciding it would align more than
+/// [`MAX_ALIGNED`] pairs of bases.
+fn kept_stop(
+    ref_nt: &[u8],
+    alt_nt: &[u8],
+    alt_aa: &[char],
+    stop: usize,
+    (prefix, suffix, tail): (usize, usize, usize),
+) -> Result<Option<usize>, HgvsError> {
+    let codon = 3 * stop..3 * stop + 3;
+    if codon.end > ref_nt.len() {
+        return Ok(None);
+    }
+    let net = alt_nt.len() as i64 - ref_nt.len() as i64;
+    let reads_stop_at = |base: i64| {
+        (base % 3 == 0 && base >= 0)
+            .then_some((base / 3) as usize)
+            .filter(|&k| alt_aa.get(k) == Some(&'*'))
+    };
+    let ref_end = ref_nt.len() - tail;
+    if codon.end <= prefix {
+        return Ok(reads_stop_at(codon.start as i64));
+    }
+    if codon.start >= ref_end {
+        return Ok(reads_stop_at(codon.start as i64 + net));
+    }
+    let alt_end = alt_nt.len() - tail;
+    if alt_end == prefix {
+        // A deletion, which may be placed anywhere along the repeat it lies in:
+        // its 3'-most placement, at `prefix`, cuts the codon; its 5'-most may
+        // lie wholly before it.
+        let removed = ref_end - prefix;
+        let first = (ref_nt.len() - suffix).saturating_sub(removed);
+        return Ok((first + removed <= codon.start)
+            .then(|| reads_stop_at(codon.start as i64 + net))
+            .flatten());
+    }
+    // Only the bases that differ, and the rest of the codon where they cut it,
+    // are aligned: a stop codon the edited transcript shares with the
+    // reference past them is no part of the change.
+    let (start, end) = (prefix.min(codon.start), ref_end.max(codon.end));
+    let upper = |s: &[u8]| s.to_ascii_uppercase();
+    let r = upper(&ref_nt[start..end]);
+    let a = upper(&alt_nt[start..(end as i64 + net) as usize]);
+    let at = codon.start - start;
+    let (band, whole) = exact_band(&r, &a, MAX_ALIGNED)?;
+    // The cost of aligning r[..at] with each prefix of a, and of r[at + 3..]
+    // with each suffix.
+    let before = alignment_row(&r[..at], &a, band);
+    let after: Vec<usize> = {
+        let (rr, ra): (Vec<u8>, Vec<u8>) = (
+            r[at + 3..].iter().rev().copied().collect(),
+            a.iter().rev().copied().collect(),
+        );
+        alignment_row(&rr, &ra, (net - band.1, net - band.0))
+            .into_iter()
+            .rev()
+            .collect()
+    };
+    Ok((0..(a.len() + 1).saturating_sub(3)).find_map(|j| {
+        let substitutions = r[at..at + 3]
+            .iter()
+            .zip(&a[j..j + 3])
+            .filter(|(x, y)| x != y)
+            .count();
+        (before[j]
+            .saturating_add(substitutions)
+            .saturating_add(after[j + 3])
+            == whole)
+            .then(|| reads_stop_at((start + j) as i64))
+            .flatten()
+    }))
+}
+
+/// The most pairs of bases [`kept_stop`] aligns in one table.
+const MAX_ALIGNED: usize = 1 << 28;
+
+/// The diagonals, `j - i` for base `i` of `r` against base `j` of `a`, that
+/// every cheapest alignment of `r` with `a` stays within. An alignment that
+/// strays `d` diagonals past those between `0` and the difference in length
+/// inserts or deletes at least that difference and `2 d` more bases, and costs
+/// at least as much, so a band whose cheapest
+/// alignment costs less than that holds every cheapest one. The band is
+/// widened until it does; it is returned with that cost.
+///
+/// # Errors
+///
+/// [`HgvsError::UnsupportedOperation`] when a band needs more than `limit`
+/// pairs of bases aligned.
+fn exact_band(r: &[u8], a: &[u8], limit: usize) -> Result<((i64, i64), usize), HgvsError> {
+    let net = a.len() as i64 - r.len() as i64;
+    let mut margin: i64 = 16;
+    loop {
+        let band = (net.min(0) - margin, net.max(0) + margin);
+        let whole_matrix = band.0 <= -(r.len() as i64) && band.1 >= a.len() as i64;
+        let width = (band.1 - band.0 + 1).min(a.len() as i64 + 1) as usize;
+        if r.len().saturating_mul(width) > limit {
+            return Err(HgvsError::UnsupportedOperation(format!(
+                "the bases that differ around the stop codon, {} in the reference and {} in the \
+                 change, are too many to align to decide whether the stop is kept: it would take \
+                 more than {limit} pairs of bases",
+                r.len(),
+                a.len()
+            )));
+        }
+        let cost = alignment_row(r, a, band)[a.len()];
+        if whole_matrix || (cost as i64) < net.abs() + 2 * (margin + 1) {
+            return Ok((band, cost));
+        }
+        margin *= 2;
+    }
+}
+
+/// What opening a run of inserted or deleted bases costs in [`alignment_row`],
+/// on top of one for each base in it: a change read as fewer runs is cheaper,
+/// so one deletion is not read as several scattered around a codon.
+const GAP_OPEN: usize = 2;
+
+/// The last row of the alignment table of `r` against `a`, kept to the
+/// diagonals `band` (`j - i` from `band.0` to `band.1`, which holds `0`):
+/// entry `j` is the least cost of making `r` into `a[..j]` along those
+/// diagonals, a substitution costing one and a run of inserted or deleted
+/// bases its length and [`GAP_OPEN`] more, and `usize::MAX / 4` off them.
+fn alignment_row(r: &[u8], a: &[u8], band: (i64, i64)) -> Vec<usize> {
+    const OFF: usize = usize::MAX / 4;
+    let (lo, hi) = band;
+    let n = a.len() as i64;
+    // The cost of each prefix pair ending in a match or substitution, in a
+    // deletion from `r`, and in an insertion from `a`, for the row before and
+    // the row being filled.
+    let mut prev = [
+        vec![OFF; a.len() + 1],
+        vec![OFF; a.len() + 1],
+        vec![OFF; a.len() + 1],
+    ];
+    let mut cur = prev.clone();
+    let mut span = (0usize, hi.min(n) as usize);
+    prev[0][0] = 0;
+    for (j, cell) in prev[2].iter_mut().enumerate().take(span.1 + 1).skip(1) {
+        *cell = GAP_OPEN + j;
+    }
+    for (i, x) in (1i64..).zip(r) {
+        let (first, last) = ((i + lo).max(0), (i + hi).min(n));
+        if first > last {
+            return vec![OFF; a.len() + 1];
+        }
+        let (first, last) = (first as usize, last as usize);
+        for state in &mut cur {
+            if first > 0 {
+                state[first - 1] = OFF;
+            }
+            if last < a.len() {
+                state[last + 1] = OFF;
+            }
+        }
+        let mut j = first;
+        if j == 0 {
+            cur[0][0] = OFF;
+            cur[1][0] = GAP_OPEN + i as usize;
+            cur[2][0] = OFF;
+            j = 1;
+        }
+        while j <= last {
+            let [pm, pd, pi] = &prev;
+            let diagonal = pm[j - 1].min(pd[j - 1]).min(pi[j - 1]);
+            let matched = diagonal + usize::from(*x != a[j - 1]);
+            let deleted = (pm[j].min(pi[j]) + GAP_OPEN).min(pd[j]) + 1;
+            let inserted = (cur[0][j - 1].min(cur[1][j - 1]) + GAP_OPEN).min(cur[2][j - 1]) + 1;
+            cur[0][j] = matched;
+            cur[1][j] = deleted;
+            cur[2][j] = inserted;
+            j += 1;
+        }
+        std::mem::swap(&mut prev, &mut cur);
+        span = (first, last);
+    }
+    let mut row = vec![OFF; a.len() + 1];
+    for j in span.0..=span.1 {
+        row[j] = prev[0][j].min(prev[1][j]).min(prev[2][j]);
+    }
+    row
 }
 
 /// The index of the reference's stop in `ref_aa`, the translation of a CDS
@@ -435,52 +652,56 @@ pub(crate) fn reference_stop(ref_aa: &[char], cds_len: usize) -> usize {
 /// without their stops, as a protein record writes them (the initiator as Met,
 /// a selenocysteine as `U`): what a protein allele is made of.
 pub fn proteins(change: &CodingChange) -> Result<(String, String), HgvsError> {
-    Reading::new(change.clone()).proteins()
+    Reading::new(change.clone())?.proteins()
 }
 
 /// Describes the protein consequence of `change` in HGVS p. terms.
 pub fn describe(change: &CodingChange) -> Result<PVariant, HgvsError> {
-    Reading::new(change.clone()).describe()
+    Reading::new(change.clone())?.describe()
 }
 
-/// An out-of-frame edit: a frameshift, unless a stop formed entirely from the
-/// inserted bases ends translation before the new frame reads a reference
-/// base (then the touched codons are replaced up to that stop), or the first
-/// changed residue is the stop itself (then it reads through: an extension).
+/// An out-of-frame edit that does not keep the stop: a frameshift, unless the
+/// first changed residue is the stop itself (then it reads through: an
+/// extension), or a stop formed entirely from the bases that differ ends
+/// translation before the new frame reads a reference base (then the codons
+/// they touch are replaced up to that stop).
 fn describe_frameshift(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
-    let inserted_end = t.inserted_end();
+    if i == t.stop && t.alt_aa.get(i).is_some_and(|&c| c != '*') {
+        return out.extension(i);
+    }
     if let Some(j) = (i..t.alt_aa.len()).find(|&j| t.alt_aa[j] == '*') {
-        if j * 3 >= t.start() && (j + 1) * 3 <= inserted_end {
+        if j * 3 >= t.changed_start && (j + 1) * 3 <= t.changed_end {
             if j == i {
                 return out.substitution(i, t.ref_aa[i], '*');
             }
             return out.delins(i, t.ref_end_at_new_stop() - 1, &t.alt_aa[i..=j]);
         }
     }
-    if i == t.stop && t.alt_aa.get(i).is_some_and(|&c| c != '*') {
-        return out.extension(i);
-    }
     out.frameshift(i)
 }
 
-/// An in-frame edit: written at its 3'-most equivalent residues (the shared
-/// tail is trimmed), cut at a stop the edit creates, and classified as a
-/// stop loss, nonsense, duplication, insertion, substitution, deletion or
-/// delins.
+/// An in-frame edit, or one that keeps the stop and shifts the frame only past
+/// it: an extension when it first differs at the stop, whether the stop is
+/// lost or read again after residues added before it; a
+/// [stop loss](describe_stop_lost) when the stop is not kept; otherwise the
+/// change before the stop, written at its 3'-most equivalent residues (the
+/// shared tail is trimmed), cut at a stop the edit creates, and classified as
+/// nonsense, duplication, insertion, substitution, deletion or delins.
 fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
     let i = t.first_changed;
-    // Stop lost: the edit reaches into the stop codon and the residue there
-    // is no longer a stop. An in-frame insertion just before the stop can also
-    // make the stop position the first differing residue, but then the stop
-    // is intact further along, and the change is an insertion, not a loss.
-    let original_stop_in_alt = t.original_stop_in_alt();
-    if original_stop_in_alt.is_none() && t.ref_aa.get(i) == Some(&'*') {
+    if i == t.stop {
         return out.extension(i);
     }
+    if t.loses_stop() {
+        return describe_stop_lost(t, out);
+    }
 
-    let mut ref_end = t.ref_aa.len();
-    let mut alt_end = t.alt_aa.len();
+    // Both proteins end at the reference's stop, or, with none, at the end of
+    // the sequence: what follows is read-through, and no part of the change.
+    let mut ref_end = t.stop.min(t.ref_aa.len());
+    let protein_end = t.original_stop.unwrap_or(t.alt_aa.len());
+    let mut alt_end = protein_end;
     while ref_end > i && alt_end > i && t.ref_aa[ref_end - 1] == t.alt_aa[alt_end - 1] {
         ref_end -= 1;
         alt_end -= 1;
@@ -488,15 +709,14 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
 
     // A stop created by the edit, before the original stop: the change is
     // written up to and including it, over the codons the edit touched.
-    let search_end = original_stop_in_alt
-        .unwrap_or(t.alt_aa.len())
-        .min(t.alt_aa.len());
-    if let Some(j) = (i..search_end).find(|&j| t.alt_aa[j] == '*') {
+    if let Some(j) = (i..protein_end).find(|&j| t.alt_aa[j] == '*') {
         alt_end = j + 1;
         ref_end = t.ref_end_at_new_stop();
     }
 
-    // Nonsense: the first changed residue is a stop.
+    // Nonsense: the first changed residue is a stop the edit made. The
+    // reference's own, brought forward by a deletion that reaches it, ends the
+    // protein past the change, and the change is the deletion.
     if t.alt_aa.get(i) == Some(&'*') && i < alt_end {
         return out.substitution(i, t.ref_aa[i], '*');
     }
@@ -523,6 +743,21 @@ fn describe_in_frame(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsErro
         return out.deletion(i, ref_end - 1);
     }
     out.delins(i, ref_end - 1, ins)
+}
+
+/// An in-frame edit that changes a residue before the stop, after which no
+/// stop is read where the reference's was: nonsense, a delins ending at a stop
+/// the edit made, or, where the protein reads on into the 3'UTR, a frameshift
+/// from the first changed residue.
+fn describe_stop_lost(t: &Reading, out: &Writer<'_>) -> Result<PVariant, HgvsError> {
+    let i = t.first_changed;
+    if t.alt_aa.get(i) == Some(&'*') {
+        return out.substitution(i, t.ref_aa[i], '*');
+    }
+    if let Some(j) = t.stop_made_by_edit(i) {
+        return out.delins(i, t.ref_end_at_new_stop() - 1, &t.alt_aa[i..=j]);
+    }
+    out.frameshift(i)
 }
 
 fn aa3(residues: &[char]) -> String {
@@ -754,6 +989,102 @@ mod tests {
     const CDS: &str = "ATGAAACTGGCCTATCGCTAA";
     const UTR: &str = "CCGTAG";
 
+    /// `n` bases from a fixed linear congruential sequence: synthetic, and
+    /// the same on every run. With `sense`, read in frame they hold no stop.
+    fn bases(seed: u64, n: usize, sense: bool) -> String {
+        let mut state = seed;
+        let mut next = move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            b"ACGT"[(state >> 62) as usize] as char
+        };
+        let mut out = String::with_capacity(n);
+        while out.len() < n {
+            let codon: String = (0..3).map(|_| next()).collect();
+            if !sense || !matches!(codon.as_str(), "TAA" | "TAG" | "TGA") {
+                out.push_str(&codon);
+            }
+        }
+        out.truncate(n);
+        out
+    }
+
+    #[test]
+    fn a_change_whose_differing_bases_run_to_thousands_is_decided_exactly() {
+        // 3,000 codons and a stop, then 6,000 bases of 3'UTR. One delins
+        // changes the base 4,998 before the stop and deletes 3,000 bases of
+        // the 3'UTR: residue 1,334 changes, and the stop is kept.
+        let cds = format!("ATG{}TAA", bases(1, 3 * 2998, true));
+        let utr = bases(2, 6000, false);
+        let coding = format!("{cds}{utr}");
+        let (start, end) = (cds.len() - 3 - 4998, cds.len() + 3000);
+        let mut alt = coding[start..cds.len()].to_string();
+        let first = if &alt[..1] == "A" { "C" } else { "A" };
+        alt.replace_range(..1, first);
+        let out = p(&cds, &utr, delins(&alt), start, end);
+        let codon = start / 3;
+        let reference = crate::utils::translate(&cds[3 * codon..3 * codon + 3]);
+        let changed = crate::utils::translate(&format!(
+            "{}{first}{}",
+            &cds[3 * codon..start],
+            &cds[start + 1..3 * codon + 3]
+        ));
+        assert_eq!(
+            out,
+            format!(
+                "NP:p.{}{}{}",
+                aa1_to_aa3(reference.chars().next().unwrap()),
+                codon + 1,
+                aa1_to_aa3(changed.chars().next().unwrap())
+            )
+        );
+    }
+
+    #[test]
+    fn one_deletion_through_the_stop_is_not_read_as_several_that_keep_it() {
+        // 500 codons and a stop, then 2,000 bases of 3'UTR; one deletion from
+        // codon 401 through the stop and 29 bases of the 3'UTR. Scattered
+        // deletions of as many bases could keep the stop codon's bases, matched
+        // to a stop the 3'UTR brings into frame, but the change is one.
+        let cds = format!("ATG{}TGA", bases(5, 3 * 498, true));
+        let utr = bases(6, 2000, false);
+        let out = p(&cds, &utr, del(), 1200, cds.len() + 29);
+        assert!(out.starts_with("NP:p.") && out.contains("fsTer"), "{out}");
+    }
+
+    #[test]
+    fn the_band_costs_what_the_whole_table_does() {
+        // Pairs of a few hundred bases, the second the first with runs
+        // replaced, inserted and deleted, so the cheapest alignment strays
+        // past the narrowest band.
+        for seed in 0..300u64 {
+            let r = bases(seed, 120 + (seed as usize * 7) % 200, false);
+            let (cut, len) = ((seed as usize * 13) % r.len(), (seed as usize * 5) % 60);
+            let end = (cut + len).min(r.len());
+            let insert = bases(seed + 1000, (seed as usize * 11) % 70, false);
+            let a = format!("{}{insert}{}", &r[..cut], &r[end..]);
+            let (r, a) = (r.as_bytes(), a.as_bytes());
+            let whole = (-(r.len() as i64), a.len() as i64);
+            let (band, cost) = exact_band(r, a, MAX_ALIGNED).unwrap();
+            assert_eq!(
+                (cost, alignment_row(r, a, band)[a.len()]),
+                (cost, alignment_row(r, a, whole)[a.len()]),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_band_that_needs_more_than_the_limit_is_refused() {
+        // 2,000 bases against their reverse: the cheapest alignment strays far
+        // from the diagonal, so the band needs more than 100,000 pairs.
+        let r = bases(3, 2000, false);
+        let a: String = r.chars().rev().collect();
+        let err = exact_band(r.as_bytes(), a.as_bytes(), 100_000).unwrap_err();
+        assert!(err.to_string().contains("too many to align"), "{err}");
+    }
+
     #[test]
     fn substitutions_nonsense_and_silence() {
         assert_eq!(p(CDS, UTR, sub("A", "C"), 3, 4), "NP:p.Lys2Gln");
@@ -798,9 +1129,13 @@ mod tests {
     }
 
     #[test]
-    fn an_in_frame_deletion_reaching_the_stop_keeps_it_original() {
-        // Delete R (codon 5): the stop shifts left but is the same stop.
+    fn a_deletion_that_brings_the_stop_forward_is_a_deletion() {
+        // Delete Arg6, or Tyr5 and Arg6: the stop is read where they were.
         assert_eq!(p(CDS, UTR, del(), 15, 18), "NP:p.Arg6del");
+        assert_eq!(p(CDS, UTR, del(), 12, 18), "NP:p.Tyr5_Arg6del");
+        // M K L A Y *: TAT TAA becomes TAA, which also reads as the deletion
+        // of the stop codon's TA and the T before it.
+        assert_eq!(p("ATGAAACTGGCCTATTAA", UTR, del(), 12, 15), "NP:p.Tyr5del");
     }
 
     #[test]
@@ -827,6 +1162,176 @@ mod tests {
         assert_eq!(p(CDS, "CCGTATAA", del(), 16, 18), "NP:p.Arg6LeufsTer4");
     }
 
+    fn delins(alt: &str) -> NaEdit {
+        NaEdit::RefAlt {
+            ref_: None,
+            alt: Some(alt.into()),
+            uncertain: false,
+        }
+    }
+    fn inv() -> NaEdit {
+        NaEdit::Inv {
+            ref_: None,
+            uncertain: false,
+        }
+    }
+
+    #[test]
+    fn an_in_frame_change_that_loses_only_the_stop_is_an_extension_wherever_it_starts() {
+        // CGC TAA becomes CGC CAA: Arg6 is rewritten as itself, the stop as Gln.
+        assert_eq!(p(CDS, UTR, delins("CGCCAA"), 15, 21), "NP:p.Ter7GlnextTer2");
+    }
+
+    #[test]
+    fn an_in_frame_change_from_before_the_stop_that_loses_it_is_a_frameshift() {
+        // CGC TAA becomes TGG CAA: Arg6 is Trp, the stop Gln, and the 3'UTR is
+        // read on to its stop: Trp Gln Pro Ter.
+        assert_eq!(p(CDS, UTR, delins("TGGCAA"), 15, 21), "NP:p.Arg6TrpfsTer4");
+        // Deleting Arg6 and the stop reads Pro from the 3'UTR, then its stop.
+        assert_eq!(p(CDS, UTR, del(), 15, 21), "NP:p.Arg6ProfsTer2");
+    }
+
+    #[test]
+    fn an_in_frame_change_that_loses_the_stop_and_finds_no_other_is_a_frameshift_of_unknown_length()
+    {
+        //          M  A  E  Q  P  L  S  E  A  *   then GGC CGG CCG GC: no stop.
+        let cds = "ATGGCTGAACAACCACTTTCTGAAGCTTAA";
+        // c.26_28delinsTTG: GCT TAA becomes GTT GAA, Val Glu.
+        assert_eq!(
+            p(cds, "GGCCGGCCGGC", delins("TTG"), 25, 28),
+            "NP:p.Ala9ValfsTer?"
+        );
+        assert_eq!(
+            p(cds, "GGCCGGCCGTAA", delins("TTG"), 25, 28),
+            "NP:p.Ala9ValfsTer6"
+        );
+    }
+
+    #[test]
+    fn an_in_frame_change_over_the_stop_names_no_residue_past_it() {
+        // c.4_*2inv makes GGC TAA from codon 2 on, a stop among the inverted
+        // bases; the codons it touches run two bases into the 3'UTR. The
+        // deleted range ends at the last residue the protein has.
+        assert_eq!(
+            p(CDS, "CCGTATAAGTAAGG", inv(), 3, 23),
+            "NP:p.Lys2_Arg6delinsGlyTer"
+        );
+        // c.16_*3delinsTGGCAATAA: CGC TAA CCG becomes TGG CAA TAA.
+        assert_eq!(
+            p(CDS, UTR, delins("TGGCAATAA"), 15, 24),
+            "NP:p.Arg6delinsTrpGlnTer"
+        );
+    }
+
+    #[test]
+    fn an_in_frame_change_that_rewrites_the_stop_as_a_stop_keeps_it() {
+        // CGC TAA becomes TGG TAA: only Arg6 changes.
+        assert_eq!(p(CDS, UTR, delins("TGGTAA"), 15, 21), "NP:p.Arg6Trp");
+        // The same, with the 3'UTR's CCG read-through codon made GGG.
+        assert_eq!(p(CDS, UTR, delins("TGGTAAGGG"), 15, 24), "NP:p.Arg6Trp");
+        // The same, with the 3'UTR's CCG deleted.
+        assert_eq!(p(CDS, UTR, delins("TGGTAA"), 15, 24), "NP:p.Arg6Trp");
+    }
+
+    #[test]
+    fn residues_duplicated_before_the_stop_are_an_extension() {
+        // TAT CGC TAA becomes TAT CGC TAT CGC TAA: Tyr Arg follow Arg6.
+        assert_eq!(
+            p(
+                CDS,
+                UTR,
+                NaEdit::Dup {
+                    ref_: None,
+                    uncertain: false
+                },
+                12,
+                18
+            ),
+            "NP:p.Ter7TyrextTer2"
+        );
+    }
+
+    #[test]
+    fn a_change_on_both_sides_of_a_kept_stop_is_the_change_before_it() {
+        // c.[16C>G;*2dup]: CGC TAA CCG becomes GGC TAA CCCG, the frame shifted
+        // only past the stop.
+        assert_eq!(p(CDS, UTR, delins("GGCTAAC"), 15, 21), "NP:p.Arg6Gly");
+        assert_eq!(p(CDS, UTR, delins("GGCTAACC"), 15, 22), "NP:p.Arg6Gly");
+    }
+
+    #[test]
+    fn residues_inserted_before_a_kept_stop_are_an_extension_however_the_edit_ends() {
+        // CAA CCG inserted before TAA, and a C after it in the last two.
+        assert_eq!(
+            p(CDS, UTR, delins("CAACCGTAA"), 18, 21),
+            "NP:p.Ter7GlnextTer2"
+        );
+        assert_eq!(
+            p(CDS, UTR, delins("CAACCGTAAC"), 18, 21),
+            "NP:p.Ter7GlnextTer2"
+        );
+        assert_eq!(
+            p(CDS, UTR, delins("CAACCGTAACC"), 18, 22),
+            "NP:p.Ter7GlnextTer2"
+        );
+        // c.18_19insCAA, and CAA before TAA with a G after it.
+        assert_eq!(p(CDS, UTR, ins("CAA"), 17, 19), "NP:p.Ter7GlnextTer1");
+        assert_eq!(
+            p(CDS, UTR, delins("CAATAAG"), 18, 21),
+            "NP:p.Ter7GlnextTer1"
+        );
+    }
+
+    #[test]
+    fn a_delins_written_through_a_stop_it_writes_back_is_the_change_before_it() {
+        // CGC TAA becomes GGC GCT AAC TAA, also c.16_17delinsGGCGCTAA.
+        assert_eq!(
+            p(CDS, UTR, delins("GGCGCTAACTAA"), 15, 21),
+            "NP:p.Arg6delinsGlyAlaAsn"
+        );
+        assert_eq!(
+            p(CDS, UTR, delins("GGCGCTAA"), 15, 17),
+            "NP:p.Arg6delinsGlyAlaAsn"
+        );
+        assert_eq!(p(CDS, UTR, delins("AGCTAA"), 15, 21), "NP:p.Arg6Ser");
+        assert_eq!(p(CDS, UTR, delins("TATTAA"), 12, 21), "NP:p.Arg6del");
+        assert_eq!(p(CDS, UTR, delins("GCCTAA"), 9, 21), "NP:p.Tyr5_Arg6del");
+    }
+
+    #[test]
+    fn a_stop_the_edit_makes_ends_a_delins_over_the_codons_that_differ_however_it_is_spelled() {
+        // c.4_12delinsCTGTAA, spelled through the TAT that follows.
+        assert_eq!(
+            p(CDS, UTR, delins("CTGTAATAT"), 3, 15),
+            "NP:p.Lys2_Ala4delinsLeuTer"
+        );
+        // Out of frame: c.4_12delinsCTGTAAGG, spelled through the TAT.
+        assert_eq!(
+            p(CDS, UTR, delins("CTGTAAGGTAT"), 3, 15),
+            "NP:p.Lys2_Ala4delinsLeuTer"
+        );
+    }
+
+    #[test]
+    fn a_soft_masked_record_reads_alike_however_many_bases_the_edit_spells() {
+        // c.16_21delinsTGGCAA, spelled through the 3'UTR's own CCG TAG, on a
+        // record written in lowercase.
+        let (cds, utr) = (CDS.to_ascii_lowercase(), UTR.to_ascii_lowercase());
+        assert_eq!(
+            p(&cds, &utr, delins("TGGCAACCGTAG"), 15, 27),
+            "NP:p.Arg6TrpfsTer4"
+        );
+    }
+
+    #[test]
+    fn a_lost_stop_reads_alike_however_many_3_prime_utr_bases_the_edit_spells() {
+        // c.16_21delinsTGGCAA, spelled through the 3'UTR's own CCG TAG.
+        assert_eq!(
+            p(CDS, UTR, delins("TGGCAACCGTAG"), 15, 27),
+            "NP:p.Arg6TrpfsTer4"
+        );
+    }
+
     #[test]
     fn a_selenocysteine_codon_is_not_the_stop() {
         // M K U(TGA) L *  : the declared CDS runs to the real stop.
@@ -837,13 +1342,12 @@ mod tests {
     }
 
     #[test]
-    fn an_insertion_before_the_stop_that_repeats_the_last_residue_is_not_an_extension() {
+    fn an_insertion_before_the_last_residue_that_repeats_it_is_an_extension() {
         // M L F V L C R L *  ; insert TTG TCT (Leu Ser) before the last CTT (Leu).
-        // The first differing residue is at the stop's index (Leu == Leu), but
-        // the stop itself is intact two codons on.
+        // Written 3'-most, Ser Leu follow Leu8: the protein is extended.
         let cds = "ATGCTGTTTGTATTGTGTCGTCTTTAA";
         let out = p(cds, "AGTGCTTTAAG", ins("TTGTCT"), 20, 22);
-        assert_eq!(out, "NP:p.Leu8_Ter9insSerLeu");
+        assert_eq!(out, "NP:p.Ter9SerextTer2");
     }
 
     #[test]

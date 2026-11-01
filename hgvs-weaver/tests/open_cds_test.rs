@@ -489,7 +489,7 @@ fn a_closed_cds_predicts_duplicating_its_last_residue() {
     let mapper = VariantMapper::new(&hdp);
     assert_eq!(
         c_to_p(&mapper, "NM_SHUT.1:c.28_30dup").unwrap(),
-        "NP_SHUT.1:p.(Gly10dup)"
+        "NP_SHUT.1:p.(Ter11GlyextTer1)"
     );
 }
 

@@ -909,20 +909,10 @@ proptest! {
             &protein, &predicted, other.as_ref(), kind, at, count, &residues, length,
         ) else { return Ok(()) };
         let vp = parse_hgvs_variant(&text).unwrap_or_else(|e| panic!("{text}: {e}"));
-        let through_prediction = eq.equivalent_level(&SequenceVariant::Protein(predicted.clone()), &vp);
+        let through_prediction = eq
+            .equivalent_level(&SequenceVariant::Protein(predicted.clone()), &vp)
+            .map_err(|e| TestCaseError::fail(format!("{predicted} against {vp}: {e}")))?;
         let direct = eq.equivalent_level(&SequenceVariant::Coding(vc.clone()), &vp);
-        // A prediction that does not read back on its own protein has no
-        // judgement to compare with: c_to_p names read-through residues past
-        // the stop for an in-frame change over it (issue #94), as residues the
-        // protein does not hold or as positions past its end.
-        let through_prediction = match through_prediction {
-            Ok(level) => level,
-            Err(
-                hgvs_weaver::HgvsError::ReferenceMismatch { .. }
-                | hgvs_weaver::HgvsError::PositionOutsideSequence { .. },
-            ) => return Ok(()),
-            Err(e) => return Err(TestCaseError::fail(format!("{predicted} against {vp}: {e}"))),
-        };
         // A predicted frameshift or extension, or a change that removes the
         // stop, leaves residues it does not name, which match any residue, so
         // a description can match those through the prediction and not the
@@ -1064,6 +1054,22 @@ proptest! {
 
         let ref_aa = translate(&g.transcript_seq[g.cds_start..]);
         let alt_aa = translate(&alt_tx[g.cds_start..]);
+        if let AaEdit::Ext { alt, end: hgvs_weaver::edits::ExtensionEnd::Stop { distance } } = &vp.posedit.edit {
+            // An extension names the residues before the stop unchanged, the
+            // residue that replaces it, and where the next stop falls.
+            let s = vp.posedit.pos.as_ref().unwrap().start.base.to_index().0 as usize;
+            let translated = up_to_stop(&alt_aa);
+            let named = format!("{}{}", &ref_aa[..s], aa3_to_aa1(alt));
+            prop_assert!(translated.starts_with(&named), "{} does not describe {}", described, translated);
+            match distance {
+                hgvs_weaver::edits::StopDistance::Residues { count } => {
+                    prop_assert_eq!(translated.len(), s + count.get() as usize + 1, "{}", described);
+                }
+                hgvs_weaver::edits::StopDistance::Unknown => prop_assert!(!translated.ends_with('*'), "{}", described),
+                hgvs_weaver::edits::StopDistance::Unstated => prop_assert!(false, "{} states no stop", described),
+            }
+            return Ok(());
+        }
         let Some(applied) = apply_protein(&ref_aa, &vp) else {
             prop_assert!(false, "unmodelled description {described}");
             unreachable!()
@@ -2763,5 +2769,87 @@ proptest! {
             mapper.predicted_protein_cis(c, None).map_err(|e| std::mem::discriminant(&e))
         };
         prop_assert_eq!(left(&cis), left(&delins), "{} and {}", cis, delins);
+    }
+}
+
+/// A sense codon: any of the 61 the standard table reads as a residue.
+fn sense_codon() -> impl Strategy<Value = String> {
+    let codons: Vec<String> = BASES
+        .iter()
+        .flat_map(|a| {
+            BASES
+                .iter()
+                .flat_map(move |b| BASES.iter().map(move |c| format!("{a}{b}{c}")))
+        })
+        .filter(|c| translate_codon(c) != Some('*'))
+        .collect();
+    prop::sample::select(codons)
+}
+
+/// The protein consequence of the delins `[start, end)` to `alt` on `coding`,
+/// a CDS of `cds_len` bases and its 3'UTR, or the kind of error that refuses
+/// to predict one.
+fn consequence(
+    coding: &str,
+    cds_len: usize,
+    start: usize,
+    end: usize,
+    alt: &str,
+) -> Result<String, std::mem::Discriminant<hgvs_weaver::HgvsError>> {
+    let edit = NaEdit::RefAlt {
+        ref_: None,
+        alt: Some(alt.to_string()),
+        uncertain: false,
+    };
+    let resolved = edit
+        .resolve_with("NM_PROP.1", start, end, |s, e| Ok(coding[s..e].to_string()))
+        .unwrap();
+    let change = hgvs_weaver::protein::CodingChange::new(coding, cds_len, resolved, "NP_PROP.1");
+    hgvs_weaver::protein::describe(&change)
+        .map(|v| v.to_string())
+        .map_err(|e| std::mem::discriminant(&e))
+}
+
+proptest! {
+    /// One edited transcript is one protein consequence, however the change
+    /// that makes it is spelled: a delins widened over bases the two
+    /// sequences share describes what the narrower one does. The changes are
+    /// drawn around the stop, where whether it is kept, and where a stop the
+    /// change makes ends its delins, decide the description. A silent change
+    /// names the codons it is written over, so it is left out. A record may be
+    /// soft-masked, lowercase where the edit's bases are not.
+    #[test]
+    fn one_edited_transcript_is_one_protein_consequence(
+        codons in prop::collection::vec(sense_codon(), 2..8),
+        stop in prop::sample::select(vec!["TAA", "TAG", "TGA"]),
+        utr in dna(0, 15),
+        at in 0usize..13,
+        len in 0usize..10,
+        alt in dna(0, 12),
+        widen in (0usize..7, 0usize..7),
+        soft_masked in any::<bool>(),
+    ) {
+        let coding = format!("ATG{}{stop}{utr}", codons.concat());
+        let coding = if soft_masked { coding.to_ascii_lowercase() } else { coding };
+        let cds_len = 3 * (codons.len() + 2);
+        let start = (cds_len - 3 + at).saturating_sub(6).clamp(3, coding.len());
+        let end = (start + len).min(coding.len());
+        if coding[start..end].eq_ignore_ascii_case(&alt) {
+            return Ok(());
+        }
+        let wide_start = start.saturating_sub(widen.0).max(3);
+        let wide_end = (end + widen.1).min(coding.len());
+        let wide_alt = format!("{}{alt}{}", &coding[wide_start..start], &coding[end..wide_end])
+            .to_ascii_uppercase();
+        let narrow = consequence(&coding, cds_len, start, end, &alt);
+        let wide = consequence(&coding, cds_len, wide_start, wide_end, &wide_alt);
+        if narrow.as_deref().is_ok_and(|d| d.ends_with("=") || d.ends_with("=)")) {
+            return Ok(());
+        }
+        prop_assert_eq!(
+            &narrow, &wide,
+            "c.{}_{}delins{} and c.{}_{}delins{} on {}",
+            start + 1, end, alt, wide_start + 1, wide_end, wide_alt, coding
+        );
     }
 }

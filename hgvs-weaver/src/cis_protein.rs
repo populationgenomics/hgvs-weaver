@@ -407,7 +407,7 @@ impl VariantMapper<'_> {
             return statement(None, s);
         }
         if cds.end_open && !upstream {
-            Reading::new(cds.change(&placed)).check_within_record(&cds.cis.ac)?;
+            Reading::new(cds.change(&placed))?.check_within_record(&cds.cis.ac)?;
         }
         let (reading, read) = read_through(cds, &placed)?;
         if reading.runs_off() {
@@ -457,9 +457,9 @@ enum Changes {
 fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<(Reading, usize), HgvsError> {
     let in_cds = placed.iter().take_while(|e| e.start < cds.len).count();
     if in_cds == 0 {
-        return Ok((Reading::new(cds.change(placed)), placed.len()));
+        return Ok((Reading::new(cds.change(placed))?, placed.len()));
     }
-    let early = Reading::new(cds.change(&placed[..in_cds]));
+    let early = Reading::new(cds.change(&placed[..in_cds]))?;
     let Some(late) = placed.get(in_cds) else {
         return Ok((early, in_cds));
     };
@@ -469,7 +469,7 @@ fn read_through(cds: &Cds, placed: &[ResolvedEdit]) -> Result<(Reading, usize), 
     {
         return Ok((early, in_cds));
     }
-    let all = Reading::new(cds.change(placed));
+    let all = Reading::new(cds.change(placed))?;
     if all.in_frame() != early.in_frame() && (all.changes_before_stop() || !all.in_frame()) {
         return Err(HgvsError::UnsupportedOperation(format!(
             "{}: a member past the stop codon changes the frame the read-through is translated in, \
@@ -642,7 +642,7 @@ fn groups(edits: &[ResolvedEdit]) -> Vec<Vec<ResolvedEdit>> {
 /// starts, so that nothing can be said from there on.
 fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVariant>>, HgvsError> {
     let describe = |group: &[ResolvedEdit]| {
-        let reading = Reading::new(cds.change(group));
+        let reading = Reading::new(cds.change(group))?;
         match reading.runs_off() {
             true => Ok(None),
             false => reading.describe().map(Some),
@@ -676,7 +676,7 @@ fn described_apart(cds: &Cds, edits: &[ResolvedEdit]) -> Result<Option<Vec<PVari
     }
     if cds.end_open {
         for (group, _) in &described {
-            Reading::new(cds.change(group)).check_within_record(&cds.cis.ac)?;
+            Reading::new(cds.change(group))?.check_within_record(&cds.cis.ac)?;
         }
     }
     Ok(Some(described.into_iter().map(|(_, p)| p).collect()))

@@ -341,6 +341,30 @@ fn replacing_the_stop_over_a_range_is_not_the_protein_unchanged() {
 }
 
 #[test]
+fn residues_inserted_before_the_stop_written_as_clinvar_does_are_the_extension_weaver_predicts() {
+    // c.18_19insCAA predicts p.(Ter7GlnextTer1); ClinVar writes p.Arg6_Ter7insGln.
+    let predicted = coding_level("NP_X.1:p.(Ter7GlnextTer1)", "NP_X.1:p.Arg6_Ter7insGln");
+    assert!(predicted.is_equivalent(), "{predicted:?}");
+    let coding = coding_level("NM_X.1:c.18_19insCAA", "NP_X.1:p.Arg6_Ter7insGln");
+    assert!(coding.is_equivalent(), "{coding:?}");
+}
+
+#[test]
+fn residues_duplicated_before_the_stop_written_as_a_duplication_are_the_extension_weaver_predicts()
+{
+    // c.13_18dup predicts p.(Ter7TyrextTer2); ClinVar writes p.Tyr5_Arg6dup.
+    let level = coding_level("NM_X.1:c.13_18dup", "NP_X.1:p.Tyr5_Arg6dup");
+    assert!(level.is_equivalent(), "{level:?}");
+}
+
+#[test]
+fn a_deletion_reaching_the_stop_written_as_nonsense_is_the_deletion_weaver_predicts() {
+    // c.16_18del predicts p.(Arg6del); a stop at Arg6 leaves the same protein.
+    let level = coding_level("NM_X.1:c.16_18del", "NP_X.1:p.Arg6Ter");
+    assert!(level.is_equivalent(), "{level:?}");
+}
+
+#[test]
 fn an_insertion_before_the_stop_is_the_residue_added_before_it() {
     assert_eq!(
         coding_level(
