@@ -20,8 +20,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --default-toolchain stable --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install maturin for building Python wheels
-RUN pip install --no-cache-dir maturin
+# maturin builds the Python wheels; uv exports the validation's dependencies from the lock.
+RUN pip install --no-cache-dir maturin uv
 
 # ── ferro-hgvs: Python wheel + CLI binary ────────────────────────────────────
 RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
@@ -37,6 +37,9 @@ RUN cp /build/ferro-hgvs/target/release/ferro /usr/local/bin/ferro
 # ── weaver: Python wheel ──────────────────────────────────────────────────────
 COPY . /build/hgvs-rs
 RUN cd /build/hgvs-rs && maturin build --release --out /wheels
+# The gate group, as locked: the lock's override leaves out hgvs's database driver, which needs libpq to build.
+RUN cd /build/hgvs-rs && uv export --locked --no-dev --group gate --no-emit-project --no-hashes \
+        --output-file /wheels/gate-requirements.txt
 
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -52,18 +55,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /wheels /wheels
 COPY --from=builder /usr/local/bin/ferro /usr/local/bin/ferro
 
-# Install wheels and validation dependencies.
-# hgvs (biocommons) is installed without its optional DB deps to avoid psycopg2.
-RUN pip install --no-cache-dir /wheels/*.whl \
-    && pip install --no-cache-dir --no-deps hgvs \
-    && pip install --no-cache-dir \
-        pysam \
-        tqdm \
-        parsley \
-        bioutils \
-        seaborn \
-        matplotlib \
-        pandas
+# --no-deps: the export is the whole locked closure; pip resolving it again would bring the overridden
+# packages back.
+RUN pip install --no-cache-dir --no-deps -r /wheels/gate-requirements.txt /wheels/hgvs_weaver-*.whl \
+    && pip install --no-cache-dir /wheels/ferro_hgvs-*.whl
 
 # Reference data and input files are mounted at runtime.
 WORKDIR /data
