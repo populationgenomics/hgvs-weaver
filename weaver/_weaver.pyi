@@ -11,6 +11,17 @@ class AmbiguousDescriptionError(HGVSError):
 
     readings: list[Variant]
 
+class AmbiguousResidueError(ParseError):
+    """A one-letter X in a p. description where a stop and any residue could both stand.
+
+    The new residue of a substitution at a residue that is not a stop, or one an insertion or
+    deletion-insertion names. ambiguous holds each such X as (text, start, end) with
+    text == description[start:end], one per X, in the order written.
+    """
+
+    description: str
+    ambiguous: list[tuple[str, int, int]]
+
 class CigarError(HGVSError): ...
 class DataProviderError(HGVSError): ...
 
@@ -40,8 +51,8 @@ class MixedResidueCodesError(ParseError):
 
     one_letter and three_letter hold every residue or run written in each, as (text, start, end)
     with text == description[start:end], in the order written: a run the grammar reads as one
-    sequence, the DPA of insDPA, is one token, and a * standing alone, a stop in either code, is in
-    neither.
+    sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either
+    code, are in neither, as is a run of nothing else; one inside a run is part of that run's token.
     """
 
     description: str
@@ -737,8 +748,11 @@ def parse(input: str) -> Variant:
 
     Raises:
         MixedResidueCodesError: If a p. description writes residues in both the
-            one- and three-letter amino acid codes, p.Arg111X; * is a stop in
+            one- and three-letter amino acid codes, p.Arg111X; * and Xaa are in
             either. A ParseError, carrying every residue written in each code.
+        AmbiguousResidueError: If a one-letter p. description writes X where a
+            stop and any residue could both stand, p.R210X. A ParseError, carrying
+            each such X.
         ParseError: If the HGVS string is malformed or unsupported.
         UnsupportedOperationError: If the string describes alleles in trans.
     """

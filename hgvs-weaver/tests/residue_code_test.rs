@@ -210,12 +210,103 @@ fn a_one_letter_frameshift_to_x_is_to_a_stop() {
     );
 }
 
+/// One test per case: `$hgvs` is the description `$same`, `Xaa` belonging
+/// to either code.
+macro_rules! xaa_is_either_code {
+    ($($name:ident: $hgvs:literal => $same:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!(parse($hgvs), parse($same));
+        }
+    )*};
+}
+
+xaa_is_either_code! {
+    a_substitution_to_xaa_at_a_one_letter_residue: "NP_W.1:p.R50Xaa" => "NP_W.1:p.Arg50Xaa";
+    a_one_letter_allele_with_a_member_to_xaa: "NP_W.1:p.[R2Xaa;L3P]" => "NP_W.1:p.[Arg2Xaa;Leu3Pro]";
+}
+
 #[test]
-fn a_one_letter_substitution_to_x_is_to_an_unknown_residue() {
+fn a_mixed_allele_does_not_count_xaa_in_either_code() {
     assert_eq!(
-        parse("NP_060360.3:p.L2781X"),
-        parse("NP_060360.3:p.Leu2781Xaa")
+        tokens("NP_W.1:p.[Arg2Xaa;L3P]"),
+        (
+            vec![token("L", 18, 19), token("P", 20, 21)],
+            vec![token("Arg", 10, 13)]
+        )
     );
+}
+
+/// The `X`s the ambiguity refusal of `hgvs` carries, as `(text, start, end)`.
+fn ambiguous(hgvs: &str) -> Vec<Token> {
+    match parse_hgvs_variant(hgvs) {
+        Err(HgvsError::AmbiguousResidue { ambiguous, .. }) => ambiguous
+            .into_iter()
+            .map(|t| (t.text, t.start, t.end))
+            .collect(),
+        other => panic!("{hgvs}: {other:?}"),
+    }
+}
+
+/// One test per case: `$hgvs`, a one-letter description, is refused for the
+/// `X`s at `$spans`, each of which could be a stop or any residue.
+macro_rules! an_x_is_ambiguous {
+    ($($name:ident: $hgvs:literal => [$(($start:literal, $end:literal)),*];)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!(ambiguous($hgvs), vec![$(token("X", $start, $end)),*]);
+        }
+    )*};
+}
+
+an_x_is_ambiguous! {
+    a_one_letter_substitution_to_x: "NP_000026.2:p.R60X" => [(17, 18)];
+    a_one_letter_insertion_of_x: "NP_W.1:p.A2_G3insX" => [(17, 18)];
+    a_one_letter_deletion_insertion_ending_in_x: "NP_W.1:p.R2delinsKX" => [(18, 19)];
+    every_x_of_a_one_letter_allele: "NP_W.1:p.[R2X;A4_G5insKXX]" => [(12, 13), (23, 24), (24, 25)];
+    an_x_in_a_predicted_one_letter_allele: "NP_W.1:p.[(R2X;L3P)]" => [(13, 14)];
+    a_substitution_to_x_at_a_residue_written_xaa: "NP_W.1:p.Xaa5X" => [(13, 14)];
+}
+
+#[test]
+fn a_three_letter_substitution_to_x_is_refused_as_a_mix_not_an_ambiguity() {
+    let result = parse_hgvs_variant("NP_000021.1:p.Arg111X");
+    assert!(
+        matches!(result, Err(HgvsError::MixedResidueCodes { .. })),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn the_ambiguity_message_offers_a_stop_and_any_residue() {
+    let message = parse_hgvs_variant("NP_000026.2:p.R60X")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        message.contains("write * for a stop and Xaa for any residue"),
+        "{message}"
+    );
+}
+
+/// One test per case: `$hgvs` reads its one-letter `X` the one way it can,
+/// as the description `$read` does.
+macro_rules! an_x_with_one_reading {
+    ($($name:ident: $hgvs:literal => $read:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!(parse($hgvs), parse($read));
+        }
+    )*};
+}
+
+an_x_with_one_reading! {
+    a_frameshift_to_a_stop_written_x: "NP_W.1:p.R210fsX5" => "NP_W.1:p.Arg210fsTer5";
+    an_extension_to_a_stop_written_x: "NP_W.1:p.*30QextX5" => "NP_W.1:p.Ter30GlnextTer5";
+    a_stop_replaced_by_x_which_cannot_be_a_stop: "NP_W.1:p.*30X" => "NP_W.1:p.Ter30Xaa";
+    a_repeat_unit_holding_x_checked_against_the_sequence: "NP_W.1:p.Q18_A20QX[3]" => "NP_W.1:p.Gln18_Ala20GlnXaa[3]";
+    a_frameshift_from_x_whose_first_residue_is_no_stop: "NP_W.1:p.R2Xfs*5" => "NP_W.1:p.Arg2XaafsTer5";
+    an_n_terminal_extension_from_x_which_starts_no_protein_at_a_stop: "NP_W.1:p.M1extX-5" => "NP_W.1:p.Met1extXaa-5";
+    a_reference_residue_written_x_checked_against_the_sequence: "NP_W.1:p.X5_L7del" => "NP_W.1:p.Xaa5_Leu7del";
 }
 
 /// One test per case: `$hgvs`, which writes no residue or writes them in one
@@ -255,7 +346,7 @@ macro_rules! prints_in_three_letter_code {
 prints_in_three_letter_code! {
     a_one_letter_insertion: "NP_000081.1:p.A356_G357insDPA" => "NP_000081.1:p.Ala356_Gly357insAspProAla";
     a_one_letter_deletion_insertion: "NP_W.1:p.R2delinsKL" => "NP_W.1:p.Arg2delinsLysLeu";
-    a_one_letter_insertion_of_x: "NP_W.1:p.A2_L3insX" => "NP_W.1:p.Ala2_Leu3insXaa";
+    an_insertion_of_xaa_between_one_letter_residues: "NP_W.1:p.A2_L3insXaa" => "NP_W.1:p.Ala2_Leu3insXaa";
     a_one_letter_repeat_unit: "NP_W.1:p.490PRS[1]" => "NP_W.1:p.490ProArgSer[1]";
     a_one_letter_repeat_unit_over_a_range: "NP_W.1:p.Q18_A20QA[3]" => "NP_W.1:p.Gln18_Ala20GlnAla[3]";
     a_one_letter_insertion_that_spells_a_three_letter_code: "NP_W.1:p.A2_G3insHIS" => "NP_W.1:p.Ala2_Gly3insHisIleSer";

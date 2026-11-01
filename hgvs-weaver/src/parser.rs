@@ -109,16 +109,16 @@ enum ResidueCode {
     Three,
 }
 
-/// The code a residue rule is written in; `None` for `*`, a stop in both,
-/// and for any rule that is not a residue.
+/// The code a residue rule is written in; `None` for `*` and `Xaa`, the
+/// spellings of a stop and of an unknown residue in either code, and for any
+/// rule that is not a residue.
 fn residue_code(p: &Pair<Rule>) -> Option<ResidueCode> {
-    let text = p.as_str();
     match p.as_rule() {
-        Rule::aa3 | Rule::term3 => Some(ResidueCode::Three),
         Rule::aa1 => Some(ResidueCode::One),
         // aat13_seq is atomic, so its residues are not pairs of their own:
         // a three-letter code has a lower-case letter, a one-letter one none.
-        Rule::term1 | Rule::aat13_seq => {
+        Rule::aa3 | Rule::term3 | Rule::term1 | Rule::aat13_seq => {
+            let text = p.as_str().replace("Xaa", "");
             if text.chars().any(|c| c.is_ascii_lowercase()) {
                 Some(ResidueCode::Three)
             } else if text.chars().any(|c| c != '*') {
@@ -129,6 +129,71 @@ fn residue_code(p: &Pair<Rule>) -> Option<ResidueCode> {
         }
         _ => None,
     }
+}
+
+/// Refuses a one-letter `X` where a stop and any residue could both stand:
+/// the new residue of a substitution at a residue that is not a stop, and a
+/// residue an insertion or deletion-insertion names. `X` was the stop before
+/// it was `Xaa`, and nothing in such a description says which it means. Each
+/// refused `X` is a token of its own. Run after [`one_residue_code`], so an
+/// `X` beside three-letter residues is refused as a mix of codes instead.
+pub(crate) fn no_ambiguous_x(variant: &Pair<Rule>) -> Result<(), HgvsError> {
+    let mut ambiguous = Vec::new();
+    for p in variant.clone().into_inner().flatten() {
+        if !matches!(p.as_rule(), Rule::p_posedit | Rule::p_member) {
+            continue;
+        }
+        let parts: Vec<_> = p.into_inner().collect();
+        let (Some(interval), Some(edit)) = (
+            parts.iter().find(|c| c.as_rule() == Rule::p_interval),
+            parts.iter().find(|c| c.as_rule() == Rule::pro_edit),
+        ) else {
+            continue;
+        };
+        let Some(change) = edit.clone().into_inner().next() else {
+            continue;
+        };
+        let residues = match change.as_rule() {
+            // A stop replaced by a stop would be no change, so only Xaa can
+            // stand there.
+            Rule::pro_subst if !starts_at_a_stop(interval) => change.as_span(),
+            Rule::pro_ins | Rule::pro_delins => match change.into_inner().next() {
+                Some(run) => run.as_span(),
+                None => continue,
+            },
+            _ => continue,
+        };
+        // A one-letter run holds no lower case, so its X is never Xaa's.
+        let text = residues.as_str();
+        if text.chars().any(|c| c.is_ascii_lowercase()) {
+            continue;
+        }
+        for (i, _) in text.match_indices('X') {
+            ambiguous.push(ResidueToken {
+                text: "X".to_string(),
+                start: residues.start() + i,
+                end: residues.start() + i + 1,
+            });
+        }
+    }
+    if ambiguous.is_empty() {
+        return Ok(());
+    }
+    Err(HgvsError::AmbiguousResidue {
+        description: variant.as_str().to_string(),
+        ambiguous,
+    })
+}
+
+/// Whether the first residue `interval` names is written as a stop.
+fn starts_at_a_stop(interval: &Pair<Rule>) -> bool {
+    interval
+        .clone()
+        .into_inner()
+        .flatten()
+        .find(|p| p.as_rule() == Rule::p_pos)
+        .and_then(|pos| pos.into_inner().next())
+        .is_some_and(|first| first.as_rule() == Rule::term13)
 }
 
 pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {

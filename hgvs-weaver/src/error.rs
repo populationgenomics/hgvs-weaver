@@ -77,13 +77,24 @@ pub enum HgvsError {
     /// A protein description that writes residues in both amino acid codes:
     /// `one_letter` and `three_letter` are every residue or run written in
     /// each, in the order they appear in `description`, so a caller can
-    /// rewrite one code into the other and parse again. `*` is a stop in
-    /// either code, so a run of nothing but `*` is in neither; one inside a
-    /// one-letter run is part of that run's token.
+    /// rewrite one code into the other and parse again. `*` and `Xaa`, a
+    /// stop and an unknown residue in either code, are in neither, as is a
+    /// run of nothing else; one inside a run is part of that run's token.
+    /// `Xaa` is in either code only outside a one-letter run, which cannot
+    /// hold it.
     MixedResidueCodes {
         description: String,
         one_letter: Vec<ResidueToken>,
         three_letter: Vec<ResidueToken>,
+    },
+    /// A one-letter `X` in a protein description where a stop and any
+    /// residue could both stand: the new residue of a substitution at a
+    /// residue that is not a stop, or one an insertion or deletion-insertion
+    /// names. `ambiguous` is each such
+    /// `X` as written in `description`, one token per `X`, in order.
+    AmbiguousResidue {
+        description: String,
+        ambiguous: Vec<ResidueToken>,
     },
     /// Failure during validation of transcript or exon metadata.
     ValidationError(String),
@@ -189,6 +200,21 @@ impl fmt::Display for HgvsError {
                     write!(f, " (a stop is Ter or *, an unknown residue Xaa)")?;
                 }
                 Ok(())
+            }
+            HgvsError::AmbiguousResidue {
+                description,
+                ambiguous,
+            } => {
+                write!(f, "Ambiguous residue: {description} writes X at")?;
+                for (i, t) in ambiguous.iter().enumerate() {
+                    let sep = if i == 0 { " " } else { ", " };
+                    write!(f, "{sep}{}..{}", t.start, t.end)?;
+                }
+                write!(
+                    f,
+                    ", which could be a stop or any residue; write * for a stop and Xaa for \
+                     any residue"
+                )
             }
             HgvsError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
             HgvsError::DataProviderError(msg) => write!(f, "Data provider error: {msg}"),

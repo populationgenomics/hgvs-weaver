@@ -239,6 +239,7 @@ Variation Representation Specification 2.0.1.
 | [Forms accepted beyond biocommons](#forms-accepted-beyond-biocommons)                                                               |                                 agrees                                  |      differs      |                –                |        –         |
 | [Recommended spellings on output](#recommended-spellings-on-output)                                                                 |                                 agrees                                  | differs on `ext*` |             differs             |        –         |
 | [A protein description uses one amino acid code](#a-protein-description-uses-one-amino-acid-code)                                   |                        agrees; silent on mixing                         |      differs      |                –                |     differs      |
+| [A one-letter X that could be a stop or any residue is refused](#a-one-letter-x-that-could-be-a-stop-or-any-residue-is-refused)     |                                 agrees                                  |      differs      |                –                |     differs      |
 | [A range written backwards is refused when parsed](#a-range-written-backwards-is-refused-when-parsed)                               |                                 agrees                                  |      differs      |             agrees              |        –         |
 | [Positions number from 1, and an unknown one is not 0](#positions-number-from-1-and-an-unknown-one-is-not-0)                        |                                 agrees                                  |         –         |                –                |        –         |
 | [A number too large to hold is refused when parsed](#a-number-too-large-to-hold-is-refused-when-parsed)                             |                                    –                                    |         –         |                –                |        –         |
@@ -4444,11 +4445,12 @@ A description read in an older or shorter spelling is stored as the spelling it 
 to the same value. A position, a substituted residue, and the residues of a frameshift or extension are written in
 three-letter code: `p.M1?` is stored and printed as `p.Met1?`. Where only a stop can stand, `X` or `*` is `Ter`: after
 `fs`, after `ext` with a count (`ext*5` and `extX+5`, not the offset of `extXaa-5`), and at the start of an extension
-past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Elsewhere a one-letter `X` is `Xaa`. The count after `fs` or `ext`
-is a number, so `ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion, deletion-insertion or repeat
-names are three-letter too, so that the printed description writes one code throughout
-([below](#a-protein-description-uses-one-amino-acid-code)): `p.R2delinsKL` is `p.Arg2delinsLysLeu`, and `p.A2_K3insX` is
-`p.Ala2_Lys3insXaa`.
+past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Where only any residue can stand, at any other position and in a
+repeat unit, it is `Xaa`; where both could, it is refused
+([below](#a-one-letter-x-that-could-be-a-stop-or-any-residue-is-refused)). The count after `fs` or `ext` is a number, so
+`ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion, deletion-insertion or repeat names are
+three-letter too, so that the printed description writes one code throughout
+([below](#a-protein-description-uses-one-amino-acid-code)): `p.R2delinsKL` is `p.Arg2delinsLysLeu`.
 
 **Example:**
 
@@ -4477,8 +4479,9 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
   `::an_n_terminal_extension_from_an_unknown_residue`, `::an_extension_count_written_plus_is_the_bare_count`,
   `::an_extension_count_with_leading_zeros_is_the_number`, `::a_frameshift_count_with_leading_zeros_is_the_number`,
   `::an_extension_count_after_x_is_the_distance_to_a_stop`; `residue_code_test::a_one_letter_insertion`,
-  `::a_one_letter_deletion_insertion`, `::a_one_letter_insertion_of_x`, `::a_one_letter_repeat_unit`,
-  `::a_one_letter_repeat_unit_over_a_range`, `::a_one_letter_insertion_that_spells_a_three_letter_code`;
+  `::a_one_letter_deletion_insertion`, `::an_insertion_of_xaa_between_one_letter_residues`,
+  `::a_one_letter_repeat_unit`, `::a_one_letter_repeat_unit_over_a_range`,
+  `::a_one_letter_insertion_that_spells_a_three_letter_code`;
   `statements_test::a_dict_for_an_extension_from_a_stop_written_x_loads_at_ter`,
   `::a_dict_for_an_extension_by_a_count_after_x_loads_as_the_distance_to_a_stop`,
   `::a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue`,
@@ -4488,8 +4491,8 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
 
 **A `p.` description writes every residue in the one-letter code or every residue in the three-letter code; one that
 mixes them is a `MixedResidueCodesError`, a kind of `ParseError`, that carries every residue written in each code and
-where it stands in the text. `*` is a stop in both codes, so it belongs to either. The rule spans the whole description,
-every member of an allele included.**
+where it stands in the text. `*` and `Xaa`, the spellings of a stop and of an unknown residue in both codes, belong to
+either. The rule spans the whole description, every member of an allele included.**
 
 HGVS gives each amino acid two spellings, and the two disagree about `X`. In the three-letter code an unknown residue is
 `Xaa` and a stop is `Ter`; in the one-letter code an unknown residue is `X`, and older recommendations used `X` for a
@@ -4499,13 +4502,16 @@ recommendation, and nothing in the text says which was meant. weaver read it as 
 validated, because only the reference residue is checked, and named a different allele from `p.Arg210Ter`. The same `X`
 after `fs` was read as a stop, so `p.Arg210X` and `p.Arg210ProfsX5` read one letter two ways.
 
-Holding a description to one code removes the ambiguity where it arises. Within one code, `X` has a single meaning: in a
-one-letter description it keeps the reading [above](#recommended-spellings-on-output), `Xaa` except where only a stop
-can stand, and a three-letter description has no `X` at all. Across codes, the mix is what HGVS does not write, and
-weaver does not guess which code was meant. Applying the rule per member of an allele would let `p.[Arg2Lys;L3P]`
-through, which is the same mix split across a semicolon. There is no exception for `fsX` or `extX`: `p.Ile223MetfsX45`
-mixes the codes like `p.Arg111X` does, and accepting one but not the other would put back the inconsistency the rule
-removes. A description that names no residue, `p.?`, `p.0` or `p.=`, writes neither code.
+Holding a description to one code removes the ambiguity where it arises: a three-letter description has no `X` at all,
+and a one-letter `X` that could still be either is refused in its own right
+([below](#a-one-letter-x-that-could-be-a-stop-or-any-residue-is-refused)). `*` and `Xaa` mean one thing in either code,
+the standards page lists `*` in both and asks for `Xaa` only, so `p.R50Xaa` is `p.Arg50Xaa`. A run of residues is one
+code by the grammar, so `Xaa` stands beside one-letter residues, not inside a one-letter run: `p.A2_G3insKXaa` does not
+parse. Across codes, the mix is what HGVS does not write, and weaver does not guess which code was meant. Applying the
+rule per member of an allele would let `p.[Arg2Lys;L3P]` through, which is the same mix split across a semicolon. There
+is no exception for `fsX` or `extX`: `p.Ile223MetfsX45` mixes the codes like `p.Arg111X` does, and accepting one but not
+the other would put back the inconsistency the rule removes. A description that names no residue, `p.?`, `p.0` or `p.=`,
+writes neither code.
 
 The rule is about the text, so it is checked on the text as parsed, before the residues are stored in the three-letter
 code weaver prints. A dict is not text: it stores residues one field at a time, and loads as before.
@@ -4533,13 +4539,13 @@ NP_005206.2:p.V191GfsTer35          →  MixedResidueCodesError  Ter is three-le
 NP_W.1:p.[Arg2Lys;L3P]              →  MixedResidueCodesError  across the members of an allele
 NP_004619.3:p.I223MfsX45            →  NP_004619.3:p.Ile223MetfsTer45
 NP_004619.3:p.Ile223Metfs*45        →  NP_004619.3:p.Ile223MetfsTer45
-NP_060360.3:p.L2781X                →  NP_060360.3:p.Leu2781Xaa  X is Xaa in a one-letter description
+NP_W.1:p.R50Xaa                     →  NP_W.1:p.Arg50Xaa
 NP_W.1:p.Arg2*                      →  NP_W.1:p.Arg2Ter
 ```
 
 - **Differs:** biocommons reads each residue in either code, so `p.Arg111X` is `p.Arg111Xaa` and `p.Ile223MetfsX45` is
   `p.Ile223MetfsTer45`; ClinVar writes the 59 above.
-- **Spec (agrees on `*` and `X`; silent on a mixed description):**
+- **Spec (agrees on `*` and `Xaa`; silent on a mixed description):**
   [standards](https://hgvs-nomenclature.org/stable/background/standards/): "HGVS nomenclature uses `Ter` (three-letter
   amino acid code) and `*` (three- and one-letter amino acid code) to indicate a translation termination (stop) codon
   (in older versions, `X` was used instead)", and "To prevent confusion, since 'X' has been used to indicate a
@@ -4560,12 +4566,80 @@ NP_W.1:p.Arg2*                      →  NP_W.1:p.Arg2Ter
   `::the_refusal_of_a_predicted_allele_carries_offsets_in_the_whole_description`,
   `::the_refusal_counts_offsets_from_the_start_of_the_input_whitespace_included`,
   `::the_message_names_an_x_before_an_earlier_one_letter_residue`, `::a_three_letter_frameshift_to_a_stop_written_star`
-  and the other stops written `*`, `::a_one_letter_frameshift_to_x_is_to_a_stop`,
-  `::a_one_letter_substitution_to_x_is_to_an_unknown_residue`, `::an_unknown_effect` and the other descriptions without
+  and the other stops written `*`, `::a_substitution_to_xaa_at_a_one_letter_residue`,
+  `::a_mixed_allele_does_not_count_xaa_in_either_code`, `::an_unknown_effect` and the other descriptions without
   residues; `tests/test_mixed_residue_codes.py::test_a_description_mixing_the_codes_is_a_mixed_residue_codes_error`,
   `::test_a_mixed_residue_codes_error_is_a_parse_error`, `::test_the_error_carries_each_one_letter_token_where_written`,
   `::test_the_error_carries_each_three_letter_token_where_written`,
   `::test_a_caller_can_rewrite_a_lone_x_as_ter_and_parse_again`.
+
+### A one-letter X that could be a stop or any residue is refused
+
+**In a one-letter description, an `X` where a stop and any residue could both stand, the new residue of a substitution
+at a residue that is not a stop or one an insertion or deletion-insertion names, is an `AmbiguousResidueError`, a kind
+of `ParseError`, that carries the place of each such `X`. Where only one of the two can stand, `X` is that one: a stop
+after `fs`, after `ext` with a count and at the start of an extension past the stop; any residue as the first residue of
+a frameshift, the residue that replaces a stop, and the new start of an N-terminal extension. An `X` naming residues the
+reference holds, at a position or in a repeat unit, is `Xaa`.**
+
+The one-letter code has had two meanings for `X`: a stop in older recommendations and papers (`p.R210X`), and any
+residue today. A description such as `p.R210X` names a nonsense change in one reading and a change to an unknown residue
+in the other; nothing in its text says which, and both validate, because only the reference residue is checked. weaver
+read it as `Xaa`, a different allele from `p.R210*`, while it read `p.R210fsX5` as a stop: one letter, two meanings. The
+standards page asks for `*` or `Ter` for a stop and `Xaa` only for any residue, so a description that writes either has
+one reading, and one that writes `X` there is refused.
+
+Where only one reading makes sense, the `X` is read as it. A frameshift whose first residue were a stop would be a
+nonsense change, not a frameshift; a stop replaced by a stop, `p.*30X` or `p.*30Xext*5`, would be no change; a stop
+cannot start a protein. Read as the other, these descriptions have no meaning, so they have one reading. An `X` at a
+position or in a repeat unit names residues the reference holds, which validation checks against the sequence, so a
+wrong reading is reported there rather than stored as another allele; it is read as `Xaa`, as before. A dict states each
+residue in its own field and is not text in either code; its `X` loads as `Xaa`, as before.
+
+A three-letter description with an `X` mixes the codes, and that is the error it raises
+([above](#a-protein-description-uses-one-amino-acid-code)): `p.Arg111X` is a `MixedResidueCodesError`. Only a
+description in one code reaches this check. The error carries the description and each ambiguous `X` as its text and its
+offsets, one per `X`, even inside a run such as `insKXX`, so a caller who knows its source can write `*` or `Xaa` there
+and parse again: `p.R60X` with `*` for its `X` is `p.Arg60Ter`.
+
+ClinVar's `hgvs4variation.txt` holds 5 such descriptions among its 16,696,716 distinct `p.` descriptions, each a
+one-letter substitution to `X` (`NP_000026.2:p.R60X`, `NP_005723.2:p.Q941X`), and each is now refused.
+
+**Example:**
+
+```text
+NP_000026.2:p.R60X            →  AmbiguousResidueError  ambiguous [("X", 17, 18)]
+NP_W.1:p.R2delinsKX           →  AmbiguousResidueError  ambiguous [("X", 18, 19)]
+NP_W.1:p.[R2X;A4_G5insKXX]    →  AmbiguousResidueError  ambiguous [("X", 12, 13), ("X", 23, 24), ("X", 24, 25)]
+NP_000021.1:p.Arg111X         →  MixedResidueCodesError
+NP_000026.2:p.R60*            →  NP_000026.2:p.Arg60Ter
+NP_W.1:p.R210fsX5             →  NP_W.1:p.Arg210fsTer5
+NP_W.1:p.*30QextX5            →  NP_W.1:p.Ter30GlnextTer5
+NP_W.1:p.R2Xfs*5              →  NP_W.1:p.Arg2XaafsTer5     a stop there would be no frameshift
+NP_W.1:p.*30X                 →  NP_W.1:p.Ter30Xaa          a stop replaced by a stop would be no change
+NP_W.1:p.X5_L7del             →  NP_W.1:p.Xaa5_Leu7del      a reference residue, checked against the sequence
+```
+
+- **Differs:** biocommons reads `p.R60X` as `p.Arg60Xaa`; ClinVar writes the 5 above.
+- **Spec (agrees):** [standards](https://hgvs-nomenclature.org/stable/background/standards/): "To prevent confusion,
+  since 'X' has been used to indicate a translation stop codon, use 'Xaa' only";
+  [protein substitution](https://hgvs-nomenclature.org/stable/recommendations/protein/substitution/): "Since `X` has
+  been used to indicate a translation stop codon (nonsense variant), we suggest to use `Xaa` three-letter amino acid
+  code only". Reading `X` as the one thing that can stand where only one can is weaver's.
+- *Not checked:* VariantValidator.
+- **Tests:** `residue_code_test::a_one_letter_substitution_to_x`, `::a_one_letter_insertion_of_x`,
+  `::a_one_letter_deletion_insertion_ending_in_x`, `::every_x_of_a_one_letter_allele`,
+  `::an_x_in_a_predicted_one_letter_allele`, `::a_substitution_to_x_at_a_residue_written_xaa`,
+  `::a_three_letter_substitution_to_x_is_refused_as_a_mix_not_an_ambiguity`,
+  `::the_ambiguity_message_offers_a_stop_and_any_residue`, `::a_frameshift_to_a_stop_written_x`,
+  `::an_extension_to_a_stop_written_x`, `::a_frameshift_from_x_whose_first_residue_is_no_stop`,
+  `::an_n_terminal_extension_from_x_which_starts_no_protein_at_a_stop`, `::a_stop_replaced_by_x_which_cannot_be_a_stop`,
+  `::a_repeat_unit_holding_x_checked_against_the_sequence`,
+  `::a_reference_residue_written_x_checked_against_the_sequence`;
+  `printed_reparse_test::an_extension_from_a_stop_written_x_is_the_one_written_ter`;
+  `tests/test_ambiguous_residue.py::test_a_one_letter_substitution_to_x_is_an_ambiguous_residue_error`,
+  `::test_an_ambiguous_residue_error_is_a_parse_error`, `::test_the_error_carries_the_description`,
+  `::test_the_error_carries_each_x_where_written`, `::test_a_caller_can_rewrite_an_x_as_a_stop_and_parse_again`.
 
 ### A range written backwards is refused when parsed
 

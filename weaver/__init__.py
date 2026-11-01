@@ -4,6 +4,7 @@ from typing import Protocol, TypedDict
 
 from weaver._weaver import (  # type: ignore[attr-defined]
     AmbiguousDescriptionError,
+    AmbiguousResidueError,
     CigarError,
     DataProviderError,
     EquivalenceLevel,
@@ -23,6 +24,7 @@ from weaver._weaver import (  # type: ignore[attr-defined]
 
 __all__ = [
     "AmbiguousDescriptionError",
+    "AmbiguousResidueError",
     "CigarError",
     "DataProvider",
     "DataProviderError",
