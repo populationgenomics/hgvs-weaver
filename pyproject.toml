@@ -1,6 +1,6 @@
 [build-system]
-# 1.9.4 is the first that sets PYO3_BUILD_EXTENSION_MODULE, which keeps libpython out of the extension's link.
-requires = ["maturin>=1.9.4,<2.0"]
+# 1.13.2 is the first that knows pyo3 0.29 links Windows with raw-dylib and needs no import library.
+requires = ["maturin>=1.13.2,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -48,7 +48,7 @@ dev = [
     # The Python suite imports the biocommons adapter, so hgvs is a test dependency; its database driver,
     # sequence repository and shell are overridden out below.
     "hgvs>=1.5",
-    "maturin>=1.11.5",
+    "maturin>=1.13.2",
     "myst-parser",
     "pre-commit",
     "pyright>=1.1.400",
