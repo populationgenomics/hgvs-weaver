@@ -2,7 +2,3 @@ sphinx
 sphinx-rtd-theme
 myst-parser
 maturin
-pysam
-tqdm
-parsley
-bioutils

@@ -43,10 +43,8 @@ dev = [
     # scripts/fetch_gff.py's imports; nothing in the package imports them.
     "defusedxml>=0.7.1",
     "requests>=2.33.0",
-    # The Python suite imports the validation and the gate, so hgvs and tqdm are test dependencies; hgvs's
-    # database driver, sequence repository and shell are overridden out below.
-    "hgvs>=1.5",
-    "tqdm",
+    # The Python suite imports the validation and the gate.
+    { include-group = "gate" },
     "maturin>=1.13.2",
     "myst-parser",
     "pre-commit",

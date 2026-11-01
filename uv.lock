@@ -681,12 +681,16 @@ validation = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "bioutils" },
     { name = "defusedxml" },
     { name = "hgvs" },
+    { name = "hgvs-weaver-data", extra = ["build"] },
     { name = "maturin" },
     { name = "myst-parser" },
+    { name = "parsley" },
     { name = "pre-commit" },
     { name = "pyright" },
+    { name = "pysam" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests" },
@@ -717,12 +721,16 @@ provides-extras = ["refseq", "validation"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bioutils" },
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "hgvs", specifier = ">=1.5" },
+    { name = "hgvs-weaver-data", extras = ["build"], specifier = "==0.1.4" },
     { name = "maturin", specifier = ">=1.13.2" },
     { name = "myst-parser" },
+    { name = "parsley" },
     { name = "pre-commit" },
     { name = "pyright", specifier = ">=1.1.400" },
+    { name = "pysam" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "requests", specifier = ">=2.33.0" },
