@@ -212,15 +212,24 @@ uv run --group gate weaver-gate --data data/gate \
 ```
 
 The comparison lists, for the SPDI, protein and equivalence columns, how many rows moved and in which direction (match
-to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row. The equivalence columns
-include the verdict on biocommons' protein, since it is weaver's equivalence that judges it: a change to equivalence can
-move that column alone. A column the baseline predates is reported absent rather than compared.
+to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row. The protein column is
+weaver's text against its own in the baseline, and a moved protein is counted by the kind of edit each run writes it as
+(`del -> Ter`, `delins -> fs`), so a change to how weaver writes a protein shows as rows moved by kind. The equivalence
+columns include the verdict on biocommons' protein, since it is weaver's equivalence that judges it: a change to
+equivalence can move that column alone. A column the baseline predates is reported absent rather than compared.
 
 The validation judges ClinVar's protein description twice: against the protein weaver predicts from the nucleotide
 variant, and against the nucleotide variant itself, which is the comparison a search across coordinate systems makes. If
 equivalence carried through the prediction the two verdicts would agree; the comparison ends with the rows on which they
 do not, with examples: contradictions (equivalent one way, `Different` the other) apart from differences of level
 (`Identity` one way, `Analogous` the other), and both apart from rows only one of the two could judge.
+
+The 100k sample is mostly substitutions, whose protein weaver writes one way; the deletions, duplications, insertions
+and delins whose protein spelling weaver chooses are few in it. `--clinvar-proteins report.tsv` adds every coding indel
+ClinVar lists with a protein, about 1.8 million, from its weekly `hgvs4variation.txt.gz`: weaver predicts each on
+ClinVar's protein over the same store, in about three minutes on eight workers. The report counts how often weaver
+spells the protein as ClinVar does, by the kind of ClinVar's edit, and with `--clinvar-proteins-baseline` an earlier
+report compares row by row, a moved prediction counted by the kind of edit each run writes.
 
 To run the validation against a store built elsewhere, `weaver-validate` takes the store and genome directly, locally or
 in a bucket (`hgvs-weaver-data[gcs]` for the latter):
