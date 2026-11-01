@@ -385,6 +385,136 @@ impl Gene {
     }
 }
 
+/// Where a [`discordant_gene`]'s record and genome differ, as half-open
+/// ranges: the base each holds differently, or, on the sequence that lacks
+/// the other's base, the two bases either side of it.
+#[derive(Debug, Clone, Copy)]
+pub struct Difference {
+    pub transcript: (usize, usize),
+    pub genome: (usize, usize),
+}
+
+impl Difference {
+    /// Whether `[start, end)` covers the transcript's side of the difference.
+    pub fn on_the_transcript_within(&self, start: usize, end: usize) -> bool {
+        start <= self.transcript.0 && self.transcript.1 <= end
+    }
+
+    /// Whether `[start, end)` covers the genome's side of the difference.
+    pub fn on_the_genome_within(&self, start: usize, end: usize) -> bool {
+        start <= self.genome.0 && self.genome.1 <= end
+    }
+}
+
+/// A [`gene`] whose genome differs from its record at one base inside an
+/// exon: a substitution, a record base the genome lacks (`I` in the exon's
+/// cigar) or a genome base the record lacks (`D`). A substitution copies the
+/// base before it, or else changes it, and a genome base the record lacks
+/// copies the base before it, so the difference often extends or breaks a
+/// run. The points of [`Gene::points`] assume an ungapped alignment and do not
+/// hold for it.
+pub fn discordant_gene() -> impl Strategy<Value = (Gene, Difference)> {
+    (
+        gene(),
+        any::<prop::sample::Index>(),
+        any::<prop::sample::Index>(),
+        0u8..3,
+        1usize..=3,
+    )
+        .prop_filter_map(
+            "an exon too short to hold a difference inside it",
+            |(g, exon, at, kind, shift)| {
+                let exon = exon.index(g.exons.len());
+                let x = &g.exons[exon];
+                let (ts, te) = (x.transcript_start.0 as usize, x.transcript_end.0 as usize);
+                let len = te - ts;
+                if len < 3 {
+                    return None;
+                }
+                let k = 1 + at.index(len - 2);
+                // The exon as the genome holds it, in the transcript's sense.
+                let mut aligned: Vec<u8> = g.transcript_seq[ts..te].bytes().collect();
+                let cigar = match kind {
+                    0 => {
+                        let before = aligned[k - 1];
+                        aligned[k] = if shift == 1 && before != aligned[k] {
+                            before
+                        } else {
+                            let b = BASES.iter().position(|&b| b as u8 == aligned[k]).unwrap();
+                            BASES[(b + shift) % 4] as u8
+                        };
+                        format!("{len}M")
+                    }
+                    1 => {
+                        aligned.remove(k);
+                        format!("{k}M1I{}M", len - k - 1)
+                    }
+                    _ => {
+                        aligned.insert(k, aligned[k - 1]);
+                        format!("{k}M1D{}M", len - k)
+                    }
+                };
+                let aligned = String::from_utf8(aligned).unwrap();
+                let segment = match g.strand {
+                    Strand::Plus => aligned,
+                    Strand::Minus => revcomp(&aligned),
+                };
+                let (gs, ge) = (x.reference_start.0 as usize, x.reference_end.0 as usize + 1);
+                // The genome index of `aligned[k]`.
+                let genome_at = match g.strand {
+                    Strand::Plus => gs + k,
+                    Strand::Minus => gs + segment.len() - 1 - k,
+                };
+                let difference = match kind {
+                    0 => Difference {
+                        transcript: (ts + k, ts + k + 1),
+                        genome: (genome_at, genome_at + 1),
+                    },
+                    1 => Difference {
+                        transcript: (ts + k, ts + k + 1),
+                        genome: match g.strand {
+                            Strand::Plus => (genome_at - 1, genome_at + 1),
+                            Strand::Minus => (genome_at, genome_at + 2),
+                        },
+                    },
+                    _ => Difference {
+                        transcript: (ts + k - 1, ts + k + 1),
+                        genome: (genome_at, genome_at + 1),
+                    },
+                };
+                let shift_by = segment.len() as i32 - (ge - gs) as i32;
+                let exons = g
+                    .exons
+                    .iter()
+                    .enumerate()
+                    .map(|(j, e)| {
+                        let (rs, re) = match j {
+                            _ if j == exon => (gs as i32, (gs + segment.len()) as i32 - 1),
+                            _ if e.reference_start.0 > x.reference_start.0 => {
+                                (e.reference_start.0 + shift_by, e.reference_end.0 + shift_by)
+                            }
+                            _ => (e.reference_start.0, e.reference_end.0),
+                        };
+                        ExonData::new(
+                            e.transcript_start,
+                            e.transcript_end,
+                            hgvs_weaver::coords::GenomicPos(rs),
+                            hgvs_weaver::coords::GenomicPos(re),
+                            e.alt_strand,
+                            if j == exon {
+                                cigar.clone()
+                            } else {
+                                e.cigar.clone()
+                            },
+                        )
+                    })
+                    .collect();
+                let genome = format!("{}{segment}{}", &g.genome[..gs], &g.genome[ge..]);
+                Some((Gene { genome, exons, ..g }, difference))
+            },
+        )
+}
+
 /// A base on the genome named from the transcript: a transcript index and an
 /// offset from it into an intron or a flank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

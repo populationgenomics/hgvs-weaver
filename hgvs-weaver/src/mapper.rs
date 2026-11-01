@@ -69,13 +69,15 @@ fn resolves_over_range(edit: &crate::edits::NaEdit) -> bool {
 ///
 /// The bases the edit states are checked on the source. With no source, an
 /// intronic position, the edit is carried as given, and the caller checks
-/// what it states on the target.
+/// what it states on the target. `shared` tells a repeat which of the
+/// target's bases past the range the source holds too.
 fn project_edit(
     edit: &crate::edits::NaEdit,
     source: Option<(&crate::reference::Reference<'_, '_>, (usize, usize))>,
     target: &crate::reference::Reference<'_, '_>,
     target_range: (usize, usize),
     strand: crate::data::Strand,
+    shared: SharedWithSource<'_>,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
     let (t_lo, t_hi) = target_range;
     let carried = || (apply_strand_complement(edit.clone(), strand), t_lo, t_hi);
@@ -87,8 +89,7 @@ fn project_edit(
         return project_repeat(
             &repeat,
             (source, (s_lo, s_hi)),
-            target,
-            target_range,
+            (target, target_range, shared),
             strand,
         );
     }
@@ -137,8 +138,8 @@ pub(crate) fn genome_may_count_more(
     }
     let (start, end) = (written.start, written.end);
     let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| record.slice(s, e))?;
-    let run = written.edit.resolve(record, start, end)?;
-    let last = run.end as i32 - 1;
+    let run_end = repeat_run_end(&written.edit, &unit, record, (start, end))?;
+    let last = run_end as i32 - 1;
     let exon = am
         .transcript
         .exons
@@ -154,10 +155,10 @@ pub(crate) fn genome_may_count_more(
         return Ok(true);
     }
     let exon_end = exon.transcript_end.0 as usize;
-    if exon_end - run.end >= unit.len() {
+    if exon_end - run_end >= unit.len() {
         return Ok(false);
     }
-    let rest = record.slice(run.end, exon_end)?;
+    let rest = record.slice(run_end, exon_end)?;
     Ok(unit.as_bytes()[..rest.len()].eq_ignore_ascii_case(rest.as_bytes()))
 }
 
@@ -212,6 +213,7 @@ impl Repeat {
             .checked_add(more)
             .zip(self.max.checked_add(more))
             .ok_or_else(overflow)?;
+        crate::edits::within_the_repeat_cap(&unit, max)?;
         Ok(crate::edits::NaEdit::Repeat {
             ref_: Some(unit),
             min,
@@ -219,6 +221,21 @@ impl Repeat {
             uncertain: self.uncertain,
         })
     }
+}
+
+/// Refuses `edit`, where it is a repeat, whose copies would be more than
+/// [`crate::edits::MAX_REPEAT_ALTERNATE`]: its unit is the one it states, or
+/// else the bases `[start, end)` hold on `reference`.
+fn repeat_within_the_cap(
+    edit: &crate::edits::NaEdit,
+    reference: &crate::reference::Reference<'_, '_>,
+    (start, end): (usize, usize),
+) -> Result<(), HgvsError> {
+    let Some(repeat) = Repeat::of(edit) else {
+        return Ok(());
+    };
+    let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| reference.slice(s, e))?;
+    crate::edits::within_the_repeat_cap(&unit, repeat.max).map(|_| ())
 }
 
 /// Whether transcript indices `[start, end)` lie in one exon.
@@ -449,9 +466,45 @@ fn repeat_over_run(
         return Ok(None);
     };
     let unit = crate::edits::repeat_unit(&repeat.unit, start, end, |s, e| reference.slice(s, e))?;
+    let run_end = repeat_run_end(edit, &unit, reference, (start, end))?;
     let stated = repeat.grown(unit, 0)?;
-    let run = stated.resolve(reference, start, end)?;
-    Ok((run.end > run.start).then_some((run.end, stated)))
+    Ok((run_end > start).then_some((run_end, stated)))
+}
+
+/// The half-open end of the run of `unit` that `repeat`, written over
+/// `[start, end)` of `reference`, counts, as resolving it reads the run, with
+/// what it states checked; its copies are not built, so a count whose
+/// sequence the target alone could not number is refused there.
+fn repeat_run_end(
+    repeat: &crate::edits::NaEdit,
+    unit: &str,
+    reference: &crate::reference::Reference<'_, '_>,
+    (start, end): (usize, usize),
+) -> Result<usize, HgvsError> {
+    repeat.check_against(reference, start, end, crate::data::Strand::Plus)?;
+    let mut run_end = start;
+    while reference
+        .slice(run_end, run_end + unit.len())?
+        .eq_ignore_ascii_case(unit)
+    {
+        run_end += unit.len();
+    }
+    Ok(if run_end == start { end } else { run_end })
+}
+
+/// What a projection's source shares with its target, read at an index of
+/// the target.
+#[derive(Clone, Copy)]
+struct SharedWithSource<'a> {
+    /// Whether the target's base is one the source holds there too, next to
+    /// the source's base for the index before: false for a base the source
+    /// lacks or holds differently, or with a base of the source's own before
+    /// it; true for a genome base outside every exon, for which the record
+    /// has none.
+    base: &'a dyn Fn(usize) -> Result<bool, HgvsError>,
+    /// Whether the target's base and the one before are aligned in one exon
+    /// and neighbours on the source, whatever bases each holds.
+    neighbours: &'a dyn Fn(usize) -> Result<bool, HgvsError>,
 }
 
 /// A repeat over the whole run it counts on the source, `[s_lo, s_hi)`,
@@ -465,22 +518,32 @@ fn repeat_over_run(
 /// `t_hi`, which the repeat leaves as they are. Where the target's bases over
 /// the range are not the source's, the minimal edit is written, as for any
 /// other edit; a count known only as a range then has no single alternate,
-/// and is refused.
+/// and is refused. Where the target's run continues past `t_hi` over a base
+/// the source does not share, a count would count that base, and the change
+/// is written over `[t_lo, t_hi)` alone by [`edit_within`].
 fn project_repeat(
     repeat: &Repeat,
     source: (&crate::reference::Reference<'_, '_>, (usize, usize)),
-    target: &crate::reference::Reference<'_, '_>,
-    target_range: (usize, usize),
+    target: (
+        &crate::reference::Reference<'_, '_>,
+        (usize, usize),
+        SharedWithSource<'_>,
+    ),
     strand: crate::data::Strand,
 ) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
     let (source, (s_lo, s_hi)) = source;
-    let (t_lo, t_hi) = target_range;
-    let resolved = repeat.edit().resolve(source, s_lo, s_hi)?;
+    let (target, (t_lo, t_hi), shared) = target;
+    let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
+    crate::edits::within_the_repeat_cap(&unit, repeat.max)?;
+    // The run and the count are all a count needs; the copies are built only
+    // for an edit that writes them out.
+    let run_end = repeat_run_end(&repeat.edit(), &unit, source, (s_lo, s_hi))?;
     let orient = |b: &str| match strand {
         crate::data::Strand::Minus => crate::utils::reverse_complement(b),
         crate::data::Strand::Plus => b.to_string(),
     };
-    let (source_ref, alt) = (orient(&resolved.ref_), orient(&resolved.alt));
+    let source_ref = orient(&source.slice(s_lo, run_end)?);
+    let alt = || orient(&unit.repeat(repeat.max.max(0) as usize));
     let target_ref = target.slice(t_lo, t_hi)?;
     if target_ref != source_ref {
         if repeat.min != repeat.max {
@@ -492,17 +555,212 @@ fn project_repeat(
                 repeat.max
             )));
         }
-        return normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt);
+        return normalize::minimal_edit(target, t_lo, t_hi, &target_ref, &alt());
     }
-    let unit = crate::edits::repeat_unit(&repeat.unit, s_lo, s_hi, |s, e| source.slice(s, e))?;
     let unit = orient(&unit);
     // Short of `t_hi` where the unit is absent from the range altogether.
     let run_end = run_up(target, &unit, t_lo)?;
     if run_end <= t_hi {
         return Ok((apply_strand_complement(repeat.edit(), strand), t_lo, t_hi));
     }
+    for i in t_hi..run_end {
+        if !(shared.base)(i)? {
+            if repeat.min != repeat.max {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{} continues the run past [{t_lo}, {t_hi}) over a base {} does not share, \
+                     so a count of {} to {} copies has no single edit there",
+                    target.accession(),
+                    source.accession(),
+                    repeat.min,
+                    repeat.max
+                )));
+            }
+            return edit_within(target, (t_lo, t_hi), shared, &unit, &target_ref, &alt());
+        }
+    }
     let more = (run_end - t_hi) / unit.len();
     Ok((repeat.grown(unit, more)?, t_lo, run_end))
+}
+
+/// Whether the record's bases at `n - 1` and `n` lie in one exon and are
+/// neighbours on the genome.
+fn neighbours_on_the_genome(am: &TranscriptMapper, n: usize) -> Result<bool, HgvsError> {
+    if n == 0 || !within_one_exon(am, n as i32 - 1, n as i32 + 1) {
+        return Ok(false);
+    }
+    let place = |n: usize| {
+        am.n_to_g_footprint(TranscriptPos(n as i32))
+            .map(|f| f.range)
+    };
+    let ((before_lo, before_hi), (lo, hi)) = (place(n - 1)?, place(n)?);
+    if before_lo == before_hi || lo == hi {
+        return Ok(false);
+    }
+    Ok(match am.transcript.strand {
+        crate::data::Strand::Minus => hi == before_lo,
+        crate::data::Strand::Plus => before_hi == lo,
+    })
+}
+
+/// Whether the genome's bases at `g - 1` and `g` are both aligned in one exon
+/// and neighbours on the record.
+fn neighbours_on_the_record(am: &TranscriptMapper, g: usize) -> Result<bool, HgvsError> {
+    if g == 0 {
+        return Ok(false);
+    }
+    let before = am.g_to_n_footprint(GenomicPos(g as i32 - 1))?;
+    let here = am.g_to_n_footprint(GenomicPos(g as i32))?;
+    let aligned =
+        |f: &crate::transcript_mapper::GenomicFootprint| f.offset.0 == 0 && f.range.0 != f.range.1;
+    if !aligned(&before) || !aligned(&here) {
+        return Ok(false);
+    }
+    let (lo, hi) = (
+        before.range.0 .0.min(here.range.0 .0),
+        before.range.1 .0.max(here.range.1 .0),
+    );
+    Ok(hi - lo == 2 && within_one_exon(am, lo, hi))
+}
+
+/// Whether the genome holds the base at index `n` of `record` where it
+/// aligns, next to the genome's base for `n - 1` when the two share an exon:
+/// false for a base the genome lacks or holds differently, or where the
+/// genome holds a base the record lacks between them.
+fn genome_holds_the_records_base(
+    am: &TranscriptMapper,
+    record: &crate::reference::Reference<'_, '_>,
+    genome: &crate::reference::Reference<'_, '_>,
+    n: usize,
+) -> Result<bool, HgvsError> {
+    let place = |n: usize| {
+        am.n_to_g_footprint(TranscriptPos(n as i32))
+            .map(|f| f.range)
+    };
+    let (lo, hi) = place(n)?;
+    if lo == hi {
+        return Ok(false);
+    }
+    let minus = am.transcript.strand == crate::data::Strand::Minus;
+    if n > 0 && within_one_exon(am, n as i32 - 1, n as i32 + 1) {
+        let (before_lo, before_hi) = place(n - 1)?;
+        let next_to = if minus {
+            hi == before_lo
+        } else {
+            before_hi == lo
+        };
+        if before_lo != before_hi && !next_to {
+            return Ok(false);
+        }
+    }
+    let on_genome = genome.slice(lo.0 as usize, hi.0 as usize)?;
+    let on_genome = if minus {
+        crate::utils::reverse_complement(&on_genome)
+    } else {
+        on_genome
+    };
+    Ok(on_genome.eq_ignore_ascii_case(&record.slice(n, n + 1)?))
+}
+
+/// Whether `record` holds the base at index `g` of `genome` where it aligns,
+/// next to the record's base for `g - 1` when the two share an exon, or the
+/// base lies outside every exon, where the record has none: false for a base
+/// the record lacks or holds differently, or where the record holds a base
+/// the genome lacks between them.
+fn record_holds_the_genomes_base(
+    am: &TranscriptMapper,
+    genome: &crate::reference::Reference<'_, '_>,
+    record: &crate::reference::Reference<'_, '_>,
+    g: usize,
+) -> Result<bool, HgvsError> {
+    let footprint = am.g_to_n_footprint(GenomicPos(g as i32))?;
+    if footprint.offset.0 != 0 {
+        return Ok(true);
+    }
+    let (lo, hi) = footprint.range;
+    if lo == hi {
+        return Ok(false);
+    }
+    let minus = am.transcript.strand == crate::data::Strand::Minus;
+    if g > 0 {
+        let before = am.g_to_n_footprint(GenomicPos(g as i32 - 1))?;
+        let (before_lo, before_hi) = before.range;
+        let aligned = before.offset.0 == 0 && before_lo != before_hi;
+        let next_to = if minus {
+            hi == before_lo
+        } else {
+            before_hi == lo
+        };
+        if aligned && within_one_exon(am, lo.0.min(before_lo.0), hi.0.max(before_hi.0)) && !next_to
+        {
+            return Ok(false);
+        }
+    }
+    let on_record = record.slice(lo.0 as usize, hi.0 as usize)?;
+    let on_record = if minus {
+        crate::utils::reverse_complement(&on_record)
+    } else {
+        on_record
+    };
+    Ok(on_record.eq_ignore_ascii_case(&genome.slice(g, g + 1)?))
+}
+
+/// The edit that turns `target_ref`, the target's copies of `unit` over
+/// `[t_lo, t_hi)`, into `alt`, more or fewer copies, written over those bases
+/// alone: copies removed are a deletion within the range, and copies added a
+/// duplication of the range's last copies, or, where more are added than the
+/// range holds, an insertion between two of its bases, after its first copy
+/// or else after its first base with the unit read from there. A range of one
+/// base has no such pair: the copies go in before it where the base before is
+/// another copy both sequences share, and otherwise its base is replaced. An
+/// insertion after the range would name the base past it as a flank, which
+/// the change leaves alone.
+fn edit_within(
+    target: &crate::reference::Reference<'_, '_>,
+    (t_lo, t_hi): (usize, usize),
+    shared: SharedWithSource<'_>,
+    unit: &str,
+    target_ref: &str,
+    alt: &str,
+) -> Result<(crate::edits::NaEdit, usize, usize), HgvsError> {
+    use crate::edits::NaEdit;
+    if alt.len() <= target_ref.len() {
+        return normalize::minimal_edit(target, t_lo, t_hi, target_ref, alt);
+    }
+    let added = alt.len() - target_ref.len();
+    if added <= target_ref.len() {
+        let dup = NaEdit::Dup {
+            ref_: None,
+            uncertain: false,
+        };
+        return Ok((dup, t_hi - added, t_hi));
+    }
+    let copies = added / unit.len();
+    let (at, inserted) = if target_ref.len() >= 2 * unit.len() {
+        (t_lo + unit.len(), unit.repeat(copies))
+    } else if unit.len() >= 2 {
+        (
+            t_lo + 1,
+            format!("{}{}", &unit[1..], &unit[..1]).repeat(copies),
+        )
+    } else if t_lo > 0
+        && target.slice(t_lo - 1, t_lo)?.eq_ignore_ascii_case(unit)
+        && (shared.base)(t_lo - 1)?
+        && (shared.neighbours)(t_lo)?
+    {
+        (t_lo, unit.repeat(copies))
+    } else {
+        let delins = NaEdit::RefAlt {
+            ref_: Some(String::new()),
+            alt: Some(alt.to_string()),
+            uncertain: false,
+        };
+        return Ok((delins, t_lo, t_hi));
+    };
+    let insertion = NaEdit::Ins {
+        alt: Some(inserted),
+        uncertain: false,
+    };
+    Ok((insertion, at - 1, at + 1))
 }
 
 /// A transcript repeat at an intronic position of a minus-strand transcript,
@@ -973,8 +1231,13 @@ pub(crate) fn residue_range(
     } = &vp.posedit.edit
     {
         if !crate::edits::is_length(unit) {
-            let n = crate::utils::residues_1(unit)?.len();
-            check(unit, start, start + n)?;
+            crate::edits::repeat_units_over_range(
+                reference.accession(),
+                &crate::utils::residues_1(unit)?,
+                start,
+                end,
+                |s, e| reference.slice(s, e),
+            )?;
         }
     }
     Ok((start, end))
@@ -1980,6 +2243,10 @@ impl<'a> VariantMapper<'a> {
                 "{var_g} has an uncertain position, which a transcript interval cannot carry"
             )));
         }
+        let genome = self
+            .refs
+            .reference(&var_g.ac, IdentifierType::GenomicAccession);
+        repeat_within_the_cap(&var_g.posedit.edit, &genome, simple_interval_range(pos)?)?;
         let run = self.repeat_run_g(var_g, pos)?;
         let run = match run {
             Some(run) => Some(self.transcript_run_g(&am, var_g, run)?),
@@ -2058,6 +2325,13 @@ impl<'a> VariantMapper<'a> {
             let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
                 (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
             });
+            let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
+            if repeat && !within_one_exon(&am, t_lo as i32, t_hi as i32) {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run across an intron, which the transcript holds across an \
+                     exon junction: the transcript's count has no single place on the genome"
+                )));
+            }
             let (edit, s, e) = if read_over_the_genomic_range(&am, edit, (t_lo, t_hi)) {
                 if touches_run {
                     return Err(ends_in_a_run_across_a_junction(&var_g.to_string()));
@@ -2085,6 +2359,10 @@ impl<'a> VariantMapper<'a> {
                     &target,
                     (t_lo, t_hi),
                     am.transcript.strand,
+                    SharedWithSource {
+                        base: &|n| genome_holds_the_records_base(&am, &target, &source, n),
+                        neighbours: &|n| neighbours_on_the_genome(&am, n),
+                    },
                 )?
             };
             let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
@@ -2287,6 +2565,33 @@ impl<'a> VariantMapper<'a> {
         if lo >= start {
             return Ok((interval, edit));
         }
+        let record = self
+            .refs
+            .reference(&am.transcript.ac, IdentifierType::TranscriptAccession);
+        let mut exon = None;
+        for i in lo..end {
+            let fp = am.g_to_n_footprint(GenomicPos(i as i32))?;
+            if fp.offset.0 != 0 {
+                continue;
+            }
+            if i < start && !record_holds_the_genomes_base(am, &genome, &record, i)? {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run the transcript continues over a base {} does not \
+                     share with {}: the transcript's count would count it",
+                    am.transcript.ac, var_g.ac
+                )));
+            }
+            let holding = am.exons.iter().position(|x| {
+                x.transcript_start.0 <= fp.range.0 .0 && fp.range.0 .0 < x.transcript_end.0
+            });
+            if exon.is_some() && holding != exon {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{var_g} counts a run the transcript continues across an exon junction: \
+                     the transcript's count has no single place on the genome"
+                )));
+            }
+            exon = holding.or(exon);
+        }
         let more = (start - lo) / unit.len();
         let extended = SimpleInterval {
             start: make_simple_position(GenomicPos(lo as i32).to_hgvs()),
@@ -2455,6 +2760,9 @@ impl<'a> VariantMapper<'a> {
                 .posedit()
                 .edit
                 .check_against(&target, lo, hi, am.transcript.strand)?;
+            repeat_within_the_cap(edit, &target, (lo, hi))?;
+        } else {
+            repeat_within_the_cap(edit, &source, named)?;
         }
         let minus = am.transcript.strand == crate::data::Strand::Minus;
         let intronic_repeat_on_minus = Repeat::of(edit).filter(|_| minus && !exonic);
@@ -2494,6 +2802,10 @@ impl<'a> VariantMapper<'a> {
                 &target,
                 (g_lo as usize, g_hi as usize),
                 am.transcript.strand,
+                SharedWithSource {
+                    base: &|g| record_holds_the_genomes_base(&am, &target, &source, g),
+                    neighbours: &|g| neighbours_on_the_record(&am, g),
+                },
             )?
         };
         // An edit over a run is always rewritten for the genome.

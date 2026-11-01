@@ -549,6 +549,7 @@ fn as_hgvs_range(p: &PlacedHgvs) -> PlacedHgvs {
 use hgvs_weaver::coords::{IntronicOffset, TranscriptPos};
 use hgvs_weaver::edits::{AaEdit, NaEdit};
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
+use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::structs::{CVariant, PVariant, TranscriptVariant};
 use hgvs_weaver::transcript_mapper::TranscriptMapper;
@@ -1598,6 +1599,116 @@ proptest! {
             .map_err(|err| TestCaseError::fail(format!("{vg} projected to {vc}: {err}")))?;
         let actual = spliced_in(&g.genome, allele.start, allele.end, &allele.alternate);
         prop_assert_eq!(actual, expected, "{} projected to {} on the {:?} strand", vg, vc, g.strand);
+    }
+}
+
+proptest! {
+    // Most generated runs miss the difference or leave their exon, and are
+    // rejected; the cap is raised so a high case count does not abort.
+    #![proptest_config(ProptestConfig {
+        max_global_rejects: 1_000_000,
+        ..ProptestConfig::with_cases(512)
+    })]
+
+    /// A genomic repeat beside a base where the record and the genome differ,
+    /// projected to the transcript, makes the genome the genome's run with its
+    /// count of copies would.
+    #[test]
+    fn a_genomic_repeat_projected_to_a_record_that_differs_from_the_genome_is_the_same_change(
+        (g, difference) in discordant_gene(),
+        before in 0usize..6,
+        unit_len in 1usize..=3,
+        copies in 0i32..=5,
+    ) {
+        let at = difference.genome.0;
+        let exon = g
+            .exons
+            .iter()
+            .find(|e| e.reference_start.0 as usize <= at && at <= e.reference_end.0 as usize)
+            .unwrap();
+        let (lo, hi) = (exon.reference_start.0 as usize, exon.reference_end.0 as usize + 1);
+        let start = at.saturating_sub(before).max(lo);
+        prop_assume!(start + unit_len <= hi);
+        let unit = &g.genome[start..start + unit_len];
+        let end = run_end(&g.genome, start, unit);
+        prop_assume!(end <= hi);
+        // A run over the difference is written against the record's own
+        // bases, which no projection back restores.
+        prop_assume!(!difference.on_the_genome_within(start, end));
+        let expected = spliced_in(&g.genome, start, end, &unit.repeat(copies as usize));
+
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let vg = format!("{}:g.{}{unit}[{copies}]", g.reference_ac, start + 1);
+        let SequenceVariant::Genomic(vg) = parse_hgvs_variant(&vg).unwrap() else { unreachable!() };
+        let vc = match mapper.g_to_c(&vg, &g.ac) {
+            Ok(vc) => vc,
+            // The transcript's run crosses an exon junction.
+            Err(HgvsError::UnsupportedOperation(m)) if m.contains("exon junction") => return Ok(()),
+            Err(err) => return Err(TestCaseError::fail(format!("{vg}: {err}"))),
+        };
+        let allele = mapper
+            .canonical_allele(&SequenceVariant::Coding(vc.clone()))
+            .map_err(|err| TestCaseError::fail(format!("{vg} projected to {vc}: {err}")))?;
+        let actual = spliced_in(&g.genome, allele.start, allele.end, &allele.alternate);
+        prop_assert_eq!(actual, expected, "{} projected to {} on the {:?} strand", vg, vc, g.strand);
+    }
+
+    /// A transcript repeat beside a base where the record and the genome
+    /// differ, projected to the genome, projected back and then to the genome
+    /// again, makes the genome what the first projection makes.
+    #[test]
+    fn a_coding_repeat_on_a_record_that_differs_from_the_genome_projects_back_to_the_same_change(
+        (g, difference) in discordant_gene(),
+        before in 0usize..6,
+        unit_len in 1usize..=3,
+        copies in 0i32..=5,
+    ) {
+        let tx = &g.transcript_seq;
+        let at = difference.transcript.0;
+        let exon = exon_holding(&g, at);
+        let start = at.saturating_sub(before).max(exon.transcript_start.0 as usize);
+        prop_assume!(start + unit_len <= tx.len());
+        let unit = &tx[start..start + unit_len];
+        let end = run_end(tx, start, unit);
+        prop_assume!(end <= exon.transcript_end.0 as usize);
+        // A run over the difference is written against the genome's own
+        // bases, which no projection back restores.
+        prop_assume!(!difference.on_the_transcript_within(start, end));
+
+        let am = TranscriptMapper::new(g.transcript_data()).unwrap();
+        let hdp = g.provider();
+        let mapper = VariantMapper::new(&hdp);
+        let edit = NaEdit::Repeat { ref_: Some(unit.to_string()), min: copies, max: copies, uncertain: false };
+        let vc = coding_variant(&g, &am, start, start + 1, edit);
+        let vg = match mapper.c_to_g(&vc, None) {
+            Ok(vg) => vg,
+            // The transcript's run crosses an exon junction.
+            Err(HgvsError::UnsupportedOperation(m)) if m.contains("exon junction") => return Ok(()),
+            Err(err) => return Err(TestCaseError::fail(format!("{vc}: {err}"))),
+        };
+        let back = match mapper.g_to_c(&vg, &g.ac) {
+            Ok(back) => back,
+            // The genome's run crosses an intron into another exon, or the
+            // transcript's run reaches past it over a base the genome lacks.
+            Err(HgvsError::UnsupportedOperation(m))
+                if m.contains("exon junction") || m.contains("does not share") => return Ok(()),
+            Err(err) => return Err(TestCaseError::fail(format!("{vc} projected to {vg}: {err}"))),
+        };
+        let again = mapper
+            .c_to_g(&back, None)
+            .map_err(|err| TestCaseError::fail(format!("{vc} through {vg} back to {back}: {err}")))?;
+        let made_by = |v: &GVariant| {
+            mapper
+                .canonical_allele(&SequenceVariant::Genomic(v.clone()))
+                .map(|allele| made(&g.genome, &allele))
+                .map_err(|err| TestCaseError::fail(format!("{v}: {err}")))
+        };
+        prop_assert_eq!(
+            made_by(&again)?,
+            made_by(&vg)?,
+            "{} to {}, back to {}, then {} on the {:?} strand", vc, vg, back, again, g.strand
+        );
     }
 }
 

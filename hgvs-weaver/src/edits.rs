@@ -392,7 +392,8 @@ impl NaEdit {
     }
 
     /// The unit a repeat states (`CAG` of `CAG[12]`), which the sequence must
-    /// carry where the repeat starts.
+    /// carry where the repeat starts, and repeat over the range it is written
+    /// over.
     pub fn stated_unit(&self) -> Option<&str> {
         match self {
             NaEdit::Repeat { ref_: Some(u), .. } if !is_length(u) => Some(u),
@@ -408,8 +409,8 @@ impl NaEdit {
 
     /// Refuses the edit written over `[start, end)` of `reference` where the
     /// range runs past the end of the sequence, or where the bases it states
-    /// are not there: the bases over the range, or a repeat's unit at
-    /// `start`, read on `strand`. On the minus strand the range is read as
+    /// are not there: the bases over the range, or copies of a repeat's unit
+    /// from `start`, read on `strand`. On the minus strand the range is read as
     /// its reverse complement, so offsets from `start` count down from `end`.
     ///
     /// `[start, end)` is the range HGVS writes, the two flanking bases for an
@@ -436,9 +437,10 @@ impl NaEdit {
     }
 
     /// Refuses the edit when the bases it states are not what `accession`
-    /// holds, read through `fetch`: the bases over `[start, end)`, or a
-    /// repeat's unit at `start`. `fetch` is called only for an edit that
-    /// states bases.
+    /// holds, read through `fetch`: the bases over `[start, end)`, or for a
+    /// repeat, copies of its unit from `start` over the range, or over one
+    /// unit where the range is shorter. `fetch` is called only for an edit
+    /// that states bases.
     ///
     /// # Errors
     ///
@@ -451,8 +453,11 @@ impl NaEdit {
         fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
     ) -> Result<(), HgvsError> {
         let (stated, end) = match (self.stated_ref(), self.stated_unit()) {
-            (Some(r), _) => (r, end),
-            (None, Some(u)) => (u, start + u.len()),
+            (Some(r), _) => (r.to_string(), end),
+            (None, Some(u)) => {
+                let length = end.saturating_sub(start).max(u.len());
+                (u.chars().cycle().take(length).collect(), start + length)
+            }
             (None, None) => return Ok(()),
         };
         let found = fetch(start, end)?;
@@ -461,7 +466,7 @@ impl NaEdit {
         }
         Err(HgvsError::ReferenceMismatch {
             accession: accession.to_string(),
-            expected: stated.to_string(),
+            expected: stated,
             found,
             start,
             end,
@@ -548,11 +553,12 @@ impl NaEdit {
                 if run_end == start {
                     run_end = end;
                 }
+                let copies = within_the_repeat_cap(&unit, *max)?;
                 return Ok(ResolvedEdit {
                     start,
                     end: run_end,
                     ref_: fetch(start, run_end)?,
-                    alt: unit.repeat((*max).max(0) as usize),
+                    alt: unit.repeat(copies),
                 });
             }
             NaEdit::None => {
@@ -713,7 +719,10 @@ impl AaEdit {
                     _ => None,
                 };
                 let unit = match &stated {
-                    Some(u) => u.clone(),
+                    Some(u) => {
+                        repeat_units_over_range(accession, u, start, end, &fetch)?;
+                        u.clone()
+                    }
                     None => fetch(start, end)?,
                 };
                 let mut run_end = start;
@@ -723,16 +732,14 @@ impl AaEdit {
                     }
                 }
                 if run_end == start {
-                    if let Some(u) = &stated {
-                        return Err(unit_absent(accession, u, start, &fetch)?);
-                    }
                     run_end = end;
                 }
+                let copies = within_the_repeat_cap(&unit, *max)?;
                 return Ok(ResolvedEdit {
                     start,
                     end: run_end,
                     ref_: fetch(start, run_end)?,
-                    alt: unit.repeat((*max).max(0) as usize),
+                    alt: unit.repeat(copies),
                 });
             }
             AaEdit::Identity { .. } => {
@@ -752,19 +759,59 @@ impl AaEdit {
     }
 }
 
-/// The error for a repeat whose stated unit is not at `start` of `accession`.
-fn unit_absent(
+/// The most bases, or residues for a protein, a repeat's copies may spell
+/// out. A description of a few bytes could otherwise cost gigabytes to
+/// resolve; real expansions, such as a DMPK CTG expansion of about 12 kb,
+/// are far below it.
+pub const MAX_REPEAT_ALTERNATE: usize = 10_000_000;
+
+/// The number of copies of `unit` a repeat counting `count` spells out,
+/// refused where they would be longer than [`MAX_REPEAT_ALTERNATE`].
+///
+/// # Errors
+///
+/// [`HgvsError::ValidationError`] naming the count, the unit and the cap.
+pub(crate) fn within_the_repeat_cap(unit: &str, count: i32) -> Result<usize, HgvsError> {
+    let copies = count.max(0) as usize;
+    if unit
+        .len()
+        .checked_mul(copies)
+        .is_some_and(|length| length <= MAX_REPEAT_ALTERNATE)
+    {
+        return Ok(copies);
+    }
+    Err(HgvsError::ValidationError(format!(
+        "{count} copies of {unit} are longer than {MAX_REPEAT_ALTERNATE}, the most a repeat \
+         may spell out"
+    )))
+}
+
+/// Refuses a protein repeat whose stated `unit`, in 1-letter code, is not
+/// what `accession` holds from `start`, repeated over `[start, end)`, or over
+/// one unit where the range is shorter.
+///
+/// # Errors
+///
+/// [`HgvsError::ReferenceMismatch`] naming the stated and the held residues.
+pub(crate) fn repeat_units_over_range(
     accession: &str,
     unit: &str,
     start: usize,
+    end: usize,
     fetch: impl Fn(usize, usize) -> Result<String, HgvsError>,
-) -> Result<HgvsError, HgvsError> {
-    Ok(HgvsError::ReferenceMismatch {
+) -> Result<(), HgvsError> {
+    let length = end.saturating_sub(start).max(unit.len());
+    let expected: String = unit.chars().cycle().take(length).collect();
+    let found = fetch(start, start + length)?;
+    if found == expected {
+        return Ok(());
+    }
+    Err(HgvsError::ReferenceMismatch {
         accession: accession.to_string(),
-        expected: unit.to_string(),
-        found: fetch(start, start + unit.len())?,
+        expected,
+        found,
         start,
-        end: start + unit.len(),
+        end: start + length,
     })
 }
 

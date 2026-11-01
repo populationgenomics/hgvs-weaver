@@ -55,6 +55,63 @@ fn substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein() {
 }
 
 #[test]
+fn a_protein_repeat_over_the_cap_has_no_allele() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[10000001]").unwrap();
+    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains("10000000")),
+        "expected ValidationError naming the cap, got {err:?}"
+    );
+}
+
+#[test]
+fn a_protein_repeat_at_the_cap_has_an_allele() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.Ala4[10000000]").unwrap();
+    let allele = VariantMapper::new(&hdp).canonical_allele(&var).unwrap();
+    assert_eq!(
+        allele.alternate.len() - allele.reference.len(),
+        10_000_000 - 3
+    );
+}
+
+// HGVS writes a protein repeat's range as its unit (`p.Ala4_Ala5[3]`); a
+// unit stated after a range of bare positions is the legacy form the parser
+// also reads (`p.2346GT[3]`), and the only one whose range can run past the
+// run of its unit.
+
+#[test]
+fn a_range_past_the_run_of_its_unit_has_no_allele() {
+    // Ala4_Ala6 is the run of Ala; Tyr7 is not a fourth copy.
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.4_7A[2]").unwrap();
+    let err = VariantMapper::new(&hdp).canonical_allele(&var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "AAAY"),
+        "expected ReferenceMismatch finding AAAY, got {err:?}"
+    );
+}
+
+#[test]
+fn a_range_past_the_run_of_its_unit_does_not_validate() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.4_7A[2]").unwrap();
+    assert!(!VariantMapper::new(&hdp).validate(&var).unwrap());
+}
+
+#[test]
+fn a_range_past_the_run_of_its_unit_is_not_normalised() {
+    let hdp = provider();
+    let var = parse_hgvs_variant("NP_TEST.1:p.4_7A[2]").unwrap();
+    let err = VariantMapper::new(&hdp).normalize_variant(var).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "AAAY"),
+        "expected ReferenceMismatch finding AAAY, got {err:?}"
+    );
+}
+
+#[test]
 fn a_stop_among_the_new_residues_ends_the_protein() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);

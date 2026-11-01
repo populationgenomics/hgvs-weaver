@@ -4,7 +4,9 @@
 
 mod support;
 
-use hgvs_weaver::data::Strand;
+use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
+use hgvs_weaver::data::{ExonData, Strand};
+use hgvs_weaver::edits::MAX_REPEAT_ALTERNATE;
 use hgvs_weaver::equivalence::VariantEquivalence;
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
@@ -132,6 +134,94 @@ fn record_differs() -> Provider {
         ))
 }
 
+/// `NM_DIFF3.1`, [`TX`] on the plus strand of `NC_000089.1` at g.11 to g.33,
+/// except that the genome holds A where the record holds c.7's C: c.4_7 is
+/// `AAAC` on the record and g.14_17 `AAAA` on the genome.
+fn genome_continues_the_run() -> Provider {
+    let mut genome = format!("{FLANK}{TX}{FLANK}").into_bytes();
+    genome[16] = b'A';
+    Provider::new()
+        .sequence("NC_000089.1", &String::from_utf8(genome).unwrap())
+        .sequence("NM_DIFF3.1", TX)
+        .transcript(single_exon_transcript(
+            "NM_DIFF3.1",
+            "NC_000089.1",
+            10,
+            Strand::Plus,
+            0,
+            20,
+            TX.len() as i32,
+        ))
+}
+
+/// `NM_CAGD.1`, [`TX`] on the plus strand of `NC_000088.1` at g.11 to g.33,
+/// except that the genome holds T where the record holds c.10's C: the
+/// record's run of CAG is c.7_15, the genome's one copy at g.17_19.
+fn cag_differs() -> Provider {
+    let mut genome = format!("{FLANK}{TX}{FLANK}").into_bytes();
+    genome[19] = b'T';
+    Provider::new()
+        .sequence("NC_000088.1", &String::from_utf8(genome).unwrap())
+        .sequence("NM_CAGD.1", TX)
+        .transcript(single_exon_transcript(
+            "NM_CAGD.1",
+            "NC_000088.1",
+            10,
+            Strand::Plus,
+            0,
+            20,
+            TX.len() as i32,
+        ))
+}
+
+/// `NM_GAPI.1` on the plus strand of `NC_000091.1`: one exon, `ATGAAATGACC`
+/// (c.1 to c.11), aligned as `5M1I5M` to `ATGAATGACC` at g.11 to g.20. The
+/// record's run of A is c.4_6, whose last base the genome lacks; the
+/// genome's is g.14_15.
+fn gap_in_the_genome() -> Provider {
+    Provider::new()
+        .sequence("NC_000091.1", &format!("{FLANK}ATGAATGACC{FLANK}"))
+        .sequence("NM_GAPI.1", "ATGAAATGACC")
+        .transcript(transcript(
+            "NM_GAPI.1",
+            "NC_000091.1",
+            Strand::Plus,
+            Some((0, 8)),
+            vec![ExonData::new(
+                TranscriptPos(0),
+                TranscriptPos(11),
+                GenomicPos(10),
+                GenomicPos(19),
+                Strand::Plus,
+                "5M1I5M",
+            )],
+        ))
+}
+
+/// `NM_GAPD.1` on the plus strand of `NC_000090.1`: one exon, `ATGAATGACC`
+/// (c.1 to c.10), aligned as `5M1D5M` to `ATGAAATGACC` at g.11 to g.21. The
+/// record's run of A is c.4_5; the genome's is g.14_16, whose last base the
+/// record lacks.
+fn gap_in_the_record() -> Provider {
+    Provider::new()
+        .sequence("NC_000090.1", &format!("{FLANK}ATGAAATGACC{FLANK}"))
+        .sequence("NM_GAPD.1", "ATGAATGACC")
+        .transcript(transcript(
+            "NM_GAPD.1",
+            "NC_000090.1",
+            Strand::Plus,
+            Some((0, 8)),
+            vec![ExonData::new(
+                TranscriptPos(0),
+                TranscriptPos(10),
+                GenomicPos(10),
+                GenomicPos(20),
+                Strand::Plus,
+                "5M1D5M",
+            )],
+        ))
+}
+
 /// `NM_JX.1` on the plus strand of `NC_000095.1`: exon 1 is `ATGCAA` (c.1
 /// to c.6, g.11 to g.16), exon 2 `AAGCCTAAGG` (c.7 to c.16, g.27 to g.36),
 /// so the transcript's run of A is c.5_8, across the junction, and the
@@ -201,6 +291,30 @@ fn intronic_minus() -> Provider {
             Some((0, 11)),
             vec![
                 exon((0, 6), (29, 34), Strand::Minus),
+                exon((6, 14), (10, 17), Strand::Minus),
+            ],
+        ))
+}
+
+/// `NM_MIR.1` on the minus strand of `NC_000084.1`: exon 1 `ATGAAA` (c.1 to
+/// c.6, g.24 to g.29), an intron that reads `AAAAA` in the transcript's
+/// sense (g.19 to g.23), and exon 2 `ACCTAAGG` (c.7 to c.14, g.11 to g.18).
+/// The genome's run of T, g.18_26, is c.7, the intron and c.4_6.
+fn across_the_intron_minus() -> Provider {
+    let pre_mrna = "ATGAAAAAAAAACCTAAGG";
+    Provider::new()
+        .sequence(
+            "NC_000084.1",
+            &format!("{FLANK}{}{FLANK}", revcomp(pre_mrna)),
+        )
+        .sequence("NM_MIR.1", "ATGAAAACCTAAGG")
+        .transcript(transcript(
+            "NM_MIR.1",
+            "NC_000084.1",
+            Strand::Minus,
+            Some((0, 11)),
+            vec![
+                exon((0, 6), (23, 28), Strand::Minus),
                 exon((6, 14), (10, 17), Strand::Minus),
             ],
         ))
@@ -500,6 +614,53 @@ fn a_genomic_repeat_the_transcript_continues_across_a_junction_has_no_coding_for
 }
 
 #[test]
+fn a_genomic_repeat_whose_run_crosses_an_intron_between_two_exons_has_no_coding_form() {
+    // g.18_26 is nine T: c.7, the intron and c.4_6. The transcript's run of
+    // A, c.4_7, crosses the junction after c.6.
+    let err = VariantMapper::new(&across_the_intron_minus())
+        .g_to_c(&genomic("NC_000084.1:g.18T[10]"), "NM_MIR.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
+        "expected UnsupportedOperation naming the junction, got {err:?}"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_the_transcript_reads_on_over_a_base_the_record_lacks_is_refused() {
+    // NM_DFL.1, `CATGTTTTTTTTTTAAAAA` on the minus strand of NC_000083.1 at
+    // g.3 to g.22 (cigar 1M1D18M): c.-1 is g.22, and g.21, a G the record
+    // lacks, lies between it and c.1. The genome's run of G from g.22 is
+    // g.22_23, the flank's g.23 included; read on downwards in the
+    // transcript's sense, it would take in g.21.
+    let tx = "CATGTTTTTTTTTTAAAAA";
+    let hdp = Provider::new()
+        .sequence("NC_000083.1", "GATTTTTAAAAAAAAAACATGGGA")
+        .sequence("NM_DFL.1", tx)
+        .transcript(transcript(
+            "NM_DFL.1",
+            "NC_000083.1",
+            Strand::Minus,
+            Some((1, 15)),
+            vec![ExonData::new(
+                TranscriptPos(0),
+                TranscriptPos(19),
+                GenomicPos(2),
+                GenomicPos(21),
+                Strand::Minus,
+                "1M1D18M",
+            )],
+        ));
+    let err = VariantMapper::new(&hdp)
+        .g_to_c(&genomic("NC_000083.1:g.22G[6]"), "NM_DFL.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("does not share")),
+        "expected UnsupportedOperation, got {err:?}"
+    );
+}
+
+#[test]
 fn on_the_minus_strand_a_repeat_whose_run_crosses_an_exon_junction_has_no_genomic_form() {
     let err = to_genome(&junction_minus(), "NM_JXM.1:c.5A[3]").unwrap_err();
     assert!(
@@ -555,5 +716,269 @@ fn a_genomic_repeat_in_an_intron_whose_unit_is_absent_is_refused() {
     assert!(
         matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "G"),
         "expected ReferenceMismatch finding G, got {err:?}"
+    );
+}
+
+#[test]
+fn a_range_past_the_run_of_its_unit_is_refused() {
+    // c.7_15 is CAG three times; c.16_18 is TTC, not a fourth copy.
+    let err = to_genome(&minus(), "NM_REV.1:c.7_18CAG[2]").unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ReferenceMismatch { found, .. } if found == "CAGCAGCAGTTC"),
+        "expected ReferenceMismatch finding CAGCAGCAGTTC, got {err:?}"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_does_not_share_projects_back_to_itself(
+) {
+    // g.14_15 is AA, then the genome's G; the record holds A there, at c.6.
+    let hdp = record_differs();
+    let written = "NC_000096.1:g.14A[3]";
+    let projected = VariantMapper::new(&hdp)
+        .g_to_c(&genomic(written), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(
+        spdi(&hdp, &projected.to_string()),
+        spdi(&hdp, written),
+        "{written} projected to {projected}"
+    );
+}
+
+#[test]
+fn more_copies_than_the_run_holds_are_inserted_between_its_own_bases() {
+    // g.14_15 is AA, then the genome's G; the record holds A there, at c.6.
+    // Two A become five: three inserted between c.4 and c.5.
+    let projected = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.14A[5]"), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_DIFF.1:c.4_5insAAA");
+}
+
+#[test]
+fn more_copies_than_a_one_base_run_holds_are_inserted_before_it() {
+    // The genome's run from g.15 is its one A; the record's c.4 is another,
+    // shared, and its c.6 an A the genome holds as G.
+    let projected = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.15A[3]"), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_DIFF.1:c.4_5insAA");
+}
+
+#[test]
+fn more_copies_than_a_one_base_run_holds_are_inserted_before_it_on_the_genome() {
+    // The record's run from c.6 is its one A; the genome's g.17 is an A the
+    // record holds as C.
+    assert_eq!(
+        to_genome(&genome_continues_the_run(), "NM_DIFF3.1:c.6A[3]").unwrap(),
+        "NC_000089.1:g.15_16insAA"
+    );
+}
+
+#[test]
+fn more_copies_of_a_longer_unit_than_the_run_holds_are_inserted_inside_its_one_copy() {
+    // One CAG at g.17_19 becomes four; the record's run goes on at c.10. The
+    // three copies go in after c.7, read from there as AGC.
+    let projected = VariantMapper::new(&cag_differs())
+        .g_to_c(&genomic("NC_000088.1:g.17CAG[4]"), "NM_CAGD.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_CAGD.1:c.7_8insAGCAGCAGC");
+}
+
+#[test]
+fn more_copies_inserted_inside_one_copy_project_back_to_the_same_change() {
+    let hdp = cag_differs();
+    let written = "NC_000088.1:g.17CAG[4]";
+    let projected = VariantMapper::new(&hdp)
+        .g_to_c(&genomic(written), "NM_CAGD.1")
+        .unwrap();
+    assert_eq!(
+        spdi(&hdp, &projected.to_string()),
+        spdi(&hdp, written),
+        "{written} projected to {projected}"
+    );
+}
+
+#[test]
+fn an_uncertain_genomic_count_the_record_continues_over_a_base_the_genome_does_not_share_is_refused(
+) {
+    let err = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.14A[(2_3)]"), "NM_DIFF.1")
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("no single edit")),
+        "expected UnsupportedOperation, got {err:?}"
+    );
+}
+
+#[test]
+fn a_coding_repeat_the_genome_continues_over_a_base_the_record_does_not_share_is_written_over_the_records_run(
+) {
+    // c.4_6 is AAA, then the record's C; the genome holds A there, at g.17.
+    // Three A become four: the genome duplicates the A at g.16 and leaves
+    // g.17 as it is.
+    assert_eq!(
+        to_genome(&genome_continues_the_run(), "NM_DIFF3.1:c.4A[4]").unwrap(),
+        "NC_000089.1:g.16dup"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_lacks_projects_back_to_itself() {
+    // g.14_15 is AA; the record continues the run with c.6, an A the genome
+    // lacks.
+    let hdp = gap_in_the_genome();
+    let written = "NC_000091.1:g.14A[3]";
+    let projected = VariantMapper::new(&hdp)
+        .g_to_c(&genomic(written), "NM_GAPI.1")
+        .unwrap();
+    assert_eq!(
+        spdi(&hdp, &projected.to_string()),
+        spdi(&hdp, written),
+        "{written} projected to {projected}"
+    );
+}
+
+#[test]
+fn a_coding_repeat_the_genome_continues_over_a_base_the_record_lacks_projects_back_to_itself() {
+    // c.4_5 is AA; the genome continues the run with g.16, an A the record
+    // lacks. Two A become three on the record.
+    let hdp = gap_in_the_record();
+    let mapper = VariantMapper::new(&hdp);
+    let written = "NM_GAPD.1:c.4A[3]";
+    let on_genome = mapper.c_to_g(&coding(written), None).unwrap();
+    let back = mapper.g_to_c(&on_genome, "NM_GAPD.1").unwrap();
+    assert_eq!(
+        spdi(&hdp, &back.to_string()),
+        spdi(&hdp, written),
+        "{written} through {on_genome} back to {back}"
+    );
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_does_not_share_is_the_duplication_of_its_last_copy(
+) {
+    let projected = VariantMapper::new(&record_differs())
+        .g_to_c(&genomic("NC_000096.1:g.14A[3]"), "NM_DIFF.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_DIFF.1:c.5dup");
+}
+
+#[test]
+fn a_genomic_repeat_the_record_continues_over_a_base_the_genome_lacks_is_the_duplication_of_its_last_copy(
+) {
+    let projected = VariantMapper::new(&gap_in_the_genome())
+        .g_to_c(&genomic("NC_000091.1:g.14A[3]"), "NM_GAPI.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_GAPI.1:c.5dup");
+}
+
+/// Asserts `result` is the refusal of a repeat whose copies are longer than
+/// the cap.
+fn refused_at_the_cap<T: std::fmt::Debug>(result: Result<T, HgvsError>) {
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::ValidationError(m) if m.contains(&MAX_REPEAT_ALTERNATE.to_string())),
+        "expected ValidationError naming the cap, got {err:?}"
+    );
+}
+
+/// One more copy of A at g.15 of NC_000098.1 than the cap allows.
+const OVER_THE_CAP: &str = "NC_000098.1:g.15A[10000001]";
+
+#[test]
+fn a_repeat_over_the_cap_has_no_allele() {
+    refused_at_the_cap(VariantMapper::new(&plus()).canonical_allele(&parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_has_no_spdi() {
+    refused_at_the_cap(VariantMapper::new(&plus()).to_spdi_unambiguous(&parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_has_no_vrs() {
+    refused_at_the_cap(VariantMapper::new(&plus()).to_vrs(&parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_normalised() {
+    refused_at_the_cap(VariantMapper::new(&plus()).normalize_variant(parse(OVER_THE_CAP)));
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_judged() {
+    let hdp = plus();
+    let mapper = VariantMapper::new(&hdp);
+    refused_at_the_cap(
+        VariantEquivalence::new(&mapper, &hdp)
+            .equivalent(&parse(OVER_THE_CAP), &parse("NC_000098.1:g.15_16dup")),
+    );
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_projected_to_the_transcript() {
+    refused_at_the_cap(VariantMapper::new(&plus()).g_to_c(&genomic(OVER_THE_CAP), "NM_FWD.1"));
+}
+
+#[test]
+fn a_repeat_over_the_cap_is_not_projected_to_the_genome() {
+    refused_at_the_cap(to_genome(&plus(), "NM_FWD.1:c.5A[10000001]"));
+}
+
+#[test]
+fn a_count_the_genome_grows_past_the_cap_is_refused() {
+    // c.5_6 is two A; the genome's run has c.4 as well, one copy more.
+    refused_at_the_cap(to_genome(&minus(), "NM_REV.1:c.5A[10000000]"));
+}
+
+#[test]
+fn a_repeat_at_the_cap_has_an_allele() {
+    let allele = VariantMapper::new(&plus())
+        .canonical_allele(&parse("NC_000098.1:g.15A[10000000]"))
+        .unwrap();
+    assert_eq!(
+        allele.alternate.len() - allele.reference.len(),
+        10_000_000 - 2
+    );
+}
+
+#[test]
+fn a_repeat_at_the_cap_projects_to_the_genome() {
+    assert_eq!(
+        to_genome(&plus(), "NM_FWD.1:c.5A[10000000]").unwrap(),
+        "NC_000098.1:g.15_16A[10000000]"
+    );
+}
+
+#[test]
+fn a_repeat_at_the_cap_projects_to_the_transcript() {
+    let projected = VariantMapper::new(&plus())
+        .g_to_c(&genomic("NC_000098.1:g.15A[10000000]"), "NM_FWD.1")
+        .unwrap();
+    assert_eq!(projected.to_string(), "NM_FWD.1:c.5_6A[10000000]");
+}
+
+#[test]
+fn the_cap_counts_the_bases_of_a_longer_units_copies() {
+    // 3,333,334 copies of CAG are 10,000,002 bases.
+    refused_at_the_cap(to_genome(&plus(), "NM_FWD.1:c.10CAG[3333334]"));
+}
+
+#[test]
+fn copies_of_a_longer_unit_within_the_cap_are_answered() {
+    // 3,333,333 copies of CAG are 9,999,999 bases.
+    assert_eq!(
+        to_genome(&plus(), "NM_FWD.1:c.10CAG[3333333]").unwrap(),
+        "NC_000098.1:g.20_25CAG[3333333]"
+    );
+}
+
+#[test]
+fn the_largest_count_is_refused_at_the_cap() {
+    // The count the grammar admits, with a three-base unit: the copies'
+    // length is computed without overflowing on the way to the cap.
+    refused_at_the_cap(
+        VariantMapper::new(&plus()).canonical_allele(&parse("NC_000098.1:g.17CAG[2147483647]")),
     );
 }

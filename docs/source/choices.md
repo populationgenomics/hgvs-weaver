@@ -184,7 +184,7 @@ Variation Representation Specification 2.0.1.
 | [No normalisation before projecting](#no-normalisation-before-projecting)                                                           |                                    –                                    |        –         |             differs             |        –         |
 | [Gapped exons are projected locally](#gapped-exons-are-projected-locally)                                                           |                                    –                                    |        –         |             differs             |        –         |
 | [A transcript base the genome lacks projects as an insertion](#a-transcript-base-the-genome-lacks-projects-as-an-insertion)         |                                    –                                    |     differs      |      differs inside a run       |        –         |
-| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)                                                   |                                 agrees                                  |        –         |                –                |        –         |
+| [A repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)                                                   |    agrees; **differs** on the 3' rule where record and genome differ    |        –         |                –                |        –         |
 | [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)                                             |                                 agrees                                  |     differs      |                –                |        –         |
 | [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position)                                                         |   agrees; silent on a consequence needing a residue the record lacks    |        –         |                –                |        –         |
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                               **differs**                               |        –         |                –                |        –         |
@@ -192,11 +192,12 @@ Variation Representation Specification 2.0.1.
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |                        agrees; silent on `r.(?)`                        |        –         |             differs             |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          |                  agrees; silent on what `c.=` implies                   |     differs      |                –                |        –         |
 | [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |                    agrees; silent on the duplication                    |        –         |                –                |        –         |
-| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |               agrees; **differs** at exon/intron borders                |      agrees      |             agrees              |      agrees      |
+| [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |  agrees; **differs** at exon/intron borders and for a projected repeat  |      agrees      |             agrees              |      agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |             agrees at exon/exon; **differs** at exon/intron             |     differs      |                –                |      agrees      |
 | [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                                 agrees                                  |   agrees on g.   |                –                |        –         |
 | [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                                 agrees                                  |     differs      |             agrees              |        –         |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                                 agrees                                  |        –         |                –                |      agrees      |
+| [A repeat spells out at most ten million bases](#a-repeat-spells-out-at-most-ten-million-bases)                                     |                                 silent                                  |        –         |                –                |        –         |
 | [Members of a cis allele that meet are written as one change](#members-of-a-cis-allele-that-meet-are-written-as-one-change)         |                               **differs**                               |        –         |                –                |        –         |
 | [The declared CDS end is the stop](#the-declared-cds-end-is-the-stop)                                                               |                                    –                                    |     differs      |                –                |        –         |
 | [The protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)                                         |                                 silent                                  |        –         |                –                |        –         |
@@ -549,7 +550,8 @@ NC_000099.1:g.26A>G    →  TX_DEL.1:c.15_16insG         the other direction: th
 ### A repeat is projected as its whole run
 
 **A repeat is widened to the full run of its unit on the source before projecting, and the target counts its own run:
-copies the target reads beyond the source's run are added to the count, and a transcript run that crosses an exon
+copies the target reads beyond the source's run are added to the count, unless the run continues over a base the source
+does not share, where the change is written over the source's run alone; and a transcript run that crosses an exon
 junction is refused in either direction.**
 
 A repeat's count is the total number of units in the run read 3' from its first base, on the sequence it is written on.
@@ -564,16 +566,30 @@ the same way. So whether a run continues past an exon's edge depends on how the 
 both exonic counts the record's run, one with an intronic or flanking end counts the genome's, where its bases are.
 Where the target's bases over the run are not the source's, the edit is the minimal one, as
 [for any projection](#a-projection-states-the-bases-of-the-target), and a count known only as a range is refused because
-it has no single alternate there. A transcript run that crosses an exon junction is refused, whichever side the repeat
-is written on: copies added to or removed from it could go on either side of the intron, so a `c.` count over it has no
-single place on the genome, and a genomic repeat whose run the next exon continues would be written as that `c.` count.
-Counting only the copies within the starting exon would answer instead, at the price of a `c.` count that is not the
-transcript's total, which the specification defines it to be.
+it has no single alternate there. The target's run can also continue past the source's over a base the source does not
+share: one the two hold differently, one only the target holds, or one beside a base only the source holds. A count on
+the target would count that base, and the count projected back would write the target's base over the source's: on a
+record holding A where the genome holds G after two A, `g.14A[3]` as `c.4_6A[4]` projects back as `g.16delinsAA`.
+Stopping the count at that base does not help, since `c.4_5A[3]` still counts the record's whole run, which makes no
+change. So the change is written over the source's run alone, as a deletion of the copies it removes, a duplication of
+the copies it adds, or, where it adds more than the run holds, an insertion between two of the run's own bases, or, for
+a run of one base, between it and a copy before it that both sequences share; a count known only as a range is refused.
+These are deliberately not the record's 3' form: normalised on the record, `NM_DIFF.1:c.5dup` is `c.6dup`, which
+duplicates the base the two sequences hold differently and projects as `g.16delinsAA`, a different change. A transcript
+run that crosses an exon junction is refused, whichever side the repeat is written on: copies added to or removed from
+it could go on either side of the intron, so a `c.` count over it has no single place on the genome, and a genomic
+repeat whose run the next exon continues, or whose run crosses an intron from one exon into the next, would be written
+as that `c.` count. A genomic run read on in the transcript's sense past a base the record lacks or holds differently is
+refused for the same reason as a count over it. Counting only the copies within the starting exon would answer instead,
+at the price of a `c.` count that is not the transcript's total, which the specification defines it to be.
 
 **Example** (`NC_REP.1` is `TTTTT GCCATT GCCATT GCCATT AAAAA…`; `NM_REP_MINUS.1` reads it on the minus strand, where the
 run is `AATGGC` from c.78. `NM_REV.1` is `ATGAAACAGCAGCAGTTCTAAGG` on the minus strand of `NC_000099.1`, c.4_6 `AAA` at
 g.28_30; `NM_EDGE.1`'s exon 1 ends `GTGT` and its intron opens `GT`; `NM_INT.1` is on the minus strand with c.6+4_7-5
-`AAAA` at g.23_26):
+`AAAA` at g.23_26; `NM_MIR.1` is on the minus strand of `NC_000084.1`, where g.18_26 is nine T, c.7, an intron of five
+and c.4_6; `NM_DIFF.1` is `NM_REV.1`'s sequence on the plus strand of `NC_000096.1`, its c.4_6 `AAA` over a genomic
+`AAG` at g.14_16; `NM_GAPI.1` aligns `ATGAAATGACC` to `NC_000091.1` as `5M1I5M`, the genome lacking c.6, the last A of
+the run c.4_6):
 
 ```text
 NM_REP_MINUS.1:c.78AATGGC[4]  →  NC_REP.1:g.6_23GCCATT[4]           the whole run, in plus-strand orientation
@@ -586,16 +602,29 @@ NM_INT.1:c.6+5A[4]            →  NC_000094.1:g.23_26T[5]            three A be
 NC_000094.1:g.25T[4]          →  NM_INT.1:c.6+4_7-5A[6]
 NM_EDGE.1:c.7TG[3]            →  UnsupportedOperation               the run crosses the junction after c.9
 NC_000095.1:g.15A[3]          →  UnsupportedOperation               NM_JX.1's run of A carries on into exon 2
+NC_000084.1:g.18T[10]         →  UnsupportedOperation               the genome's run crosses NM_MIR.1's intron
+NC_000096.1:g.14A[3]          →  NM_DIFF.1:c.5dup                   the record's A at c.6 is not the genome's
+NC_000096.1:g.14A[5]          →  NM_DIFF.1:c.4_5insAAA              more copies than the run holds
+NC_000096.1:g.15A[3]          →  NM_DIFF.1:c.4_5insAA               a run of one base, after the shared c.4
+NC_000096.1:g.14A[(2_3)]      →  UnsupportedOperation
+NC_000091.1:g.14A[3]          →  NM_GAPI.1:c.5dup                   the genome lacks c.6
 ```
 
 - **Others:** not checked.
-- **Spec (agrees):** [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/): the count
-  is the total number of units in the run. Silent on a run that crosses an exon junction.
+- **Spec (agrees; differs on the 3' rule):**
+  [repeated sequences](https://hgvs-nomenclature.org/stable/recommendations/DNA/repeated/): the count is the total
+  number of units in the run. Silent on a run that crosses an exon junction. The edits written over the source's run
+  alone, where the target's run goes on over a base the source does not share, depart from the
+  [3' rule](#shift-3-cyclically-over-repeats): shifted 3' on the target, each would take in that base and project as a
+  different change. `NM_DIFF.1:c.5dup` would be `c.6dup`, `NM_DIFF.1:c.4_5insAAA` `c.4_6dup`,
+  `NM_CAGD.1:c.7_8insAGCAGCAGC` `c.7_15dup`, and `NM_GAPI.1:c.5dup` `c.6dup`.
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`;
-  `repeat_projection_test` (every row above, and the minimal edit over a base the genome does not share);
-  `a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript`,
+  `repeat_projection_test` (every row above, the minimal edit over a base the genome does not share, and the runs the
+  genome continues past the record's); `a_coding_repeat_does_to_the_genome_what_it_does_to_the_transcript`,
   `a_genomic_repeat_projected_to_the_transcript_is_the_same_change`,
-  `an_intronic_repeat_does_to_the_genome_what_it_does_to_the_pre_mrna` (properties).
+  `an_intronic_repeat_does_to_the_genome_what_it_does_to_the_pre_mrna`,
+  `a_genomic_repeat_projected_to_a_record_that_differs_from_the_genome_is_the_same_change`,
+  `a_coding_repeat_on_a_record_that_differs_from_the_genome_projects_back_to_the_same_change` (properties).
 
 ### A position outside every exon is an error
 
@@ -1076,13 +1105,15 @@ on MAAAKL:      NP_…:6::Q      →  p.Ter7GlnextTer1               added at th
 ```
 
 - **Agrees:** biocommons, VariantValidator and ClinVar.
-- **Spec (agrees; differs at exon/intron borders):**
+- **Spec (agrees; differs at exon/intron borders and for a projected repeat):**
   [general, 3' rule](https://hgvs-nomenclature.org/stable/recommendations/general/);
   [insertion](https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/): "tandem duplications are described
   as a duplication, not an insertion". The rule "applies to ALL descriptions", and its one exception is the exon/exon
   junction; weaver does not shift a transcript variant across an exon/intron border either
   ([intronic positions](#intronic-positions-are-carried-as-given),
-  [#87](https://github.com/populationgenomics/hgvs-weaver/issues/87)).
+  [#87](https://github.com/populationgenomics/hgvs-weaver/issues/87)), nor write a repeat projected onto a sequence that
+  differs from its source in the target's 3' form: `NM_DIFF.1:c.5dup` is not written `c.6dup`
+  ([a repeat is projected as its whole run](#a-repeat-is-projected-as-its-whole-run)).
 - **Tests:** `one_spelling_test::an_insertion_does_not_slide_past_the_last_base_of_the_sequence`,
   `::an_spdi_insertion_after_the_last_base_reads_as_the_normalised_delins`,
   `::an_spdi_insertion_after_the_last_base_that_repeats_it_reads_as_a_duplication`,
@@ -1351,6 +1382,38 @@ NC_REP.1:g.23_24insGCCATT
 - **Tests:** `transcript_coordinates_test::repeat_on_the_minus_strand_projects_to_its_whole_run`;
   `protein_allele_test::substitution_insertion_delins_dup_and_repeat_resolve_on_the_protein`;
   `equivalence_cases_test::test_analogous_repeat_equivalence`, `::test_multi_unit_repeat_equivalence`.
+
+### A repeat spells out at most ten million bases
+
+**A repeat whose copies would be longer than 10,000,000 bases, or residues for a protein repeat, is a `ValidationError`
+naming the count, the unit and the cap, refused before any copy is built by every operation that reads it: resolving it,
+its canonical allele, SPDI and VRS, equivalence, normalisation and projection, a count the target's run grows past the
+cap included.**
+
+This is a limit of the implementation, not a reading of HGVS. weaver resolves a repeat to the bases its copies spell
+out, so the cost of a description is the length of its alternate, not of its text: `NM_REV.1:c.5A[2147483647]` is thirty
+bytes and would cost gigabytes. Real expansions are far below the cap: a DMPK CTG expansion of a few thousand copies is
+about 12 kb. A representation of a repeat that does not spell out its copies would remove the limit. The cap is
+`MAX_REPEAT_ALTERNATE` in `hgvs-weaver/src/edits.rs`.
+
+**Example** (`NC_000098.1` holds two A at g.15_16, and `NM_FWD.1`'s c.5_6 are those two):
+
+```text
+NC_000098.1:g.15A[10000000]    →  NM_FWD.1:c.5_6A[10000000]
+NC_000098.1:g.15A[10000001]    →  ValidationError        10,000,001 copies of A
+NM_FWD.1:c.10CAG[3333334]      →  ValidationError        10,000,002 bases
+```
+
+- **Others:** not checked.
+- **Spec (silent):** the nomenclature sets no limit on a repeat's count.
+- **Tests:** `repeat_projection_test::a_repeat_over_the_cap_has_no_allele`, `::a_repeat_over_the_cap_has_no_spdi`,
+  `::a_repeat_over_the_cap_has_no_vrs`, `::a_repeat_over_the_cap_is_not_normalised`,
+  `::a_repeat_over_the_cap_is_not_judged`, `::a_repeat_over_the_cap_is_not_projected_to_the_transcript`,
+  `::a_repeat_over_the_cap_is_not_projected_to_the_genome`, `::a_count_the_genome_grows_past_the_cap_is_refused`,
+  `::a_repeat_at_the_cap_has_an_allele`, `::a_repeat_at_the_cap_projects_to_the_genome`,
+  `::a_repeat_at_the_cap_projects_to_the_transcript`, `::the_cap_counts_the_bases_of_a_longer_units_copies`,
+  `::copies_of_a_longer_unit_within_the_cap_are_answered`, `::the_largest_count_is_refused_at_the_cap`;
+  `protein_allele_test::a_protein_repeat_over_the_cap_has_no_allele`, `::a_protein_repeat_at_the_cap_has_an_allele`.
 
 ### Members of a cis allele that meet are written as one change
 
@@ -2630,10 +2693,10 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
 ### A stated base the reference lacks is an error
 
 **The bases a description states — a substitution's, those written after `del`, `dup` or `inv`, the deleted part of a
-`delins`, an identity's `c.5A=`, a repeat's unit — and the residues a `p.` description names are compared with the
-reference they cite by every operation that reads the description against a sequence. Where they differ the answer is a
-`ReferenceMismatchError` naming the stated and the reference's bases; `validate` is the same comparison answered as true
-or false.**
+`delins`, an identity's `c.5A=`, a repeat's unit, repeated over its range — and the residues a `p.` description names
+are compared with the reference they cite by every operation that reads the description against a sequence. Where they
+differ the answer is a `ReferenceMismatchError` naming the stated and the reference's bases; `validate` is the same
+comparison answered as true or false.**
 
 A stated base is a claim about the reference. When it is not there, the description was written against another version,
 on the other strand, at another position, or with a typo, and no reading of it is safe: using the reference's base
@@ -2662,8 +2725,15 @@ What a base is compared with is the sequence the position numbers:
 
 A count (`del3`, `delins` with no bases) states nothing, and an edit that states nothing is not read for this.
 
+A repeat's range with its unit stated claims copies of the unit over the range: the specification writes the range over
+the repeated stretch (`g.123_191CAG[23]`). A range that runs past the run of its unit states copies the reference lacks,
+and the count, which is of the run, would leave the bases past it out of the change without saying so. A `p.` repeat
+states no unit in HGVS, whose range is the unit (`p.Arg65_Ser67[12]`); the parser also reads a unit after bare positions
+(`p.2346GT[3]`), and that unit is held to the same rule by every operation, `validate` included.
+
 **Example** (`NM_S.1` is spliced from `NC_S.1`, whose g.15 is c.9+1, a G; c.4 is A; the record has C at c.12 where the
-genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S.1` is `MKLAYR`):
+genome has T; `NM_R.1` is the same record on the minus strand of `NC_R.1`; `NP_S.1` is `MKLAYR`; `NM_REV.1` is
+`ATGAAACAGCAGCAGTTCTAAGG`, three CAG at c.7_15 and TTC at c.16_18):
 
 ```text
 validate NM_S.1:c.9+1G>A        →  true
@@ -2673,6 +2743,7 @@ c_to_g   NM_R.1:c.9+1G>A        →  NC_R.1:g.36C>T                the transcrip
 c_to_g   NM_S.1:c.12T>A         →  ReferenceMismatchError       the genome's T is not the record's C
 c_to_g   NM_S.1:c.12C>A         →  NC_S.1:g.27T>A                the record's C, written for the genome
 c_to_g   NM_S.1:c.4_6CTG[5]     →  ReferenceMismatchError       the unit is not there
+c_to_g   NM_REV.1:c.7_18CAG[2]  →  ReferenceMismatchError       c.16_18 is not a fourth copy
 c_to_p   NM_S.1:c.*3A>T         →  ReferenceMismatchError       though the prediction reads no codon
 g_to_c   NC_S.1:g.15C>A         →  ReferenceMismatchError
 normalize, to_spdi, to_vrs, canonical_allele, equivalent  NC_S.1:g.6C>T  →  ReferenceMismatchError
@@ -2712,7 +2783,10 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
   `::from_spdi_refuses_a_deletion_the_sequence_does_not_carry`, `::p_to_c_refuses_a_residue_the_protein_does_not_carry`,
   `::normalize_refuses_a_residue_the_protein_does_not_carry`, and the file's other tests, one per operation;
   `transcript_coordinates_test::validate_checks_stated_reference_through_transcript_coordinates`;
-  `protein_allele_test::validation_checks_the_named_and_stated_residues`;
+  `repeat_projection_test::a_range_past_the_run_of_its_unit_is_refused`;
+  `protein_allele_test::validation_checks_the_named_and_stated_residues`,
+  `::a_range_past_the_run_of_its_unit_has_no_allele`, `::a_range_past_the_run_of_its_unit_does_not_validate`,
+  `::a_range_past_the_run_of_its_unit_is_not_normalised`;
   `projection_reference_real_test::real_records_that_differ_from_the_genome_project_to_the_targets_bases` (the
   `validate` cases); `tests/test_validate_stated_bases.py::test_a_base_the_genome_lacks_is_an_error_naming_the_genome`.
 
