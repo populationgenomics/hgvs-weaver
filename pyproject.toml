@@ -1,5 +1,6 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+# 1.9.4 is the first that sets PYO3_BUILD_EXTENSION_MODULE, which keeps libpython out of the extension's link.
+requires = ["maturin>=1.9.4,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -83,7 +84,6 @@ override-dependencies = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
 manifest-path = "./Cargo.toml"
 python-source = "./"
 module-name = "weaver._weaver"

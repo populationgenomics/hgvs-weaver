@@ -191,7 +191,7 @@ fn ambiguity_error(context: String, description: String, readings: Vec<SequenceV
     .unwrap_or(err)
 }
 
-#[pyclass(name = "IdentifierType", module = "weaver._weaver")]
+#[pyclass(name = "IdentifierType", module = "weaver._weaver", from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PyIdentifierType {
     GenomicAccession,
@@ -252,7 +252,11 @@ impl PyIdentifierType {
     }
 }
 
-#[pyclass(name = "EquivalenceLevel", module = "weaver._weaver")]
+#[pyclass(
+    name = "EquivalenceLevel",
+    module = "weaver._weaver",
+    skip_from_py_object
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PyEquivalenceLevel {
     Identity,
@@ -287,7 +291,7 @@ impl PyEquivalenceLevel {
     }
 }
 
-#[pyclass(name = "Variant", module = "weaver._weaver")]
+#[pyclass(name = "Variant", module = "weaver._weaver", skip_from_py_object)]
 #[doc = "Represents a parsed HGVS variant.\n\nProvides access to the variant's accession, gene symbol, and coordinate type.\nVariants can be formatted back to HGVS strings or converted to JSON/dict representations.\n\nAn allele in cis, NM_004006.2:c.[145C>T;147C>G], is one Variant whose\nmembers are the plain variants written between the brackets."]
 #[derive(Clone)]
 pub struct PyVariant {
@@ -1061,7 +1065,7 @@ impl PyVariantMapper {
     }
 }
 
-#[pymodule]
+#[pymodule(gil_used = true)]
 fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_class::<PyVariant>()?;
