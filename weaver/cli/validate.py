@@ -1,14 +1,9 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "hgvs-weaver-data",
-#   "tqdm",
-#   "parsley",
-#   "bioutils",
-# ]
-# ///
+"""The validation: weaver's answers on ClinVar variants against ClinVar's and the biocommons hgvs package's.
 
-"""Full validation script against ClinVar variants."""
+Run through the gate dependency group, over a store and genome built by hgvs-weaver-data's `weaver-data-build`:
+
+    uv run --group gate python -m weaver.cli.validate variants.tsv --store STORE --genome GENOME
+"""
 
 from __future__ import annotations
 
@@ -21,21 +16,9 @@ import logging
 import sys
 import typing
 
-try:
-    import hgvs.parser
-    import hgvs.variantmapper
-except ImportError:
-    print(
-        "Error: 'hgvs' package not found. Please install it manually (e.g. without dependencies to avoid psycopg2) with:",
-    )
-    print("  pip install hgvs --no-deps")
-    sys.exit(1)
-
-try:
-    import tqdm
-except ImportError:
-    print("Error: 'tqdm' package not found. Please install it manually with: pip install tqdm")
-    sys.exit(1)
+import hgvs.parser
+import hgvs.variantmapper
+import tqdm
 
 import weaver
 from weaver.cli import provider
@@ -331,7 +314,11 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
 
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for validation."""
-    parser = argparse.ArgumentParser(description="Full validation against ClinVar variants.")
+    parser = argparse.ArgumentParser(
+        prog="python -m weaver.cli.validate",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("input_file", help="Input ClinVar TSV file.")
     parser.add_argument("--max-variants", type=int, default=None, help="Maximum variants to process.")
     parser.add_argument("--output-file", default="clinvar_full_validation.tsv", help="Output validation TSV.")

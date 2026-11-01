@@ -235,11 +235,11 @@ ClinVar's protein over the same store, in about three minutes on eight workers. 
 spells the protein as ClinVar does, by the kind of ClinVar's edit, and with `--clinvar-proteins-baseline` an earlier
 report compares row by row, a moved prediction counted by the kind of edit each run writes.
 
-To run the validation against a store built elsewhere, `weaver-validate` takes the store and genome directly, locally or
-in a bucket (`hgvs-weaver-data[gcs]` for the latter):
+To run the validation against a store built elsewhere, `weaver.cli.validate` takes the store and genome directly,
+locally or in a bucket (`hgvs-weaver-data[gcs]` for the latter):
 
 ```sh
-uv run --group gate weaver-validate data/clinvar_variants_100k.tsv \
+uv run --group gate python -m weaver.cli.validate data/clinvar_variants_100k.tsv \
     --output-file results.tsv \
     --store path/or/gs://bucket/grch38/store \
     --genome path/or/gs://bucket/grch38/genome

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build for the weaver benchmark environment.
 # Stage 1 (builder) compiles both ferro-hgvs and weaver from source.
-# Stage 2 (runtime) is the lean image used to run weaver-validate and ferro prepare.
+# Stage 2 (runtime) is the lean image used to run the validation and ferro prepare.
 
 # ── builder ──────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
@@ -68,4 +68,4 @@ RUN pip install --no-cache-dir /wheels/*.whl \
 # Reference data and input files are mounted at runtime.
 WORKDIR /data
 
-ENTRYPOINT ["weaver-validate"]
+ENTRYPOINT ["python", "-m", "weaver.cli.validate"]
