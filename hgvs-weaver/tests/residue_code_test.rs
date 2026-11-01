@@ -1,7 +1,7 @@
 //! A protein description writes every residue in one amino acid code, the
 //! one-letter or the three-letter; `*`, a stop in both, belongs to either.
 
-use hgvs_weaver::error::HgvsError;
+use hgvs_weaver::error::{HgvsError, ResidueToken};
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
 
 fn parse(s: &str) -> SequenceVariant {
@@ -44,39 +44,121 @@ refused_as_mixed! {
     a_predicted_allele_whose_members_use_different_codes: "NP_W.1:p.[(Arg2Lys;L3P)]";
 }
 
-/// The residue or run written in each code that the refusal of `hgvs` names.
-fn named(hgvs: &str) -> (String, String) {
+/// A residue token as `(text, start, end)`.
+type Token = (String, usize, usize);
+
+/// The one-letter and the three-letter tokens the refusal of `hgvs` carries.
+fn tokens(hgvs: &str) -> (Vec<Token>, Vec<Token>) {
+    let as_tuples = |ts: Vec<ResidueToken>| -> Vec<Token> {
+        ts.into_iter().map(|t| (t.text, t.start, t.end)).collect()
+    };
     match parse_hgvs_variant(hgvs) {
         Err(HgvsError::MixedResidueCodes {
             one_letter,
             three_letter,
             ..
-        }) => (one_letter, three_letter),
+        }) => (as_tuples(one_letter), as_tuples(three_letter)),
         other => panic!("{hgvs}: {other:?}"),
     }
 }
 
+fn token(text: &str, start: usize, end: usize) -> Token {
+    (text.to_string(), start, end)
+}
+
 #[test]
-fn the_refusal_names_a_lone_x_and_the_three_letter_residue() {
+fn the_refusal_carries_a_lone_x_and_the_three_letter_residue_where_written() {
     assert_eq!(
-        named("NP_000021.1:p.Arg111X"),
-        ("X".to_string(), "Arg".to_string())
+        tokens("NP_000021.1:p.Arg111X"),
+        (vec![token("X", 20, 21)], vec![token("Arg", 14, 17)])
     );
 }
 
 #[test]
-fn the_refusal_names_a_one_letter_run_as_written() {
+fn the_refusal_carries_a_one_letter_run_as_one_token() {
     assert_eq!(
-        named("NP_000081.1:p.Ala356_Gly357insDPA"),
-        ("DPA".to_string(), "Ala".to_string())
+        tokens("NP_000081.1:p.Ala356_Gly357insDPA"),
+        (
+            vec![token("DPA", 30, 33)],
+            vec![token("Ala", 14, 17), token("Gly", 21, 24)]
+        )
     );
 }
 
 #[test]
-fn the_refusal_names_an_x_before_an_earlier_one_letter_residue() {
+fn the_refusal_carries_an_upper_case_run_as_one_one_letter_token() {
     assert_eq!(
-        named("NP_W.1:p.Lys2_L4delinsX"),
-        ("X".to_string(), "Lys".to_string())
+        tokens("NP_W.1:p.Ala2_Gly3insHIS"),
+        (
+            vec![token("HIS", 21, 24)],
+            vec![token("Ala", 9, 12), token("Gly", 14, 17)]
+        )
+    );
+}
+
+#[test]
+fn the_refusal_of_an_allele_carries_the_tokens_of_every_member() {
+    assert_eq!(
+        tokens("NP_W.1:p.[Arg2Lys;L3P]"),
+        (
+            vec![token("L", 18, 19), token("P", 20, 21)],
+            vec![token("Arg", 10, 13), token("Lys", 14, 17)]
+        )
+    );
+}
+
+#[test]
+fn a_one_letter_run_ending_in_a_stop_written_star_is_one_one_letter_token() {
+    assert_eq!(
+        tokens("NP_W.1:p.Arg2_Lys3delinsL*"),
+        (
+            vec![token("L*", 24, 26)],
+            vec![token("Arg", 9, 12), token("Lys", 14, 17)]
+        )
+    );
+}
+
+#[test]
+fn the_refusal_of_a_predicted_allele_carries_offsets_in_the_whole_description() {
+    assert_eq!(
+        tokens("NP_W.1:p.[(Arg2Lys;L3P)]"),
+        (
+            vec![token("L", 19, 20), token("P", 21, 22)],
+            vec![token("Arg", 11, 14), token("Lys", 15, 18)]
+        )
+    );
+}
+
+#[test]
+fn the_refusal_counts_offsets_from_the_start_of_the_input_whitespace_included() {
+    let err = parse_hgvs_variant("  NP_W.1:p.Arg2X").unwrap_err();
+    let HgvsError::MixedResidueCodes {
+        description,
+        one_letter,
+        ..
+    } = err
+    else {
+        panic!("{err:?}");
+    };
+    assert_eq!(description, "  NP_W.1:p.Arg2X");
+    assert_eq!(
+        one_letter,
+        vec![ResidueToken {
+            text: "X".to_string(),
+            start: 15,
+            end: 16
+        }]
+    );
+}
+
+#[test]
+fn the_message_names_an_x_before_an_earlier_one_letter_residue() {
+    let message = parse_hgvs_variant("NP_W.1:p.Lys2_L4delinsX")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        message.contains("and X in the one-letter code"),
+        "{message}"
     );
 }
 

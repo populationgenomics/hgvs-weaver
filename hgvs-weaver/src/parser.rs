@@ -1,5 +1,5 @@
 use super::Rule;
-use crate::error::HgvsError;
+use crate::error::{HgvsError, ResidueToken};
 use crate::structs::*;
 use pest::iterators::Pair;
 
@@ -76,33 +76,32 @@ pub fn parse_tx_posedit(
 }
 
 /// Refuses a description that writes residues in both amino acid codes,
-/// naming the first residue or run it writes in each, or in one-letter code
-/// the first holding an `X`, which a caller most needs to rewrite. The parse tree keeps
-/// the code each residue was written in, which the parsed value does not.
+/// with every residue or run written in each. The parse tree keeps the code
+/// each residue was written in, which the parsed value does not. `variant`
+/// spans the whole input, so a pair's span is its offset in the description.
 pub(crate) fn one_residue_code(variant: &Pair<Rule>) -> Result<(), HgvsError> {
-    let (mut one_letter, mut three_letter) = (None, None);
+    let (mut one_letter, mut three_letter) = (Vec::new(), Vec::new());
     for p in variant.clone().into_inner().flatten() {
-        let text = p.as_str();
-        match residue_code(&p) {
-            Some(ResidueCode::One) => {
-                if one_letter.is_none_or(|held: &str| !held.contains('X') && text.contains('X')) {
-                    one_letter = Some(text);
-                }
-            }
-            Some(ResidueCode::Three) => {
-                three_letter.get_or_insert(text);
-            }
-            None => {}
-        }
+        let tokens = match residue_code(&p) {
+            Some(ResidueCode::One) => &mut one_letter,
+            Some(ResidueCode::Three) => &mut three_letter,
+            None => continue,
+        };
+        let span = p.as_span();
+        tokens.push(ResidueToken {
+            text: span.as_str().to_string(),
+            start: span.start(),
+            end: span.end(),
+        });
     }
-    match (one_letter, three_letter) {
-        (Some(one_letter), Some(three_letter)) => Err(HgvsError::MixedResidueCodes {
-            description: variant.as_str().to_string(),
-            one_letter: one_letter.to_string(),
-            three_letter: three_letter.to_string(),
-        }),
-        _ => Ok(()),
+    if one_letter.is_empty() || three_letter.is_empty() {
+        return Ok(());
     }
+    Err(HgvsError::MixedResidueCodes {
+        description: variant.as_str().to_string(),
+        one_letter,
+        three_letter,
+    })
 }
 
 enum ResidueCode {

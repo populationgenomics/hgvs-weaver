@@ -56,20 +56,34 @@ impl fmt::Display for ReferenceUse {
     }
 }
 
+/// A residue, or a run of residues, as a description writes it: `text` is
+/// `description[start..end]`, by byte offset, which is also the character
+/// offset since a description that parses is ASCII. A run the grammar reads
+/// as one sequence, the `DPA` of `insDPA` or the `HIS` of `insHIS`, is one
+/// token; a lone residue, the `X` of `Arg111X`, is a run of one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResidueToken {
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
 /// Error types for HGVS operations.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum HgvsError {
     /// Failure during parsing of an HGVS string or CIGAR string.
     PestError(String),
-    /// A protein description that writes residues in both amino acid codes,
-    /// which HGVS does not allow: `one_letter` and `three_letter` are a
-    /// residue or run of each, as written in `description`. `*`, a stop in
-    /// either code, belongs to neither.
+    /// A protein description that writes residues in both amino acid codes:
+    /// `one_letter` and `three_letter` are every residue or run written in
+    /// each, in the order they appear in `description`, so a caller can
+    /// rewrite one code into the other and parse again. `*` is a stop in
+    /// either code, so a run of nothing but `*` is in neither; one inside a
+    /// one-letter run is part of that run's token.
     MixedResidueCodes {
         description: String,
-        one_letter: String,
-        three_letter: String,
+        one_letter: Vec<ResidueToken>,
+        three_letter: Vec<ResidueToken>,
     },
     /// Failure during validation of transcript or exon metadata.
     ValidationError(String),
@@ -160,13 +174,18 @@ impl fmt::Display for HgvsError {
                 one_letter,
                 three_letter,
             } => {
+                // The one-letter token named is the first holding an X, the
+                // residue whose meaning the mix leaves open, else the first.
+                let x = one_letter.iter().find(|t| t.text.contains('X'));
+                let one = x.or(one_letter.first()).map_or("", |t| t.text.as_str());
+                let three = three_letter.first().map_or("", |t| t.text.as_str());
                 write!(
                     f,
-                    "Mixed residue codes: {description} writes {three_letter} in the three-letter \
-                     amino acid code and {one_letter} in the one-letter code; write every residue \
+                    "Mixed residue codes: {description} writes {three} in the three-letter \
+                     amino acid code and {one} in the one-letter code; write every residue \
                      in one code"
                 )?;
-                if one_letter.contains('X') {
+                if x.is_some() {
                     write!(f, " (a stop is Ter or *, an unknown residue Xaa)")?;
                 }
                 Ok(())

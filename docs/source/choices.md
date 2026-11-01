@@ -4487,8 +4487,9 @@ NM_000051.3:c.9170_9171delGA   →  NP_000042.3:p.(Ter3057PheextTer4)     biocom
 ### A protein description uses one amino acid code
 
 **A `p.` description writes every residue in the one-letter code or every residue in the three-letter code; one that
-mixes them is a `ParseError` naming a residue written in each. `*` is a stop in both codes, so it belongs to either. The
-rule spans the whole description, every member of an allele included.**
+mixes them is a `MixedResidueCodesError`, a kind of `ParseError`, that carries every residue written in each code and
+where it stands in the text. `*` is a stop in both codes, so it belongs to either. The rule spans the whole description,
+every member of an allele included.**
 
 HGVS gives each amino acid two spellings, and the two disagree about `X`. In the three-letter code an unknown residue is
 `Xaa` and a stop is `Ter`; in the one-letter code an unknown residue is `X`, and older recommendations used `X` for a
@@ -4500,14 +4501,21 @@ after `fs` was read as a stop, so `p.Arg210X` and `p.Arg210ProfsX5` read one let
 
 Holding a description to one code removes the ambiguity where it arises. Within one code, `X` has a single meaning: in a
 one-letter description it keeps the reading [above](#recommended-spellings-on-output), `Xaa` except where only a stop
-can stand, and a three-letter description has no `X` at all. Across codes, the mix is what HGVS does not write, and the
-error lets a caller who knows which was meant rewrite it. Applying the rule per member of an allele would let
-`p.[Arg2Lys;L3P]` through, which is the same mix split across a semicolon. There is no exception for `fsX` or `extX`:
-`p.Ile223MetfsX45` mixes the codes like `p.Arg111X` does, and accepting one but not the other would put back the
-inconsistency the rule removes. A description that names no residue, `p.?`, `p.0` or `p.=`, writes neither code.
+can stand, and a three-letter description has no `X` at all. Across codes, the mix is what HGVS does not write, and
+weaver does not guess which code was meant. Applying the rule per member of an allele would let `p.[Arg2Lys;L3P]`
+through, which is the same mix split across a semicolon. There is no exception for `fsX` or `extX`: `p.Ile223MetfsX45`
+mixes the codes like `p.Arg111X` does, and accepting one but not the other would put back the inconsistency the rule
+removes. A description that names no residue, `p.?`, `p.0` or `p.=`, writes neither code.
 
 The rule is about the text, so it is checked on the text as parsed, before the residues are stored in the three-letter
 code weaver prints. A dict is not text: it stores residues one field at a time, and loads as before.
+
+Which code a mixed description meant depends on where it came from, which a caller may know and weaver does not. So the
+error is typed, `MixedResidueCodesError` in Python and `HgvsError::MixedResidueCodes` in Rust, and carries the
+description with every residue written in each code as its text and its offsets in the description. A run the grammar
+reads as one sequence, the `DPA` of `insDPA` or the `HIS` of `insHIS`, is one entry, which is the unit a rewrite works
+on: a caller reading literature from before 2011 can replace the `X` of `p.Arg111X` with `Ter` and parse `p.Arg111Ter`;
+one that sees an upper-case run such as `HIS` can write it `His`.
 
 ClinVar's `hgvs4variation.txt` holds 16,696,716 distinct `p.` descriptions, of which 59 mix the codes: 35 a lone `X`
 after a three-letter residue (`NP_000021.1:p.Arg111X`), 14 one-letter residues inserted between three-letter ones
@@ -4518,11 +4526,11 @@ that mix the codes and nothing else, among them a one-letter frameshift to a sto
 **Example:**
 
 ```text
-NP_000021.1:p.Arg111X               →  ParseError naming Arg and X
-NP_000081.1:p.Ala356_Gly357insDPA   →  ParseError
-NP_004619.3:p.Ile223MetfsX45        →  ParseError
-NP_005206.2:p.V191GfsTer35          →  ParseError                 Ter is three-letter; * is either
-NP_W.1:p.[Arg2Lys;L3P]              →  ParseError                 across the members of an allele
+NP_000021.1:p.Arg111X               →  MixedResidueCodesError  one_letter [("X", 20, 21)], three_letter [("Arg", 14, 17)]
+NP_000081.1:p.Ala356_Gly357insDPA   →  MixedResidueCodesError  one_letter [("DPA", 30, 33)], three_letter [("Ala", 14, 17), ("Gly", 21, 24)]
+NP_004619.3:p.Ile223MetfsX45        →  MixedResidueCodesError
+NP_005206.2:p.V191GfsTer35          →  MixedResidueCodesError  Ter is three-letter; * is either
+NP_W.1:p.[Arg2Lys;L3P]              →  MixedResidueCodesError  across the members of an allele
 NP_004619.3:p.I223MfsX45            →  NP_004619.3:p.Ile223MetfsTer45
 NP_004619.3:p.Ile223Metfs*45        →  NP_004619.3:p.Ile223MetfsTer45
 NP_060360.3:p.L2781X                →  NP_060360.3:p.Leu2781Xaa  X is Xaa in a one-letter description
@@ -4543,11 +4551,21 @@ NP_W.1:p.Arg2*                      →  NP_W.1:p.Arg2Ter
 - *Not checked:* VariantValidator.
 - **Tests:** `residue_code_test::a_substitution_to_x_after_a_three_letter_residue`,
   `::a_nonsense_change_written_x_as_clinvar_has_it`, `::a_one_letter_insertion_between_three_letter_residues`,
-  `::a_frameshift_written_fsx_as_clinvar_has_it`, `::an_allele_whose_members_use_different_codes`,
-  `::the_refusal_names_a_lone_x_and_the_three_letter_residue`, `::a_three_letter_frameshift_to_a_stop_written_star`,
-  `::a_one_letter_frameshift_to_x_is_to_a_stop`, `::a_one_letter_substitution_to_x_is_to_an_unknown_residue`,
-  `::an_unknown_effect` and the other descriptions without residues;
-  `tests/test_mixed_residue_codes.py::test_a_description_mixing_the_codes_is_a_parse_error`.
+  `::a_frameshift_written_fsx_as_clinvar_has_it`, `::an_allele_whose_members_use_different_codes` and the other refused
+  descriptions; `::the_refusal_carries_a_lone_x_and_the_three_letter_residue_where_written`,
+  `::the_refusal_carries_a_one_letter_run_as_one_token`,
+  `::the_refusal_carries_an_upper_case_run_as_one_one_letter_token`,
+  `::a_one_letter_run_ending_in_a_stop_written_star_is_one_one_letter_token`,
+  `::the_refusal_of_an_allele_carries_the_tokens_of_every_member`,
+  `::the_refusal_of_a_predicted_allele_carries_offsets_in_the_whole_description`,
+  `::the_refusal_counts_offsets_from_the_start_of_the_input_whitespace_included`,
+  `::the_message_names_an_x_before_an_earlier_one_letter_residue`, `::a_three_letter_frameshift_to_a_stop_written_star`
+  and the other stops written `*`, `::a_one_letter_frameshift_to_x_is_to_a_stop`,
+  `::a_one_letter_substitution_to_x_is_to_an_unknown_residue`, `::an_unknown_effect` and the other descriptions without
+  residues; `tests/test_mixed_residue_codes.py::test_a_description_mixing_the_codes_is_a_mixed_residue_codes_error`,
+  `::test_a_mixed_residue_codes_error_is_a_parse_error`, `::test_the_error_carries_each_one_letter_token_where_written`,
+  `::test_the_error_carries_each_three_letter_token_where_written`,
+  `::test_a_caller_can_rewrite_a_lone_x_as_ter_and_parse_again`.
 
 ### A range written backwards is refused when parsed
 

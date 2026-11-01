@@ -35,6 +35,19 @@ class IdentifierType:
     def __eq__(self, value: object) -> bool: ...
     def __hash__(self) -> int: ...
 
+class MixedResidueCodesError(ParseError):
+    """A p. description that writes residues in both the one- and three-letter amino acid codes.
+
+    one_letter and three_letter hold every residue or run written in each, as (text, start, end)
+    with text == description[start:end], in the order written: a run the grammar reads as one
+    sequence, the DPA of insDPA, is one token, and a * standing alone, a stop in either code, is in
+    neither.
+    """
+
+    description: str
+    one_letter: list[tuple[str, int, int]]
+    three_letter: list[tuple[str, int, int]]
+
 class NoProteinStatementError(HGVSError):
     """A description makes no statement about the protein.
 
@@ -723,8 +736,9 @@ def parse(input: str) -> Variant:
         A Variant object.
 
     Raises:
-        ParseError: If the HGVS string is malformed or unsupported, or a p.
-            description writes residues in both the one- and three-letter
-            amino acid codes, p.Arg111X; * is a stop in either.
+        MixedResidueCodesError: If a p. description writes residues in both the
+            one- and three-letter amino acid codes, p.Arg111X; * is a stop in
+            either. A ParseError, carrying every residue written in each code.
+        ParseError: If the HGVS string is malformed or unsupported.
         UnsupportedOperationError: If the string describes alleles in trans.
     """
