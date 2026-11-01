@@ -32,7 +32,7 @@ at all, gate the lines a change touched, not a project-wide target.
 The unit under test is the surface a caller uses, not the functions behind it. Here there are three: the Rust crate's
 public API — `parse` and `format`, `TranscriptMapper`, `VariantMapper` over a `DataProvider`; the Python package, the
 same operations through the extension and a provider implementing the protocol; and the commands, `weaver-validate` and
-`weaver-gate`. The common failure is to decompose the mapper into helpers and write a test per helper: many tests and no
+the gate. The common failure is to decompose the mapper into helpers and write a test per helper: many tests and no
 evidence a variant projects correctly, for two reasons.
 
 The first is that a helper's test has no ground truth but the author's reading of the helper. The expected value is

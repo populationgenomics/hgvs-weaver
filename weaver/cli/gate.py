@@ -1,4 +1,4 @@
-"""weaver-gate: the ClinVar validation from NCBI's published files to a row-by-row comparison, in one command.
+"""The ClinVar gate: the validation from NCBI's published files to a row-by-row comparison, in one command.
 
 The validation needs a GRCh38 store and genome built by hgvs-weaver-data's `weaver-data-build`: the current
 annotation release's shard with NCBI's historical set of retired transcript versions stacked under it, so
@@ -7,7 +7,7 @@ missing, runs `weaver-validate` over the result and compares the output with a b
 Every step is skipped when its output is already there, so a rerun after a weaver change costs only the
 validation itself.
 
-    uv run --group gate weaver-gate --data data/gate --variants data/clinvar_variants_100k.tsv \\
+    uv run --group gate python -m weaver.cli.gate --data data/gate --variants data/clinvar_variants_100k.tsv \\
         --baseline data/validation_release_0.7.0.tsv --output data/validation_<label>.tsv
 
 The downloads are a few gigabytes, the Entrez status fetch about twenty minutes, and the builds about
@@ -537,7 +537,11 @@ def compare_proteins(baseline: pathlib.Path | None, output: pathlib.Path) -> Non
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="python -m weaver.cli.gate",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--data", type=pathlib.Path, required=True, help="where inputs, shards, store and genome live")
     parser.add_argument("--variants", type=pathlib.Path, required=True, help="the ClinVar variants TSV to validate")
     parser.add_argument("--output", type=pathlib.Path, required=True, help="the validation output TSV to write")

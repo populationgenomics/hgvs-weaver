@@ -202,14 +202,14 @@ implementation.
 The validation reads a GRCh38 store and genome built by `weaver-data-build` from
 [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider): the current annotation release's shard
 with NCBI's historical set of retired transcript versions stacked under it, so the variants ClinVar names on retired
-versions project too. `weaver-gate` does the whole thing: it fetches NCBI's files, asks Entrez for each retired
-version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a baseline
-run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes of
-downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
+versions project too. The gate, `weaver.cli.gate`, does the whole thing: it fetches NCBI's files, asks Entrez for each
+retired version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a
+baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes
+of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
 minute for the 100k set. It needs Python 3.12 or later, which the `gate` dependency group provides:
 
 ```sh
-uv run --group gate weaver-gate --data data/gate \
+uv run --group gate python -m weaver.cli.gate --data data/gate \
     --variants data/clinvar_variants_100k.tsv \
     --baseline data/validation_release_0.7.0.tsv \
     --output data/validation_<label>.tsv

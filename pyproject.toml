@@ -30,10 +30,10 @@ weaver-validate = "weaver.cli.validate:main"
 weaver-analyze = "weaver.cli.analyze:main"
 weaver-categorize = "weaver.cli.categorize:main"
 weaver-extract = "weaver.cli.extract:main"
-weaver-gate = "weaver.cli.gate:main"
 
 [dependency-groups]
-# The ClinVar gate: `uv run --group gate weaver-gate`. hgvs-weaver-data needs Python 3.12, so the group does too.
+# The ClinVar gate: `uv run --group gate python -m weaver.cli.gate`. hgvs-weaver-data needs Python 3.12, so the
+# group does too.
 gate = [
     # Exact-pinned because it is exempt from the age gate below; a bump is a reviewed edit.
     "hgvs-weaver-data[build]==0.1.3",
@@ -43,8 +43,9 @@ gate = [
     "bioutils",
 ]
 dev = [
-    # scripts/fetch_gff.py parses NCBI's XML with it; nothing in the package imports it.
+    # scripts/fetch_gff.py's imports; nothing in the package imports them.
     "defusedxml>=0.7.1",
+    "requests>=2.33.0",
     # The Python suite imports the biocommons adapter, so hgvs is a test dependency; its database driver,
     # sequence repository and shell are overridden out below.
     "hgvs>=1.5",

@@ -43,8 +43,8 @@ access, so it needs no database.
   `weaver/_weaver.pyi`. The Python package adds the `DataProvider`, `Refget` and `TranscriptSearch` protocols and the
   commands.
 - **Commands**: `weaver-validate`, the comparison of weaver's answers against ClinVar's and the biocommons `hgvs`
-  package's over a store; `weaver-gate`, which builds that store from NCBI's files and runs the comparison against a
-  baseline. The 100,000-variant run is the regression gate for any change to the core.
+  package's over a store; the gate, `python -m weaver.cli.gate`, which builds that store from NCBI's files and runs the
+  comparison against a baseline. The 100,000-variant run is the regression gate for any change to the core.
 - **Languages**: Rust for the engine, Python for the binding, the protocols and the commands.
 
 ## Relationship to hgvs-weaver-data

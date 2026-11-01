@@ -52,10 +52,10 @@ the environment with `uv run --no-sync maturin develop` before running pytest; d
 in progress, since its workers import the shared library.
 
 A change to the core — parsing, normalisation, projection, consequences, equivalence — is gated by the 100,000-variant
-ClinVar run: `uv run --group gate weaver-gate` builds the reference store once and then costs the validation alone, and
-prints the row-by-row comparison with a baseline output. Report the rows that moved, and check each against the truth
-columns; the percentages alone hide a single moved row. A new choice, or a changed one, is an entry in `choices.md` in
-its fixed shape.
+ClinVar run: `uv run --group gate python -m weaver.cli.gate` builds the reference store once and then costs the
+validation alone, and prints the row-by-row comparison with a baseline output. Report the rows that moved, and check
+each against the truth columns; the percentages alone hide a single moved row. A new choice, or a changed one, is an
+entry in `choices.md` in its fixed shape.
 
 ## Docs
 
