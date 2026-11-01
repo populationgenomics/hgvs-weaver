@@ -698,12 +698,12 @@ dev = [
     { name = "twine" },
 ]
 gate = [
-    { name = "bioutils", marker = "python_full_version >= '3.12'" },
-    { name = "hgvs", marker = "python_full_version >= '3.12'" },
-    { name = "hgvs-weaver-data", extra = ["build"], marker = "python_full_version >= '3.12'" },
-    { name = "parsley", marker = "python_full_version >= '3.12'" },
-    { name = "pysam", marker = "python_full_version >= '3.12'" },
-    { name = "tqdm", marker = "python_full_version >= '3.12'" },
+    { name = "bioutils" },
+    { name = "hgvs" },
+    { name = "hgvs-weaver-data", extra = ["build"] },
+    { name = "parsley" },
+    { name = "pysam" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -733,17 +733,17 @@ dev = [
     { name = "twine" },
 ]
 gate = [
-    { name = "bioutils", marker = "python_full_version >= '3.12'" },
-    { name = "hgvs", marker = "python_full_version >= '3.12'", specifier = ">=1.5" },
-    { name = "hgvs-weaver-data", extras = ["build"], marker = "python_full_version >= '3.12'", specifier = "==0.1.3" },
-    { name = "parsley", marker = "python_full_version >= '3.12'" },
-    { name = "pysam", marker = "python_full_version >= '3.12'" },
-    { name = "tqdm", marker = "python_full_version >= '3.12'" },
+    { name = "bioutils" },
+    { name = "hgvs", specifier = ">=1.5" },
+    { name = "hgvs-weaver-data", extras = ["build"], specifier = "==0.1.4" },
+    { name = "parsley" },
+    { name = "pysam" },
+    { name = "tqdm" },
 ]
 
 [[package]]
 name = "hgvs-weaver-data"
-version = "0.1.3"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bagz" },
@@ -751,9 +751,9 @@ dependencies = [
     { name = "hgvs-weaver" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2f/a1/e14c19cf46736c26d5ef70f3787f9f7252f320d68e77cd194171fbddd4e9/hgvs_weaver_data-0.1.3.tar.gz", hash = "sha256:5274aaa8c48ad5868b3f218e7ae6cfc74e6660ab71fddec75a7d487faf3d1718", size = 216870, upload-time = "2026-10-02T10:01:59.547Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/7e/ee05c3d2c6815033fc0978814305118b16906246a83ed04fb1a6acb71dd6/hgvs_weaver_data-0.1.4.tar.gz", hash = "sha256:1c932f602ac10e709c87a0b7ba621c5eaa5574602e870ac14e60f8ccc3de68c8", size = 236676, upload-time = "2026-11-01T23:35:32.693Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/79/cc923dd297a571e86f76a08ba71203c13c09ab769613dae445a8268fccbe/hgvs_weaver_data-0.1.3-py3-none-any.whl", hash = "sha256:76c267b46b6f3fb3e4f972e539737793305ae1ad1199fa6115eb53cb62ce3591", size = 91304, upload-time = "2026-10-02T10:01:58.07Z" },
+    { url = "https://files.pythonhosted.org/packages/56/ff/69a595f2440d45a37734d4504098824be5922c2b579b49a4cb0e942bd173/hgvs_weaver_data-0.1.4-py3-none-any.whl", hash = "sha256:3377ddafc12d8cee4776afc5f86f06e06f2418a65dd29e4504aca51183fc7b2a", size = 91451, upload-time = "2026-11-01T23:35:30.758Z" },
 ]
 
 [package.optional-dependencies]

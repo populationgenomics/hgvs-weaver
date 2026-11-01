@@ -11,14 +11,15 @@ import argparse
 import concurrent.futures
 import csv
 import dataclasses
-import importlib.util
 import logging
-import sys
 import typing
 
 import hgvs.parser
 import hgvs.variantmapper
 import tqdm
+from weaver_data_provider import genome as wd_genome
+from weaver_data_provider import provider as wd_provider
+from weaver_data_provider import store as wd_store
 
 import weaver
 from weaver.cli import provider
@@ -49,11 +50,6 @@ _worker: _Worker | None = None
 
 def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
     """Initializes this worker process's mappers over a weaver-data-provider store and genome."""
-    # Imported here, not at module level: only the store needs it, and it needs Python 3.12; main checks for it.
-    from weaver_data_provider import genome as wd_genome  # noqa: PLC0415
-    from weaver_data_provider import provider as wd_provider  # noqa: PLC0415
-    from weaver_data_provider import store as wd_store  # noqa: PLC0415
-
     global _worker
     logging.basicConfig(level=logging.INFO)  # a spawned worker does not inherit the parent's logging
     rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
@@ -346,10 +342,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
-    if importlib.util.find_spec("weaver_data_provider") is None:
-        print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
-        print("  pip install hgvs-weaver-data")
-        sys.exit(1)
 
     with open(args.input_file) as f_in:
         reader = csv.DictReader(f_in, delimiter="\t")

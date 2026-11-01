@@ -27,11 +27,11 @@ weaver-extract = "weaver.cli.extract:main"
 
 [dependency-groups]
 # The ClinVar gate and the validation it runs: `uv run --group gate python -m weaver.cli.gate`, or
-# `python -m weaver.cli.validate` over a store built elsewhere. hgvs-weaver-data needs Python 3.12, so the group
-# does too. hgvs's database driver, sequence repository and shell are overridden out below.
+# `python -m weaver.cli.validate` over a store built elsewhere. hgvs's database driver, sequence repository and
+# shell are overridden out below.
 gate = [
     # Exact-pinned because it is exempt from the age gate below; a bump is a reviewed edit.
-    "hgvs-weaver-data[build]==0.1.3",
+    "hgvs-weaver-data[build]==0.1.4",
     "hgvs>=1.5",
     # weaver.refseq's, which weaver.cli.provider imports.
     "pysam",
@@ -58,9 +58,6 @@ dev = [
     "sphinx-rtd-theme",
     "twine",
 ]
-
-[tool.uv.dependency-groups]
-gate = { requires-python = ">=3.12" }
 
 # Supply-chain age gate: never resolve a release younger than 7 days. Declared in the repo, not only in a
 # global uv config, so CI and contributors inherit the same resolution: a global-only gate makes the lock

@@ -11,7 +11,7 @@ validation itself.
         --baseline data/validation_release_0.7.0.tsv --output data/validation_<label>.tsv
 
 The downloads are a few gigabytes, the Entrez status fetch about twenty minutes, and the builds about
-fifteen; they happen once. The gate dependency group installs what this needs, Python 3.12 or later.
+fifteen; they happen once. The gate dependency group installs what this needs.
 
 With --clinvar-proteins, the gate also predicts the protein of every coding indel in ClinVar's HGVS report
 over the same store, and compares the predictions with ClinVar's spelling and, given
@@ -37,6 +37,9 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 import tqdm
+from weaver_data_provider import genome as wd_genome
+from weaver_data_provider import store as wd_store
+from weaver_data_provider.build import cli as wd_build
 
 from weaver.cli import validate
 
@@ -180,16 +183,6 @@ def _shard(shards: pathlib.Path, prefix: str) -> pathlib.Path | None:
 
 def build(release: Release, inputs: Inputs, data: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     """The store and genome under `data`, cut by `weaver-data-build` where not already there."""
-    try:
-        from weaver_data_provider import genome as wd_genome  # noqa: PLC0415
-        from weaver_data_provider import store as wd_store  # noqa: PLC0415
-        from weaver_data_provider.build import cli as wd_build  # noqa: PLC0415
-    except ImportError:
-        print(
-            "Error: the gate needs 'hgvs-weaver-data[build]' on Python 3.12 or later: uv run --group gate",
-            file=sys.stderr,
-        )
-        sys.exit(1)
     shards, store, genome = data / "shards", data / "store", data / "genome"
     status = data / f"{release.anchor}_status.tsv"
     wd_build.main(["status", "--records", str(inputs.historical_records), "--out", str(status)])

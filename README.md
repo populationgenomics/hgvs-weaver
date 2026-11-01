@@ -206,7 +206,7 @@ versions project too. The gate, `weaver.cli.gate`, does the whole thing: it fetc
 retired version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a
 baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes
 of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
-minute for the 100k set. It needs Python 3.12 or later, which the `gate` dependency group provides:
+minute for the 100k set. The `gate` dependency group provides what it needs:
 
 ```sh
 uv run --group gate python -m weaver.cli.gate --data data/gate \
