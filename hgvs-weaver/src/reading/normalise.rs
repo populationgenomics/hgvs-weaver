@@ -1471,7 +1471,13 @@ impl VariantMapper<'_> {
         let reading = self.read_cis_on_genome(&group)?;
         let alt = reading.sequence(genome, lo, hi)?;
         let ref_ = Segment::Reference { start: lo, end: hi }.read(genome, 0, hi - lo)?;
-        let transcript = self.provider().get_transcript(&cis.ac, None)?;
+        let transcript = self.transcript(
+            (
+                &cis.ac,
+                crate::mapper::ReadAs::Description(cis.coordinate_type()),
+            ),
+            None,
+        )?;
         let minus = transcript
             .exons
             .first()

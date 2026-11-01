@@ -188,6 +188,7 @@ Variation Representation Specification 2.0.1.
 | [A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)                                             |                                 agrees                                  |     differs      |                –                |        –         |
 | [An open CDS end numbers no position](#an-open-cds-end-numbers-no-position)                                                         |   agrees; silent on a consequence needing a residue the record lacks    |        –         |                –                |        –         |
 | [Intronic positions are carried as given](#intronic-positions-are-carried-as-given)                                                 |                               **differs**                               |        –         |                –                |        –         |
+| [An intronic offset counts from an exon border](#an-intronic-offset-counts-from-an-exon-border)                                     |             agrees; **differs** on the transcript's flanks              |        –         |                –                |        –         |
 | [Mitochondrial and RNA descriptions share the DNA machinery](#mitochondrial-and-rna-descriptions-share-the-dna-machinery)           |                        agrees; silent on `r.(?)`                        |        –         |             differs             |        –         |
 | [The whole transcript unchanged is a statement, not a change](#the-whole-transcript-unchanged-is-a-statement-not-a-change)          |                  agrees; silent on what `c.=` implies                   |     differs      |                –                |        –         |
 | [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |                    agrees; silent on the duplication                    |        –         |                –                |        –         |
@@ -213,6 +214,7 @@ Variation Representation Specification 2.0.1.
 | [Protein alleles come from the coding change](#protein-alleles-come-from-the-coding-change)                                         |                      agrees; silent on derivation                       |        –         |                –                |        –         |
 | [A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)                                     |                                 agrees                                  | differs intronic |        differs intronic         |        –         |
 | [A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)                         |                                 agrees                                  |        –         |                –                |        –         |
+| [A description is read on a reference of its kind](#a-description-is-read-on-a-reference-of-its-kind)                               |                                 agrees                                  |        –         |                –                |        –         |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                                    –                                    |     differs      |                –                |        –         |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |                      agrees; silent on `p.Arg12?`                       |        –         |                –                |     differs      |
 | [An N-terminal extension adds residues before Met1](#an-n-terminal-extension-adds-residues-before-met1)                             | agrees; **differs**: reads `p.Met1Valext-4`, which it says not to write |        –         |                –                |        –         |
@@ -504,7 +506,9 @@ genome can describe only the whole run of such bases, so an edit touching a run 
 gets the run, as changed, inserted between its flanking bases. The same holds in the other direction: a genome base the
 transcript lacks (a `D`) has no transcript index, and a genomic edit touching the run is written on the transcript over
 the whole run. At the edge of an exon's alignment, where a soft-clipped end is supplied as a leading or trailing `I`, or
-a `D` opens or closes the alignment, there is no flanking pair and projecting it is a `ValidationError`.**
+a `D` opens or closes the alignment, there is no flanking pair and projecting it is a `ValidationError`. An intronic
+offset from such an exon counts from the end of its genomic span
+([An intronic offset counts from an exon border](#an-intronic-offset-counts-from-an-exon-border)).**
 
 Such a base has no genomic substitution equivalent. Placing it on a neighbouring genome base, as the alignment-mapper
 weaver descends from does, silently replaces the stated base with the neighbour's. Inserting only the changed base loses
@@ -704,8 +708,8 @@ normalisation leaves it where it is. The bases it states are read on the genome,
 NC_D.1:g.53A>G          →  NM_SPLICED.1:c.40+3A>G      carried as given
 NM_SPLICED.1:c.40+3A>G  →  NC_D.1:g.53A>G              and back
 
-normalize NM_PLUS10.1:c.30_30+1insA   →  NM_PLUS10.1:c.30_30+1insA    unchanged, not an error
-normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
+normalize NM_PLUS10.1:c.*60_*60+1insA   →  NM_PLUS10.1:c.*60_*60+1insA    unchanged, not an error
+normalize NM_MINUS10.1:c.*60+5del         →  NM_MINUS10.1:c.*60+5del
 ```
 
 - **Others:** not checked.
@@ -723,6 +727,82 @@ normalize NM_MINUS10.1:c.1+5del       →  NM_MINUS10.1:c.1+5del
 - **Tests:** `projection_reference_test::an_intronic_position_has_no_transcript_base_to_re_read`;
   `transcript_coordinates_test::normalize_leaves_intronic_coding_variants_as_written`;
   `intron_offsets_agree_from_either_exon` (property).
+
+### An intronic offset counts from an exon border
+
+**An offset `+k` counts from the last base of an exon and `-k` from the first, and the transcript's first and last bases
+count outward, upstream and downstream of it. An offset from any other base, or one counting past the end of its intron
+into the next exon, names a position the transcript does not have: projection, normalisation, the protein consequence,
+SPDI and VRS refuse it with a `PositionOutsideSequenceError` (`NotAnExonBorder` or `OffsetPastIntron` in Rust), and
+`validate` answers false. The border is the exon's border on the transcript, so in a gapped exon it is the exon's last
+transcript base, wherever the exon's genomic span ends; the offset counts from the end of that span.**
+
+Read as "k bases along the genome from c.N", an offset from a base inside an exon lands on another base of that exon: a
+description numbered against one exon structure validates against a base it never named. An intronic description is
+evidence of the structure it was numbered against — `c.782-2` holds only on a transcript with an exon starting at c.782
+— and that evidence is what a caller testing several candidate transcripts needs. `validate` answers false rather than
+raising for the reason it does for a position past the end
+([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)): the
+description is well formed, and another transcript may have the border it names. An offset past the end of its intron
+lands on a base of the next exon, which has a spelling of its own; the intron is the genome between the two exons'
+genomic spans.
+
+An exon's alignment can begin or end with a base only one sequence has: a transcript base the genome lacks, or a genome
+base the transcript lacks. The border base then has no genome base of its own beside the intron, or has one the
+transcript skips. Counting from the end of the exon's genomic span gives the first intron base either way: `c.18+1`
+after an exon whose last base the genome lacks is the base after the span, as is `c.16+1` after an exon whose span runs
+one base past its last transcript base, where counting from that base would land on the skipped genome base. It is also
+how a genomic position in the intron is numbered on the transcript, so a projection from the genome reads back.
+
+HGVS does not allow a variant beyond a transcript's ends to be described on that transcript. weaver still reads `c.-N-k`
+from the first base and `c.*N+k` from the last as positions upstream and downstream, as it writes a genomic position
+there when projecting to the transcript; this entry does not change that. Having no neighbouring exon, such an offset
+has no intron to stay inside, and is bounded only by the genome's ends. An offset from a base the transcript does not
+have is refused as that base is: past the last base, a `PositionOutsideSequenceError` and `validate` false; before the
+first, a `ValidationError`
+([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
+
+**Example** (`NM_B.1` has three exons, c.-3 to c.7, c.8 to c.17 and c.18 to c.\*3; `NR_GAP.1`'s second exon lacks one
+base of its genomic span, so it carries n.11 to n.19 and the third exon starts at n.20; `NM_GI.1`'s second exon, on
+g.31_40, ends with a base the genome lacks, c.18, and `NM_GD.1`'s, on the same span, lacks its last genome base, so it
+ends at c.16):
+
+```text
+validate NM_B.1:c.8-1del      →  true
+validate NM_B.1:c.9-1del      →  false                          c.9 is inside exon 2
+c_to_g   NM_B.1:c.9-1del      →  PositionOutsideSequenceError   not the genomic base of c.8
+validate NM_B.1:c.8+1del      →  false                          +k counts from an exon's last base
+validate NM_B.1:c.17+11del    →  false                          intron 2 is g.41 to g.50; g.51 is c.18
+normalize NM_B.1:c.(6+1_8-1)del  →  PositionOutsideSequenceError   an uncertain range is read for its ends too
+validate NM_B.1:c.-3-1del     →  true                           upstream of the transcript's first base
+validate NM_B.1:c.-2-1del     →  false
+validate NM_B.1:c.*3+1del     →  true                           downstream of its last
+validate NM_B.1:c.*4+1del     →  false                          c.*4 is past the transcript, as for c.*4del
+validate NR_GAP.1:n.19+1del   →  true
+validate NR_GAP.1:n.20+1del   →  false                          n.20 starts exon 3
+c_to_g   NM_GI.1:c.18+1del    →  NC_B.1:g.41del                 c.18 is a base the genome lacks; exon 2 ends at g.40
+c_to_g   NM_GD.1:c.16+1del    →  NC_B.1:g.41del                 not g.40, the genome base the transcript lacks
+```
+
+- **Others:** not checked.
+- **Spec (agrees; differs on the transcript's flanks):**
+  [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "nucleotides at the 5' end of an intron are
+  numbered relative to the last nucleotide of the directly upstream exon, followed by a `+`", and those at the 3' end
+  "relative to the first nucleotide of the directly downstream exon, followed by a `-`"; it is "not allowed to describe
+  variants in nucleotides beyond the boundaries of a transcript reference sequence, using that transcript reference
+  sequence", which weaver does not enforce.
+- **Tests:** `exon_border_offset_test::validate_answers_false_for_an_offset_before_a_base_inside_an_exon`,
+  `::c_to_g_refuses_an_offset_from_a_base_inside_an_exon`,
+  `::validate_answers_false_for_an_offset_after_the_first_base_of_an_exon`,
+  `::an_offset_after_the_first_base_past_a_gapped_exon_is_refused`,
+  `::normalize_refuses_an_uncertain_range_with_a_start_offset_from_inside_an_exon`,
+  `::validate_answers_false_for_an_offset_past_the_end_of_its_intron`,
+  `::validate_answers_false_for_an_offset_from_a_base_past_the_transcripts_end`,
+  `::an_offset_after_an_exon_ending_in_a_base_the_genome_lacks_counts_from_the_exons_genome_end`,
+  `::an_offset_after_an_exon_the_genome_runs_past_counts_from_the_exons_genome_end` (the rows above), and the file's
+  other tests: normalisation, `c_to_p`, `to_spdi`, a range, the minus strand, `n.` and `r.`, an exon starting with a
+  base the genome lacks, and a range from the genome into the intron after an edge gap, read back;
+  `tests/test_api.py::test_an_offset_from_a_base_inside_an_exon_raises_position_outside_sequence_error`.
 
 ### Mitochondrial and RNA descriptions share the DNA machinery
 
@@ -2703,6 +2783,57 @@ validate  NC_000099.1:g.(20_25)del    →  true                             name
   `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
   `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
 
+### A description is read on a reference of its kind
+
+**A `p.` description names residues of a protein, and a `g.`, `m.`, `c.`, `n.` or `r.` description bases of a nucleotide
+sequence. Where the data provider classifies the accession as the other kind, the description is refused with a
+`ValidationError` (`WrongReferenceKind` in Rust, naming the accession, what it was read as and what the provider says it
+is) before any of it is read: `validate` raises it rather than answering false. An accession the provider cannot
+classify is read as written.**
+
+Read on a transcript, a `p.` residue is compared with a base, and four amino acid letters are base letters:
+`NM_003001.3:p.Ala158Pro` validates where base 158 is A, while `p.Leu158Pro` fails as a stated residue the reference
+lacks, telling the caller the variant disagrees with the reference when the accession is of the wrong kind. The answer
+is an error, not false, because no version of that accession could hold the description; false says the reference
+contradicts it, and is kept for that.
+
+`validate` and `normalize` check every description. Every operation that finds a `p.` description's residues — `p_to_c`,
+SPDI, VRS, the canonical allele and equivalence — checks it too. A protein a caller gives `c_to_p`, `r_to_p` or
+`protein_allele` to write its prediction on is checked the same way. A transcript model is read only once neither its
+accession nor the genome it is asked for on is a protein, and every operation on a `c.`, `n.` or `r.` description and
+every projection from `g.` reads one, so each refuses a protein in either place. The operations built on the canonical
+allele, and the projection of a `g.` description onto every transcript it lies on, check the `g.` or `m.` description's
+own accession.
+
+**Example** (`NM_K.1` is a transcript whose sixth base is A, `NC_K.1` the genome it lies on, `NP_K.1` its protein,
+`MKLAYR`, and `XQ_K.1` the same protein under an accession the provider does not classify):
+
+```text
+validate  NM_K.1:p.Ala6Pro   →  ValidationError   NM_K.1 is a transcript accession
+validate  NC_K.1:p.Gly1Pro   →  ValidationError
+normalize NM_K.1:p.Leu6Pro   →  ValidationError   not a mismatch of L against A
+to_spdi   NM_K.1:p.Ala6Pro   →  ValidationError   not NM_K.1:5:A:P
+validate  NP_K.1:c.2T>A      →  ValidationError   and n., r., g. and m. alike
+c_to_g    NP_K.1:c.2T>A      →  ValidationError   not "no transcript NP_K.1"
+g_to_c    NP_K.1:g.4A>T      →  ValidationError   onto NM_K.1; not NM_K.1:c.-2G>T
+c_to_p    NM_K.1:c.4A>G      →  ValidationError   given NC_K.1 as its protein; not NC_K.1:p.(Lys2Glu)
+normalize NP_K.1:g.4A>T      →  ValidationError
+validate  NP_K.1:p.Lys2Arg   →  true
+validate  XQ_K.1:p.Lys2Arg   →  true              read as written
+```
+
+- **Others:** not checked.
+- **Spec (agrees):** [reference sequences](https://hgvs-nomenclature.org/stable/background/refseq/): `p.` is a "protein
+  reference sequence", `c.` a "coding DNA reference sequence (based on a protein coding transcript)", `g.` a "linear
+  genomic reference sequence".
+- **Tests:** `reference_kind_test::validate_refuses_a_protein_description_on_a_transcript`,
+  `::validate_refuses_a_protein_description_on_a_genome`, `::normalize_refuses_a_protein_description_on_a_transcript`,
+  `::to_spdi_refuses_a_protein_description_on_a_transcript`, `::validate_refuses_a_nucleotide_description_on_a_protein`,
+  `::c_to_g_refuses_a_coding_description_on_a_protein`, `::g_to_c_refuses_a_genomic_description_on_a_protein`,
+  `::c_to_p_refuses_a_genome_as_the_protein_to_predict_on`, `::normalize_refuses_a_genomic_description_on_a_protein`,
+  (the rows above), and the file's other tests: `n_to_g`, `r_to_g`, `c_to_p`, `to_vrs`, `g_to_c_all`, and a protein as
+  the sequence a projection lands on; `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
+
 ## Equivalence
 
 ### Judged by allele and by the protein left behind
@@ -4420,7 +4551,8 @@ NM_MINUS10.1:c.1_3del   →  (1087, 1090)     low to high on the genome
 
 ### A mapper keeps its cache
 
-**A `VariantMapper` holds sequence blocks and refget accessions for as long as it lives. Build one and reuse it.**
+**A `VariantMapper` holds sequence blocks, refget accessions and what the provider says each accession is for as long as
+it lives. Build one and reuse it.**
 
 **Example:**
 
@@ -4433,7 +4565,8 @@ weaver.VariantMapper(provider).c_to_p(...)         # a new mapper starts cold
 
 - **Spec (silent):** none.
 - **Tests:** `tests/test_mapper_cache.py::test_sequences_are_fetched_once_per_mapper`,
-  `::test_a_refget_lookup_is_asked_before_the_sequence_is_hashed`.
+  `::test_a_refget_lookup_is_asked_before_the_sequence_is_hashed`,
+  `::test_each_accession_is_classified_once_per_mapper`.
 
 ### Refget is its own seam
 

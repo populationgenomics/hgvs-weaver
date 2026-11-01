@@ -194,8 +194,13 @@ impl VariantMapper<'_> {
     ) -> Result<CisPhasedVariant, HgvsError> {
         expect_system(cis, "g", "g_to_c")?;
         let strand = self
-            .provider()
-            .get_transcript(transcript_ac, Some(&cis.ac))?
+            .transcript(
+                (
+                    transcript_ac,
+                    crate::mapper::ReadAs::Nucleotide("the transcript g_to_c projects onto"),
+                ),
+                Some((&cis.ac, crate::mapper::ReadAs::Description("g"))),
+            )?
             .strand;
         let mut genomic: Vec<GVariant> = project_members(cis, |m| match m {
             SV::Genomic(g) => Ok(g.clone()),
@@ -232,6 +237,11 @@ impl VariantMapper<'_> {
         searcher: &dyn TranscriptSearch,
     ) -> Result<Vec<CisPhasedVariant>, HgvsError> {
         expect_system(cis, "g", "g_to_c_all")?;
+        crate::mapper::check_reference_kind(
+            &self.refs,
+            &cis.ac,
+            crate::mapper::ReadAs::Description("g"),
+        )?;
         let spans = project_members(cis, |m| {
             let SV::Genomic(g) = m else {
                 return Err(wrong_member(m, "g"));
@@ -331,8 +341,20 @@ impl VariantMapper<'_> {
         project: impl Fn(&SV) -> Result<GVariant, HgvsError>,
     ) -> Result<CisPhasedVariant, HgvsError> {
         let strand = self
-            .provider()
-            .get_transcript(&cis.ac, reference_ac)?
+            .transcript(
+                (
+                    &cis.ac,
+                    crate::mapper::ReadAs::Description(cis.coordinate_type()),
+                ),
+                reference_ac.map(|r| {
+                    (
+                        r,
+                        crate::mapper::ReadAs::Nucleotide(
+                            "the genome a transcript variant is projected onto",
+                        ),
+                    )
+                }),
+            )?
             .strand;
         let mut projected = project_members(cis, project)?;
         if strand == Strand::Minus {

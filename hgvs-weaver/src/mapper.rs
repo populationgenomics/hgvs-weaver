@@ -1,7 +1,7 @@
 use crate::allele::CanonicalAllele;
 use crate::coords::TranscriptPos;
 use crate::data::{DataProvider, IdentifierKind, IdentifierType, TranscriptData, TranscriptSearch};
-use crate::error::HgvsError;
+use crate::error::{HgvsError, ReferenceUse};
 use crate::normalize::{self, ExonBounds, PlacedEdit};
 use crate::reference::ReferenceStore;
 use crate::structs::Anchor;
@@ -808,6 +808,99 @@ impl DataProvider for ProteinWithStop {
     }
 }
 
+/// What an accession is read as, for a refusal to say what was wrong.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ReadAs<'a> {
+    /// The accession a description of this coordinate type is written on.
+    Description(&'a str),
+    /// A protein an operation is given, named as its caller knows it.
+    Protein(&'static str),
+    /// A nucleotide sequence an operation is given, named as its caller knows it.
+    Nucleotide(&'static str),
+}
+
+/// Refuses an accession its provider classifies as the other kind of
+/// sequence from the one it is read as: a `p.` description, or a protein an
+/// operation is given, on a transcript or genomic accession, or a `g.`,
+/// `m.`, `c.`, `n.` or `r.` description, or a nucleotide sequence an
+/// operation is given, on a protein. Read there, bases would be compared with
+/// residues or residues with bases. An accession the provider cannot classify
+/// is read as written.
+pub(crate) fn check_reference_kind(
+    refs: &ReferenceStore<'_>,
+    ac: &str,
+    read_as: ReadAs<'_>,
+) -> Result<(), HgvsError> {
+    let kind = refs.identifier_type(ac)?;
+    if matches!(kind, IdentifierType::GeneSymbol | IdentifierType::Unknown) {
+        return Ok(());
+    }
+    let read_as = match read_as {
+        ReadAs::Description(ct) if (ct == "p") != (kind == IdentifierType::ProteinAccession) => {
+            ReferenceUse::Description(ct.to_string())
+        }
+        ReadAs::Protein(what) if kind != IdentifierType::ProteinAccession => {
+            ReferenceUse::Protein(what.to_string())
+        }
+        ReadAs::Nucleotide(what) if kind == IdentifierType::ProteinAccession => {
+            ReferenceUse::Nucleotide(what.to_string())
+        }
+        _ => return Ok(()),
+    };
+    Err(HgvsError::WrongReferenceKind {
+        accession: ac.to_string(),
+        read_as,
+        kind,
+    })
+}
+
+/// `result`, with a [`HgvsError::NotAnExonBorder`] or
+/// [`HgvsError::OffsetPastIntron`] on `r`'s transcript naming the position in
+/// `r.`, as `r` writes it, rather than in the `c.` or `n.` spelling it was read
+/// through.
+fn as_rna_error<T>(r: &RVariant, result: Result<T, HgvsError>) -> Result<T, HgvsError> {
+    let in_rna = |position: String| match position.split_once('.') {
+        Some(("c" | "n", rest)) => format!("r.{rest}"),
+        _ => position,
+    };
+    result.map_err(|e| match e {
+        HgvsError::NotAnExonBorder {
+            accession,
+            position,
+        } if accession == r.ac => HgvsError::NotAnExonBorder {
+            accession,
+            position: in_rna(position),
+        },
+        HgvsError::OffsetPastIntron {
+            accession,
+            position,
+            intron_length,
+        } if accession == r.ac => HgvsError::OffsetPastIntron {
+            accession,
+            position: in_rna(position),
+            intron_length,
+        },
+        other => other,
+    })
+}
+
+/// The transcript model of `ac` from `refs`' provider, aligned to `reference_ac`
+/// where one is given, once the provider classifies neither as a protein,
+/// each read as its `ReadAs` says: every `c.`, `n.` and `r.` operation, and
+/// every projection from `g.`, reads its transcript through here.
+pub(crate) fn transcript_model(
+    refs: &ReferenceStore<'_>,
+    ac: (&str, ReadAs<'_>),
+    reference_ac: Option<(&str, ReadAs<'_>)>,
+) -> Result<TranscriptData, HgvsError> {
+    check_reference_kind(refs, ac.0, ac.1)?;
+    if let Some((reference_ac, read_as)) = reference_ac {
+        check_reference_kind(refs, reference_ac, read_as)?;
+    }
+    refs.provider()
+        .get_transcript(ac.0, reference_ac.map(|(r, _)| r))
+}
+
 /// The 0-based half-open residue range a p. variant names on `reference`,
 /// once the range is found on the protein and the residues it states there:
 /// the residue named at each end of its interval (`p.Arg2Leu`'s Arg), and any
@@ -820,12 +913,17 @@ impl DataProvider for ProteinWithStop {
 /// [`HgvsError::PositionOutsideSequence`] for an interval past the stop;
 /// [`HgvsError::ReferenceMismatch`] for a stated residue the protein does not
 /// hold; a `ValidationError` for an interval that runs backwards or names no
-/// position.
+/// position, or for a reference the provider says is not a protein.
 pub(crate) fn residue_range(
     vp: &PVariant,
     reference: &crate::reference::Reference<'_, '_>,
 ) -> Result<(usize, usize), HgvsError> {
     use crate::edits::AaEdit;
+    check_reference_kind(
+        reference.store(),
+        reference.accession(),
+        ReadAs::Description("p"),
+    )?;
     let pos = vp
         .posedit
         .pos
@@ -1845,6 +1943,15 @@ impl<'a> VariantMapper<'a> {
         self.refs.provider()
     }
 
+    /// The transcript model of `ac`; see [`transcript_model`].
+    pub(crate) fn transcript(
+        &self,
+        ac: (&str, ReadAs<'_>),
+        reference_ac: Option<(&str, ReadAs<'_>)>,
+    ) -> Result<TranscriptData, HgvsError> {
+        transcript_model(&self.refs, ac, reference_ac)
+    }
+
     /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
     ///
     /// A genomic range whose ends lie in two exons is written over the
@@ -1854,9 +1961,13 @@ impl<'a> VariantMapper<'a> {
     /// [`HgvsError::UnsupportedOperation`], as is a range across a junction
     /// with an end on bases only one sequence holds.
     pub fn g_to_c(&self, var_g: &GVariant, transcript_ac: &str) -> Result<CVariant, HgvsError> {
-        let transcript = self
-            .provider()
-            .get_transcript(transcript_ac, Some(&var_g.ac))?;
+        let transcript = self.transcript(
+            (
+                transcript_ac,
+                ReadAs::Nucleotide("the transcript g_to_c projects onto"),
+            ),
+            Some((&var_g.ac, ReadAs::Description("g"))),
+        )?;
         let am = TranscriptMapper::new(transcript)?;
 
         let pos = var_g
@@ -2223,7 +2334,15 @@ impl<'a> VariantMapper<'a> {
                 var_c.posedit()
             )));
         }
-        let transcript = self.provider().get_transcript(var_c.ac(), reference_ac)?;
+        let transcript = self.transcript(
+            (var_c.ac(), ReadAs::Description(var_c.coordinate_type())),
+            reference_ac.map(|r| {
+                (
+                    r,
+                    ReadAs::Nucleotide("the genome a transcript variant is projected onto"),
+                )
+            }),
+        )?;
         let am = TranscriptMapper::new(transcript)?;
         let target_ac = reference_ac
             .unwrap_or(am.transcript.reference_accession.as_str())
@@ -2411,6 +2530,7 @@ impl<'a> VariantMapper<'a> {
         var_g: &GVariant,
         searcher: &dyn TranscriptSearch,
     ) -> Result<Vec<CVariant>, HgvsError> {
+        check_reference_kind(&self.refs, &var_g.ac, ReadAs::Description("g"))?;
         let pos = var_g
             .posedit
             .pos
@@ -2460,13 +2580,21 @@ impl<'a> VariantMapper<'a> {
         Ok(results)
     }
 
-    /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to.
+    /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to;
+    /// a `transcript_ac` the provider classifies as a protein is refused, as is
+    /// a `protein_ac` it classifies as a nucleotide sequence.
     pub(crate) fn protein_accession(
         &self,
         transcript_ac: &str,
         protein_ac: Option<&str>,
     ) -> Result<String, HgvsError> {
+        check_reference_kind(&self.refs, transcript_ac, ReadAs::Description("c"))?;
         if let Some(ac) = protein_ac {
+            check_reference_kind(
+                &self.refs,
+                ac,
+                ReadAs::Protein("the protein a prediction is written on"),
+            )?;
             return Ok(ac.to_string());
         }
         Ok(self
@@ -2513,7 +2641,7 @@ impl<'a> VariantMapper<'a> {
             _ => None,
         };
         if let Some((p, predicted)) = statement {
-            if !self.has_cds(&r.ac)? {
+            if !self.has_cds(&r.ac, ReadAs::Description("r"))? {
                 return Err(HgvsError::ValidationError(format!(
                     "{} has no CDS, so {r} has no protein consequence",
                     r.ac
@@ -2530,7 +2658,7 @@ impl<'a> VariantMapper<'a> {
                 },
             });
         }
-        self.c_to_p(&self.r_to_c(r)?, protein_ac)
+        as_rna_error(r, self.c_to_p(&self.r_to_c(r)?, protein_ac))
     }
 
     /// Transforms a coding cDNA variant (`c.`) to a protein variant (`p.`).
@@ -2754,7 +2882,8 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         let protein_ac = self.protein_accession(&var_c.ac, protein_ac)?;
-        let am = TranscriptMapper::new(self.provider().get_transcript(&var_c.ac, None)?)?;
+        let am =
+            TranscriptMapper::new(self.transcript((&var_c.ac, ReadAs::Description("c")), None)?)?;
         let transcript = &am.transcript;
         if transcript.cds_start == crate::data::CdsStart::Open {
             return Err(HgvsError::ValidationError(format!(
@@ -2922,7 +3051,7 @@ impl<'a> VariantMapper<'a> {
         var_c: &CVariant,
         protein_ac: Option<&str>,
     ) -> Result<PVariant, HgvsError> {
-        if !self.has_cds(&var_c.ac)? {
+        if !self.has_cds(&var_c.ac, ReadAs::Description("c"))? {
             return Err(HgvsError::ValidationError(format!(
                 "{} has no CDS, so {var_c} has no protein consequence",
                 var_c.ac
@@ -3007,7 +3136,13 @@ impl<'a> VariantMapper<'a> {
 
     /// The codon of residue `aa_pos` (1-based) on `tx_ac`, uppercase.
     fn codon_at(&self, tx_ac: &str, aa_pos: usize) -> Result<String, HgvsError> {
-        let transcript = self.provider().get_transcript(tx_ac, None)?;
+        let transcript = self.transcript(
+            (
+                tx_ac,
+                ReadAs::Nucleotide("the transcript p_to_c reads codons from"),
+            ),
+            None,
+        )?;
         let cds_start = transcript
             .cds_start_index
             .ok_or_else(|| HgvsError::ValidationError("No CDS start for transcript".into()))?
@@ -3038,9 +3173,11 @@ impl<'a> VariantMapper<'a> {
     ///
     /// Returns `Ok(true)` when they hold, or when the edit states none (or
     /// only a length); `Ok(false)` where an operation reading the variant
-    /// refuses it with [`HgvsError::ReferenceMismatch`] or
-    /// [`HgvsError::PositionOutsideSequence`]: a stated base the reference
-    /// lacks and a position it does not have are both the reference
+    /// refuses it with [`HgvsError::ReferenceMismatch`],
+    /// [`HgvsError::PositionOutsideSequence`], [`HgvsError::NotAnExonBorder`]
+    /// or [`HgvsError::OffsetPastIntron`]: a stated base the reference lacks,
+    /// a position past its end, an intronic offset from a base that is not an
+    /// exon border and one past the end of its intron are each the reference
     /// contradicting the description.
     ///
     /// # Errors
@@ -3048,12 +3185,23 @@ impl<'a> VariantMapper<'a> {
     /// A contradictory allele is a [`HgvsError::ValidationError`] and an
     /// ambiguous one [`HgvsError::Ambiguous`], raised rather than answered
     /// `false`, as any description that cannot be read is; one whose readings
-    /// weaver does not list is [`HgvsError::UnsupportedOperation`].
+    /// weaver does not list is [`HgvsError::UnsupportedOperation`]. A
+    /// description on an accession the provider classifies as the other kind
+    /// of sequence, a `p.` one on a transcript or genome or a nucleotide one
+    /// on a protein, is raised too, as [`HgvsError::WrongReferenceKind`].
     pub fn validate(&self, var: &crate::SequenceVariant) -> Result<bool, HgvsError> {
+        check_reference_kind(
+            &self.refs,
+            var.ac(),
+            ReadAs::Description(var.coordinate_type()),
+        )?;
         match self.check_stated(var) {
             Ok(()) => Ok(true),
             Err(
-                HgvsError::ReferenceMismatch { .. } | HgvsError::PositionOutsideSequence { .. },
+                HgvsError::ReferenceMismatch { .. }
+                | HgvsError::PositionOutsideSequence { .. }
+                | HgvsError::NotAnExonBorder { .. }
+                | HgvsError::OffsetPastIntron { .. },
             ) => Ok(false),
             Err(e) => Err(e),
         }
@@ -3081,7 +3229,9 @@ impl<'a> VariantMapper<'a> {
             .map(|_| ()),
             // r.=, r.0, r.spl and their kind state no base.
             crate::SequenceVariant::Rna(r) if r.posedit.edit.is_whole_transcript() => Ok(()),
-            crate::SequenceVariant::Rna(r) => self.check_stated(&self.r_as_transcript(r)?),
+            crate::SequenceVariant::Rna(r) => {
+                as_rna_error(r, self.check_stated(&self.r_as_transcript(r)?))
+            }
             crate::SequenceVariant::CisPhased(cis) if cis.coordinate_type() == "p" => {
                 cis.members.iter().try_for_each(|m| self.check_stated(m))
             }
@@ -3092,7 +3242,7 @@ impl<'a> VariantMapper<'a> {
     /// `c.=` names no bases, so there is nothing to check once its
     /// transcript is found to be a coding one.
     fn check_whole_identity(&self, v: &CVariant) -> Result<(), HgvsError> {
-        if !self.has_cds(&v.ac)? {
+        if !self.has_cds(&v.ac, ReadAs::Description("c"))? {
             return Err(HgvsError::ValidationError(format!(
                 "{v} describes a coding sequence, but {} has no CDS",
                 v.ac
@@ -3102,6 +3252,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     fn check_linear_stated<L: LinearVariant>(&self, v: &L) -> Result<(), HgvsError> {
+        check_reference_kind(&self.refs, v.ac(), ReadAs::Description(v.coordinate_type()))?;
         let edit = &v.posedit().edit;
         let pos = v
             .posedit()
@@ -3124,7 +3275,9 @@ impl<'a> VariantMapper<'a> {
     /// record where it is exonic and on the genome, through the projection,
     /// where it is not.
     fn check_transcript_stated<V: TranscriptVariant>(&self, v: &V) -> Result<(), HgvsError> {
-        let am = TranscriptMapper::new(self.provider().get_transcript(v.ac(), None)?)?;
+        let am = TranscriptMapper::new(
+            self.transcript((v.ac(), ReadAs::Description(v.coordinate_type())), None)?,
+        )?;
         self.check_transcript_stated_on(v, &am)
     }
 
@@ -3175,6 +3328,11 @@ impl<'a> VariantMapper<'a> {
         var: crate::SequenceVariant,
     ) -> Result<crate::SequenceVariant, HgvsError> {
         use crate::SequenceVariant as SV;
+        check_reference_kind(
+            &self.refs,
+            var.ac(),
+            ReadAs::Description(var.coordinate_type()),
+        )?;
         Ok(match var {
             SV::Genomic(v) => SV::Genomic(self.normalize_linear(v)?),
             SV::Mitochondrial(v) => SV::Mitochondrial(self.normalize_linear(v)?),
@@ -3185,7 +3343,8 @@ impl<'a> VariantMapper<'a> {
             // (r.0, r.spl, r.=) has nothing to normalise.
             SV::Rna(r) if r.posedit.edit.is_whole_transcript() => SV::Rna(r),
             SV::Rna(r) => {
-                let normalised = self.normalize_variant(self.r_as_transcript(&r)?)?;
+                let normalised =
+                    as_rna_error(&r, self.normalize_variant(self.r_as_transcript(&r)?))?;
                 SV::Rna(self.tx_to_r(&normalised)?)
             }
             // A p. allele is not normalised, but what each member names is read.
@@ -3237,11 +3396,14 @@ impl<'a> VariantMapper<'a> {
 
     fn normalize_transcript<V: TranscriptVariant>(&self, mut v: V) -> Result<V, HgvsError> {
         let ac = v.ac().to_string();
-        let am = TranscriptMapper::new(self.provider().get_transcript(&ac, None)?)?;
+        let am = TranscriptMapper::new(
+            self.transcript((&ac, ReadAs::Description(v.coordinate_type())), None)?,
+        )?;
         let Some(pos) = &v.posedit().pos else {
             return Ok(v);
         };
         if !pos.is_exact() {
+            am.check_borders(pos)?;
             return Ok(v);
         }
         if has_intronic_offset(pos) {
@@ -4075,7 +4237,7 @@ impl<'a> VariantMapper<'a> {
 
     /// Whether `ac` names a protein or a nucleotide sequence.
     fn sequence_kind(&self, ac: &str) -> Result<IdentifierType, HgvsError> {
-        Ok(match self.provider().get_identifier_type(ac)? {
+        Ok(match self.refs.identifier_type(ac)? {
             IdentifierType::ProteinAccession => IdentifierType::ProteinAccession,
             _ => IdentifierType::GenomicAccession,
         })
@@ -4245,14 +4407,14 @@ impl<'a> VariantMapper<'a> {
     // operation is therefore a conversion to the c. or n. spelling and back.
 
     /// Whether `ac` has a CDS, which decides whether r. is numbered like c. or n.
-    fn has_cds(&self, ac: &str) -> Result<bool, HgvsError> {
-        let t = self.provider().get_transcript(ac, None)?;
+    fn has_cds(&self, ac: &str, read_as: ReadAs<'_>) -> Result<bool, HgvsError> {
+        let t = self.transcript((ac, read_as), None)?;
         Ok(t.cds_start_index.is_some() && t.cds_end_index.is_some())
     }
 
     /// An r. variant as the c. or n. variant it is spelled from.
     pub fn r_as_transcript(&self, r: &RVariant) -> Result<crate::SequenceVariant, HgvsError> {
-        Ok(if self.has_cds(&r.ac)? {
+        Ok(if self.has_cds(&r.ac, ReadAs::Description("r"))? {
             crate::SequenceVariant::Coding(self.r_to_c(r)?)
         } else {
             crate::SequenceVariant::NonCoding(self.r_to_n(r)?)
@@ -4272,7 +4434,7 @@ impl<'a> VariantMapper<'a> {
 
     /// r. to c.: the same positions, numbered from the CDS start, in DNA letters.
     pub fn r_to_c(&self, r: &RVariant) -> Result<CVariant, HgvsError> {
-        if !self.has_cds(&r.ac)? {
+        if !self.has_cds(&r.ac, ReadAs::Description("r"))? {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{} has no CDS, so its r. positions are n. positions; use r_to_n",
                 r.ac
@@ -4287,7 +4449,7 @@ impl<'a> VariantMapper<'a> {
 
     /// r. to n. on a non-coding transcript: the same positions in DNA letters.
     pub fn r_to_n(&self, r: &RVariant) -> Result<NVariant, HgvsError> {
-        if self.has_cds(&r.ac)? {
+        if self.has_cds(&r.ac, ReadAs::Description("r"))? {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{} has a CDS, so its r. positions are c. positions; use r_to_c",
                 r.ac
@@ -4338,7 +4500,8 @@ impl<'a> VariantMapper<'a> {
             _ => unreachable!("r_as_transcript gives c. or n."),
         };
         if let Some(pos) = &posedit.pos {
-            let am = TranscriptMapper::new(self.provider().get_transcript(&r.ac, None)?)?;
+            let am =
+                TranscriptMapper::new(self.transcript((&r.ac, ReadAs::Description("r")), None)?)?;
             // Intronic positions do not resolve to a transcript range; they
             // name the genome directly and need no guard.
             if let Ok((start, end)) = am.interval_to_n(pos) {
@@ -4349,10 +4512,13 @@ impl<'a> VariantMapper<'a> {
                 }
             }
         }
-        match tx {
-            crate::SequenceVariant::Coding(c) => self.tx_to_g(&c, reference_ac),
-            crate::SequenceVariant::NonCoding(n) => self.tx_to_g(&n, reference_ac),
-            _ => unreachable!("r_as_transcript gives c. or n."),
-        }
+        as_rna_error(
+            r,
+            match tx {
+                crate::SequenceVariant::Coding(c) => self.tx_to_g(&c, reference_ac),
+                crate::SequenceVariant::NonCoding(n) => self.tx_to_g(&n, reference_ac),
+                _ => unreachable!("r_as_transcript gives c. or n."),
+            },
+        )
     }
 }

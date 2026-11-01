@@ -42,6 +42,14 @@ class Provider:
     def get_symbol_accessions(self, symbol: str, _s: str, _t: str) -> list[typing.Any]:
         return [(weaver.IdentifierType.GeneSymbol, symbol)]
 
+    def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
+        """Genomic for NC_, protein for NP_, transcript otherwise."""
+        if identifier.startswith("NC_"):
+            return weaver.IdentifierType.GenomicAccession
+        if identifier.startswith("NP_"):
+            return weaver.IdentifierType.ProteinAccession
+        return weaver.IdentifierType.TranscriptAccession
+
 
 @pytest.mark.parametrize(
     ("hgvs", "expected"),

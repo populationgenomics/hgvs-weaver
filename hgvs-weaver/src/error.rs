@@ -11,6 +11,50 @@
 use std::fmt;
 
 use crate::coords::SequenceVariant;
+use crate::data::IdentifierType;
+
+/// What an accession was read as, for an accession its provider says is the
+/// other kind of sequence ([`HgvsError::WrongReferenceKind`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReferenceUse {
+    /// The accession a description of this coordinate type is written on:
+    /// `"c"`, `"p"`.
+    Description(String),
+    /// A protein an operation was given, named as its caller knows it.
+    Protein(String),
+    /// A nucleotide sequence an operation was given, named as its caller
+    /// knows it.
+    Nucleotide(String),
+}
+
+impl ReferenceUse {
+    /// Whether this use reads residues, so needs a protein.
+    pub fn needs_protein(&self) -> bool {
+        match self {
+            ReferenceUse::Description(ct) => ct == "p",
+            ReferenceUse::Protein(_) => true,
+            ReferenceUse::Nucleotide(_) => false,
+        }
+    }
+}
+
+impl fmt::Display for ReferenceUse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReferenceUse::Description(ct) => {
+                // The letter's name, not the letter, takes the article: an m., a c.
+                let article = if ct.starts_with(['f', 'h', 'l', 'm', 'n', 'o', 'r', 's', 'x']) {
+                    "an"
+                } else {
+                    "a"
+                };
+                write!(f, "{article} {ct}. description")
+            }
+            ReferenceUse::Protein(what) | ReferenceUse::Nucleotide(what) => write!(f, "{what}"),
+        }
+    }
+}
 
 /// Error types for HGVS operations.
 #[derive(Debug)]
@@ -46,6 +90,31 @@ pub enum HgvsError {
         start: usize,
         end: usize,
         length: usize,
+    },
+    /// An intronic offset counted from a base that is not the exon border its
+    /// sign needs: `+k` counts from the last base of an exon, `-k` from the
+    /// first, and the transcript's first and last bases count outward. The
+    /// transcript `accession` has no position `position`, written as given
+    /// (`c.9-1`).
+    NotAnExonBorder { accession: String, position: String },
+    /// An intronic offset that counts past the end of its intron, into the
+    /// next exon: the transcript `accession` has no position `position`,
+    /// written as given (`c.17+11`), since its intron has `intron_length`
+    /// bases. An offset from the transcript's first or last base has no
+    /// intron to stay inside.
+    OffsetPastIntron {
+        accession: String,
+        position: String,
+        intron_length: usize,
+    },
+    /// An accession read as one kind of sequence, `read_as`, that its
+    /// provider says is the other, `kind`: a `p.` description on a
+    /// transcript, a `c.` one on a protein, a genome given as the protein to
+    /// predict on.
+    WrongReferenceKind {
+        accession: String,
+        read_as: ReferenceUse,
+        kind: IdentifierType,
     },
     /// A description that makes no statement about the protein: an identity
     /// that covers no whole codon. HGVS has no `p.` form for it; `p.(=)`
@@ -100,6 +169,46 @@ impl fmt::Display for HgvsError {
                 f,
                 "Position outside the sequence: {accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
             ),
+            HgvsError::NotAnExonBorder {
+                accession,
+                position,
+            } => write!(
+                f,
+                "Not an exon border: {accession}:{position} counts an intronic offset from a base \
+                 that is not an exon border; +k counts from the last base of an exon and -k from \
+                 the first"
+            ),
+            HgvsError::OffsetPastIntron {
+                accession,
+                position,
+                intron_length,
+            } => write!(
+                f,
+                "Offset past its intron: {accession}:{position} counts past the end of an intron of \
+                 {intron_length} bases"
+            ),
+            HgvsError::WrongReferenceKind {
+                accession,
+                read_as,
+                kind,
+            } => {
+                let named = match kind {
+                    IdentifierType::TranscriptAccession => "a transcript",
+                    IdentifierType::GenomicAccession => "a genomic",
+                    IdentifierType::ProteinAccession => "a protein",
+                    IdentifierType::GeneSymbol => "a gene symbol",
+                    IdentifierType::Unknown => "an unclassified",
+                };
+                let needs = if read_as.needs_protein() {
+                    "a protein"
+                } else {
+                    "a nucleotide"
+                };
+                write!(
+                    f,
+                    "Wrong reference kind: {accession} is {named} accession, and {read_as} needs {needs} reference"
+                )
+            }
             HgvsError::NoProteinStatement(msg) => write!(f, "No protein statement: {msg}"),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),
             HgvsError::CisMember {

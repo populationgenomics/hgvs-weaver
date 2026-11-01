@@ -122,16 +122,19 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // An allele whose exact members are contradictory or ambiguous is
-        // refused before any spelling can match it; one whose readings are not
-        // listed still matches its own spelling.
+        // An allele whose exact members are contradictory, ambiguous or on a
+        // reference of the wrong kind is refused before any spelling can match
+        // it; one whose readings are not listed still matches its own spelling.
         for var in [var1, var2] {
             if let SequenceVariant::CisPhased(cis) = var {
                 if let Some(exact) = exact_members(cis)? {
                     if let Err(
                         e @ (HgvsError::ValidationError(_)
                         | HgvsError::Ambiguous { .. }
-                        | HgvsError::PositionOutsideSequence { .. }),
+                        | HgvsError::PositionOutsideSequence { .. }
+                        | HgvsError::NotAnExonBorder { .. }
+                        | HgvsError::OffsetPastIntron { .. }
+                        | HgvsError::WrongReferenceKind { .. }),
                     ) = self.mapper.read_cis(&exact)
                     {
                         return Err(e);
@@ -625,8 +628,7 @@ impl<'a> VariantEquivalence<'a> {
         let reference_of = |ac: &str| -> Result<String, HgvsError> {
             Ok(self
                 .mapper
-                .provider()
-                .get_transcript(ac, None)?
+                .transcript((ac, crate::mapper::ReadAs::Description("n")), None)?
                 .reference_accession)
         };
         Ok(match var {
@@ -644,7 +646,9 @@ impl<'a> VariantEquivalence<'a> {
                     self.coding_of_genomic_cis(&g)?
                 }
                 "r" => {
-                    let tx = self.mapper.provider().get_transcript(&cis.ac, None)?;
+                    let tx = self
+                        .mapper
+                        .transcript((&cis.ac, crate::mapper::ReadAs::Description("r")), None)?;
                     if tx.cds_start_index.is_some() {
                         vec![Coding::Cis(self.mapper.r_to_c_cis(cis)?)]
                     } else {
@@ -950,7 +954,7 @@ impl<'a> VariantEquivalence<'a> {
         let ac = var.ac();
 
         // Use DataProvider to determine if this is a symbol or an accession.
-        let id_type = self.mapper.provider().get_identifier_type(ac)?;
+        let id_type = self.mapper.refs.identifier_type(ac)?;
 
         if id_type == crate::data::IdentifierType::GeneSymbol {
             // An allele on a gene symbol is expanded as its members would be.

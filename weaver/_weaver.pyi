@@ -50,8 +50,10 @@ class PositionOutsideSequenceError(HGVSError):
     The reference ends at the end of the genome for g. and m., of the transcript record for an
     exonic c., n. or r. position, of the protein for p., where a protein served without its stop has
     the stop one past its last residue. An insertion needs both its flanking bases, so one after the
-    last base is outside too. Raised by every operation that reads the positions; Variant.validate
-    answers False instead.
+    last base is outside too. An intronic offset counted from a base that is not the exon border its
+    sign needs (+k from the last base of an exon, -k from the first), or one counting past the end of
+    its intron, names no position of the transcript either. Raised by every operation that reads the
+    positions; Variant.validate answers False instead.
     """
 
 class ReferenceMismatchError(HGVSError):
@@ -137,6 +139,8 @@ class Variant:
                 backwards, or c.= is on a transcript without a CDS. An intronic c. or n. variant
                 is projected to the genome to be read, so a projection's error is raised too.
                 An allele in cis whose members leave it no reading is a ValidationError naming two.
+                So is a p. description on an accession the provider classifies as a transcript or
+                genomic sequence, or a g., m., c., n. or r. one on a protein.
             AmbiguousDescriptionError: If an allele in cis has several readings; its readings
                 are each of them.
             UnsupportedOperationError: If an allele in cis has readings weaver does not list.
@@ -155,8 +159,8 @@ class VariantMapper:
     def __new__(cls, provider: Any, refget: Any | None = ...) -> VariantMapper:
         """Creates a new VariantMapper with the given DataProvider.
 
-        The mapper caches the sequence blocks and refget accessions it fetches for
-        as long as it lives, so keep one and reuse it.
+        The mapper caches the sequence blocks, refget accessions and identifier
+        types it fetches for as long as it lives, so keep one and reuse it.
 
         Args:
             provider: The DataProvider for transcripts and sequences.
@@ -199,13 +203,16 @@ class VariantMapper:
                 in cis of them.
             ReferenceMismatchError: If a base the variant states is not the record's
                 (exonic) or the genome's on the transcript's strand (intronic).
-            PositionOutsideSequenceError: If an intronic position lies past the end
-                of the genome.
+            PositionOutsideSequenceError: If an intronic position lies past the end of the
+                genome, counts its offset from a base that is not an exon border, or lies past the
+                end of its intron.
             UnsupportedOperationError: If the variant inserts at an exon
                 junction (c.5_6insT where c.5 and c.6 lie in different
                 exons), which is before or after the intron on the genome.
                 The message names the spelling at each end of the intron,
                 c.5_5+1insT and c.6-1_6insT, either of which projects.
+            ValidationError: If var_c is on an accession the provider classifies as a protein,
+                or reference_ac names a protein.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = ...) -> Variant:
@@ -247,8 +254,11 @@ class VariantMapper:
                 which states bases and no residue, or an allele that changes
                 nothing and states no whole codon.
             AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading, or the
-                transcript's CDS is open at the 5' end.
+            ValidationError: If an allele in cis has no reading, or the transcript's CDS is open
+                at the 5' end. It is raised too where var_c is on an accession the provider
+                classifies as a protein, or protein_ac names a transcript or genomic sequence.
+            PositionOutsideSequenceError: If an intronic position counts its offset from a base
+                that is not an exon border, or lies past the end of its intron.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
@@ -266,6 +276,12 @@ class VariantMapper:
             True if the variants are equivalent, False otherwise.
 
         Raises:
+            ValidationError: If either variant is a p. description on an accession the provider
+                classifies as a transcript or genomic sequence, or a g., m., c., n. or r. one on a
+                protein.
+            PositionOutsideSequenceError: If either variant has an intronic position whose
+                offset counts from a base that is not an exon border, or lies past the end of its
+                intron.
             HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
         """
     def equivalent_level(self, var1: Variant, var2: Variant, searcher: Any) -> EquivalenceLevel:
@@ -281,6 +297,12 @@ class VariantMapper:
             An EquivalenceLevel enum value.
 
         Raises:
+            ValidationError: If either variant is a p. description on an accession the provider
+                classifies as a transcript or genomic sequence, or a g., m., c., n. or r. one on a
+                protein.
+            PositionOutsideSequenceError: If either variant has an intronic position whose
+                offset counts from a base that is not an exon border, or lies past the end of its
+                intron.
             HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
         """
     def g_to_c(self, var_g: Variant, transcript_ac: str) -> Variant:
@@ -316,6 +338,8 @@ class VariantMapper:
             UnsupportedOperationError: If a range whose ends lie in two exons
                 changes bases where the record differs from the genome, or ends
                 on bases only one of them holds.
+            ValidationError: If var_g is on an accession the provider classifies as a protein,
+                or transcript_ac names a protein.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def g_to_c_all(self, var_g: Variant, searcher: Any) -> list[Variant]:
@@ -472,7 +496,9 @@ class VariantMapper:
         Raises:
             HGVSError: If normalization fails due to reference sequence boundaries.
             AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading.
+            ValidationError: If an allele in cis has no reading, or the variant is on an
+                accession the provider classifies as the other kind of sequence (p. on a
+                nucleotide sequence, or a nucleotide description on a protein).
             UnsupportedOperationError: If an allele in cis has readings weaver does not
                 list, members that share bases across an exon junction, a form it
                 would be written in that does not read as it does, or members that
@@ -499,6 +525,8 @@ class VariantMapper:
             ValueError: If var_p is not a protein variant.
             ReferenceMismatchError: If the residue var_p names is not the protein's.
             PositionOutsideSequenceError: If var_p names a position past the protein's stop.
+            ValidationError: If var_p is on an accession the provider classifies as a transcript
+                or genomic sequence, or transcript_ac names a protein.
             HGVSError: If back-conversion fails due to unsupported consequence or missing transcript.
         """
     def to_spdi(self, var: Variant, unambiguous: bool = ...) -> str:
@@ -514,6 +542,10 @@ class VariantMapper:
             A string representing the variant in SPDI format.
 
         Raises:
+            ValidationError: If a p. description is on an accession the provider classifies as a
+                transcript or genomic sequence, or a g., m., c., n. or r. one on a protein.
+            PositionOutsideSequenceError: If an intronic position counts its offset from a base
+                that is not an exon border, or lies past the end of its intron.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
     def to_spdi_unambiguous(self, var: Variant) -> str:
@@ -530,6 +562,10 @@ class VariantMapper:
             A string representing the variant in unambiguous SPDI format.
 
         Raises:
+            ValidationError: If a p. description is on an accession the provider classifies as a
+                transcript or genomic sequence, or a g., m., c., n. or r. one on a protein.
+            PositionOutsideSequenceError: If an intronic position counts its offset from a base
+                that is not an exon border, or lies past the end of its intron.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
 
@@ -586,9 +622,13 @@ class VariantMapper:
             CisPhasedBlock schema.
 
         Raises:
+            PositionOutsideSequenceError: If an intronic position counts its offset from a base
+                that is not an exon border, or lies past the end of its intron.
             HGVSError: If the variant cannot be resolved against the reference.
             AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading.
+            ValidationError: If an allele in cis has no reading. It is raised too where a p.
+                description is on an accession the provider classifies as a transcript or genomic
+                sequence, or a g., m., c., n. or r. one on a protein.
             UnsupportedOperationError: If an allele in cis cannot be written on the
                 genome as the Alleles it makes, or a member has no Allele.
         """

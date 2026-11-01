@@ -38,6 +38,8 @@ struct Cached {
 #[derive(Default)]
 pub struct SequenceCache {
     inner: Mutex<HashMap<(String, IdentifierType), Cached>>,
+    /// What the provider says each accession asked about is.
+    kinds: Mutex<HashMap<String, IdentifierType>>,
 }
 
 impl SequenceCache {
@@ -121,6 +123,17 @@ impl<'a> ReferenceStore<'a> {
         self.cache.lock()
     }
 
+    /// What the provider says `ac` is, asked once for the life of the cache.
+    pub fn identifier_type(&self, ac: &str) -> Result<IdentifierType, HgvsError> {
+        let kinds = || self.cache.kinds.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(kind) = kinds().get(ac) {
+            return Ok(*kind);
+        }
+        let kind = self.hdp.get_identifier_type(ac)?;
+        kinds().insert(ac.to_string(), kind);
+        Ok(kind)
+    }
+
     /// A handle onto one sequence. Cheap; nothing is fetched until it is used.
     pub fn reference<'s>(&'s self, ac: &str, kind: IdentifierType) -> Reference<'s, 'a> {
         Reference {
@@ -202,6 +215,11 @@ pub struct Reference<'s, 'a> {
 impl<'s, 'a> Reference<'s, 'a> {
     pub fn accession(&self) -> &str {
         &self.ac
+    }
+
+    /// The store the sequence is read through.
+    pub fn store(&self) -> &'s ReferenceStore<'a> {
+        self.store
     }
 
     pub fn kind(&self) -> IdentifierType {

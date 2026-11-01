@@ -133,10 +133,11 @@ fn spdi_interval_on_minus_strand() {
 
 #[test]
 fn spdi_interval_applies_intronic_offset_by_strand() {
-    // On the minus strand a +5 intronic offset moves towards lower genomic indices.
-    let iv = coding_interval("NM_MINUS10.1:c.1+5A>G");
+    // On the minus strand a +5 offset moves towards lower genomic indices:
+    // c.*60, the last base, is genomic 1000.
+    let iv = coding_interval("NM_MINUS10.1:c.*60+5A>G");
     let got = iv.spdi_interval("NM_MINUS10.1", &provider()).unwrap();
-    assert_eq!(got, (1084, 1085, REF_AC.to_string()));
+    assert_eq!(got, (995, 996, REF_AC.to_string()));
 }
 
 #[test]
@@ -175,8 +176,9 @@ fn validate_checks_stated_reference_through_transcript_coordinates() {
     // Minus strand: transcript index 10 is the complement of genome[1089] = C.
     assert!(ok("NM_MINUS10.1:c.1G>A"));
     assert!(!ok("NM_MINUS10.1:c.1C>A"));
-    // Intronic positions are accepted unchecked; genomic goes straight to the reference.
-    assert!(ok("NM_MINUS10.1:c.1+5T>A"));
+    // An offset is read on the genome, on the transcript's strand: genome[995]
+    // is T. A genomic base goes straight to the reference.
+    assert!(ok("NM_MINUS10.1:c.*60+5A>T"));
     assert!(ok("NC_TEST.1:g.1011G>A"));
     assert!(!ok("NC_TEST.1:g.1011A>G"));
 
@@ -207,9 +209,9 @@ fn normalize_leaves_intronic_coding_variants_as_written() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
     for hgvs in [
-        "NM_PLUS10.1:c.30_30+1insA",
-        "NM_MINUS10.1:c.1+5del",
-        "NM_PLUS10.1:n.5-2_5del",
+        "NM_PLUS10.1:c.*60_*60+1insA",
+        "NM_MINUS10.1:c.*60+5del",
+        "NM_PLUS10.1:n.1-2_1del",
     ] {
         let v = parse_hgvs_variant(hgvs).unwrap();
         assert_eq!(mapper.normalize_variant(v).unwrap().to_string(), hgvs);

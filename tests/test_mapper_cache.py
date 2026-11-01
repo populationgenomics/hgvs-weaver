@@ -14,6 +14,7 @@ class CountingProvider:
 
     def __init__(self) -> None:
         self.seq_calls = 0
+        self.kinds_asked: list[str] = []
 
     def get_transcript(self, ac: str, _ref: str | None) -> dict[str, typing.Any]:
         return {
@@ -45,6 +46,7 @@ class CountingProvider:
         return [(weaver.IdentifierType.GeneSymbol, symbol)]
 
     def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
+        self.kinds_asked.append(identifier)
         if identifier.startswith("NC_"):
             return weaver.IdentifierType.GenomicAccession
         return weaver.IdentifierType.TranscriptAccession
@@ -63,6 +65,24 @@ def test_sequences_are_fetched_once_per_mapper() -> None:
     # A new mapper starts cold.
     weaver.VariantMapper(provider).c_to_p(var)
     assert provider.seq_calls > fetched
+
+
+def test_each_accession_is_classified_once_per_mapper() -> None:
+    provider = CountingProvider()
+    mapper = weaver.VariantMapper(provider)
+    var = weaver.parse("NM_TEST.1:c.4G>A")
+    mapper.c_to_p(var)
+    mapper.c_to_p(var)
+    mapper.normalize_variant(var)
+    assert provider.kinds_asked == ["NM_TEST.1"]
+
+
+def test_equivalence_classifies_each_accession_once() -> None:
+    provider = CountingProvider()
+    mapper = weaver.VariantMapper(provider)
+    var = weaver.parse("NM_TEST.1:c.4G>A")
+    assert mapper.equivalent(var, var, provider)
+    assert provider.kinds_asked == ["NM_TEST.1"]
 
 
 class Digests:
