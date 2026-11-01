@@ -10,7 +10,7 @@ import sys
 import typing
 
 import weaver
-from weaver.cli import provider as provider_mod
+from weaver import refseq
 
 GFF_PATH = "GRCh38_latest_genomic.gff.gz"
 FASTA_PATH = "GRCh38_latest_genomic.fna"
@@ -29,7 +29,7 @@ mapper: weaver.VariantMapper = typing.cast("weaver.VariantMapper", None)
 class CombinedProvider:
     def __init__(self, gff_path: str, fasta_path: str, protein_gpff_path: str) -> None:
         print(f"Loading RefSeq provider from {gff_path}...", file=sys.stderr)
-        self.refseq = provider_mod.RefSeqDataProvider(gff_path, fasta_path)
+        self.refseq = refseq.RefSeqDataProvider(gff_path, fasta_path)
         self.protein_seqs: dict[str, str] = {}
         if os.path.exists(protein_gpff_path):
             print(f"Loading protein sequences from {protein_gpff_path}...", file=sys.stderr)
@@ -101,12 +101,14 @@ class CombinedProvider:
             e = min(len(seq), e_idx)
             return seq[int(s) : int(e)]
 
-        # provider_mod.RefSeqDataProvider.get_seq expects a string for 'kind' in its implementation
-        # but the protocol/stub use IdentifierType.
-        kind_str = str(kind)
-        return self.refseq.get_seq(ac, start, end, kind_str)
+        return self.refseq.get_seq(ac, start, end, kind)
 
-    def get_symbol_accessions(self, symbol: str, source_kind: str, target_kind: str) -> list[tuple[str, str]]:
+    def get_symbol_accessions(
+        self,
+        symbol: str,
+        source_kind: str,
+        target_kind: str,
+    ) -> list[tuple[weaver.IdentifierType, str]]:
         return self.refseq.get_symbol_accessions(symbol, source_kind, target_kind)
 
 
@@ -306,6 +308,7 @@ def classify(row: dict[str, str]) -> str:  # noqa: C901, PLR0912
 
 
 def main() -> None:  # noqa: C901
+    logging.basicConfig(level=logging.INFO)
     if len(sys.argv) < MIN_ARGS_COUNT:
         print("Usage: classify_failures.py <results_tsv>")
         sys.exit(1)

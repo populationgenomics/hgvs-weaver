@@ -13,6 +13,8 @@ dependencies = [
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
+# weaver.refseq: the provider over a RefSeq GFF3 and FASTA.
+refseq = ["pysam"]
 validation = [
     # 0.1.2 is the first whose plain install is the local-store reader alone, without the GCS client.
     "hgvs-weaver-data>=0.1.2; python_version >= '3.12'",
@@ -29,7 +31,6 @@ validation = [
 weaver-validate = "weaver.cli.validate:main"
 weaver-analyze = "weaver.cli.analyze:main"
 weaver-categorize = "weaver.cli.categorize:main"
-weaver-contingency = "weaver.cli.contingency:main"
 weaver-extract = "weaver.cli.extract:main"
 weaver-gate = "weaver.cli.gate:main"
 
@@ -128,6 +129,13 @@ known-first-party = ["weaver"]
     "E501",     # line length.
     "PLW0603",  # global statement.
     "ANN401",   # Any type.
+]
+"weaver/refseq.py" = [
+    "C901",     # complexity.
+    "PLR0911",  # too many return statements.
+    "PLR0912",  # too many branches.
+    "PLR0915",  # too many statements.
+    "PLR2004",  # magic values.
 ]
 "hgvs-weaver/tests/*" = [
     "S101",

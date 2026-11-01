@@ -53,7 +53,7 @@ The following symbol imports are allowed:
 
 Anything not on this list — including `pathlib.Path`, `dataclasses.dataclass`, `contextlib.contextmanager`,
 `functools.partial`, third-party classes, and this package's own classes — should be accessed via its module. A private
-module is imported the same way (`from weaver.cli import provider`, then `provider.RefSeqDataProvider`); where a
+module is imported the same way (`from weaver.cli import provider`, then `provider.ReferenceHgvsDataProvider`); where a
 module's name would collide with a local, alias it (`from weaver.cli import validate as validate_cli`). Imports are
 absolute (ruff `TID252`); never `from ._sibling import`.
 

@@ -29,6 +29,7 @@ import datetime
 import functools
 import gzip
 import hashlib
+import logging
 import pathlib
 import re
 import sys
@@ -574,6 +575,7 @@ def main(argv: list[str] | None = None) -> None:
     for written, read in ((args.output, args.baseline), (args.clinvar_proteins, args.clinvar_proteins_baseline)):
         if written is not None and read is not None and written.resolve() == read.resolve():
             parser.error(f"{written} is both written and the baseline it is compared with")
+    logging.basicConfig(level=logging.INFO)
 
     release = Release(args.release, args.accession, args.assembly, args.anchor, args.mane)
     inputs = fetch(release, args.data / "ncbi")

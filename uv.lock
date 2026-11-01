@@ -845,6 +845,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+refseq = [
+    { name = "pysam" },
+]
 validation = [
     { name = "bioutils" },
     { name = "hgvs-weaver-data", marker = "python_full_version >= '3.12'" },
@@ -891,11 +894,12 @@ requires-dist = [
     { name = "maturin", specifier = ">=1.11.5" },
     { name = "pandas", marker = "extra == 'validation'" },
     { name = "parsley", marker = "extra == 'validation'" },
+    { name = "pysam", marker = "extra == 'refseq'" },
     { name = "pysam", marker = "extra == 'validation'" },
     { name = "seaborn", marker = "extra == 'validation'" },
     { name = "tqdm", marker = "extra == 'validation'" },
 ]
-provides-extras = ["validation"]
+provides-extras = ["refseq", "validation"]
 
 [package.metadata.requires-dev]
 dev = [
