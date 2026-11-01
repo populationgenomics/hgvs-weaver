@@ -78,12 +78,16 @@ names no stretch of residues to replace (an uncertain range, `p.Met1?`, `p.?`) i
 ### Nucleotide against protein
 
 The nucleotide variant is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or `n.` is projected
-and the `searcher` names the transcripts), and on each its predicted `p.` description is compared with the given one by
-the rule for two protein descriptions ([below](#protein-against-protein)). So a coding change is Identity with its
-prediction in any spelling (`c.1799T>A` against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise Analogous
-when the two can leave the same protein. The pair is as equivalent as the best transcript makes it; a transcript whose
-prediction fails makes the pair an error only when no transcript makes it equivalent, and a description that does not
-read on its protein is an error whatever the transcripts predict.
+and the `searcher` names the transcripts). Of those, only the transcripts that encode the description's protein take
+part, those the provider pairs with it and those whose CDS translates to its sequence and whose gene the provider names
+the protein among, so that a paralogue's identical copy takes no part
+([the choice](choices.md#a-protein-description-is-predicted-only-on-its-own-transcripts)), and on each its predicted
+`p.` description is compared with the given one by the rule for two protein descriptions
+([below](#protein-against-protein)). So a coding change is Identity with its prediction in any spelling (`c.1799T>A`
+against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise Analogous when the two can leave the same protein.
+The pair is as equivalent as the best transcript makes it; a transcript whose prediction fails makes the pair an error
+only when no transcript makes it equivalent, and a description that does not read on its protein is an error whatever
+the transcripts predict.
 
 A nucleotide allele in cis (`c.`, or `g.`, `n.` or `r.` taken to its coding transcripts) is compared the same way, by
 the prediction read from the sequence its members make together; where that prediction is a protein allele, it is
@@ -125,7 +129,11 @@ read against the reference protein:
   `X`, which matches any residue), then ends;
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
   substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
-  number. An open outcome matches any outcome it is a prefix of;
+  number. An open outcome matches any outcome it is a prefix of. One that writes nothing past the reference's own
+  residues, `p.Ter7del`, has at least one more, so that it never leaves the protein as it is
+  ([the choice](choices.md#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none));
+- an N-terminal extension `p.Met1ext-5` leaves the reference with five residues added before Met1, a Met and four it
+  does not name ([the choice](choices.md#an-n-terminal-extension-adds-residues-before-met1));
 - `p.0` and `p.0?` leave no protein;
 - a description that leaves the protein as it is, `p.(Leu3=)` or `p.Leu3Leu`, is a statement about the residues it
   names, and is the same only as a statement about exactly those residues: `p.(Leu3_Ala4=)` is not `p.(Leu3=)`, and

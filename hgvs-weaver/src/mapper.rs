@@ -638,6 +638,176 @@ fn aa_interval_range(pos: &crate::structs::AaInterval) -> Result<(usize, usize),
     Ok((start as usize, last as usize + 1))
 }
 
+/// The residues a C-terminal extension at the stop of a protein of
+/// `residues` residues adds, where it names every one: `p.Ter7GlnextTer1`
+/// adds Gln. `None` for any other edit, and for an extension whose residues
+/// after the first are not named, which describes a consequence.
+fn named_extension(
+    edit: &crate::edits::AaEdit,
+    start: usize,
+    residues: usize,
+) -> Result<Option<String>, HgvsError> {
+    let crate::edits::AaEdit::Ext { alt, end } = edit else {
+        return Ok(None);
+    };
+    if matches!(end, crate::edits::ExtensionEnd::Upstream { .. }) || start != residues {
+        return Ok(None);
+    }
+    let added = crate::utils::residues_1(alt)?;
+    let named = !added.is_empty()
+        && !added.contains('*')
+        && end.residues_to_stop().map(|n| n.get() as usize) == Some(added.len());
+    Ok(named.then_some(added))
+}
+
+/// `p.Ter#XxxextTerN`: the residues `added` after the last of a protein of
+/// `residues` residues, before its stop, written as the extension HGVS
+/// makes of an insertion at the C-terminal end. Only the first added residue
+/// is named.
+fn extension_variant(ac: &str, residues: usize, added: &str) -> Result<PVariant, HgvsError> {
+    use crate::edits::{AaEdit, ExtensionEnd, StopDistance};
+    use crate::structs::{AAPosition, AaInterval, PosEdit, ProteinPos};
+    let count = u32::try_from(added.len())
+        .ok()
+        .and_then(std::num::NonZeroU32::new)
+        .ok_or_else(|| HgvsError::ValidationError(format!("{ac}: no residues added")))?;
+    Ok(PVariant {
+        ac: ac.to_string(),
+        gene: None,
+        posedit: PosEdit {
+            pos: Some(AaInterval {
+                start: AAPosition {
+                    base: ProteinPos(residues as i32).to_hgvs(),
+                    aa: "Ter".to_string(),
+                },
+                end: None,
+                uncertain: false,
+            }),
+            edit: AaEdit::Ext {
+                alt: crate::utils::seq1_to_aa3(&added[..1]),
+                end: ExtensionEnd::Stop {
+                    distance: StopDistance::Residues { count },
+                },
+            },
+            uncertain: false,
+            predicted: false,
+        },
+    })
+}
+
+/// A change to `protein`, read with its stop after the last residue: a stop
+/// among the new residues ends the protein there, so every residue from it
+/// to the stop goes too, and p.Tyr165Ter and p.Ala164_Tyr165insTer are one
+/// change. A change the stop ends where it leaves the protein as it was is
+/// no change: empty, at the stop, unless it is a `statement` of the residues
+/// it names.
+///
+/// # Errors
+///
+/// [`HgvsError::UnsupportedOperation`] for a change that removes the stop and
+/// makes none: the protein reads on into residues its sequence does not
+/// carry. `described` names the change.
+pub(crate) fn ended_at_stop(
+    mut edit: crate::edits::ResolvedEdit,
+    protein: &str,
+    statement: bool,
+    described: impl FnOnce() -> String,
+) -> Result<crate::edits::ResolvedEdit, HgvsError> {
+    let residues = protein.len();
+    match edit.alt.find('*') {
+        Some(k) => {
+            edit.alt.truncate(k);
+            edit.start = edit.start.min(residues);
+            edit.end = residues;
+            edit.ref_ = protein[edit.start..].to_string();
+            if edit.ref_ == edit.alt && !statement {
+                edit.start = residues;
+                edit.ref_.clear();
+                edit.alt.clear();
+            }
+            Ok(edit)
+        }
+        None if edit.end > residues => Err(HgvsError::UnsupportedOperation(format!(
+            "{} loses the stop, so the protein reads on into residues its sequence does not \
+             carry: it describes a consequence, not a sequence",
+            described()
+        ))),
+        None => Ok(edit),
+    }
+}
+
+/// One protein sequence with its stop after the last residue, whether or not
+/// its provider serves the stop: the sequence a `p.` description and a
+/// protein allele are read on, so that an edit at the stop sees it.
+pub(crate) struct ProteinWithStop {
+    ac: String,
+    sequence: String,
+}
+
+impl ProteinWithStop {
+    pub(crate) fn of(reference: &crate::reference::Reference<'_, '_>) -> Result<Self, HgvsError> {
+        let whole = reference.whole()?;
+        Ok(ProteinWithStop {
+            ac: reference.accession().to_string(),
+            sequence: format!("{}*", whole.trim_end_matches('*')),
+        })
+    }
+
+    /// The residues before the stop.
+    pub(crate) fn residues(&self) -> &str {
+        &self.sequence[..self.sequence.len() - 1]
+    }
+
+    /// The sequence as a [`Reference`](crate::reference::Reference) in `store`,
+    /// a store over `self`.
+    pub(crate) fn reference<'s, 'a>(
+        &self,
+        store: &'s ReferenceStore<'a>,
+    ) -> crate::reference::Reference<'s, 'a> {
+        store.reference(&self.ac, IdentifierType::ProteinAccession)
+    }
+}
+
+impl DataProvider for ProteinWithStop {
+    fn get_transcript(&self, ac: &str, _: Option<&str>) -> Result<TranscriptData, HgvsError> {
+        Err(HgvsError::DataProviderError(format!(
+            "{ac}: a protein sequence holds no transcript"
+        )))
+    }
+
+    fn get_seq(
+        &self,
+        ac: &str,
+        start: i32,
+        end: Option<i32>,
+        _: IdentifierType,
+    ) -> Result<String, HgvsError> {
+        if ac != self.ac {
+            return Err(HgvsError::DataProviderError(format!(
+                "{ac}: only {} is held",
+                self.ac
+            )));
+        }
+        let n = self.sequence.len();
+        let start = usize::try_from(start).unwrap_or(0).min(n);
+        let end = end.map_or(n, |e| usize::try_from(e).unwrap_or(0).min(n));
+        Ok(self.sequence[start..end.max(start)].to_string())
+    }
+
+    fn get_symbol_accessions(
+        &self,
+        _: &str,
+        _: IdentifierKind,
+        _: IdentifierKind,
+    ) -> Result<Vec<(IdentifierType, String)>, HgvsError> {
+        Ok(Vec::new())
+    }
+
+    fn get_identifier_type(&self, _: &str) -> Result<IdentifierType, HgvsError> {
+        Ok(IdentifierType::ProteinAccession)
+    }
+}
+
 /// The 0-based half-open residue range a p. variant names on `reference`,
 /// once the range is found on the protein and the residues it states there:
 /// the residue named at each end of its interval (`p.Arg2Leu`'s Arg), and any
@@ -662,26 +832,20 @@ pub(crate) fn residue_range(
         .as_ref()
         .ok_or_else(|| HgvsError::ValidationError("Missing protein position".into()))?;
     let (start, end) = aa_interval_range(pos)?;
-    match reference.check_range(start, end) {
-        Err(HgvsError::PositionOutsideSequence { length, .. })
-            if length > 0
-                && end == length + 1
-                && reference.base(length - 1)?.is_some_and(|b| b != b'*') => {}
-        checked => checked?,
+    let with_stop = ProteinWithStop::of(reference)?;
+    let store = ReferenceStore::new(&with_stop);
+    let shown = with_stop.reference(&store);
+    if shown.check_range(start, end).is_err() {
+        // Named as the provider serves it.
+        reference.check_range(start, end)?;
     }
     let check = |stated: &str, at: usize, to: usize| -> Result<(), HgvsError> {
         if stated.is_empty() {
             return Ok(());
         }
         let stated = crate::utils::residues_1(stated)?;
-        let found = reference.slice(at, to)?;
-        // A protein sequence may end before its stop: Ter is then the
-        // position just past the last residue.
-        let stop_past_the_end = stated == "*"
-            && found.is_empty()
-            && at > 0
-            && reference.base(at - 1)?.is_some_and(|b| b != b'*');
-        if stated.eq_ignore_ascii_case(&found) || stop_past_the_end {
+        let found = shown.slice(at, to)?;
+        if stated.eq_ignore_ascii_case(&found) {
             return Ok(());
         }
         Err(HgvsError::ReferenceMismatch {
@@ -2484,6 +2648,44 @@ impl<'a> VariantMapper<'a> {
         CanonicalAllele::canonicalize(&np, &protein_ac, &edit)
     }
 
+    /// The protein the CDS of `transcript_ac` encodes, as a protein record
+    /// writes it (the initiator as Met, a selenocysteine as `U`), without its
+    /// stop.
+    ///
+    /// # Errors
+    ///
+    /// [`HgvsError::ValidationError`] when the transcript has no CDS, or one
+    /// open at its 5' end; what the provider raises for a transcript it does
+    /// not hold.
+    pub(crate) fn encoded_protein(&self, transcript_ac: &str) -> Result<String, HgvsError> {
+        let transcript = self.provider().get_transcript(transcript_ac, None)?;
+        if transcript.cds_start == crate::data::CdsStart::Open {
+            return Err(HgvsError::ValidationError(format!(
+                "{transcript_ac}: its CDS is open at the 5' end, so the record carries no start \
+                 codon and its protein is not known"
+            )));
+        }
+        let record = self
+            .refs
+            .reference(transcript_ac, IdentifierType::TranscriptAccession)
+            .whole()?;
+        let (cds_start, cds_end) = cds_bounds(&transcript, record.len())?;
+        let unchanged = crate::protein::CodingChange {
+            coding: record[cds_start..].to_string(),
+            cds_len: cds_end + 1 - cds_start,
+            end_open: transcript.cds_end_open,
+            edit: crate::edits::ResolvedEdit {
+                start: 0,
+                end: 0,
+                ref_: String::new(),
+                alt: String::new(),
+            },
+            protein_ac: String::new(),
+            initiates: transcript.cds_start == crate::data::CdsStart::Initiator,
+        };
+        Ok(crate::protein::proteins(&unchanged)?.0)
+    }
+
     /// The protein a coding variant leaves: no residues when the CDS is
     /// deleted, `None` when nothing can be said (an intronic position, a
     /// disrupted start codon) or the prediction is a statement about residues
@@ -3160,17 +3362,26 @@ impl<'a> VariantMapper<'a> {
                 .refs
                 .reference(&vp.ac, IdentifierType::ProteinAccession);
             let (start, end) = residue_range(vp, &reference)?;
-            let mut resolved = vp.posedit.edit.resolve(&reference, start, end)?;
-            // A stop among the new residues ends the protein there: everything
-            // from it to the end of the reference goes too. p.Tyr165Ter and
-            // p.Ala164_Tyr165insTer are then the same allele.
-            if let Some(k) = resolved.alt.find('*') {
-                let len = reference.whole()?.trim_end_matches('*').len();
-                resolved.alt.truncate(k);
-                resolved.end = len.max(resolved.start);
-                resolved.ref_ = reference.slice(resolved.start, resolved.end)?;
-            }
-            return CanonicalAllele::canonicalize(&reference, &vp.ac, &resolved);
+            let with_stop = ProteinWithStop::of(&reference)?;
+            let store = ReferenceStore::new(&with_stop);
+            let shown = with_stop.reference(&store);
+            let residues = with_stop.residues().len();
+            let edit = match named_extension(&vp.posedit.edit, start, residues)? {
+                Some(added) => crate::edits::ResolvedEdit {
+                    start: residues,
+                    end: residues,
+                    ref_: String::new(),
+                    alt: added,
+                },
+                None => vp.posedit.edit.resolve(&shown, start, end)?,
+            };
+            let resolved = ended_at_stop(
+                edit,
+                with_stop.residues(),
+                vp.posedit.edit.is_identity(),
+                || vp.to_string(),
+            )?;
+            return CanonicalAllele::canonicalize(&shown, &vp.ac, &resolved);
         }
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
@@ -3888,6 +4099,9 @@ impl<'a> VariantMapper<'a> {
                 "{ac} is shorter than position {end}"
             )));
         }
+        if kind == IdentifierType::ProteinAccession {
+            return self.protein_from_allele(&reference, start, end, ref_, alt);
+        }
         let (edit, s, e) = normalize::minimal_edit(&reference, start, end, &ref_, &alt)?;
         let placed = normalize::normalize(
             &reference,
@@ -3895,12 +4109,88 @@ impl<'a> VariantMapper<'a> {
             &ExonBounds::unspliced(),
         )?;
         let (s, e) = placed.hgvs_range();
-        Ok(match kind {
-            IdentifierType::ProteinAccession => {
-                crate::SequenceVariant::Protein(protein_variant(ac, &reference, s, e, placed.edit)?)
-            }
-            _ => crate::SequenceVariant::Genomic(g_variant(ac, interval(s, e)?, placed.edit)),
-        })
+        Ok(crate::SequenceVariant::Genomic(g_variant(
+            ac,
+            interval(s, e)?,
+            placed.edit,
+        )))
+    }
+
+    /// The `p.` variant for "`alt` replaces `[start, end)` of the protein
+    /// `reference`", which holds `ref_` there, read with the stop after the
+    /// last residue whether or not the provider serves it, as
+    /// [`canonical_allele`](Self::canonical_allele) reads a description: so
+    /// both servings give one variant, and it gives back the allele read.
+    /// A change the stop leaves as no change is the stop unchanged.
+    fn protein_from_allele(
+        &self,
+        reference: &crate::reference::Reference<'_, '_>,
+        start: usize,
+        end: usize,
+        ref_: String,
+        alt: String,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
+        let ac = reference.accession();
+        let with_stop = ProteinWithStop::of(reference)?;
+        let store = ReferenceStore::new(&with_stop);
+        let shown = with_stop.reference(&store);
+        let residues = with_stop.residues().len();
+        if start > residues {
+            return Err(HgvsError::ValidationError(format!(
+                "{ac} ends at its stop, residue {}; an allele at {start} lies past it",
+                residues + 1
+            )));
+        }
+        let spdi = format!("{ac}:{start}:{ref_}:{alt}");
+        let edit = ended_at_stop(
+            crate::edits::ResolvedEdit {
+                start,
+                end,
+                ref_,
+                alt,
+            },
+            with_stop.residues(),
+            false,
+            || format!("The allele {spdi}"),
+        )?;
+        let (edit, s, e) = if edit.start == residues && edit.ref_.is_empty() && edit.alt.is_empty()
+        {
+            let unchanged = crate::edits::NaEdit::RefAlt {
+                ref_: None,
+                alt: None,
+                uncertain: false,
+            };
+            (unchanged, residues, residues + 1)
+        } else {
+            normalize::minimal_edit(&shown, edit.start, edit.end, &edit.ref_, &edit.alt)?
+        };
+        let placed = normalize::normalize(
+            &shown,
+            PlacedEdit::from_hgvs_range(s, e, edit),
+            &ExonBounds::unspliced(),
+        )?;
+        let (s, e) = placed.hgvs_range();
+        // Residues inserted after the last, or a copy of the last ones, extend
+        // the protein at its C-terminal end: HGVS writes either as an extension.
+        let added = match &placed.edit {
+            crate::edits::NaEdit::Ins {
+                alt: Some(added), ..
+            } if s + 1 == residues && e == residues + 1 => Some(added.clone()),
+            crate::edits::NaEdit::Dup { .. } if e == residues => Some(shown.slice(s, e)?),
+            _ => None,
+        };
+        if let Some(added) = added {
+            return Ok(crate::SequenceVariant::Protein(extension_variant(
+                ac, residues, &added,
+            )?));
+        }
+        Ok(crate::SequenceVariant::Protein(protein_variant(
+            ac,
+            &shown,
+            s,
+            e,
+            placed.edit,
+        )?))
     }
 
     pub fn to_spdi(

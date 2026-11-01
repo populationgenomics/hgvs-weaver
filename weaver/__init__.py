@@ -153,7 +153,9 @@ class DataProvider(Protocol):
     ) -> list[tuple[str, str]] | list[tuple[IdentifierType, str]]:
         """Map identifiers between different namespaces.
 
-        Returns a list of tuples (identifier_type, accession).
+        ``source_kind`` and ``target_kind`` are ``'g'``, ``'c'``, ``'p'`` or ``'gene'``:
+        ``(transcript, 'c', 'p')`` asks for a transcript's protein and ``(symbol, 'gene', 'p')``
+        for a gene's proteins. Returns a list of tuples (identifier_type, accession).
         identifier_type should be one of 'genomic_accession', 'transcript_accession',
         'protein_accession', 'gene_symbol', or a member of the IdentifierType enum.
         """

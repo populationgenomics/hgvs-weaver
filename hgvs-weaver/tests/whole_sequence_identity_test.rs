@@ -40,7 +40,7 @@ fn provider() -> Provider {
         .sequence("NR_W.1", &spliced)
         .sequence("NM_OPEN.1", &spliced)
         .sequence("NP_W.1", "MRRRRKSRRRRRRRRVVVVVVVVVVVVVV")
-        .sequence("NP_OTHER.1", "MRRRRKSRRRRRRRRVVVVVVVVVVVVVV")
+        .sequence("NP_OTHER.1", "MKKKKKSRRRRRRRRVVVVVVVVVVVVVV")
         .transcript(transcript(
             "NM_W.1",
             "NC_W.1",

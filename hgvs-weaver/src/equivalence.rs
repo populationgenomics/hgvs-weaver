@@ -467,11 +467,14 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// A nucleotide variant against a protein description: through every
-    /// coding transcript the variant lies on, its prediction compared with the
-    /// description as two protein descriptions are, the prediction leaving
-    /// the protein the edited transcript encodes. The level through the best
-    /// transcript; a transcript whose prediction fails is the error only when
-    /// no transcript makes the two equivalent. A nucleotide allele predicts
+    /// coding transcript the variant lies on that encodes the description's
+    /// protein (see `encodes`), its prediction compared with the description
+    /// as two protein descriptions are, the prediction leaving the protein the
+    /// edited transcript encodes. A transcript of another protein takes no
+    /// part. The level through the best transcript; a transcript on which the
+    /// variant does not read, whose protein cannot be told, or whose
+    /// prediction fails, is the error only when no transcript makes the two
+    /// equivalent. A nucleotide allele predicts
     /// one description or a protein allele, `p.[(Ala4=;Tyr5Asp)]`; a protein
     /// allele on either side is compared as two protein alleles are.
     fn nucleotide_vs_protein(
@@ -488,6 +491,29 @@ impl<'a> VariantEquivalence<'a> {
         let mut best = EquivalenceLevel::Different;
         let mut failed = None;
         for c in &coding {
+            let transcript = match c {
+                Coding::One(one) => &one.ac,
+                Coding::Cis(cis) => &cis.ac,
+            };
+            // The variant is checked on its transcript before the transcript
+            // is set aside; a transcript of another protein says nothing of
+            // this one.
+            let on_transcript = match c {
+                Coding::One(one) => SequenceVariant::Coding(one.clone()),
+                Coding::Cis(cis) => SequenceVariant::CisPhased(cis.clone()),
+            };
+            match self
+                .mapper
+                .check_stated(&on_transcript)
+                .and_then(|()| self.encodes(transcript, ac))
+            {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e) => {
+                    failed.get_or_insert(e);
+                    continue;
+                }
+            }
             let predicted = match c {
                 Coding::One(one) => self
                     .mapper
@@ -537,6 +563,58 @@ impl<'a> VariantEquivalence<'a> {
             _ => {}
         }
         failed.map_or(Ok(best), Err)
+    }
+
+    /// Whether `transcript` encodes `protein`: the provider pairs the two, in
+    /// any version of the protein; or the transcript's CDS translates to the
+    /// protein's sequence and the provider names the protein among those of
+    /// the transcript's gene, as for another publisher's transcript, another
+    /// isoform, or one paired with nothing. A paralogue that encodes the same
+    /// sequence is of another gene, whose proteins the protein is not among.
+    ///
+    /// # Errors
+    ///
+    /// What the provider raises for a transcript or a protein sequence it
+    /// does not hold; [`HgvsError::ValidationError`] for a transcript with no
+    /// CDS to translate, and for one whose translation is the protein's when
+    /// the transcript names no gene or the provider names no protein of its
+    /// gene, so that whether it is the protein's or a paralogue's is unknown.
+    fn encodes(&self, transcript: &str, protein: &str) -> Result<bool, HgvsError> {
+        let provider = self.mapper.provider();
+        let names = |symbol: &str, source: IdentifierKind| -> Result<Vec<String>, HgvsError> {
+            Ok(provider
+                .get_symbol_accessions(symbol, source, IdentifierKind::Protein)?
+                .into_iter()
+                .filter(|(kind, _)| *kind == crate::data::IdentifierType::ProteinAccession)
+                .map(|(_, p)| p)
+                .collect())
+        };
+        let named = |proteins: &[String]| {
+            proteins
+                .iter()
+                .any(|p| base_accession(p) == base_accession(protein))
+        };
+        if named(&names(transcript, IdentifierKind::Transcript)?) {
+            return Ok(true);
+        }
+        if self.mapper.encoded_protein(transcript)? != self.reference_protein(protein)? {
+            return Ok(false);
+        }
+        let gene = provider.get_transcript(transcript, None)?.gene;
+        let unknown = |why: String| {
+            Err(HgvsError::ValidationError(format!(
+                "{transcript} translates to {protein}, but {why}, so whether it encodes \
+                 {protein} or a paralogue's copy is unknown"
+            )))
+        };
+        if gene.is_empty() {
+            return unknown(format!("{transcript} names no gene"));
+        }
+        let of_gene = names(&gene, IdentifierKind::Gene)?;
+        if of_gene.is_empty() {
+            return unknown(format!("the provider names no protein of its gene {gene}"));
+        }
+        Ok(named(&of_gene))
     }
 
     /// The coding forms of a nucleotide variant, a single one or an allele in
@@ -646,7 +724,7 @@ impl<'a> VariantEquivalence<'a> {
     /// or, for one that names no stretch of residues to replace (`p.?`, an
     /// uncertain range, `p.Met1?`, `p.=`, `p.0`), what it says.
     fn protein_read(&self, vp: &PVariant, ac: &str) -> Result<ProteinRead, HgvsError> {
-        use crate::edits::{AaEdit, ProteinStatement};
+        use crate::edits::{AaEdit, ExtensionEnd, ProteinStatement};
         let reference = self
             .mapper
             .refs
@@ -703,6 +781,37 @@ impl<'a> VariantEquivalence<'a> {
                     _ => (start, end, alt, true),
                 }
             }
+            // `Met1ext-N`: translation starts N residues upstream, at a Met
+            // unless another residue is named, and Met1 becomes the residue
+            // written before `ext`, if one is.
+            AaEdit::Ext {
+                alt,
+                end: ExtensionEnd::Upstream { residue, distance },
+            } => {
+                if start != 0 {
+                    return Err(HgvsError::ValidationError(format!(
+                        "{vp} extends the protein upstream of a residue other than Met1, \
+                         so it has no reading"
+                    )));
+                }
+                let mut added = match residue {
+                    Some(r) => crate::utils::residues_1(r)?,
+                    None => "M".to_string(),
+                };
+                while added.len() < distance.get() as usize {
+                    added.push('X');
+                }
+                let met1 = crate::utils::residues_1(alt)?;
+                if met1.contains('*') || added.contains('*') {
+                    return Err(HgvsError::ValidationError(format!(
+                        "{vp} writes a stop in an N-terminal extension, which then ends before \
+                         the protein it extends, so it has no reading"
+                    )));
+                }
+                let end = if met1.is_empty() { 0 } else { 1 };
+                added.push_str(&met1);
+                (0, end, added, false)
+            }
             // `Ter#Xxxext*N`: the stop becomes Xxx, then N - 1 residues, then a stop.
             AaEdit::Ext { alt, end } => {
                 let mut alt = crate::utils::residues_1(alt)?;
@@ -740,6 +849,13 @@ impl<'a> VariantEquivalence<'a> {
             None => (end, alt),
         };
         let start = start.min(len);
+        // A lost stop that writes nothing in place of the reference's own
+        // residues reads on by at least one: a stop straight after them
+        // would leave the protein as it is.
+        let alt = match open && protein.get(start..) == Some(alt.as_str()) {
+            true => alt + "X",
+            false => alt,
+        };
         Ok(ProteinRead::Edit(ProteinEdit {
             start,
             end: end.clamp(start, len),
@@ -837,57 +953,34 @@ impl<'a> VariantEquivalence<'a> {
         let id_type = self.mapper.provider().get_identifier_type(ac)?;
 
         if id_type == crate::data::IdentifierType::GeneSymbol {
-            let target_kind = match var {
-                SequenceVariant::Protein(_) => IdentifierKind::Protein,
-                SequenceVariant::Coding(_)
-                | SequenceVariant::NonCoding(_)
-                | SequenceVariant::Rna(_) => IdentifierKind::Transcript,
-                _ => IdentifierKind::Genomic,
+            // An allele on a gene symbol is expanded as its members would be.
+            use crate::data::IdentifierType as T;
+            let (target_kind, compatible): (IdentifierKind, &[T]) = match var.coordinate_type() {
+                "p" => (IdentifierKind::Protein, &[T::ProteinAccession]),
+                "c" | "n" | "r" => (IdentifierKind::Transcript, &[T::TranscriptAccession]),
+                "g" => (
+                    IdentifierKind::Genomic,
+                    &[T::GenomicAccession, T::TranscriptAccession],
+                ),
+                _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
             };
 
-            // Try symbol expansion.
             let accessions = self.mapper.provider().get_symbol_accessions(
                 ac,
-                IdentifierKind::Genomic,
+                IdentifierKind::Gene,
                 target_kind,
             )?;
-
-            if !accessions.is_empty() {
-                let mut expanded = Vec::new();
-                for (ac_type, new_ac) in accessions {
-                    // Only expand into compatible types.
-                    let is_compatible = match (var, ac_type) {
-                        (
-                            SequenceVariant::Protein(_),
-                            crate::data::IdentifierType::ProteinAccession,
-                        ) => true,
-                        (
-                            SequenceVariant::Coding(_)
-                            | SequenceVariant::NonCoding(_)
-                            | SequenceVariant::Rna(_),
-                            crate::data::IdentifierType::TranscriptAccession,
-                        ) => true,
-                        (
-                            SequenceVariant::Genomic(_) | SequenceVariant::Mitochondrial(_),
-                            crate::data::IdentifierType::GenomicAccession,
-                        ) => true,
-                        // Allow g. on transcripts if specifically provided
-                        (
-                            SequenceVariant::Genomic(_),
-                            crate::data::IdentifierType::TranscriptAccession,
-                        ) => true,
-                        _ => false,
-                    };
-
-                    if is_compatible {
-                        let mut v = var.clone();
-                        v.set_ac(new_ac);
-                        expanded.push(v);
-                    }
-                }
-                if !expanded.is_empty() {
-                    return Ok(expanded);
-                }
+            let expanded: Vec<SequenceVariant> = accessions
+                .into_iter()
+                .filter(|(ac_type, _)| compatible.contains(ac_type))
+                .map(|(_, new_ac)| {
+                    let mut v = var.clone();
+                    v.set_ac(new_ac);
+                    v
+                })
+                .collect();
+            if !expanded.is_empty() {
+                return Ok(expanded);
             }
         }
 

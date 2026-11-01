@@ -93,7 +93,9 @@ impl CanonicalAllele {
                 end: resolved.end,
                 reference: actual.clone(),
                 alternate: actual,
-                repeat_subunit: Some(resolved.end - resolved.start),
+                // Nothing at an interbase point is a literal: no run repeats there.
+                repeat_subunit: (resolved.end > resolved.start)
+                    .then(|| resolved.end - resolved.start),
             });
         }
         if !r.is_empty() && !a.is_empty() {
