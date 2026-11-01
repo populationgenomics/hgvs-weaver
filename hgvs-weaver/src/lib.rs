@@ -7,6 +7,11 @@ use pest_derive::Parser as PestParser;
 pub struct HgvsParser;
 
 /// Parses an HGVS string into a `SequenceVariant`.
+///
+/// A `p.` description writes every residue in one amino acid code, `*` and
+/// `Xaa` in either; one that mixes them is [`HgvsError::MixedResidueCodes`].
+/// A one-letter `X` where a stop and any residue could both stand is
+/// [`HgvsError::AmbiguousResidue`].
 pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> {
     let mut pairs = HgvsParser::parse(Rule::hgvs_variant, hgvs_str)
         .map_err(|e| HgvsError::PestError(e.to_string()))?;
@@ -14,6 +19,8 @@ pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> 
     let pair = pairs
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty input".into()))?;
+    parser::one_residue_code(&pair)?;
+    parser::no_ambiguous_x(&pair)?;
     let inner = pair
         .into_inner()
         .next()

@@ -1,3 +1,4 @@
+use ::hgvs_weaver::error::ResidueToken;
 use ::hgvs_weaver::{
     DataProvider, HgvsError, IdentifierKind, SequenceVariant, TranscriptData, TranscriptSearch,
     Variant as VariantTrait, VariantMapper,
@@ -8,6 +9,18 @@ use pyo3::{Bound, PyErr};
 
 pyo3::create_exception!(_weaver, HGVSError, pyo3::exceptions::PyException);
 pyo3::create_exception!(_weaver, ParseError, HGVSError);
+pyo3::create_exception!(
+    _weaver,
+    MixedResidueCodesError,
+    ParseError,
+    "A p. description that writes residues in both the one- and three-letter amino acid codes. one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."
+);
+pyo3::create_exception!(
+    _weaver,
+    AmbiguousResidueError,
+    ParseError,
+    "A one-letter X in a p. description where a stop and any residue could both stand: the new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."
+);
 pyo3::create_exception!(_weaver, ValidationError, HGVSError);
 pyo3::create_exception!(_weaver, DataProviderError, HGVSError);
 pyo3::create_exception!(_weaver, UnsupportedOperationError, HGVSError);
@@ -49,6 +62,38 @@ fn map_hgvs_error(e: HgvsError) -> PyErr {
 fn py_error(e: HgvsError, context: String) -> PyErr {
     match e {
         HgvsError::PestError(msg) => ParseError::new_err(context + &msg),
+        HgvsError::MixedResidueCodes {
+            description,
+            one_letter,
+            three_letter,
+        } => {
+            let message = HgvsError::MixedResidueCodes {
+                description: description.clone(),
+                one_letter: one_letter.clone(),
+                three_letter: three_letter.clone(),
+            }
+            .to_string();
+            mixed_residue_codes_error(context + &message, description, one_letter, three_letter)
+        }
+        HgvsError::AmbiguousResidue {
+            description,
+            ambiguous,
+        } => {
+            let message = HgvsError::AmbiguousResidue {
+                description: description.clone(),
+                ambiguous: ambiguous.clone(),
+            }
+            .to_string();
+            let err = AmbiguousResidueError::new_err(context + &message);
+            Python::attach(|py| {
+                let value = err.value(py);
+                value.setattr("description", description)?;
+                value.setattr("ambiguous", token_tuples(ambiguous))?;
+                Ok::<(), PyErr>(())
+            })
+            .err()
+            .unwrap_or(err)
+        }
         HgvsError::ValidationError(msg) => ValidationError::new_err(context + &msg),
         HgvsError::DataProviderError(msg) => DataProviderError::new_err(context + &msg),
         HgvsError::UnsupportedOperation(msg) => UnsupportedOperationError::new_err(context + &msg),
@@ -95,6 +140,34 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
         // still raised, as the base class, with its message.
         other => HGVSError::new_err(context + &other.to_string()),
     }
+}
+
+/// A `MixedResidueCodesError` with `message`, carrying the description and
+/// its tokens as `(text, start, end)` tuples.
+fn mixed_residue_codes_error(
+    message: String,
+    description: String,
+    one_letter: Vec<ResidueToken>,
+    three_letter: Vec<ResidueToken>,
+) -> PyErr {
+    let err = MixedResidueCodesError::new_err(message);
+    Python::attach(|py| {
+        let value = err.value(py);
+        value.setattr("description", description)?;
+        value.setattr("one_letter", token_tuples(one_letter))?;
+        value.setattr("three_letter", token_tuples(three_letter))?;
+        Ok::<(), PyErr>(())
+    })
+    .err()
+    .unwrap_or(err)
+}
+
+/// Residue tokens as Python sees them, `(text, start, end)`.
+fn token_tuples(tokens: Vec<ResidueToken>) -> Vec<(String, usize, usize)> {
+    tokens
+        .into_iter()
+        .map(|t| (t.text, t.start, t.end))
+        .collect()
 }
 
 /// An `AmbiguousDescriptionError` whose `readings` are the readings, as
@@ -312,7 +385,7 @@ impl PyVariant {
 }
 
 #[pyfunction]
-#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    ParseError: If the HGVS string is malformed or unsupported.\n    UnsupportedOperationError: If the string describes alleles in trans."]
+#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    MixedResidueCodesError: If a p. description writes residues in both the\n        one- and three-letter amino acid codes, p.Arg111X; * and Xaa are in\n        either. A ParseError, carrying every residue written in each code.\n    AmbiguousResidueError: If a one-letter p. description writes X where a\n        stop and any residue could both stand, p.R210X. A ParseError, carrying\n        each such X.\n    ParseError: If the HGVS string is malformed or unsupported.\n    UnsupportedOperationError: If the string describes alleles in trans."]
 fn parse(input: &str) -> PyResult<PyVariant> {
     match ::hgvs_weaver::parse_hgvs_variant(input) {
         Ok(inner) => Ok(PyVariant { inner }),
@@ -997,6 +1070,14 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEquivalenceLevel>()?;
     m.add("HGVSError", m.py().get_type::<HGVSError>())?;
     m.add("ParseError", m.py().get_type::<ParseError>())?;
+    m.add(
+        "MixedResidueCodesError",
+        m.py().get_type::<MixedResidueCodesError>(),
+    )?;
+    m.add(
+        "AmbiguousResidueError",
+        m.py().get_type::<AmbiguousResidueError>(),
+    )?;
     m.add("ValidationError", m.py().get_type::<ValidationError>())?;
     m.add("DataProviderError", m.py().get_type::<DataProviderError>())?;
     m.add(

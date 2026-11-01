@@ -273,11 +273,35 @@ impl ExtensionEnd {
 }
 
 impl AaEdit {
-    /// The edit with every residue the formatter rewrites in the form it
-    /// prints, so that a one-letter description equals its printed form.
+    /// The edit with its residues in the three-letter code it prints, so that
+    /// a one-letter description equals the three-letter one.
     pub(crate) fn into_canonical(self) -> Self {
-        use crate::utils::residue_3;
+        use crate::utils::{residue_3, residues_3};
         match self {
+            AaEdit::Ins { alt, uncertain } => AaEdit::Ins {
+                alt: residues_3(&alt),
+                uncertain,
+            },
+            AaEdit::DelIns {
+                ref_,
+                alt,
+                uncertain,
+            } => AaEdit::DelIns {
+                ref_,
+                alt: residues_3(&alt),
+                uncertain,
+            },
+            AaEdit::Repeat {
+                ref_,
+                min,
+                max,
+                uncertain,
+            } => AaEdit::Repeat {
+                ref_: ref_.map(|r| residues_3(&r)),
+                min,
+                max,
+                uncertain,
+            },
             AaEdit::Subst {
                 ref_,
                 alt,

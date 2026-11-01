@@ -56,12 +56,46 @@ impl fmt::Display for ReferenceUse {
     }
 }
 
+/// A residue, or a run of residues, as a description writes it: `text` is
+/// `description[start..end]`, by byte offset, which is also the character
+/// offset since a description that parses is ASCII. A run the grammar reads
+/// as one sequence, the `DPA` of `insDPA` or the `HIS` of `insHIS`, is one
+/// token; a lone residue, the `X` of `Arg111X`, is a run of one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResidueToken {
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
 /// Error types for HGVS operations.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum HgvsError {
     /// Failure during parsing of an HGVS string or CIGAR string.
     PestError(String),
+    /// A protein description that writes residues in both amino acid codes:
+    /// `one_letter` and `three_letter` are every residue or run written in
+    /// each, in the order they appear in `description`, so a caller can
+    /// rewrite one code into the other and parse again. `*` and `Xaa`, a
+    /// stop and an unknown residue in either code, are in neither, as is a
+    /// run of nothing else; one inside a run is part of that run's token.
+    /// `Xaa` is in either code only outside a one-letter run, which cannot
+    /// hold it.
+    MixedResidueCodes {
+        description: String,
+        one_letter: Vec<ResidueToken>,
+        three_letter: Vec<ResidueToken>,
+    },
+    /// A one-letter `X` in a protein description where a stop and any
+    /// residue could both stand: the new residue of a substitution at a
+    /// residue that is not a stop, or one an insertion or deletion-insertion
+    /// names. `ambiguous` is each such
+    /// `X` as written in `description`, one token per `X`, in order.
+    AmbiguousResidue {
+        description: String,
+        ambiguous: Vec<ResidueToken>,
+    },
     /// Failure during validation of transcript or exon metadata.
     ValidationError(String),
     /// Failure during data retrieval from a `DataProvider`.
@@ -146,6 +180,42 @@ impl fmt::Display for HgvsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             HgvsError::PestError(msg) => write!(f, "Parse error: {msg}"),
+            HgvsError::MixedResidueCodes {
+                description,
+                one_letter,
+                three_letter,
+            } => {
+                // The one-letter token named is the first holding an X, the
+                // residue whose meaning the mix leaves open, else the first.
+                let x = one_letter.iter().find(|t| t.text.contains('X'));
+                let one = x.or(one_letter.first()).map_or("", |t| t.text.as_str());
+                let three = three_letter.first().map_or("", |t| t.text.as_str());
+                write!(
+                    f,
+                    "Mixed residue codes: {description} writes {three} in the three-letter \
+                     amino acid code and {one} in the one-letter code; write every residue \
+                     in one code"
+                )?;
+                if x.is_some() {
+                    write!(f, " (a stop is Ter or *, an unknown residue Xaa)")?;
+                }
+                Ok(())
+            }
+            HgvsError::AmbiguousResidue {
+                description,
+                ambiguous,
+            } => {
+                write!(f, "Ambiguous residue: {description} writes X at")?;
+                for (i, t) in ambiguous.iter().enumerate() {
+                    let sep = if i == 0 { " " } else { ", " };
+                    write!(f, "{sep}{}..{}", t.start, t.end)?;
+                }
+                write!(
+                    f,
+                    ", which could be a stop or any residue; write * for a stop and Xaa for \
+                     any residue"
+                )
+            }
             HgvsError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
             HgvsError::DataProviderError(msg) => write!(f, "Data provider error: {msg}"),
             HgvsError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {msg}"),

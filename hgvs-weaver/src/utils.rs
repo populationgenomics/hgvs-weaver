@@ -127,6 +127,18 @@ pub fn residue_3(aa: &str) -> &str {
     }
 }
 
+/// A run of residues as weaver stores and prints it: a run in one-letter code
+/// becomes its three-letter code (`*` is `Ter`, `X` is `Xaa`); anything else
+/// is kept.
+pub fn residues_3(seq: &str) -> String {
+    const AA1: &str = "ACDEFGHIKLMNPQRSTVWYBZXU*";
+    if !seq.is_empty() && seq.chars().all(|c| AA1.contains(c)) {
+        seq1_to_aa3(seq)
+    } else {
+        seq.to_string()
+    }
+}
+
 /// [`residue_3`] where the grammar reads `X` as a stop: after `fs` or `ext`.
 pub fn terminator_3(aa: &str) -> &str {
     match aa {

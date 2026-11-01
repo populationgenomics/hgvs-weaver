@@ -152,7 +152,7 @@ fn test_regression_parse_clinvar_repeat() {
 
     if let SequenceVariant::Protein(p) = v_inner {
         if let hgvs_weaver::edits::AaEdit::Repeat { ref_, min, max, .. } = p.posedit.edit {
-            assert_eq!(ref_, Some("PRS".to_string()));
+            assert_eq!(ref_, Some("ProArgSer".to_string()));
             assert_eq!(min, 1);
             assert_eq!(max, 1);
         } else {

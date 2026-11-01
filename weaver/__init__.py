@@ -4,11 +4,13 @@ from typing import Protocol, TypedDict
 
 from weaver._weaver import (  # type: ignore[attr-defined]
     AmbiguousDescriptionError,
+    AmbiguousResidueError,
     CigarError,
     DataProviderError,
     EquivalenceLevel,
     HGVSError,
     IdentifierType,
+    MixedResidueCodesError,
     NoProteinStatementError,
     ParseError,
     PositionOutsideSequenceError,
@@ -22,6 +24,7 @@ from weaver._weaver import (  # type: ignore[attr-defined]
 
 __all__ = [
     "AmbiguousDescriptionError",
+    "AmbiguousResidueError",
     "CigarError",
     "DataProvider",
     "DataProviderError",
@@ -29,6 +32,7 @@ __all__ = [
     "ExonData",
     "HGVSError",
     "IdentifierType",
+    "MixedResidueCodesError",
     "NoProteinStatementError",
     "ParseError",
     "PositionOutsideSequenceError",
