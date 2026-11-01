@@ -8,7 +8,7 @@ name = "hgvs-weaver"
 version = "1.1.0"
 description = "High-performance HGVS parser for Python (Rust powered)"
 dependencies = []
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 # weaver.refseq: the provider over a RefSeq GFF3 and FASTA.
@@ -160,7 +160,7 @@ exclude = ["**/__pycache__", ".venv"]
 typeCheckingMode = "standard"
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
+build = "cp311-* cp312-* cp313-*"
 skip = "*-musllinux*"
 # maturin invokes cargo inside cibuildwheel, so --locked has to reach it
 # through the build environment; without it the wheel is built from a freshly
