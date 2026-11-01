@@ -49,6 +49,7 @@ fn map_hgvs_error(e: HgvsError) -> PyErr {
 fn py_error(e: HgvsError, context: String) -> PyErr {
     match e {
         HgvsError::PestError(msg) => ParseError::new_err(context + &msg),
+        e @ HgvsError::MixedResidueCodes { .. } => ParseError::new_err(context + &e.to_string()),
         HgvsError::ValidationError(msg) => ValidationError::new_err(context + &msg),
         HgvsError::DataProviderError(msg) => DataProviderError::new_err(context + &msg),
         HgvsError::UnsupportedOperation(msg) => UnsupportedOperationError::new_err(context + &msg),
@@ -312,7 +313,7 @@ impl PyVariant {
 }
 
 #[pyfunction]
-#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    ParseError: If the HGVS string is malformed or unsupported.\n    UnsupportedOperationError: If the string describes alleles in trans."]
+#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    ParseError: If the HGVS string is malformed or unsupported, or a p.\n        description writes residues in both the one- and three-letter\n        amino acid codes, p.Arg111X; * is a stop in either.\n    UnsupportedOperationError: If the string describes alleles in trans."]
 fn parse(input: &str) -> PyResult<PyVariant> {
     match ::hgvs_weaver::parse_hgvs_variant(input) {
         Ok(inner) => Ok(PyVariant { inner }),

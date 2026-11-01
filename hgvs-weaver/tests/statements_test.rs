@@ -1046,6 +1046,20 @@ fn a_dict_for_an_extension_by_a_count_after_x_loads_as_the_distance_to_a_stop() 
 }
 
 #[test]
+fn a_dict_for_an_insertion_in_one_letter_code_loads_in_three_letter_code() {
+    let json = p_json_at(
+        r#"{"start": {"base": 356, "aa": "Ala"}, "end": {"base": 357, "aa": "Gly"}, "uncertain": false}"#,
+        r#"{"type": "Ins", "alt": "DPA", "uncertain": false}"#,
+        false,
+        false,
+    );
+    assert_eq!(
+        from_json(&json).unwrap(),
+        parse("NP_W.1:p.Ala356_Gly357insAspProAla")
+    );
+}
+
+#[test]
 fn a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue() {
     let json = p_json_at(
         r#"{"start": {"base": 1, "aa": "M"}, "end": null, "uncertain": false}"#,

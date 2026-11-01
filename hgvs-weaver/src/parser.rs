@@ -75,6 +75,63 @@ pub fn parse_tx_posedit(
     })
 }
 
+/// Refuses a description that writes residues in both amino acid codes,
+/// naming the first residue or run it writes in each, or in one-letter code
+/// the first holding an `X`, which a caller most needs to rewrite. The parse tree keeps
+/// the code each residue was written in, which the parsed value does not.
+pub(crate) fn one_residue_code(variant: &Pair<Rule>) -> Result<(), HgvsError> {
+    let (mut one_letter, mut three_letter) = (None, None);
+    for p in variant.clone().into_inner().flatten() {
+        let text = p.as_str();
+        match residue_code(&p) {
+            Some(ResidueCode::One) => {
+                if one_letter.is_none_or(|held: &str| !held.contains('X') && text.contains('X')) {
+                    one_letter = Some(text);
+                }
+            }
+            Some(ResidueCode::Three) => {
+                three_letter.get_or_insert(text);
+            }
+            None => {}
+        }
+    }
+    match (one_letter, three_letter) {
+        (Some(one_letter), Some(three_letter)) => Err(HgvsError::MixedResidueCodes {
+            description: variant.as_str().to_string(),
+            one_letter: one_letter.to_string(),
+            three_letter: three_letter.to_string(),
+        }),
+        _ => Ok(()),
+    }
+}
+
+enum ResidueCode {
+    One,
+    Three,
+}
+
+/// The code a residue rule is written in; `None` for `*`, a stop in both,
+/// and for any rule that is not a residue.
+fn residue_code(p: &Pair<Rule>) -> Option<ResidueCode> {
+    let text = p.as_str();
+    match p.as_rule() {
+        Rule::aa3 | Rule::term3 => Some(ResidueCode::Three),
+        Rule::aa1 => Some(ResidueCode::One),
+        // aat13_seq is atomic, so its residues are not pairs of their own:
+        // a three-letter code has a lower-case letter, a one-letter one none.
+        Rule::term1 | Rule::aat13_seq => {
+            if text.chars().any(|c| c.is_ascii_lowercase()) {
+                Some(ResidueCode::Three)
+            } else if text.chars().any(|c| c != '*') {
+                Some(ResidueCode::One)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {
     let opens_with_bracket = pair.as_str().starts_with('(');
     let start = pair.as_span().start();
@@ -755,7 +812,7 @@ mod tests {
         match v_p {
             crate::coords::SequenceVariant::Protein(v) => match v.posedit.edit {
                 crate::edits::AaEdit::Repeat { ref_, min, max, .. } => {
-                    assert_eq!(ref_, Some("GT".to_string()));
+                    assert_eq!(ref_, Some("GlyThr".to_string()));
                     assert_eq!(min, 3);
                     assert_eq!(max, 3);
                 }

@@ -723,6 +723,8 @@ def parse(input: str) -> Variant:
         A Variant object.
 
     Raises:
-        ParseError: If the HGVS string is malformed or unsupported.
+        ParseError: If the HGVS string is malformed or unsupported, or a p.
+            description writes residues in both the one- and three-letter
+            amino acid codes, p.Arg111X; * is a stop in either.
         UnsupportedOperationError: If the string describes alleles in trans.
     """

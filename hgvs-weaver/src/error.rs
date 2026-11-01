@@ -62,6 +62,15 @@ impl fmt::Display for ReferenceUse {
 pub enum HgvsError {
     /// Failure during parsing of an HGVS string or CIGAR string.
     PestError(String),
+    /// A protein description that writes residues in both amino acid codes,
+    /// which HGVS does not allow: `one_letter` and `three_letter` are a
+    /// residue or run of each, as written in `description`. `*`, a stop in
+    /// either code, belongs to neither.
+    MixedResidueCodes {
+        description: String,
+        one_letter: String,
+        three_letter: String,
+    },
     /// Failure during validation of transcript or exon metadata.
     ValidationError(String),
     /// Failure during data retrieval from a `DataProvider`.
@@ -146,6 +155,22 @@ impl fmt::Display for HgvsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             HgvsError::PestError(msg) => write!(f, "Parse error: {msg}"),
+            HgvsError::MixedResidueCodes {
+                description,
+                one_letter,
+                three_letter,
+            } => {
+                write!(
+                    f,
+                    "Mixed residue codes: {description} writes {three_letter} in the three-letter \
+                     amino acid code and {one_letter} in the one-letter code; write every residue \
+                     in one code"
+                )?;
+                if one_letter.contains('X') {
+                    write!(f, " (a stop is Ter or *, an unknown residue Xaa)")?;
+                }
+                Ok(())
+            }
             HgvsError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
             HgvsError::DataProviderError(msg) => write!(f, "Data provider error: {msg}"),
             HgvsError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {msg}"),
