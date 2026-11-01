@@ -236,7 +236,8 @@ spells the protein as ClinVar does, by the kind of ClinVar's edit, and with `--c
 report compares row by row, a moved prediction counted by the kind of edit each run writes.
 
 To run the validation against a store built elsewhere, `weaver.cli.validate` takes the store and genome directly,
-locally or in a bucket (`hgvs-weaver-data[gcs]` for the latter):
+locally or in a bucket; a bucket needs the store reader's GCS client, added with
+`--with 'hgvs-weaver-data[gcs]==0.1.4'`, the version the gate group pins:
 
 ```sh
 uv run --group gate python -m weaver.cli.validate data/clinvar_variants_100k.tsv \

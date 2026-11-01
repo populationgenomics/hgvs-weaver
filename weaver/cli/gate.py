@@ -3,9 +3,9 @@
 The validation needs a GRCh38 store and genome built by hgvs-weaver-data's `weaver-data-build`: the current
 annotation release's shard with NCBI's historical set of retired transcript versions stacked under it, so
 that the variants ClinVar names on retired versions project too. This fetches the inputs, builds what is
-missing, runs the validation (`weaver.cli.validate`) over the result and compares the output with a baseline run, row by row.
-Every step is skipped when its output is already there, so a rerun after a weaver change costs only the
-validation itself.
+missing, runs the validation (`weaver.cli.validate`) over the result and compares the output with a baseline
+run, row by row. Every step is skipped when its output is already there, so a rerun after a weaver change
+costs only the validation itself.
 
     uv run --group gate python -m weaver.cli.gate --data data/gate --variants data/clinvar_variants_100k.tsv \\
         --baseline data/validation_release_0.7.0.tsv --output data/validation_<label>.tsv
