@@ -2134,7 +2134,7 @@ impl VariantMapper<'_> {
                 .is_some_and(crate::mapper::has_intronic_offset)
         });
         if intronic || on == On::Genome {
-            return self.genomic_frame(cis, &members);
+            return self.genomic_frame(cis, &members, on);
         }
         let transcript = self.transcript(
             (
@@ -2225,7 +2225,12 @@ impl VariantMapper<'_> {
     /// duplication's copy goes 3' of the original on the transcript, which is
     /// 5' of it on the genome, so it is placed at the junction before the
     /// bases it copies there.
-    fn genomic_frame(&self, cis: &CisPhasedVariant, members: &[SV]) -> Result<Frame, HgvsError> {
+    fn genomic_frame(
+        &self,
+        cis: &CisPhasedVariant,
+        members: &[SV],
+        on: On,
+    ) -> Result<Frame, HgvsError> {
         let transcript = self.transcript(
             (
                 &cis.ac,
@@ -2235,11 +2240,37 @@ impl VariantMapper<'_> {
         )?;
         let minus = transcript.strand == Strand::Minus;
         let genome = transcript.reference_accession.clone();
+        let am = TranscriptMapper::new(transcript)?;
         let reference = self
             .refs
             .reference(&genome, IdentifierType::GenomicAccession);
         let mut placed = Vec::new();
         for (index, m) in members.iter().enumerate() {
+            // A genomic interval cannot carry a transcript one's uncertainty.
+            // Read where written, such a member reaches over the genome its
+            // outer bounds cover; projected, it is refused below.
+            let uncertain = match m {
+                SV::Coding(c) => Some(&c.posedit),
+                SV::NonCoding(n) => Some(&n.posedit),
+                _ => None,
+            }
+            .and_then(|p| {
+                p.pos
+                    .as_ref()
+                    .filter(|pos| !pos.is_exact())
+                    .map(|pos| (pos, &p.edit))
+            });
+            if let (Some((pos, edit)), On::Written) = (uncertain, on) {
+                let (lo, hi) = am.interval_to_g(pos)?;
+                let reach = Reach::of(edit, lo.0.max(0) as usize, hi.0.max(0) as usize);
+                placed.push((
+                    index,
+                    Placed::Unapplied(reach),
+                    cis.members[index].clone(),
+                    None,
+                ));
+                continue;
+            }
             let projected = match m {
                 SV::Coding(c) => self.c_to_g(c, None),
                 SV::NonCoding(n) => self.n_to_g(n, None),
