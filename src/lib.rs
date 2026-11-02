@@ -7,47 +7,47 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyErr};
 
-pyo3::create_exception!(_weaver, HGVSError, pyo3::exceptions::PyException);
-pyo3::create_exception!(_weaver, ParseError, HGVSError);
+pyo3::create_exception!(weaver._weaver, HGVSError, pyo3::exceptions::PyException);
+pyo3::create_exception!(weaver._weaver, ParseError, HGVSError);
 pyo3::create_exception!(
-    _weaver,
+    weaver._weaver,
     MixedResidueCodesError,
     ParseError,
     "A p. description that writes residues in both the one- and three-letter amino acid codes. one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."
 );
 pyo3::create_exception!(
-    _weaver,
+    weaver._weaver,
     AmbiguousResidueError,
     ParseError,
     "A one-letter X in a p. description where a stop and any residue could both stand: the new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."
 );
-pyo3::create_exception!(_weaver, ValidationError, HGVSError);
-pyo3::create_exception!(_weaver, DataProviderError, HGVSError);
-pyo3::create_exception!(_weaver, UnsupportedOperationError, HGVSError);
-pyo3::create_exception!(_weaver, CigarError, HGVSError);
+pyo3::create_exception!(weaver._weaver, ValidationError, HGVSError);
+pyo3::create_exception!(weaver._weaver, DataProviderError, HGVSError);
+pyo3::create_exception!(weaver._weaver, UnsupportedOperationError, HGVSError);
+pyo3::create_exception!(weaver._weaver, CigarError, HGVSError);
 pyo3::create_exception!(
-    _weaver,
+    weaver._weaver,
     ReferenceMismatchError,
     HGVSError,
     "A base or residue a description states is not what its reference holds: the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases; Variant.validate answers False instead."
 );
 
 pyo3::create_exception!(
-    _weaver,
+    weaver._weaver,
     PositionOutsideSequenceError,
     HGVSError,
     "A description names a position its reference does not have: past the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one counting past the end of its intron, names no position of the transcript either. Raised by every operation that reads the positions; Variant.validate answers False instead."
 );
 
 pyo3::create_exception!(
-    _weaver,
+    weaver._weaver,
     AmbiguousDescriptionError,
     HGVSError,
     "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."
 );
 
 pyo3::create_exception!(
-    _weaver,
+    weaver._weaver,
     NoProteinStatementError,
     HGVSError,
     "A description makes no statement about the protein: an identity that covers no whole codon, which states bases rather than residues. HGVS has no p. form for it: p.(=) would claim the whole protein, and p.? an effect."
