@@ -695,8 +695,8 @@ ______________________________________________________________________
 ### A position outside every exon is an error
 
 > **A transcript position projects through the exon structure only; projecting a position past the last exon is a
-> `PositionOutsideSequenceError` naming the transcript and its length, not an extrapolated coordinate.** It is the error
-> every operation gives for a position past the record's end, with an intronic offset or without
+> `PositionOutsideSequenceError` naming the transcript and its length, not an extrapolated coordinate.** A `c.` or `n.`
+> position past the record's end, with an intronic offset or without, is that error from every operation that reads it
 > ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)); one
 > before the first base is a `ValidationError`, which, unlike that error, can name a position before index 0.
 
@@ -1103,10 +1103,10 @@ them in another order.
 All or nothing follows from what an allele is. A chromosome carrying two changes, one of which has no genomic form, is
 not described by the genomic form of the other, so returning the members that did project would describe a different
 allele. The error is the failing member's own, an `UnsupportedOperation` for an `r.` member across a splice junction or
-an insertion at one, a `ValidationError` for a position outside every exon, wrapped with the member and its place in the
-allele, so a caller can still match on why. A member that projects to a form the target cannot hold fails the same way:
-an `r.` change across a splice junction has [no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range),
-and neither has an allele containing one.
+an insertion at one, a `PositionOutsideSequenceError` for a position past the last exon, wrapped with the member and its
+place in the allele, so a caller can still match on why. A member that projects to a form the target cannot hold fails
+the same way: an `r.` change across a splice junction has
+[no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range), and neither has an allele containing one.
 
 One member reads differently alone. A duplication inserts its copy "directly 3' of the original copy", on the strand it
 is written on, and on the other strand 3' is the other side. Alone that does not matter: a copy beside the original
@@ -1145,7 +1145,7 @@ it in `NC_S.1`, so c.4 is g.19 and c.6 is g.31):
 | `NM_S.1:r.[4a>u;5_6del]`                  | `→` | `UnsupportedOperation`, member 2, `NM_S.1:r.5_6del`: spans a splice junction              |                                               |
 | `NM_S.1:c.[4_6=;7C>T]`                    | `→` | `NC_S.1:g.[19_31=;32C>T]`                                                                 | a range across the junction, intron included  |
 | `NM_S.1:c.[5_6insT;7C>T]`                 | `→` | `UnsupportedOperation`, member 1, `NM_S.1:c.5_6insT`: inserts at an exon junction         |                                               |
-| `NM_X.1:c.[7C>T;*20del]`                  | `→` | `ValidationError`, member 2, `NM_X.1:c.*20del`: outside every exon                        |                                               |
+| `NM_X.1:c.[7C>T;*20del]`                  | `→` | `PositionOutsideSequenceError`, member 2, `NM_X.1:c.*20del`: past the last exon           |                                               |
 
 - **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
 - **Spec (agrees; silent on a duplication whose side of the original the strands disagree on):**
@@ -3572,7 +3572,7 @@ may remove the g.10 the other member changes, is refused too, against its own sp
   alike is weaver's reading; the specification does not compare descriptions.
 
 <details>
-<summary><strong>Tests asserting this choice (47)</strong></summary>
+<summary><strong>Tests asserting this choice (49)</strong></summary>
 
 `equivalence_test::one_base_deleted_somewhere_in_a_range_is_not_the_range_deleted`,
 `::one_base_deleted_somewhere_in_a_range_is_not_its_first_base_deleted`,
@@ -3607,7 +3607,9 @@ may remove the g.10 the other member changes, is refused too, against its own sp
 `::the_exact_protein_members_beside_an_uncertain_one_compare_by_their_alleles`;
 `cis_equivalence_test::exact_members_beside_an_uncertain_one_that_contradict_are_refused`,
 `::exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_themselves`,
-`::an_exact_member_inside_an_uncertain_one_is_refused_against_its_own_spelling`;
+`::an_exact_member_inside_an_uncertain_one_is_refused_against_its_own_spelling`,
+`::an_uncertain_member_beside_an_intronic_one_is_itself_in_another_order`,
+`::an_uncertain_member_beside_an_intronic_one_is_held_to_the_overlap_rule`;
 `vrs_range_test::uncertain_breakpoints_become_ranges`;
 `stated_bases_test::validate_refuses_bases_stated_at_an_uncertain_genomic_position`,
 `::validate_refuses_bases_stated_at_an_uncertain_transcript_position`,

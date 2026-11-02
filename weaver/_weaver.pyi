@@ -227,9 +227,9 @@ class VariantMapper:
                 in cis of them.
             ReferenceMismatchError: If a base the variant states is not the record's
                 (exonic) or the genome's on the transcript's strand (intronic).
-            PositionOutsideSequenceError: If an intronic position lies past the end of the
-                genome, counts its offset from a base that is not an exon border, or lies past the
-                end of its intron.
+            PositionOutsideSequenceError: If a position lies past the transcript's last base, or an
+                intronic one lies past the end of the genome, counts its offset from a base that is
+                not an exon border, or lies past the end of its intron.
             UnsupportedOperationError: If the variant inserts at an exon
                 junction (c.5_6insT where c.5 and c.6 lie in different
                 exons), which is before or after the intron on the genome.
@@ -281,8 +281,9 @@ class VariantMapper:
             ValidationError: If an allele in cis has no reading, or the transcript's CDS is open
                 at the 5' end. It is raised too where var_c is on an accession the provider
                 classifies as a protein, or protein_ac names a transcript or genomic sequence.
-            PositionOutsideSequenceError: If an intronic position counts its offset from a base
-                that is not an exon border, or lies past the end of its intron.
+            PositionOutsideSequenceError: If a position lies past the transcript's last base, or an
+                intronic one counts its offset from a base that is not an exon border, or lies past
+                the end of its intron.
             HGVSError: If projection fails due to data retrieval or out-of-bounds coordinates.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
@@ -303,9 +304,9 @@ class VariantMapper:
             ValidationError: If either variant is a p. description on an accession the provider
                 classifies as a transcript or genomic sequence, or a g., m., c., n. or r. one on a
                 protein.
-            PositionOutsideSequenceError: If either variant has an intronic position whose
-                offset counts from a base that is not an exon border, or lies past the end of its
-                intron.
+            PositionOutsideSequenceError: If either variant has a position past its transcript's last
+                base, or an intronic position whose offset counts from a base that is not an exon
+                border, or lies past the end of its intron.
             HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
         """
     def equivalent_level(self, var1: Variant, var2: Variant, searcher: Any) -> EquivalenceLevel:
@@ -324,9 +325,9 @@ class VariantMapper:
             ValidationError: If either variant is a p. description on an accession the provider
                 classifies as a transcript or genomic sequence, or a g., m., c., n. or r. one on a
                 protein.
-            PositionOutsideSequenceError: If either variant has an intronic position whose
-                offset counts from a base that is not an exon border, or lies past the end of its
-                intron.
+            PositionOutsideSequenceError: If either variant has a position past its transcript's last
+                base, or an intronic position whose offset counts from a base that is not an exon
+                border, or lies past the end of its intron.
             HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
         """
     def g_to_c(self, var_g: Variant, transcript_ac: str) -> Variant:
@@ -568,8 +569,9 @@ class VariantMapper:
         Raises:
             ValidationError: If a p. description is on an accession the provider classifies as a
                 transcript or genomic sequence, or a g., m., c., n. or r. one on a protein.
-            PositionOutsideSequenceError: If an intronic position counts its offset from a base
-                that is not an exon border, or lies past the end of its intron.
+            PositionOutsideSequenceError: If a position lies past the transcript's last base, or an
+                intronic one counts its offset from a base that is not an exon border, or lies past
+                the end of its intron.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
     def to_spdi_unambiguous(self, var: Variant) -> str:
@@ -588,8 +590,9 @@ class VariantMapper:
         Raises:
             ValidationError: If a p. description is on an accession the provider classifies as a
                 transcript or genomic sequence, or a g., m., c., n. or r. one on a protein.
-            PositionOutsideSequenceError: If an intronic position counts its offset from a base
-                that is not an exon border, or lies past the end of its intron.
+            PositionOutsideSequenceError: If a position lies past the transcript's last base, or an
+                intronic one counts its offset from a base that is not an exon border, or lies past
+                the end of its intron.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
 
@@ -646,8 +649,9 @@ class VariantMapper:
             CisPhasedBlock schema.
 
         Raises:
-            PositionOutsideSequenceError: If an intronic position counts its offset from a base
-                that is not an exon border, or lies past the end of its intron.
+            PositionOutsideSequenceError: If a position lies past the transcript's last base, or an
+                intronic one counts its offset from a base that is not an exon border, or lies past
+                the end of its intron.
             HGVSError: If the variant cannot be resolved against the reference.
             AmbiguousDescriptionError: If an allele in cis has several readings.
             ValidationError: If an allele in cis has no reading. It is raised too where a p.
