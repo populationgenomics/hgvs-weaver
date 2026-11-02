@@ -49,4 +49,8 @@ html_logo = "_static/weaver.svg"
 html_theme_options = {
     "logo_only": True,
     "display_version": True,
+    "collapse_navigation": False,
+    "navigation_depth": 3,
 }
+html_css_files = ["choices.css"]
+html_js_files = ["choices.js"]

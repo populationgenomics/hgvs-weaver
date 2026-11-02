@@ -1,0 +1,288 @@
+/* Split-Pane Reader styling for Design Choices (choices.html) */
+
+body.choices-split-reader .wy-nav-content {
+  max-width: 1040px;
+  background: #f8fafc;
+}
+
+body.choices-split-reader .wy-body-for-nav {
+  background: #f8fafc;
+}
+
+/* At a glance table badges */
+body.choices-split-reader table.docutils {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  background: #ffffff;
+}
+
+/* Section headers (h2) */
+body.choices-split-reader section > section > h2 {
+  margin-top: 2.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #cbd5e1;
+  color: #0f172a;
+}
+
+/* Individual Choice Card (h3 section) */
+body.choices-split-reader section > section > section {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px 28px;
+  margin: 22px 0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  scroll-margin-top: 24px;
+}
+
+body.choices-split-reader section > section > section > h3 {
+  margin-top: 4px;
+  margin-bottom: 12px;
+  font-size: 1.3rem;
+  color: #0f172a;
+}
+
+/* Top meta bar inside each choice card */
+.choice-meta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.choice-sec-tag {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.choice-num-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Verdict pills strip */
+.choice-verdicts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.v-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.v-pill .v-k {
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+.v-agree {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+.v-differ {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.v-silent {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #e2e8f0;
+}
+
+/* Hide Markdown horizontal rule dividers inside Split-Pane card layout */
+body.choices-split-reader hr.docutils {
+  display: none;
+}
+
+/* Blue Rule Callout */
+.choice-rule-callout,
+blockquote.choice-rule-callout {
+  background: #eff6ff;
+  border-left: 4px solid #2563eb;
+  padding: 13px 16px;
+  border-radius: 0 8px 8px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin: 0 0 14px 0;
+  line-height: 1.55;
+}
+
+.choice-rule-callout p {
+  margin: 0 !important;
+  font-style: normal !important;
+  font-size: 15px !important;
+  line-height: 1.55 !important;
+}
+
+/* Example label */
+.choice-example-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin: 16px 0 8px 0 !important;
+}
+
+/* Dark Terminal Input -> Output Table */
+.choice-io-wrap {
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 8px 0 16px 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.choice-io-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.choice-io-table td {
+  padding: 4px 6px;
+  vertical-align: top;
+  border-bottom: 1px solid #1e293b;
+  white-space: pre;
+}
+
+.choice-io-table tr:last-child td {
+  border-bottom: none;
+}
+
+.choice-io-in {
+  color: #cbd5e1;
+}
+
+.choice-io-arr {
+  color: #64748b;
+  padding: 4px 10px !important;
+  user-select: none;
+}
+
+.choice-io-out {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.choice-io-out.is-err {
+  color: #f87171;
+}
+
+.choice-io-note {
+  color: #94a3b8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  padding-left: 14px !important;
+  white-space: normal !important;
+}
+
+.choice-io-raw {
+  color: #94a3b8;
+}
+
+.choice-io-table code {
+  background: transparent !important;
+  border: none !important;
+  color: inherit !important;
+  padding: 0 !important;
+  font-size: inherit !important;
+}
+
+.choice-io-note code {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  padding: 1px 5px !important;
+  border-radius: 4px !important;
+  font-size: 11.5px !important;
+}
+
+/* Metadata list (Agrees / Differs / Spec) */
+.choice-meta-list {
+  list-style: none !important;
+  margin: 12px 0 0 0 !important;
+  padding: 12px 0 0 0 !important;
+  border-top: 1px solid #f1f5f9;
+  font-size: 13.5px;
+}
+
+.choice-meta-list > li {
+  list-style: none !important;
+  margin: 4px 0 !important;
+  color: #475569;
+}
+
+/* Collapsible Tests Drawer */
+details.choice-tests-drawer {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+details.choice-tests-drawer summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #475569;
+  user-select: none;
+}
+
+details.choice-tests-drawer .choice-tests-body {
+  margin-top: 8px;
+  line-height: 1.65;
+}
+
+/* Sidebar status dot for each choice */
+.wy-menu-vertical a.choice-nav-item {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+}
+
+.choice-nav-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.choice-nav-dot.dot-agree {
+  background: #22c55e;
+}
+
+.choice-nav-dot.dot-differ {
+  background: #f59e0b;
+}
