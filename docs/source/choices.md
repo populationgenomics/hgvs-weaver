@@ -254,6 +254,10 @@ checked or the choice does not apply to it. Departures from a specification are 
 
 ## Projection between sequences
 
+Projection maps a variant between a transcript (`c.`, `n.`, `r.`) and its genomic reference (`g.`), or from a coding
+transcript to its translated protein (`p.`), resolving coordinates through the transcript's exon alignments and stating
+the resulting change against the target sequence's own bases.
+
 ### A projection states the bases of the target
 
 **Where record and genome differ, the projected edit is written against the target's own bases, as the minimal edit that
@@ -504,14 +508,18 @@ NM_001372044.2:c.1568dup  →  NC_000022.11:g.50697558delinsCC                  
 
 ### A transcript base the genome lacks projects as an insertion
 
-**A transcript base with no genome counterpart (an `I` in its exon's CIGAR) has no genomic position of its own. The
-genome can describe only the whole run of such bases, so an edit touching a run is written over all of it: the genome
-gets the run, as changed, inserted between its flanking bases. The same holds in the other direction: a genome base the
-transcript lacks (a `D`) has no transcript index, and a genomic edit touching the run is written on the transcript over
-the whole run. At the edge of an exon's alignment, where a soft-clipped end is supplied as a leading or trailing `I`, or
-a `D` opens or closes the alignment, there is no flanking pair and projecting it is a `ValidationError`. An intronic
-offset from such an exon counts from the end of its genomic span
-([An intronic offset counts from an exon border](#an-intronic-offset-counts-from-an-exon-border)).**
+**When an exon alignment contains unaligned bases (`I` or `D` in its CIGAR), any edit touching those bases is projected
+over the entire unaligned run between its flanking aligned bases.**
+
+- **Transcript to genome (`I` in CIGAR):** A transcript base with no genome counterpart has no genomic position of its
+  own. Because the genome can describe only the whole run of such bases, an edit touching the run is written over all of
+  it: the genome gets the run, as changed, inserted between its flanking bases.
+- **Genome to transcript (`D` in CIGAR):** A genome base the transcript lacks has no transcript index, so a genomic edit
+  touching a `D` run is written on the transcript over the whole run between its flanking bases.
+- **At the edge of an exon's alignment:** Where a soft-clipped end is supplied as a leading or trailing `I`, or a `D`
+  opens or closes the alignment, there is no flanking pair and projecting it is a `ValidationError`. An intronic offset
+  from such an exon counts from the end of its genomic span
+  ([An intronic offset counts from an exon border](#an-intronic-offset-counts-from-an-exon-border)).
 
 Such a base has no genomic substitution equivalent. Placing it on a neighbouring genome base, as the alignment-mapper
 weaver descends from does, silently replaces the stated base with the neighbour's. Inserting only the changed base loses
@@ -1074,6 +1082,9 @@ NM_X.1:c.[7C>T;*20del]             →  ValidationError, member 2, NM_X.1:c.*20d
 
 ## Normalisation
 
+Normalisation shifts ambiguous indels to their 3'-most equivalent position on the strand of the sequence the variant is
+written on, rewrites tandem insertions as duplications, and strips redundant reference bases.
+
 ### Shift 3', cyclically over repeats
 
 **A deletion, duplication or insertion is shifted as far 3' as the reference keeps matching it cyclically, on the strand
@@ -1365,9 +1376,10 @@ g.3C>T                         →  g.3C>T                         a substitutio
 ### A repeat resolves to its whole run
 
 **`c.10AC[3]` means every existing copy of the unit from c.10 becomes three copies, so its allele and protein reading
-cover the run.**
+cover the entire tandem run.**
 
-Before this, 0 of 394 ClinVar repeat rows matched on SPDI; after, 386.
+In HGVS, the bracketed count states the total number of repeat units in the run rather than a replacement of a single
+unit (matching 386 of 394 repeat rows in the ClinVar sample on SPDI, versus 0 if resolved over a single unit).
 
 **Example** (`NC_REP.1` is `TTTTT GCCATT GCCATT GCCATT AAAAA…`; all four are one allele):
 
@@ -2027,7 +2039,9 @@ AAA start c.6dup        →  protein left MKTGLSLTV: the annotated start is Met
 
 **When the first changed residue is the stop, the protein is extended, not shifted.**
 
-Five ClinVar rows moved from mismatch to Analogous.
+An out-of-frame deletion or insertion in the stop codon that leaves every preceding amino acid intact extends the
+C-terminal end of the protein to the next in-frame stop and is written as an extension (`extTerN`) rather than a
+frameshift (agreeing with ClinVar on five stop-codon indels in the 100,000-variant sample).
 
 **Example** (ATM; and the toy CDS with 3'UTR `CCG TAT AA`):
 
@@ -2433,9 +2447,14 @@ NM_FRAG.1:c.1G>A  against  NP_FRAG.1:p.Asp1Asn   →  Identity
 
 ### Edits outside the CDS are statements
 
-**A deletion of the whole CDS is `p.0?`; a change that starts in the 5'UTR and changes the start codon is `p.(Met1?)`;
-any other change that alters the 5'UTR is `p.?`; an edit entirely in the 3'UTR is `p.(=)`; an edit that leaves no codon
-where the protein first changes is `p.?`.**
+**Edits outside the coding sequence, or spanning its boundaries, produce HGVS protein statements (`p.0?`, `p.(Met1?)`,
+`p.?`, `p.(=)`) rather than residue-level predictions.**
+
+- **Whole-CDS deletion:** `p.0?`.
+- **Edit starting in the 5'UTR and changing the start codon:** `p.(Met1?)`.
+- **Any other change that alters the 5'UTR:** `p.?`.
+- **Edit entirely in the 3'UTR:** `p.(=)`.
+- **Edit that leaves no codon where the protein first changes:** `p.?`.
 
 A CDS numbered from a codon at which translation does not initiate reads the bases before it as its own entry says
 ([a first codon that does not initiate](#a-first-codon-that-does-not-initiate-is-read-as-any-codon)).
@@ -2692,6 +2711,9 @@ from c.:   NM_X.1:c.4A>C            →  NP_X.1:1:K:Q             the same allel
 
 ## Validation and stated bases
 
+Validation checks that the bases, residues, positions, and reference sequence kinds stated by a description match the
+reference sequence before any operation resolves or compares the variant.
+
 ### A stated base the reference lacks is an error
 
 **The bases a description states — a substitution's, those written after `del`, `dup` or `inv`, the deleted part of a
@@ -2928,6 +2950,9 @@ validate  XQ_K.1:p.Lys2Arg   →  true              read as written
   the sequence a projection lands on; `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
 
 ## Equivalence
+
+Equivalence compares variants by the biological state they leave on the reference sequence rather than by how their HGVS
+strings are written.
 
 ### Judged by allele and by the protein left behind
 
@@ -3270,7 +3295,8 @@ g_to_c NC_X.1:g.(109_110)del                           →  UnsupportedOperation
 **Two protein descriptions are compared on the protein they leave, which needs the sequence; without it the judgement is
 an error, not a guess.**
 
-Earlier versions reconciled the residues two descriptions happened to name.
+Reconciling only the residues that two descriptions happen to name in their text cannot tell whether unnamed
+intermediate residues make the two descriptions produce the same protein.
 
 **Example:**
 
@@ -4073,6 +4099,8 @@ NM_X.1:c.[7C>T;7C>G]         →  ValidationError: contradictory, no reading
 
 ## Alleles, SPDI and VRS
 
+Weaver converts between HGVS descriptions, SPDI, and GA4GH VRS 2.0.1 through a shared canonical allele representation.
+
 ### The canonical allele is fully justified
 
 **A change is trimmed to what it alters and then widened over the whole region in which it could equally be written, so
@@ -4361,9 +4389,12 @@ NM_X.1:c.[7C>T];[13T>G] →  UnsupportedOperation: describes two molecules (alle
 
 **`from_vrs` and `from_spdi` give the 3'-normalised variant on the allele's own sequence.**
 
-An insertion trimmed to before the first base becomes a delins of that base, since HGVS has no insertion before base 1;
-a replacement that is the reverse complement of what it replaces reads back as `inv`; a `LengthExpression` comes back as
-`insN[n]`; a Range of copies is refused, since HGVS has no spelling for it.
+- **Insertion before base 1:** An insertion trimmed to before the first base becomes a `delins` of that base, since HGVS
+  has no insertion coordinate before base 1.
+- **Reverse-complement replacement:** A replacement that is the reverse complement of what it replaces reads back as
+  `inv`.
+- **Length expression:** A VRS `LengthExpression` comes back as `insN[n]`.
+- **Copy-number range:** A `Range` of copies is refused (`UnsupportedOperation`), since HGVS has no spelling for it.
 
 **Example** (`NC_TEST.1` is `ACGTTTGCAAGGCTAGCTAGCTTTTAACGGGATCGATCGA`):
 
@@ -4398,6 +4429,9 @@ from_spdi NP_TEST.1:1:K:L       →  NP_TEST.1:p.Lys2Leu
 
 ## Parsing
 
+The parser accepts the standard HGVS grammar alongside real-world ClinVar extensions while rejecting structurally
+invalid ranges at parse time.
+
 ### The grammar is checked against the biocommons table
 
 **580 inputs over the 92 rules the two grammars share, agreeing on all but three.**
@@ -4425,8 +4459,15 @@ rule p_posedit, input (?)           →  accepted by weaver, rejected by biocomm
 
 ### Forms accepted beyond biocommons
 
-**Alleles in cis for every coordinate system; predicted RNA changes and RNA statements; protein statements; uncertain
-genomic breakpoints; insertions of a stated length; copy number; `r.` positions with `*`.**
+**Weaver parses several HGVS forms that `biocommons/hgvs` rejects.**
+
+- Alleles in cis (`[a;b]`) for every coordinate system (`g.`, `m.`, `c.`, `n.`, `r.`, `p.`).
+- Predicted RNA changes (`r.(...)`) and RNA statements (`r.0`, `r.?`, `r.spl`, `r.=`).
+- Protein statements (`p.0`, `p.0?`, `p.Met1?`).
+- Uncertain genomic breakpoints (`g.(?_A)_(B_?)del`).
+- Insertions and delins of a stated length (`insN[20]`, `insN[(20_30)]`, `delinsN[5]`, `ins(20)`).
+- Copy-number variants (`copy4`).
+- `r.` positions in the 3'UTR (`r.*5u>a`).
 
 **Example** (each parses and prints back as written):
 
@@ -4766,6 +4807,9 @@ NP_W.1:p.(Gln18)5[(6_7)]                     →  ParseError    was read as p.(G
   `::a_length_expression_at_the_last_index`, `::a_copy_number_at_the_last_g_position_keeps_it`.
 
 ## The data contract
+
+These choices define the boundary between `hgvs-weaver`'s Rust core and any Python `DataProvider` or `Refget`
+implementation passed to `VariantMapper`.
 
 ### A range past the end of a sequence returns the bases that exist
 
