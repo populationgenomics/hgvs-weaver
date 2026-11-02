@@ -362,13 +362,23 @@ pub fn parse_simple_interval(pair: Pair<Rule>) -> Result<SimpleInterval, HgvsErr
                     }
                 }
             }
-            Ok(SimpleInterval {
+            let interval = SimpleInterval {
                 start: start.ok_or_else(|| {
                     HgvsError::PestError("Missing start position in uncertain interval".into())
                 })?,
                 end,
                 uncertain: false,
-            })
+            };
+            // Each known bound in the order written, `(a_b)_(c_d)`, runs 5' to 3'.
+            let known: Vec<i32> = interval
+                .bounds()
+                .filter_map(|b| b.known())
+                .map(|p| p.0)
+                .collect();
+            for pair in known.windows(2) {
+                ordered(pair[0], pair[1], s)?;
+            }
+            Ok(interval)
         }
         _ => Err(HgvsError::PestError(format!(
             "Unexpected interval rule: {:?}",

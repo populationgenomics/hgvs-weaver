@@ -45,6 +45,8 @@ fn ordered_ranges_still_parse() {
         "NM_025137.4:c.88-1_88del",
         "NC_000001.11:g.1050_1100del",
         "NC_000001.11:g.(?_100)_(200_?)del",
+        "NC_000001.11:g.(100_150)_(200_250)del",
+        "NC_000001.11:g.(100_150)del",
         "NP_000001.1:p.Leu5_Lys10del",
     ] {
         assert_eq!(parse_hgvs_variant(s).expect(s).to_string(), s);
@@ -108,4 +110,38 @@ fn a_range_built_backwards_is_an_error_wherever_it_is_resolved() {
     }
     backwards(mapper.validate(&g).map(|b| b.to_string()));
     backwards(mapper.to_spdi_unambiguous(&g));
+}
+
+#[test]
+fn an_uncertain_range_written_backwards_is_refused_when_parsed() {
+    for s in [
+        "NC_000001.11:g.(100_50)del",
+        "NC_000001.11:g.(10_20)_(5_8)del",
+        "NC_000001.11:g.(10_20)_(15_30)del",
+        "NC_000001.11:g.(?_20)_(10_?)del",
+    ] {
+        let err = parse_hgvs_variant(s).expect_err(s);
+        assert!(
+            matches!(&err, HgvsError::PestError(m) if m.contains("runs backwards")),
+            "{s}: {err}"
+        );
+    }
+}
+
+#[test]
+fn an_uncertain_range_built_backwards_is_an_error_where_it_is_resolved() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    // (1_3)_(8_10) with its two bounds swapped is (8_10)_(1_3).
+    let g = reversed("NC_D.1:g.(1_3)_(8_10)del");
+    for r in [
+        mapper.validate(&g).map(|b| b.to_string()),
+        mapper.normalize_variant(g.clone()).map(|v| v.to_string()),
+        mapper.to_vrs_variation(&g).map(|_| String::new()),
+    ] {
+        assert!(
+            matches!(&r, Err(HgvsError::ValidationError(m)) if m.contains("runs backwards")),
+            "{r:?}"
+        );
+    }
 }

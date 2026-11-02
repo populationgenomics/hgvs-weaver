@@ -1266,20 +1266,26 @@ fn uncertain_bounds(pos: &SimpleInterval) -> Option<(VrsBound, VrsBound)> {
 /// The 0-based, half-open stretch from the first to the last base a g.
 /// interval names, its unknown bounds aside; `None` when it names none.
 fn named_extent(pos: &SimpleInterval) -> Option<(usize, usize)> {
-    let named = [
-        Some(pos.start.base),
-        pos.start.end,
-        pos.end.map(|e| e.base),
-        pos.end.and_then(|e| e.end),
-    ];
-    let mut indices = named
-        .into_iter()
-        .flatten()
+    let mut indices = pos
+        .bounds()
         .filter_map(|b| b.known())
         .map(|p| p.to_index().0.max(0) as usize);
     let first = indices.next()?;
     let (lo, hi) = indices.fold((first, first), |(lo, hi), i| (lo.min(i), hi.max(i)));
     Some((lo, hi + 1))
+}
+
+/// Refuses a g. interval whose known bounds, in the order written, run
+/// backwards: one built in code, since the parser refuses the text.
+fn in_written_order(pos: &SimpleInterval) -> Result<(), HgvsError> {
+    let known: Vec<_> = pos.bounds().filter_map(|b| b.known()).collect();
+    match known.windows(2).find(|pair| pair[1].0 < pair[0].0) {
+        Some(pair) => Err(HgvsError::ValidationError(format!(
+            "Genomic range runs backwards: {} is after {}",
+            pair[0].0, pair[1].0
+        ))),
+        None => Ok(()),
+    }
 }
 
 /// Refuses reference bases stated at a position known only to lie in a
@@ -3610,6 +3616,7 @@ impl<'a> VariantMapper<'a> {
             .refs
             .reference(v.ac(), IdentifierType::GenomicAccession);
         if !pos.is_exact() {
+            in_written_order(pos)?;
             no_bases_at_an_uncertain_position(
                 &format_args!("{}:{}.{}", v.ac(), v.coordinate_type(), v.posedit()),
                 edit,

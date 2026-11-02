@@ -5180,8 +5180,11 @@ ______________________________________________________________________
 > **A range whose start is after its end is a `ParseError`, not a variant that projects to a plausible-looking genomic
 > range and panics when its bases are sliced.**
 
-Transcript positions order by region (5'UTR and CDS before the 3'UTR), then base, then intronic offset. A range built in
-code that runs backwards is a `ValidationError` where it is resolved. Published variants do contain them, as typos.
+Transcript positions order by region (5'UTR and CDS before the 3'UTR), then base, then intronic offset. An uncertain
+range is held to the same order: every bound it knows, read as written, runs 5' to 3', so `g.(100_50)del` and
+`g.(10_20)_(5_8)del` are refused, and in `(a_b)_(c_d)` the inner bounds, `b_c`, the least the change can cover, are in
+order too. A range built in code that runs backwards is a `ValidationError` where it is resolved. Published variants do
+contain them, as typos.
 
 **Example:**
 
@@ -5190,6 +5193,7 @@ code that runs backwards is a `ValidationError` where it is resolved. Published 
 | `NM_025137.4:c.100_50del`     | `→` | `ParseError`: runs backwards | and `g.1100_1050del`, `p.Lys10_Leu5del`, `c.88-1_87+1del` |
 | `NM_206933.4:c.8559_2A>G`     | `→` | `ParseError`                 | as published                                              |
 | `NM_025137.4:c.6331_6232insG` | `→` | `ParseError`                 | as published                                              |
+| `NC_000001.11:g.(100_50)del`  | `→` | `ParseError`: runs backwards | and `g.(10_20)_(5_8)del`, `g.(10_20)_(15_30)del`          |
 | `NM_X.1:c.87+1_88-1del`       | `→` | `parses`                     | an intron, in order                                       |
 | `NM_X.1:c.-5_10del`           | `→` | `parses`                     |                                                           |
 
@@ -5199,10 +5203,12 @@ code that runs backwards is a `ValidationError` where it is resolved. Published 
   in a range are given 5' to 3'.
 
 <details>
-<summary><strong>Tests asserting this choice (2)</strong></summary>
+<summary><strong>Tests asserting this choice (4)</strong></summary>
 
 `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
-`::a_range_built_backwards_is_an_error_wherever_it_is_resolved`.
+`::a_range_built_backwards_is_an_error_wherever_it_is_resolved`,
+`::an_uncertain_range_written_backwards_is_refused_when_parsed`,
+`::an_uncertain_range_built_backwards_is_an_error_where_it_is_resolved`.
 
 </details>
 
