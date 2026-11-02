@@ -216,7 +216,7 @@ fn a_member_outside_every_exon_fails_the_allele() {
         .unwrap_err();
     assert!(
         matches!(&err, HgvsError::CisMember { index: 1, source, .. }
-            if matches!(source.as_ref(), HgvsError::ValidationError(_))),
+            if matches!(source.as_ref(), HgvsError::PositionOutsideSequence { .. })),
         "{err}"
     );
 }

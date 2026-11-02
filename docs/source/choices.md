@@ -695,18 +695,19 @@ ______________________________________________________________________
 ### A position outside every exon is an error
 
 > **A transcript position projects through the exon structure only; projecting a position past the last exon is a
-> `ValidationError`, not an extrapolated coordinate.** An operation that reads the position on the record instead finds
-> it past the record's end
-> ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
+> `PositionOutsideSequenceError` naming the transcript and its length, not an extrapolated coordinate.** It is the error
+> every operation gives for a position past the record's end, with an intronic offset or without
+> ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)); one
+> before the first base is a `ValidationError`, which, unlike that error, can name a position before index 0.
 
 A silently extrapolated coordinate is wrong without saying so.
 
 **Example** (`NM_PLUS10.1` is one exon of 100 bases; c.\*60 is its last base):
 
-| Input                  |     | Output                                                       |
-| :--------------------- | :-: | :----------------------------------------------------------- |
-| `NM_PLUS10.1:c.*60T>A` | `→` | projects                                                     |
-| `NM_PLUS10.1:c.*61A>G` | `→` | `ValidationError`, from c_to_g and to_spdi_unambiguous alike |
+| Input                  |     | Output                                                                    |
+| :--------------------- | :-: | :------------------------------------------------------------------------ |
+| `NM_PLUS10.1:c.*60T>A` | `→` | projects                                                                  |
+| `NM_PLUS10.1:c.*61A>G` | `→` | `PositionOutsideSequenceError`, from c_to_g and to_spdi_unambiguous alike |
 
 - **Differs:** biocommons extrapolates in some paths.
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not allowed to
