@@ -146,28 +146,17 @@ impl<'a> VariantEquivalence<'a> {
     /// Every position `var` names and every base and residue it states, checked
     /// against its reference as [`validate`](VariantMapper::validate) checks
     /// them, so a description the reference contradicts is refused even
-    /// against its own spelling. A nucleotide allele's members at exact
-    /// positions are read together, and a contradictory or ambiguous allele is
-    /// refused; one whose readings weaver does not list has had its members
-    /// checked. A member at an uncertain position is checked alone, as it is
-    /// compared alone.
+    /// against its own spelling. An allele is read whole, an uncertain member
+    /// on its outer bounds, and a contradictory or ambiguous one is refused;
+    /// one whose readings weaver does not list has had its members checked.
     fn check_stated(&self, var: &SequenceVariant) -> Result<(), HgvsError> {
-        let SequenceVariant::CisPhased(cis) = var else {
-            return self.mapper.check_stated(var);
-        };
-        if cis.coordinate_type() == "p" {
-            return self.mapper.check_stated(var);
-        }
-        for m in cis
-            .members
-            .iter()
-            .filter(|m| names_a_position(m) && !is_exact_member(m))
-        {
-            self.mapper.check_stated(m)?;
-        }
-        match exact_members(cis)?.map(|exact| self.mapper.read_cis(&exact)) {
-            None | Some(Ok(_) | Err(HgvsError::UnsupportedOperation(_))) => Ok(()),
-            Some(Err(e)) => Err(e),
+        match self.mapper.check_stated(var) {
+            Err(HgvsError::UnsupportedOperation(_))
+                if matches!(var, SequenceVariant::CisPhased(_)) =>
+            {
+                Ok(())
+            }
+            checked => checked,
         }
     }
 
@@ -1163,24 +1152,6 @@ fn is_exact_member(m: &SequenceVariant) -> bool {
 /// that the allele can be read into the one sequence its members make.
 fn reads_as_a_sequence(cis: &CisPhasedVariant) -> bool {
     cis.coordinate_type() != "p" && cis.members.iter().all(is_exact_member)
-}
-
-/// The allele of a nucleotide allele's members at exact positions; `None`
-/// for a protein allele or one with no such member.
-fn exact_members(cis: &CisPhasedVariant) -> Result<Option<CisPhasedVariant>, HgvsError> {
-    if cis.coordinate_type() == "p" {
-        return Ok(None);
-    }
-    let members: Vec<SequenceVariant> = cis
-        .members
-        .iter()
-        .filter(|m| is_exact_member(m))
-        .cloned()
-        .collect();
-    if members.is_empty() {
-        return Ok(None);
-    }
-    CisPhasedVariant::new(cis.ac.clone(), cis.gene.clone(), members).map(Some)
 }
 
 /// The value an allele of nucleotide members is the same change by, on the

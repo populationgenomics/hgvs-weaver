@@ -740,16 +740,16 @@ fn exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_the
 }
 
 #[test]
-fn an_exact_member_inside_an_uncertain_one_is_compared_member_by_member() {
-    // g.1007 lies inside the bases (1001_1010)del may remove; that overlap is
-    // not refused in equivalence.
-    assert_eq!(
-        level(
+fn an_exact_member_inside_an_uncertain_one_is_refused_against_its_own_spelling() {
+    // g.1007 lies inside the bases (1001_1010)del may remove, so the allele has
+    // no reading, in equivalence as in validate.
+    assert!(matches!(
+        judge(
             "NC_TEST.1:g.[(1001_1010)del;1007G>A]",
             "NC_TEST.1:g.[1007G>A;(1001_1010)del]"
         ),
-        Identity
-    );
+        Err(HgvsError::ValidationError(_))
+    ));
 }
 
 #[test]

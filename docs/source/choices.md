@@ -3534,10 +3534,10 @@ members beside it are compared by their canonical alleles, as an exact single va
 `g.[(3_4)del;10dup]` wherever g.10 is an A: `10dup` and `10_11insA` are judged by one rule whatever stands beside them.
 The members of a `[;]` allele are unordered, so `g.[(3_4)del;10G>A]` is `g.[10G>A;(3_4)del]`, and a member written twice
 counts once, so `g.[(3_4)del;(3_4)del;10G>A]` is `g.[(3_4)del;10G>A]`. An uncertain member is still never an exact one:
-`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`. The exact members are still held to the
-[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) among themselves, so `g.[(3_4)del;10G>A;10G>C]` is
-refused as `g.[10G>A;10G>C]` is. An overlap that involves the uncertain member itself, `g.[(3_12)del;10G>A]`, is not
-refused when two descriptions are judged: the allele is compared member by member, as above.
+`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`. Before anything is compared, the allele is held to the
+[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) as `validate` holds it, an uncertain member on its
+outer bounds: `g.[(3_4)del;10G>A;10G>C]` is refused as `g.[10G>A;10G>C]` is, and `g.[(3_12)del;10G>A]`, whose deletion
+may remove the g.10 the other member changes, is refused too, against its own spelling as against any other.
 
 **Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`; `NC_S.1:g.6_8` is `ATG` and
 `NM_S.1:c.4_6` is `AAA`):
@@ -3606,7 +3606,7 @@ refused when two descriptions are judged: the allele is compared member by membe
 `::the_exact_protein_members_beside_an_uncertain_one_compare_by_their_alleles`;
 `cis_equivalence_test::exact_members_beside_an_uncertain_one_that_contradict_are_refused`,
 `::exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_themselves`,
-`::an_exact_member_inside_an_uncertain_one_is_compared_member_by_member`;
+`::an_exact_member_inside_an_uncertain_one_is_refused_against_its_own_spelling`;
 `vrs_range_test::uncertain_breakpoints_become_ranges`;
 `stated_bases_test::validate_refuses_bases_stated_at_an_uncertain_genomic_position`,
 `::validate_refuses_bases_stated_at_an_uncertain_transcript_position`,
