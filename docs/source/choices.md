@@ -2711,8 +2711,15 @@ canonical allele, SPDI, VRS and the protein consequence all do, runs it first. T
 resolving it call it too: an edit projected as given, an edit normalisation does not move, a `delins` of unknown bases,
 a protein consequence that is a statement (`p.(=)` for a 3'UTR change, `p.?` for an intronic one). Residues have their
 own comparison, through which every operation on a `p.` description locates it, so `p_to_c` needs the protein's sequence
-as well as the transcript's; an SPDI's deletion has its own too. Two operations read no reference and check nothing:
-converting between `c.` and `r.` letters, and judging two descriptions equal because their text is the same.
+as well as the transcript's; an SPDI's deletion has its own too. One operation reads no reference and checks nothing:
+converting between `c.` and `r.` letters.
+
+Equivalence checks both descriptions before it compares them, including two spelled the same. Their text alone could say
+they are equal, but a description the reference contradicts would then be equal to itself and an error against any other
+spelling of the same change, an answer that turns on how the other side is written. A `p.` description on another
+version of its accession, which equivalence compares by spelling, is checked on that version, so the provider has to
+serve it. A gene symbol names each of its accessions in turn, each numbering its own sequence, so an accession whose
+reference contradicts the description is set aside, and the description is refused only when every accession does.
 
 What a base is compared with is the sequence the position numbers:
 
@@ -2752,6 +2759,7 @@ normalize, to_spdi, to_vrs, canonical_allele, equivalent  NC_S.1:g.6C>T  →  Re
 to_vrs   NC_S.1:g.6_7delCCinsN[3] →  ReferenceMismatchError
 from_spdi NC_S.1:5:C:T          →  ReferenceMismatchError       an SPDI deletion states bases too
 p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   residue 2 is Lys
+equivalent NM_S.1:c.12T>A, NM_S.1:c.12T>A    →  ReferenceMismatchError   against its own spelling
 ```
 
 - **Agrees:** biocommons (1.5.7) and VariantValidator refuse an exonic mismatch, `NM_000059.4:c.316A>G`, "Variant
@@ -2784,6 +2792,14 @@ p_to_c, to_vrs, normalize  NP_S.1:p.Arg2Leu  →  ReferenceMismatchError   resid
   `::to_vrs_refuses_deleted_bases_of_a_length_insertion_the_genome_does_not_carry`,
   `::from_spdi_refuses_a_deletion_the_sequence_does_not_carry`, `::p_to_c_refuses_a_residue_the_protein_does_not_carry`,
   `::normalize_refuses_a_residue_the_protein_does_not_carry`, and the file's other tests, one per operation;
+  `equivalence_test::a_stated_base_the_record_lacks_is_refused_against_its_own_spelling`,
+  `::a_stated_residue_the_protein_lacks_is_refused_against_its_own_spelling`,
+  `::an_allele_stating_a_base_the_record_lacks_is_refused_against_itself_in_another_order`,
+  `::a_member_at_an_uncertain_position_is_checked_against_its_own_spelling`,
+  `::a_protein_allele_stating_a_residue_the_protein_lacks_is_refused_against_itself`,
+  `::a_coding_change_on_a_gene_symbol_is_read_on_the_transcripts_that_hold_its_base`,
+  `::a_protein_change_on_a_gene_symbol_is_read_on_the_proteins_that_hold_its_residue`,
+  `::a_change_on_a_gene_symbol_no_transcript_holds_is_refused`;
   `transcript_coordinates_test::validate_checks_stated_reference_through_transcript_coordinates`;
   `repeat_projection_test::a_range_past_the_run_of_its_unit_is_refused`;
   `protein_allele_test::validation_checks_the_named_and_stated_residues`,
@@ -2815,8 +2831,9 @@ is refused earlier, by the exon structure
 
 Three cases are outside the rule. A position known only to lie in a range names no one range to find, so only the bases
 it states are checked ([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A
-position before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`. Two
-descriptions spelled the same are judged equal without reading either, as for stated bases.
+position before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`.
+Equivalence checks positions as it checks stated bases, before comparing, so a description is refused even against its
+own spelling.
 
 weaver learns where a sequence ends from the data provider's own answers, with no method added to it: a window that runs
 past the end comes back short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)).
@@ -2855,8 +2872,8 @@ validate  NC_000099.1:g.(20_25)del    →  true                             name
   `::normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_without`,
   `::an_uncertain_position_past_the_end_is_not_found_on_the_sequence` (the rows above), and the file's other tests: the
   minus-strand record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c` and
-  `equivalent_level`; `reference_length_agrees_with_the_sequence`,
-  `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
+  `equivalent_level`; `equivalence_test::a_residue_past_the_end_of_the_protein_is_refused_against_its_own_spelling`;
+  `reference_length_agrees_with_the_sequence`, `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
   `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
 
 ### A description is read on a reference of its kind

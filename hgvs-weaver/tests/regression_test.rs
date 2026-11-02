@@ -23,9 +23,10 @@ fn provider() -> Provider {
     let cases = placed(&[(3966, b'A'), (1328, b'T')]);
     // BRAF Val600 is GTG at transcript indices 1797..=1799.
     let braf = placed(&[(1797, b'G'), (1798, b'T'), (1799, b'G')]);
+    let braf_protein = format!("{}V{}", "A".repeat(599), "A".repeat(400));
     let mut provider = Provider::new()
         .sequence("NC_000001.1", &cases)
-        .sequence("NP_BRAF", &cases)
+        .sequence("NP_BRAF", &braf_protein)
         .sequence("NM_BRAF", &braf)
         .sequence("NC_BRAF", &braf)
         .transcript(transcript(

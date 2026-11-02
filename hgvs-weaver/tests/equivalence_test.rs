@@ -1624,3 +1624,135 @@ fn an_upstream_extension_that_makes_met1_a_stop_is_an_error() {
         "{result:?}"
     );
 }
+
+/// The error judging `a` against `b` on `NM_X.1`/`NP_X.1` gives.
+fn coding_error(a: &str, b: &str) -> HgvsError {
+    let hdp = coding_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let parse = |s: &str| parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+    VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse(a), &parse(b))
+        .expect_err("judged rather than refused")
+}
+
+#[test]
+fn a_stated_base_the_record_lacks_is_refused_against_its_own_spelling() {
+    // c.7 is the C of CTG.
+    let e = coding_error("NM_X.1:c.7G>T", "NM_X.1:c.7G>T");
+    assert!(
+        matches!(&e, HgvsError::ReferenceMismatch { expected, found, .. } if expected == "G" && found == "C"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_stated_residue_the_protein_lacks_is_refused_against_its_own_spelling() {
+    // Residue 2 of MKLAYR is Lys.
+    let e = coding_error("NP_X.1:p.Arg2Gly", "NP_X.1:p.(Arg2Gly)");
+    assert!(
+        matches!(&e, HgvsError::ReferenceMismatch { expected, found, .. } if expected == "R" && found == "K"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn an_allele_stating_a_base_the_record_lacks_is_refused_against_itself_in_another_order() {
+    let e = coding_error("NM_X.1:c.[7G>T;13T>G]", "NM_X.1:c.[13T>G;7G>T]");
+    assert!(
+        matches!(&e, HgvsError::ReferenceMismatch { expected, .. } if expected == "G"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_residue_past_the_end_of_the_protein_is_refused_against_its_own_spelling() {
+    let e = coding_error("NP_X.1:p.Ala60Gly", "NP_X.1:p.Ala60Gly");
+    assert!(
+        matches!(&e, HgvsError::PositionOutsideSequence { .. }),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_member_at_an_uncertain_position_is_checked_against_its_own_spelling() {
+    // NM_X.1 is 40 bases long.
+    let e = coding_error(
+        "NM_X.1:c.[4A>C;(100_120)del]",
+        "NM_X.1:c.[(100_120)del;4A>C]",
+    );
+    assert!(
+        matches!(&e, HgvsError::PositionOutsideSequence { .. }),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_protein_allele_stating_a_residue_the_protein_lacks_is_refused_against_itself() {
+    // Residue 2 of MKLAYR is Lys.
+    let e = coding_error("NP_X.1:p.[Glu2Gln;Leu3Pro]", "NP_X.1:p.[Leu3Pro;Glu2Gln]");
+    assert!(
+        matches!(&e, HgvsError::ReferenceMismatch { expected, .. } if expected == "E"),
+        "{e:?}"
+    );
+}
+
+/// Gene `XG` with two transcripts that differ at c.4: `NM_A.1` (C, encoding
+/// `NP_A.1`, `MQLAYR`) listed first, then `NM_B.1` (A, encoding `NP_B.1`,
+/// `MKLAYR`).
+fn two_transcript_gene_provider() -> Provider {
+    let a = "GGGGGATGCAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    let b = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG";
+    let len = a.len() as i32;
+    let on = |ac: &str, genome: &str| {
+        of_gene(
+            single_exon_transcript(ac, genome, 100, Strand::Plus, 5, 25, len),
+            "XG",
+        )
+    };
+    Provider::new()
+        .sequence("NC_A.1", &format!("{}{a}", "T".repeat(100)))
+        .sequence("NC_B.1", &format!("{}{b}", "T".repeat(100)))
+        .sequence("NM_A.1", a)
+        .sequence("NM_B.1", b)
+        .sequence("NP_A.1", "MQLAYR")
+        .sequence("NP_B.1", "MKLAYR")
+        .transcript(on("NM_A.1", "NC_A.1"))
+        .transcript(on("NM_B.1", "NC_B.1"))
+        .protein_for("NM_A.1", "NP_A.1")
+        .protein_for("NM_B.1", "NP_B.1")
+        .identifier_type("XG", hgvs_weaver::data::IdentifierType::GeneSymbol)
+}
+
+#[test]
+fn a_coding_change_on_a_gene_symbol_is_read_on_the_transcripts_that_hold_its_base() {
+    let hdp = two_transcript_gene_provider();
+    assert_eq!(
+        level_over(&hdp, "XG:c.4A>C", "NM_B.1:c.4A>C"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_protein_change_on_a_gene_symbol_is_read_on_the_proteins_that_hold_its_residue() {
+    let hdp = two_transcript_gene_provider();
+    assert_eq!(
+        level_over(&hdp, "XG:p.Lys2Gln", "NP_B.1:p.Lys2Gln"),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_change_on_a_gene_symbol_no_transcript_holds_is_refused() {
+    let hdp = two_transcript_gene_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let e = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(
+            &parse_hgvs_variant("XG:c.4G>C").unwrap(),
+            &parse_hgvs_variant("XG:c.4G>C").unwrap(),
+        )
+        .expect_err("judged rather than refused");
+    assert!(
+        matches!(&e, HgvsError::ReferenceMismatch { expected, .. } if expected == "G"),
+        "{e:?}"
+    );
+}
