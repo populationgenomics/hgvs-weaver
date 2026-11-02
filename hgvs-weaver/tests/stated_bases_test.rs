@@ -838,3 +838,87 @@ fn equivalence_refuses_a_residue_the_protein_does_not_carry() {
         "K",
     );
 }
+
+/// Whether `result` is the refusal of bases stated at an uncertain position.
+fn refuses_uncertain_bases<T: std::fmt::Debug>(result: Result<T, HgvsError>) -> bool {
+    matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("uncertain position"))
+}
+
+#[test]
+fn validate_refuses_bases_stated_at_an_uncertain_genomic_position() {
+    // g.6 is the A of ATG, as stated; the position is still a range.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)delA").unwrap();
+    assert!(refuses_uncertain_bases(mapper.validate(&var)));
+}
+
+#[test]
+fn validate_refuses_bases_stated_at_an_uncertain_transcript_position() {
+    // c.4_6 are AAA.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NM_S.1:c.(4_6)delA").unwrap();
+    assert!(refuses_uncertain_bases(mapper.validate(&var)));
+}
+
+#[test]
+fn normalize_refuses_bases_stated_at_an_uncertain_position() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)delA").unwrap();
+    assert!(refuses_uncertain_bases(mapper.normalize_variant(var)));
+}
+
+#[test]
+fn to_vrs_refuses_bases_stated_at_an_uncertain_position() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)delA").unwrap();
+    assert!(refuses_uncertain_bases(mapper.to_vrs(&var)));
+}
+
+#[test]
+fn equivalence_refuses_bases_stated_at_an_uncertain_position_against_its_own_spelling() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)delA").unwrap();
+    assert!(refuses_uncertain_bases(
+        VariantEquivalence::new(&mapper, &hdp).equivalent_level(&var, &var)
+    ));
+}
+
+#[test]
+fn an_uncertain_deletion_stating_no_bases_validates() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)del").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}
+
+#[test]
+fn a_copy_number_change_refuses_bases_stated_at_an_uncertain_position() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)dupA").unwrap();
+    assert!(refuses_uncertain_bases(
+        mapper.to_vrs_copy_number_change(&var)
+    ));
+}
+
+#[test]
+fn validate_refuses_bases_stated_at_an_uncertain_mitochondrial_position() {
+    // NC_012920.1 is the plus genome: m.6 is an A.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_012920.1:m.(6_8)delA").unwrap();
+    assert!(refuses_uncertain_bases(mapper.validate(&var)));
+}
+
+#[test]
+fn bases_inserted_at_an_uncertain_position_are_not_refused() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NC_S.1:g.(6_8)delinsAT").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}

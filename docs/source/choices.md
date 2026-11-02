@@ -3003,7 +3003,9 @@ What a base is compared with is the sequence the position numbers:
 - a `g.` or `m.` base, the genome; a `p.` residue, at either end of the interval or stated by the edit, the protein,
   where `Ter` one past a sequence served without its stop is the stop.
 
-A count (`del3`, `delins` with no bases) states nothing, and an edit that states nothing is not read for this.
+A count (`del3`, `delins` with no bases) states nothing, and an edit that states nothing is not read for this. A base
+stated at an uncertain position is refused before anything is read
+([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)).
 
 A repeat's range with its unit stated claims copies of the unit over the range: the specification writes the range over
 the repeated stretch (`g.123_191CAG[23]`). A range that runs past the run of its unit states copies the reference lacks,
@@ -3107,11 +3109,12 @@ stop still reads, and the position after the stop is past the end. Projecting a 
 is refused earlier, by the exon structure
 ([A position outside every exon is an error](#a-position-outside-every-exon-is-an-error)).
 
-Three cases are outside the rule. A position known only to lie in a range names no one range to find, so only the bases
-it states are checked ([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A
-position before the first base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`.
-Equivalence checks positions as it checks stated bases, before comparing, so a description is refused even against its
-own spelling.
+An uncertain position is held to the rule as an exact one is, in every coordinate system: each position it names, its
+unknown `?` bounds aside, has to be on the sequence, so `g.(20_25)del` on a nine-base amplicon is refused as
+`g.20_25del` is. It names no one base to read, so it states none
+([An uncertain position names no one change](#an-uncertain-position-names-no-one-change)). A position before the first
+base, which only an intronic offset or a 5'UTR position can name, is a `ValidationError`. Equivalence checks positions
+as it checks stated bases, before comparing, so a description is refused even against its own spelling.
 
 weaver learns where a sequence ends from the data provider's own answers, with no method added to it: a window that runs
 past the end comes back short ([the data contract](#a-range-past-the-end-of-a-sequence-returns-the-bases-that-exist)).
@@ -3135,14 +3138,14 @@ there is not refused, and is written as HGVS can write it
 | `c_to_p    NM_000099.1:c.*6del`       | `→` | `PositionOutsideSequenceError` | not `p.(=)`, the 3'UTR's prediction         |
 | `validate` `NP_000099.1:p.Ter7Gln`    | `→` | `true`                         | the stop the protein is served without      |
 | `normalize` `NP_000099.1:p.Gln8del`   | `→` | `PositionOutsideSequenceError` |                                             |
-| `validate` `NC_000099.1:g.(20_25)del` | `→` | `true`                         | names no one range                          |
+| `validate` `NC_000099.1:g.(20_25)del` | `→` | `false`                        | an uncertain range still names positions    |
 
 - **Others:** not checked.
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not allowed to
   describe variants in nucleotides beyond the boundaries of a reference sequence".
 
 <details>
-<summary><strong>Tests asserting this choice (22)</strong></summary>
+<summary><strong>Tests asserting this choice (27)</strong></summary>
 
 `position_outside_sequence_test::a_deletion_of_the_last_base_normalises`,
 `::normalize_refuses_a_deletion_one_past_the_last_base`, `::to_spdi_refuses_a_range_ending_one_past_the_last_base`,
@@ -3152,9 +3155,13 @@ there is not refused, and is written as HGVS can write it
 `::c_to_p_refuses_a_three_prime_utr_position_past_the_records_end`,
 `::a_protein_served_without_its_stop_has_the_stop_after_its_last_residue`,
 `::normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_without`,
-`::an_uncertain_position_past_the_end_is_not_found_on_the_sequence` (the rows above), and the file's other tests: the
-minus-strand record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c` and
-`equivalent_level`; `equivalence_test::a_residue_past_the_end_of_the_protein_is_refused_against_its_own_spelling`;
+`::an_uncertain_position_past_the_end_does_not_validate` (the rows above),
+`::an_uncertain_range_reaching_past_the_end_is_not_normalised`,
+`::to_vrs_refuses_an_uncertain_range_reaching_past_the_end`, `::a_copy_number_change_reaching_past_the_end_has_no_vrs`,
+`::a_copy_number_count_over_a_range_past_the_end_has_no_vrs`,
+`::an_allele_with_an_uncertain_member_past_the_end_does_not_validate`, and the file's other tests: the minus-strand
+record, intronic, `m.`, `n.` and `r.` positions, and `canonical_allele`, `to_vrs`, `g_to_c` and `equivalent_level`;
+`equivalence_test::a_residue_past_the_end_of_the_protein_is_refused_against_its_own_spelling`;
 `reference_length_agrees_with_the_sequence`, `a_range_is_refused_exactly_when_it_runs_past_the_end` (properties);
 `tests/test_position_outside_sequence.py::test_a_deletion_past_the_end_raises_an_error_naming_the_accession_and_its_length`.
 
@@ -3493,7 +3500,8 @@ ______________________________________________________________________
 
 > **A description whose position is uncertain is the same as itself and different from every other: it has no canonical
 > allele and no SPDI, is not projected between the genome and a transcript, and predicts no protein. In a cis allele
-> such a member is compared by its spelling, and the members, as everywhere, in any order.**
+> such a member is compared by its spelling, and the members, as everywhere, in any order. It states no reference bases:
+> `g.(1_3)delG`, `c.(4_6)dupA` and `g.(1_3)T>A` are refused by every operation that reads them.**
 
 `g.(3_4)del` deletes one base somewhere in g.3 to g.4; `g.3_4del` deletes both, and `g.3del` names one of the two
 candidates. Neither is what the uncertain description says, so comparing either against it on the genome would claim a
@@ -3503,6 +3511,15 @@ at the first base of each range would turn the uncertainty into a definite chang
 uncertainty of a transcript one, nor the other way round, so `c_to_g` refuses `c.(4_6)del` rather than write the exact
 `g.` interval it would otherwise give, `g_to_c` refuses `g.(109_110)del`, and `c_to_p` refuses `c.(4_6)del` rather than
 translate codons it does not name.
+
+A base stated at an uncertain position would have to be somewhere in the range, which names several alleles rather than
+one, and checking it anywhere in particular would choose one. Where the stated bases are a run, the uncertainty adds
+nothing: one G deleted from `GGG` is the same change wherever it is written, and the
+[3' rule](#shift-3-cyclically-over-repeats) writes it once. So stated reference bases at an uncertain position are a
+`ValidationError`, from `validate`, `normalize`, every VRS object and equivalence alike, whether or not the bases are
+there. Inserted bases state nothing about the reference and stay, and the forms uncertain positions are written for,
+breakpoints known to ranges and deletions of an unstated extent, state no bases. Of the 44.3 million distinct nucleotide
+descriptions in ClinVar, 78,992 have an uncertain position and one states reference bases at it.
 
 A parenthesised single position, `g.(5)_(12)del`, is exact ([Range bounds](#uncertain-breakpoints-become-range-bounds)):
 it is Analogous to `g.5_12del`, the same allele in another spelling, normalises and has an SPDI as that does, and a copy
@@ -3522,7 +3539,8 @@ counts once, so `g.[(3_4)del;(3_4)del;10G>A]` is `g.[(3_4)del;10G>A]`. An uncert
 refused as `g.[10G>A;10G>C]` is. An overlap that involves the uncertain member itself, `g.[(3_12)del;10G>A]`, is not
 refused when two descriptions are judged: the allele is compared member by member, as above.
 
-**Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`):
+**Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`; `NC_S.1:g.6_8` is `ATG` and
+`NM_S.1:c.4_6` is `AAA`):
 
 | Input                                                  |      | Output                                 | Note                                   |
 | :----------------------------------------------------- | :--: | :------------------------------------- | :------------------------------------- |
@@ -3543,6 +3561,9 @@ refused when two descriptions are judged: the allele is compared member by membe
 | `canonical_allele, to_spdi NC_TEST.1:g.(1003_1004)del` | `→`  | `UnsupportedOperation`                 |                                        |
 | `c_to_g, c_to_p NM_X.1:c.(4_6)del`                     | `→`  | `UnsupportedOperation`                 |                                        |
 | `g_to_c NC_X.1:g.(109_110)del`                         | `→`  | `UnsupportedOperation`                 |                                        |
+| `validate, normalize, to_vrs NC_S.1:g.(6_8)delA`       | `→`  | `ValidationError`                      | g.6 is an A; the position is a range   |
+| `validate NM_S.1:c.(4_6)delA`                          | `→`  | `ValidationError`                      |                                        |
+| `validate NC_S.1:g.(6_8)del`                           | `→`  | `true`                                 | states no bases                        |
 
 - **Others:** not checked.
 - **Spec (agrees):** [uncertain](https://hgvs-nomenclature.org/stable/recommendations/uncertain/): `(A_B)_(C_D)` "where
@@ -3550,7 +3571,7 @@ refused when two descriptions are judged: the allele is compared member by membe
   alike is weaver's reading; the specification does not compare descriptions.
 
 <details>
-<summary><strong>Tests asserting this choice (37)</strong></summary>
+<summary><strong>Tests asserting this choice (47)</strong></summary>
 
 `equivalence_test::one_base_deleted_somewhere_in_a_range_is_not_the_range_deleted`,
 `::one_base_deleted_somewhere_in_a_range_is_not_its_first_base_deleted`,
@@ -3586,7 +3607,16 @@ refused when two descriptions are judged: the allele is compared member by membe
 `cis_equivalence_test::exact_members_beside_an_uncertain_one_that_contradict_are_refused`,
 `::exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_themselves`,
 `::an_exact_member_inside_an_uncertain_one_is_compared_member_by_member`;
-`vrs_range_test::uncertain_breakpoints_become_ranges`.
+`vrs_range_test::uncertain_breakpoints_become_ranges`;
+`stated_bases_test::validate_refuses_bases_stated_at_an_uncertain_genomic_position`,
+`::validate_refuses_bases_stated_at_an_uncertain_transcript_position`,
+`::normalize_refuses_bases_stated_at_an_uncertain_position`, `::to_vrs_refuses_bases_stated_at_an_uncertain_position`,
+`::equivalence_refuses_bases_stated_at_an_uncertain_position_against_its_own_spelling`,
+`::an_uncertain_deletion_stating_no_bases_validates`,
+`::a_copy_number_change_refuses_bases_stated_at_an_uncertain_position`,
+`::validate_refuses_bases_stated_at_an_uncertain_mitochondrial_position`,
+`::bases_inserted_at_an_uncertain_position_are_not_refused`;
+`cis_phased_test::validate_refuses_bases_stated_at_an_uncertain_position_in_an_allele`.
 
 </details>
 
@@ -4348,7 +4378,7 @@ NM_X.1:c.[7_9inv;8_10inv]                                      UnsupportedOperat
 `::a_change_to_what_an_inversion_reads_lists_both_inversions`, `::an_identity_inside_an_inversion_is_contradictory`,
 `::inversions_that_change_nothing_may_overlap`, `::an_insertion_where_a_duplication_inserts_is_ambiguous`,
 `::the_error_names_both_members`, `::validate_refuses_a_contradictory_allele_rather_than_answering_false`,
-`::validate_answers_false_for_a_wrong_base_stated_over_an_uncertain_interval`,
+`::validate_refuses_bases_stated_at_an_uncertain_position_in_an_allele`,
 `::many_changes_beside_one_deletion_are_searched_for_statements`,
 `::too_many_orders_to_list_is_refused_rather_than_overflowing`, `::a_duplication_of_an_exons_last_base_is_read`,
 `::a_minus_strand_allele_is_read_on_its_transcript`, `::an_allele_with_an_intronic_member_is_read_on_the_genome`,

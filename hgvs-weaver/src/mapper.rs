@@ -1263,6 +1263,41 @@ fn uncertain_bounds(pos: &SimpleInterval) -> Option<(VrsBound, VrsBound)> {
     Some((bound(&pos.start, |b| b - 1), bound(last, |b| b)))
 }
 
+/// The 0-based, half-open stretch from the first to the last base a g.
+/// interval names, its unknown bounds aside; `None` when it names none.
+fn named_extent(pos: &SimpleInterval) -> Option<(usize, usize)> {
+    let named = [
+        Some(pos.start.base),
+        pos.start.end,
+        pos.end.map(|e| e.base),
+        pos.end.and_then(|e| e.end),
+    ];
+    let mut indices = named
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b.known())
+        .map(|p| p.to_index().0.max(0) as usize);
+    let first = indices.next()?;
+    let (lo, hi) = indices.fold((first, first), |(lo, hi), i| (lo.min(i), hi.max(i)));
+    Some((lo, hi + 1))
+}
+
+/// Refuses reference bases stated at a position known only to lie in a
+/// range: the bases would have to be somewhere in it, which names no one
+/// allele.
+fn no_bases_at_an_uncertain_position(
+    var: &impl std::fmt::Display,
+    edit: &crate::edits::NaEdit,
+) -> Result<(), HgvsError> {
+    if edit.states_bases() {
+        return Err(HgvsError::ValidationError(format!(
+            "{var} states reference bases at an uncertain position, which names no one base \
+             to state them at"
+        )));
+    }
+    Ok(())
+}
+
 /// The VRS bounds of a g. interval: Range bounds when a breakpoint is
 /// uncertain, else the exact interbase `[start-1, end)`.
 fn interval_bounds(pos: &SimpleInterval) -> Result<(VrsBound, VrsBound), HgvsError> {
@@ -3571,15 +3606,20 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        // An uncertain position names no one range to find, only the bases
-        // it states.
-        if !pos.is_exact() && !edit.states_bases() {
-            return Ok(());
-        }
-        let (start, end) = simple_interval_range(pos)?;
         let reference = self
             .refs
             .reference(v.ac(), IdentifierType::GenomicAccession);
+        if !pos.is_exact() {
+            no_bases_at_an_uncertain_position(
+                &format_args!("{}:{}.{}", v.ac(), v.coordinate_type(), v.posedit()),
+                edit,
+            )?;
+            return match named_extent(pos) {
+                Some((start, end)) => reference.check_range(start, end),
+                None => Ok(()),
+            };
+        }
+        let (start, end) = simple_interval_range(pos)?;
         edit.check_against(&reference, start, end, crate::data::Strand::Plus)
     }
 
@@ -3606,6 +3646,12 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
+        if !pos.is_exact() {
+            no_bases_at_an_uncertain_position(
+                &format_args!("{}:{}.{}", v.ac(), v.coordinate_type(), v.posedit()),
+                edit,
+            )?;
+        }
         if has_intronic_offset(pos) {
             if edit.states_bases() {
                 return self.tx_to_g(v, None).map(|_| ());
@@ -3691,6 +3737,7 @@ impl<'a> VariantMapper<'a> {
         if !pos.is_exact() {
             // A bound known only to lie in a range names no one placement to
             // shift or reduce from. Leave the variant as written.
+            self.check_linear_stated(&v)?;
             return Ok(v);
         }
         let (start, end) = simple_interval_range(pos)?;
@@ -3716,6 +3763,7 @@ impl<'a> VariantMapper<'a> {
         };
         if !pos.is_exact() {
             am.check_borders(pos)?;
+            self.check_transcript_stated_on(&v, &am)?;
             return Ok(v);
         }
         if has_intronic_offset(pos) {
@@ -3928,6 +3976,7 @@ impl<'a> VariantMapper<'a> {
         };
         if let Some(g) = linear {
             if let Some((start, end)) = g.posedit.pos.as_ref().and_then(uncertain_bounds) {
+                self.check_linear_stated(&g)?;
                 if matches!(g.posedit.edit, crate::edits::NaEdit::Dup { .. }) {
                     return Err(HgvsError::UnsupportedOperation(
                         "A duplication with uncertain breakpoints has no Allele; \
@@ -4070,14 +4119,8 @@ impl<'a> VariantMapper<'a> {
             .pos
             .as_ref()
             .ok_or_else(|| HgvsError::ValidationError("Missing position".into()))?;
-        let (start, end) = interval_bounds(pos)?;
-        if let (VrsBound::Exact(s), VrsBound::Exact(e)) = (start, end) {
-            let genome = self.refs.reference(&g.ac, IdentifierType::GenomicAccession);
-            g.posedit
-                .edit
-                .check_against(&genome, s, e, crate::data::Strand::Plus)?;
-        }
-        Ok((start, end))
+        self.check_linear_stated(g)?;
+        interval_bounds(pos)
     }
 
     /// The GA4GH VRS 2.0 `CopyNumberChange` of a `g.` or `m.` duplication or

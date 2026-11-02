@@ -262,11 +262,35 @@ fn equivalence_refuses_a_range_past_the_end_beside_the_part_that_exists() {
 }
 
 #[test]
-fn an_uncertain_position_past_the_end_is_not_found_on_the_sequence() {
-    // It names no one range; only the bases it states would be checked.
+fn an_uncertain_position_past_the_end_does_not_validate() {
+    // The amplicon is nine bases: an uncertain range still names positions.
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
-    assert!(mapper.validate(&parse("NC_000099.1:g.(20_25)del")).unwrap());
+    assert!(!mapper.validate(&parse("NC_000099.1:g.(20_25)del")).unwrap());
+}
+
+#[test]
+fn an_uncertain_range_reaching_past_the_end_is_not_normalised() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_outside(
+        mapper.normalize_variant(parse("NC_000099.1:g.(?_5)_(20_?)del")),
+        "NC_000099.1",
+        (4, 20),
+        9,
+    );
+}
+
+#[test]
+fn to_vrs_refuses_an_uncertain_range_reaching_past_the_end() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_outside(
+        mapper.to_vrs(&parse("NC_000099.1:g.(5_12)del")),
+        "NC_000099.1",
+        (4, 12),
+        9,
+    );
 }
 
 #[test]
@@ -487,4 +511,38 @@ fn normalize_refuses_a_protein_position_one_past_the_stop_it_is_served_with() {
         (7, 8),
         7,
     );
+}
+
+#[test]
+fn a_copy_number_change_reaching_past_the_end_has_no_vrs() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_outside(
+        mapper.to_vrs_variation(&parse("NC_000099.1:g.(?_5)_(20_?)dup")),
+        "NC_000099.1",
+        (4, 20),
+        9,
+    );
+}
+
+#[test]
+fn a_copy_number_count_over_a_range_past_the_end_has_no_vrs() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_outside(
+        mapper.to_vrs_variation(&parse("NC_000099.1:g.(20_25)copy3")),
+        "NC_000099.1",
+        (19, 25),
+        9,
+    );
+}
+
+#[test]
+fn an_allele_with_an_uncertain_member_past_the_end_does_not_validate() {
+    // g.2 is a T; the deletion's range runs past the ninth base.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(!mapper
+        .validate(&parse("NC_000099.1:g.[(5_12)del;2T>G]"))
+        .unwrap());
 }

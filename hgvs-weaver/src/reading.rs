@@ -29,7 +29,7 @@ use crate::normalize::{self, ExonBounds, PlacedEdit};
 use crate::reference::Reference;
 use crate::structs::{
     BaseOffsetInterval, CVariant, CisPhasedVariant, GVariant, LinearVariant, MVariant, NVariant,
-    PosEdit, SimpleInterval, SimplePosition, TranscriptVariant, Variant,
+    PosEdit, SimpleInterval, TranscriptVariant, Variant,
 };
 use crate::transcript_mapper::TranscriptMapper;
 use crate::utils::reverse_complement;
@@ -1864,13 +1864,7 @@ impl VariantMapper<'_> {
                 "{cis} is an allele of protein members, which is not read into a sequence"
             )));
         }
-        // A member stating no bases has none to check, and one whose bound is
-        // unknown names no position to check them at.
-        for m in cis
-            .members
-            .iter()
-            .filter(|m| !has_ranged_bound(m) || states_bases(m))
-        {
+        for m in &cis.members {
             self.check_stated(m)?;
         }
         self.frame(cis, on)
@@ -2380,21 +2374,6 @@ fn place_linear(
     Ok((placed, edit))
 }
 
-/// Whether a bound of a `g.` or `m.` member is unknown or known only to lie
-/// in a range, so that it names no bases to check.
-fn has_ranged_bound(member: &SV) -> bool {
-    let ranged = |p: &SimplePosition| p.end.is_some() || p.base.known().is_none();
-    let linear = |pos: &Option<SimpleInterval>| {
-        pos.as_ref()
-            .is_some_and(|p| ranged(&p.start) || p.end.as_ref().is_some_and(ranged))
-    };
-    match member {
-        SV::Genomic(g) => linear(&g.posedit.pos),
-        SV::Mitochondrial(m) => linear(&m.posedit.pos),
-        _ => false,
-    }
-}
-
 /// A nucleotide member's edit.
 fn member_edit(member: &SV) -> Option<&NaEdit> {
     match member {
@@ -2405,11 +2384,6 @@ fn member_edit(member: &SV) -> Option<&NaEdit> {
         SV::Rna(r) => Some(&r.posedit.edit),
         SV::Protein(_) | SV::CisPhased(_) => None,
     }
-}
-
-/// Whether a nucleotide member's edit states bases the reference must hold.
-fn states_bases(member: &SV) -> bool {
-    member_edit(member).is_some_and(NaEdit::states_bases)
 }
 
 /// Whether `s` is bases the reading can apply: no `N`, which names a base
