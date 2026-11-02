@@ -193,6 +193,7 @@ pub mod mapper;
 pub mod normalize;
 pub mod parser;
 pub mod protein;
+mod protein_reading;
 pub mod reading;
 pub mod reference;
 pub mod refget;
