@@ -3586,7 +3586,8 @@ impl<'a> VariantMapper<'a> {
                 as_rna_error(r, self.check_stated(&self.r_as_transcript(r)?))
             }
             crate::SequenceVariant::CisPhased(cis) if cis.coordinate_type() == "p" => {
-                cis.members.iter().try_for_each(|m| self.check_stated(m))
+                cis.members.iter().try_for_each(|m| self.check_stated(m))?;
+                self.check_protein_allele(cis)
             }
             crate::SequenceVariant::CisPhased(cis) => self.read_cis(cis).map(|_| ()),
         }
@@ -3712,8 +3713,10 @@ impl<'a> VariantMapper<'a> {
                     as_rna_error(&r, self.normalize_variant(self.r_as_transcript(&r)?))?;
                 SV::Rna(self.tx_to_r(&normalised)?)
             }
-            // A p. allele is not normalised, but what each member names is read.
+            // A p. allele is not normalised, but what each member names is
+            // read, and it must have one reading.
             SV::CisPhased(cis) if cis.coordinate_type() == "p" => {
+                self.check_protein_allele(&cis)?;
                 let members = cis
                     .members
                     .into_iter()
@@ -4211,11 +4214,13 @@ impl<'a> VariantMapper<'a> {
         var: &crate::SequenceVariant,
     ) -> Result<VrsCisPhasedBlock, HgvsError> {
         let members = match cis.coordinate_type() {
-            "p" => cis
-                .members
-                .iter()
-                .map(|m| self.to_vrs(m))
-                .collect::<Result<Vec<_>, _>>()?,
+            "p" => {
+                self.check_protein_allele(cis)?;
+                cis.members
+                    .iter()
+                    .map(|m| self.to_vrs(m))
+                    .collect::<Result<Vec<_>, _>>()?
+            }
             _ => self
                 .rendered_members(cis)?
                 .iter()

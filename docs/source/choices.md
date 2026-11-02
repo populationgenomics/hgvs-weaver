@@ -2078,7 +2078,16 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
 `alleles_with_one_vrs_identifier_say_one_thing` (property); `::an_ambiguity_carries_its_readings` and
 `::cancelling_sets_that_share_a_member_stay_ambiguous_beside_many_other_statements`, the ambiguity of two sets that
 share a member, which reading the allele already refuses;
-`vrs_round_trip_test::a_protein_block_reads_back_in_residue_order`;
+`vrs_round_trip_test::a_protein_block_reads_back_in_residue_order`,
+`::to_vrs_refuses_a_protein_allele_inserting_twice_at_one_point`,
+`::to_vrs_refuses_a_protein_allele_changing_one_residue_two_ways`,
+`::validate_refuses_a_protein_allele_changing_one_residue_two_ways`,
+`::a_protein_block_changing_one_residue_two_ways_does_not_read_back`,
+`::a_protein_block_inserting_twice_after_the_last_residue_does_not_read_back`,
+`::a_protein_insertion_beside_a_change_on_its_right_has_a_reading`,
+`::a_protein_insertion_beside_a_change_on_its_left_has_a_reading`, `::a_protein_change_written_twice_is_read_once`,
+`::a_protein_member_naming_no_residues_does_not_hide_two_that_clash`,
+`::normalize_refuses_a_protein_allele_changing_one_residue_two_ways`;
 `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
 `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
 `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_completes_a_copy`,
@@ -3940,9 +3949,14 @@ changes leave, and the residues its statements name, those that meet made one. S
 from a coding allele meets a stated `p.` description the same way, so how either splits the change does not matter:
 `c.[4A>C;13T>G]`, predicted `p.[(Lys2Gln;Tyr5Asp)]`, is Analogous with `p.Lys2_Tyr5delinsGlnLeuAlaAsp`. Two members that
 reach for one residue, or a member after a frameshift, a stop or an open end, leave the allele no reading, and it is
-refused as a contradictory nucleotide allele is. A member that names no stretch of residues to replace, an uncertain
-range, `p.Met1?` or `p.?`, leaves the allele no one protein; such alleles are compared member by member, as nucleotide
-alleles with an uncertain member are.
+refused as a contradictory nucleotide allele is, by every operation that reads it: `validate`, `normalize`, `to_vrs`
+before a block is built, `from_vrs` reading a block back, and equivalence. As for nucleotide members, an insertion
+beside a change, on either side, shares no residue with it, `p.[Lys2_Leu3insGln;Leu3Pro]`; two insertions at one point
+leave their order unsaid; and one change written twice is read once, `p.[Tyr5Asp;Tyr5Asp]`. A member that names no
+residues, `p.Met1?`, does not excuse the others from the rule. So `p.[Lys2_Leu3insGln;Lys2_Leu3insGly]`, which inserts
+twice between Lys2 and Leu3 and does not say in which order, has no VRS block, as `c.[6_7insCAG;6_7insGGG]` has none. A
+member that names no stretch of residues to replace, an uncertain range, `p.Met1?` or `p.?`, leaves the allele no one
+protein; such alleles are compared member by member, as nucleotide alleles with an uncertain member are.
 
 A VRS identifier is not a key for the change. `to_vrs`
 [merges the members that meet on the genome](#members-of-a-cis-allele-that-meet-are-written-as-one-change) into one

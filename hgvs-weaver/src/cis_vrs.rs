@@ -78,7 +78,9 @@ impl VariantMapper<'_> {
         if members.iter().any(|m| matches!(m.alone, SV::Protein(_))) {
             let mut alone: Vec<SV> = members.into_iter().map(|m| m.alone).collect();
             alone.sort_by_key(residues);
-            return Ok(SV::CisPhased(CisPhasedVariant::new(ac, None, alone)?));
+            let allele = CisPhasedVariant::new(ac, None, alone)?;
+            self.check_protein_allele(&allele)?;
+            return Ok(SV::CisPhased(allele));
         }
         self.placed_together(&ac, members)
     }

@@ -6,7 +6,7 @@
 use crate::edits::StopDistance;
 use crate::error::HgvsError;
 use crate::mapper::VariantMapper;
-use crate::structs::{PVariant, SequenceVariant};
+use crate::structs::{CisPhasedVariant, PVariant, SequenceVariant};
 
 impl VariantMapper<'_> {
     /// What a p. description does to the protein `ac`: the edit it makes,
@@ -153,6 +153,20 @@ impl VariantMapper<'_> {
         }))
     }
 
+    /// Refuses a protein allele with no one reading: members that reach for
+    /// one residue, a member after a frameshift, a stop or an open end, or
+    /// a residue stated unchanged that another member changes. Every
+    /// operation that reads the allele as one change asks this first, so
+    /// that none builds what another refuses.
+    ///
+    /// # Errors
+    ///
+    /// As [`protein_comparand`](Self::protein_comparand).
+    pub(crate) fn check_protein_allele(&self, cis: &CisPhasedVariant) -> Result<(), HgvsError> {
+        self.protein_comparand(&SequenceVariant::CisPhased(cis.clone()), &cis.ac)
+            .map(|_| ())
+    }
+
     /// What a protein allele, or a single p. description, is compared by
     /// when read as the protein it leaves: `None` when a member names no
     /// stretch of residues to replace, so that the allele is compared member
@@ -183,9 +197,10 @@ impl VariantMapper<'_> {
         let protein = self.reference_protein(ac)?;
         let mut changes: Vec<ProteinEdit> = Vec::new();
         let mut stated: Vec<std::ops::Range<usize>> = Vec::new();
+        let mut said = false;
         for vp in members {
             match self.protein_read(vp, ac)? {
-                ProteinRead::Said(_) => return Ok(None),
+                ProteinRead::Said(_) => said = true,
                 ProteinRead::Edit(edit) => match edit.statement(&protein) {
                     Some(span) => stated.push(span),
                     None => changes.push(edit),
@@ -193,10 +208,19 @@ impl VariantMapper<'_> {
             }
         }
         changes.sort_by_key(|e| (e.start, e.end));
+        // One edit written twice is read once; an insertion written twice
+        // may be one or two, and is left for the check below.
+        changes.dedup_by(|b, a| {
+            a.end > a.start && (a.start, a.end, a.open, &a.alt) == (b.start, b.end, b.open, &b.alt)
+        });
         let reaches = |e: &ProteinEdit| if e.open { protein.len() } else { e.end };
+        let empty = |e: &ProteinEdit| e.start == e.end;
         for pair in changes.windows(2) {
-            if pair[1].start < reaches(&pair[0]) || pair[1].start == pair[0].start {
-                let why = match reaches(&pair[0]) == protein.len() {
+            let (a, b) = (&pair[0], &pair[1]);
+            // An insertion meets a change at either flank without sharing a
+            // residue; two at one point leave their order unsaid.
+            if b.start < reaches(a) || (empty(a) && empty(b) && a.start == b.start) {
+                let why = match reaches(a) == protein.len() {
                     true => "a member after a frameshift, a stop or an open end",
                     false => "two members that reach for one residue",
                 };
@@ -214,6 +238,9 @@ impl VariantMapper<'_> {
                     "{var} states a residue unchanged that another member changes, so it has no reading"
                 )));
             }
+        }
+        if said {
+            return Ok(None);
         }
         Ok(Some(ProteinComparand {
             left: (!changes.is_empty()).then(|| ProteinEdit::applied(&changes, &protein)),
