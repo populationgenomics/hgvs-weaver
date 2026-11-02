@@ -15,20 +15,6 @@ yanked = "deny"
 
 unmaintained = "all"
 
-ignore = [
-    # RUSTSEC-2026-0176: out-of-bounds read in PyList/PyTuple iterator nth /
-    # nth_back. RUSTSEC-2026-0177: missing Sync bound on
-    # PyCFunction::new_closure. Both are fixed in pyo3 >=0.29; this crate pins
-    # ^0.27.1, and moving to 0.29 is an API-breaking bump, so it is tracked
-    # separately rather than done blind. Neither API is reached from this
-    # crate: there is no new_closure call site, and no PyList/PyTuple iterator
-    # is advanced with nth or nth_back (the only PyTuple use is PyTuple::new
-    # construction).
-    # Re-check when pyo3 is upgraded, and delete these.
-    "RUSTSEC-2026-0176",
-    "RUSTSEC-2026-0177",
-]
-
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

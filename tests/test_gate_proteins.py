@@ -1,4 +1,4 @@
-"""weaver-gate's ClinVar protein report: the rows it selects from ClinVar's HGVS report, and its comparisons."""
+"""The gate's ClinVar protein report: the rows it selects from ClinVar's HGVS report, and its comparisons."""
 
 from __future__ import annotations
 

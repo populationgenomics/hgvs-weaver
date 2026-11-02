@@ -1,4 +1,4 @@
-"""weaver-gate's comparison of two validation outputs, and its report of the rows the two verdicts disagree on."""
+"""The gate's comparison of two validation outputs, and its report of the rows the two verdicts disagree on."""
 
 from __future__ import annotations
 

@@ -1,54 +1,51 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+# 1.13.2 is the first that knows pyo3 0.29 links Windows with raw-dylib and needs no import library.
+requires = ["maturin>=1.13.2,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "hgvs-weaver"
 version = "1.1.0"
 description = "High-performance HGVS parser for Python (Rust powered)"
-dependencies = [
-    "defusedxml>=0.7.1",
-    "maturin>=1.11.5",
-]
-requires-python = ">=3.10"
+dependencies = []
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 # weaver.refseq: the provider over a RefSeq GFF3 and FASTA.
 refseq = ["pysam"]
+# weaver-analyze: the plots and tables over a validation's output.
 validation = [
-    # 0.1.2 is the first whose plain install is the local-store reader alone, without the GCS client.
-    "hgvs-weaver-data>=0.1.2; python_version >= '3.12'",
-    "pysam",
-    "tqdm",
-    "parsley",
-    "bioutils",
     "seaborn",
     "matplotlib",
     "pandas",
 ]
 
 [project.scripts]
-weaver-validate = "weaver.cli.validate:main"
 weaver-analyze = "weaver.cli.analyze:main"
 weaver-categorize = "weaver.cli.categorize:main"
 weaver-extract = "weaver.cli.extract:main"
-weaver-gate = "weaver.cli.gate:main"
 
 [dependency-groups]
-# The ClinVar gate: `uv run --group gate weaver-gate`. hgvs-weaver-data needs Python 3.12, so the group does too.
+# The ClinVar gate and the validation it runs: `uv run --group gate python -m weaver.cli.gate`, or
+# `python -m weaver.cli.validate` over a store built elsewhere. hgvs's database driver, sequence repository and
+# shell are overridden out below.
 gate = [
     # Exact-pinned because it is exempt from the age gate below; a bump is a reviewed edit.
-    "hgvs-weaver-data[build]==0.1.3",
+    "hgvs-weaver-data[build]==0.1.4",
     "hgvs>=1.5",
+    # weaver.refseq's, which weaver.cli.provider imports.
+    "pysam",
     "tqdm",
     "parsley",
     "bioutils",
 ]
 dev = [
-    # The Python suite imports the biocommons adapter, so hgvs is a test dependency; its database driver,
-    # sequence repository and shell are overridden out below.
-    "hgvs>=1.5",
-    "maturin>=1.11.5",
+    # scripts/fetch_gff.py's imports; nothing in the package imports them.
+    "defusedxml>=0.7.1",
+    "requests>=2.33.0",
+    # The Python suite imports the validation and the gate.
+    { include-group = "gate" },
+    "maturin>=1.13.2",
     "myst-parser",
     "pre-commit",
     "pyright>=1.1.400",
@@ -59,9 +56,6 @@ dev = [
     "sphinx-rtd-theme",
     "twine",
 ]
-
-[tool.uv.dependency-groups]
-gate = { requires-python = ">=3.12" }
 
 # Supply-chain age gate: never resolve a release younger than 7 days. Declared in the repo, not only in a
 # global uv config, so CI and contributors inherit the same resolution: a global-only gate makes the lock
@@ -84,7 +78,6 @@ override-dependencies = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
 manifest-path = "./Cargo.toml"
 python-source = "./"
 module-name = "weaver._weaver"
@@ -161,7 +154,7 @@ exclude = ["**/__pycache__", ".venv"]
 typeCheckingMode = "standard"
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
+build = "cp311-* cp312-* cp313-*"
 skip = "*-musllinux*"
 # maturin invokes cargo inside cibuildwheel, so --locked has to reach it
 # through the build environment; without it the wheel is built from a freshly

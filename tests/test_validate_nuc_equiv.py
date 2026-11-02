@@ -1,4 +1,4 @@
-"""weaver-validate's worker: rs_nuc_equiv, its verdict on a nucleotide description against ClinVar's protein, and
+"""The validation's worker: rs_nuc_equiv, its verdict on a nucleotide description against ClinVar's protein, and
 the protein it predicts for the gate's ClinVar report.
 """
 

@@ -1,14 +1,9 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "hgvs-weaver-data",
-#   "tqdm",
-#   "parsley",
-#   "bioutils",
-# ]
-# ///
+"""The validation: weaver's answers on ClinVar variants against ClinVar's and the biocommons hgvs package's.
 
-"""Full validation script against ClinVar variants."""
+Run through the gate dependency group, over a store and genome built by hgvs-weaver-data's `weaver-data-build`:
+
+    uv run --group gate python -m weaver.cli.validate variants.tsv --store STORE --genome GENOME
+"""
 
 from __future__ import annotations
 
@@ -16,26 +11,15 @@ import argparse
 import concurrent.futures
 import csv
 import dataclasses
-import importlib.util
 import logging
-import sys
 import typing
 
-try:
-    import hgvs.parser
-    import hgvs.variantmapper
-except ImportError:
-    print(
-        "Error: 'hgvs' package not found. Please install it manually (e.g. without dependencies to avoid psycopg2) with:",
-    )
-    print("  pip install hgvs --no-deps")
-    sys.exit(1)
-
-try:
-    import tqdm
-except ImportError:
-    print("Error: 'tqdm' package not found. Please install it manually with: pip install tqdm")
-    sys.exit(1)
+import hgvs.parser
+import hgvs.variantmapper
+import tqdm
+from weaver_data_provider import genome as wd_genome
+from weaver_data_provider import provider as wd_provider
+from weaver_data_provider import store as wd_store
 
 import weaver
 from weaver.cli import provider
@@ -66,11 +50,6 @@ _worker: _Worker | None = None
 
 def init_worker(store: str, genome: str, fh_results_path: str | None = None) -> None:
     """Initializes this worker process's mappers over a weaver-data-provider store and genome."""
-    # Imported here, not at module level: only the store needs it, and it needs Python 3.12; main checks for it.
-    from weaver_data_provider import genome as wd_genome  # noqa: PLC0415
-    from weaver_data_provider import provider as wd_provider  # noqa: PLC0415
-    from weaver_data_provider import store as wd_store  # noqa: PLC0415
-
     global _worker
     logging.basicConfig(level=logging.INFO)  # a spawned worker does not inherit the parent's logging
     rp = wd_provider.BundleProvider(wd_store.BundleStore(store), wd_genome.Genome(genome))
@@ -331,7 +310,11 @@ def run_ferro_normalize(variants: list[str], reference_dir: str) -> dict[str, st
 
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for validation."""
-    parser = argparse.ArgumentParser(description="Full validation against ClinVar variants.")
+    parser = argparse.ArgumentParser(
+        prog="python -m weaver.cli.validate",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("input_file", help="Input ClinVar TSV file.")
     parser.add_argument("--max-variants", type=int, default=None, help="Maximum variants to process.")
     parser.add_argument("--output-file", default="clinvar_full_validation.tsv", help="Output validation TSV.")
@@ -359,10 +342,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
-    if importlib.util.find_spec("weaver_data_provider") is None:
-        print("Error: 'hgvs-weaver-data' package not found (it needs Python 3.12 or later). Install it with:")
-        print("  pip install hgvs-weaver-data")
-        sys.exit(1)
 
     with open(args.input_file) as f_in:
         reader = csv.DictReader(f_in, delimiter="\t")

@@ -1,17 +1,17 @@
-"""weaver-gate: the ClinVar validation from NCBI's published files to a row-by-row comparison, in one command.
+"""The ClinVar gate: the validation from NCBI's published files to a row-by-row comparison, in one command.
 
 The validation needs a GRCh38 store and genome built by hgvs-weaver-data's `weaver-data-build`: the current
 annotation release's shard with NCBI's historical set of retired transcript versions stacked under it, so
 that the variants ClinVar names on retired versions project too. This fetches the inputs, builds what is
-missing, runs `weaver-validate` over the result and compares the output with a baseline run, row by row.
-Every step is skipped when its output is already there, so a rerun after a weaver change costs only the
-validation itself.
+missing, runs the validation (`weaver.cli.validate`) over the result and compares the output with a baseline
+run, row by row. Every step is skipped when its output is already there, so a rerun after a weaver change
+costs only the validation itself.
 
-    uv run --group gate weaver-gate --data data/gate --variants data/clinvar_variants_100k.tsv \\
+    uv run --group gate python -m weaver.cli.gate --data data/gate --variants data/clinvar_variants_100k.tsv \\
         --baseline data/validation_release_0.7.0.tsv --output data/validation_<label>.tsv
 
 The downloads are a few gigabytes, the Entrez status fetch about twenty minutes, and the builds about
-fifteen; they happen once. The gate dependency group installs what this needs, Python 3.12 or later.
+fifteen; they happen once. The gate dependency group installs what this needs.
 
 With --clinvar-proteins, the gate also predicts the protein of every coding indel in ClinVar's HGVS report
 over the same store, and compares the predictions with ClinVar's spelling and, given
@@ -37,6 +37,9 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 import tqdm
+from weaver_data_provider import genome as wd_genome
+from weaver_data_provider import store as wd_store
+from weaver_data_provider.build import cli as wd_build
 
 from weaver.cli import validate
 
@@ -180,16 +183,6 @@ def _shard(shards: pathlib.Path, prefix: str) -> pathlib.Path | None:
 
 def build(release: Release, inputs: Inputs, data: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     """The store and genome under `data`, cut by `weaver-data-build` where not already there."""
-    try:
-        from weaver_data_provider import genome as wd_genome  # noqa: PLC0415
-        from weaver_data_provider import store as wd_store  # noqa: PLC0415
-        from weaver_data_provider.build import cli as wd_build  # noqa: PLC0415
-    except ImportError:
-        print(
-            "Error: the gate needs 'hgvs-weaver-data[build]' on Python 3.12 or later: uv run --group gate",
-            file=sys.stderr,
-        )
-        sys.exit(1)
     shards, store, genome = data / "shards", data / "store", data / "genome"
     status = data / f"{release.anchor}_status.tsv"
     wd_build.main(["status", "--records", str(inputs.historical_records), "--out", str(status)])
@@ -537,7 +530,11 @@ def compare_proteins(baseline: pathlib.Path | None, output: pathlib.Path) -> Non
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="python -m weaver.cli.gate",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--data", type=pathlib.Path, required=True, help="where inputs, shards, store and genome live")
     parser.add_argument("--variants", type=pathlib.Path, required=True, help="the ClinVar variants TSV to validate")
     parser.add_argument("--output", type=pathlib.Path, required=True, help="the validation output TSV to write")

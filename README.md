@@ -202,14 +202,14 @@ implementation.
 The validation reads a GRCh38 store and genome built by `weaver-data-build` from
 [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider): the current annotation release's shard
 with NCBI's historical set of retired transcript versions stacked under it, so the variants ClinVar names on retired
-versions project too. `weaver-gate` does the whole thing: it fetches NCBI's files, asks Entrez for each retired
-version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a baseline
-run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes of
-downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
-minute for the 100k set. It needs Python 3.12 or later, which the `gate` dependency group provides:
+versions project too. The gate, `weaver.cli.gate`, does the whole thing: it fetches NCBI's files, asks Entrez for each
+retired version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a
+baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes
+of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
+minute for the 100k set. The `gate` dependency group provides what it needs:
 
 ```sh
-uv run --group gate weaver-gate --data data/gate \
+uv run --group gate python -m weaver.cli.gate --data data/gate \
     --variants data/clinvar_variants_100k.tsv \
     --baseline data/validation_release_0.7.0.tsv \
     --output data/validation_<label>.tsv
@@ -235,11 +235,12 @@ ClinVar's protein over the same store, in about three minutes on eight workers. 
 spells the protein as ClinVar does, by the kind of ClinVar's edit, and with `--clinvar-proteins-baseline` an earlier
 report compares row by row, a moved prediction counted by the kind of edit each run writes.
 
-To run the validation against a store built elsewhere, `weaver-validate` takes the store and genome directly, locally or
-in a bucket (`hgvs-weaver-data[gcs]` for the latter):
+To run the validation against a store built elsewhere, `weaver.cli.validate` takes the store and genome directly,
+locally or in a bucket; a bucket needs the store reader's GCS client, added with
+`--with 'hgvs-weaver-data[gcs]==0.1.4'`, the version the gate group pins:
 
 ```sh
-uv run --group gate weaver-validate data/clinvar_variants_100k.tsv \
+uv run --group gate python -m weaver.cli.validate data/clinvar_variants_100k.tsv \
     --output-file results.tsv \
     --store path/or/gs://bucket/grch38/store \
     --genome path/or/gs://bucket/grch38/genome
