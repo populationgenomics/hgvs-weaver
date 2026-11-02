@@ -15,16 +15,24 @@ one of four levels:
 ## Before comparing
 
 - A gene symbol in place of an accession is expanded to every accession the provider maps it to, of the kind the
-  coordinate system needs; the pair is equivalent if any expansion is.
+  coordinate system needs; the pair is equivalent if any expansion is. Each accession numbers its own sequence, so an
+  expansion whose reference contradicts the description is set aside, and the description is refused only when every
+  expansion contradicts it.
 - An `m.` variant is compared as the `g.` variant it is on the mitochondrial reference.
 - An `r.` variant is compared as its `c.` or `n.` spelling (`r_to_c`, `r_to_n`); `r.0`, `r.spl` and the other statements
   about a transcript are compared as text.
+- Each description is checked against its reference, as `validate` checks it: a position past the end, or a base or
+  residue the reference does not hold, is an error, even when the two are spelled the same
+  ([the choice](choices.md#a-stated-base-the-reference-lacks-is-an-error)). An allele's exact members are read together,
+  so a contradictory or ambiguous allele is refused here.
 
 ## The rules
 
 ```mermaid
 flowchart TD
-    Start(["a, b"]) --> Text{"same text after<br/>spelling normalisation?"}
+    Start(["a, b"]) --> Check{"positions and stated<br/>bases on the reference?"}
+    Check -- "contradicted" --> Error([error])
+    Check -- held --> Text{"same text after<br/>spelling normalisation?"}
     Text -- yes --> Identity([Identity])
     Text -- no --> Kind{kinds}
     Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
@@ -113,9 +121,10 @@ residues the identity does not state, so it is `Different` too
 
 ### Protein against protein
 
-Two `p.` descriptions must be on the same protein accession, any version (ClinVar often names an older `NP_` version).
-They are `Identity` as one spelling, and `Analogous` on two versions of the accession as one spelling, or when the
-proteins they leave can be the same.
+Two `p.` descriptions must be on the same protein accession, any version (ClinVar often names an older `NP_` version),
+and each is checked on its own accession and version, which the provider has to serve, even where the answer would be
+`Different`. They are `Identity` as one spelling, and `Analogous` on two versions of the accession as one spelling, or
+when the proteins they leave can be the same.
 
 ### The protein a description leaves
 

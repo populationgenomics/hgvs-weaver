@@ -152,9 +152,9 @@ def test_equivalence_gene_symbol() -> None:
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
-    # BRAF:p.V600E vs NP_BRAF.1:p.V600E
-    v1 = weaver.parse("BRAF:p.Val600Glu")
-    v2 = weaver.parse("NP_BRAF.1:p.Val600Glu")
+    # The mock protein is Lys from residue 4 on.
+    v1 = weaver.parse("BRAF:p.Lys600Glu")
+    v2 = weaver.parse("NP_BRAF.1:p.Lys600Glu")
 
     assert mapper.equivalent(v1, v2, provider)  # type: ignore[attr-defined]
 
@@ -164,8 +164,9 @@ def test_equivalence_protein_3letter() -> None:
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
-    v1 = weaver.parse("NP_TEST.1:p.(G553E)")
-    v2 = weaver.parse("NP_TEST.1:p.(Gly553Glu)")
+    # The mock protein's residue 2 is Gly.
+    v1 = weaver.parse("NP_TEST.1:p.(G2E)")
+    v2 = weaver.parse("NP_TEST.1:p.(Gly2Glu)")
 
     assert mapper.equivalent(v1, v2, provider)  # type: ignore[attr-defined]
 

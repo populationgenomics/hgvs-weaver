@@ -187,7 +187,11 @@ fn the_vrs_allele_sits_on_the_protein_with_the_p_description_as_expression() {
 /// protein each leaves, so ClinVar's spellings of the same event agree.
 #[test]
 fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
-    let hdp = provider(PROTEIN);
+    // An older version of the protein, and another protein, for the stated
+    // residues to be checked on.
+    let hdp = provider(PROTEIN)
+        .sequence("NP_X.0", PROTEIN)
+        .sequence("NP_Y.1", PROTEIN);
     let mapper = VariantMapper::new(&hdp);
     let eq = VariantEquivalence::new(&mapper, &hdp);
     let level = |c: &str, p: &str| {

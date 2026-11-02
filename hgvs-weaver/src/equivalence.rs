@@ -87,8 +87,8 @@ impl<'a> VariantEquivalence<'a> {
         let var1 = self.rna_as_transcript(var1)?;
         let var2 = self.rna_as_transcript(var2)?;
         // Expand gene symbols if present
-        let vars1 = self.expand_if_gene_symbol(&var1)?;
-        let vars2 = self.expand_if_gene_symbol(&var2)?;
+        let vars1 = self.held(self.expand_if_gene_symbol(&var1)?)?;
+        let vars2 = self.held(self.expand_if_gene_symbol(&var2)?)?;
 
         for v1 in &vars1 {
             for v2 in &vars2 {
@@ -113,6 +113,64 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
+    /// The readings of a description, one per accession a gene symbol expands
+    /// to, whose references hold what they state ([`check_stated`]). Each
+    /// accession of a gene numbers its own sequence, so a reading the
+    /// reference contradicts is set aside; when every reading is contradicted,
+    /// the first contradiction is the error.
+    ///
+    /// [`check_stated`]: Self::check_stated
+    fn held(&self, readings: Vec<SequenceVariant>) -> Result<Vec<SequenceVariant>, HgvsError> {
+        let mut held = Vec::with_capacity(readings.len());
+        let mut contradiction = None;
+        for reading in readings {
+            match self.check_stated(&reading) {
+                Ok(()) => held.push(reading),
+                Err(
+                    e @ (HgvsError::ReferenceMismatch { .. }
+                    | HgvsError::PositionOutsideSequence { .. }
+                    | HgvsError::NotAnExonBorder { .. }
+                    | HgvsError::OffsetPastIntron { .. }),
+                ) => {
+                    contradiction.get_or_insert(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        match contradiction {
+            Some(e) if held.is_empty() => Err(e),
+            _ => Ok(held),
+        }
+    }
+
+    /// Every position `var` names and every base and residue it states, checked
+    /// against its reference as [`validate`](VariantMapper::validate) checks
+    /// them, so a description the reference contradicts is refused even
+    /// against its own spelling. A nucleotide allele's members at exact
+    /// positions are read together, and a contradictory or ambiguous allele is
+    /// refused; one whose readings weaver does not list has had its members
+    /// checked. A member at an uncertain position is checked alone, as it is
+    /// compared alone.
+    fn check_stated(&self, var: &SequenceVariant) -> Result<(), HgvsError> {
+        let SequenceVariant::CisPhased(cis) = var else {
+            return self.mapper.check_stated(var);
+        };
+        if cis.coordinate_type() == "p" {
+            return self.mapper.check_stated(var);
+        }
+        for m in cis
+            .members
+            .iter()
+            .filter(|m| names_a_position(m) && !is_exact_member(m))
+        {
+            self.mapper.check_stated(m)?;
+        }
+        match exact_members(cis)?.map(|exact| self.mapper.read_cis(&exact)) {
+            None | Some(Ok(_) | Err(HgvsError::UnsupportedOperation(_))) => Ok(()),
+            Some(Err(e)) => Err(e),
+        }
+    }
+
     /// Two variants are `Identity` when they are the same text after spelling
     /// normalisation, `Analogous` when they name the same change (the same
     /// [`Comparand`] on the genome, or the same protein left behind) and
@@ -122,26 +180,6 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // An allele whose exact members are contradictory, ambiguous or on a
-        // reference of the wrong kind is refused before any spelling can match
-        // it; one whose readings are not listed still matches its own spelling.
-        for var in [var1, var2] {
-            if let SequenceVariant::CisPhased(cis) = var {
-                if let Some(exact) = exact_members(cis)? {
-                    if let Err(
-                        e @ (HgvsError::ValidationError(_)
-                        | HgvsError::Ambiguous { .. }
-                        | HgvsError::PositionOutsideSequence { .. }
-                        | HgvsError::NotAnExonBorder { .. }
-                        | HgvsError::OffsetPastIntron { .. }
-                        | HgvsError::WrongReferenceKind { .. }),
-                    ) = self.mapper.read_cis(&exact)
-                    {
-                        return Err(e);
-                    }
-                }
-            }
-        }
         if spelling(var1) == spelling(var2) {
             return Ok(EquivalenceLevel::Identity);
         }
@@ -1102,18 +1140,23 @@ enum MemberKey {
     Spelling(String),
 }
 
+/// Whether a member of a nucleotide allele names a position. A statement,
+/// the whole-sequence `=`, `?`, `spl` or `0`, names none.
+fn names_a_position(m: &SequenceVariant) -> bool {
+    match m {
+        SequenceVariant::Genomic(v) => v.posedit.pos.is_some(),
+        SequenceVariant::Mitochondrial(v) => v.posedit.pos.is_some(),
+        SequenceVariant::Coding(v) => v.posedit.pos.is_some(),
+        SequenceVariant::NonCoding(v) => v.posedit.pos.is_some(),
+        SequenceVariant::Rna(v) => v.posedit.pos.is_some(),
+        SequenceVariant::Protein(_) | SequenceVariant::CisPhased(_) => false,
+    }
+}
+
 /// Whether a member of a nucleotide allele has an exact position. A
 /// statement, which has no position, makes no sequence.
 fn is_exact_member(m: &SequenceVariant) -> bool {
-    m.has_exact_position()
-        && match m {
-            SequenceVariant::Genomic(v) => v.posedit.pos.is_some(),
-            SequenceVariant::Mitochondrial(v) => v.posedit.pos.is_some(),
-            SequenceVariant::Coding(v) => v.posedit.pos.is_some(),
-            SequenceVariant::NonCoding(v) => v.posedit.pos.is_some(),
-            SequenceVariant::Rna(v) => v.posedit.pos.is_some(),
-            SequenceVariant::Protein(_) | SequenceVariant::CisPhased(_) => false,
-        }
+    m.has_exact_position() && names_a_position(m)
 }
 
 /// Whether every member of a nucleotide allele has an exact position, so
