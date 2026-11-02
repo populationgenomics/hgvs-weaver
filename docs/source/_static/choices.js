@@ -7,13 +7,17 @@ document.addEventListener("DOMContentLoaded", function () {
 
   document.body.classList.add("choices-split-reader");
 
+  function stripStatusEmoji(val) {
+    return (val || "").replace(/^(?:🟢|🟡|⚪)\s*/, "").trim();
+  }
+
   function isDash(val) {
-    const t = (val || "").trim();
+    const t = stripStatusEmoji(val);
     return !t || t === "—" || t === "–" || t === "-";
   }
 
   function statusClass(val) {
-    const v = (val || "").toLowerCase();
+    const v = stripStatusEmoji(val).toLowerCase();
     if (
       v.indexOf("differs") !== -1 ||
       v.indexOf("rejects") !== -1 ||
@@ -35,6 +39,11 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function wrapLeadRuleCallout(sec) {
+    const bq = sec.querySelector(":scope > blockquote");
+    if (bq) {
+      bq.classList.add("choice-rule-callout");
+      return sec.querySelectorAll(":scope > p");
+    }
     const paragraphs = sec.querySelectorAll(":scope > p");
     for (let i = 0; i < paragraphs.length; i++) {
       const p = paragraphs[i];
@@ -68,15 +77,15 @@ document.addEventListener("DOMContentLoaded", function () {
         if (link) {
           const anchor = link.getAttribute("href").slice(1);
           glanceMap[anchor] = {
-            spec: cells[1].textContent.trim(),
-            bio: cells[2].textContent.trim(),
-            vv: cells[3].textContent.trim(),
-            clinvar: cells[4].textContent.trim(),
+            spec: stripStatusEmoji(cells[1].textContent),
+            bio: stripStatusEmoji(cells[2].textContent),
+            vv: stripStatusEmoji(cells[3].textContent),
+            clinvar: stripStatusEmoji(cells[4].textContent),
           };
         }
         // Colour-code cells in the At-a-glance table as pills
         for (let i = 1; i <= 4; i++) {
-          const txt = cells[i].textContent.trim();
+          const txt = stripStatusEmoji(cells[i].textContent);
           const cls = statusClass(txt);
           if (!isDash(txt)) {
             cells[i].innerHTML =
@@ -200,6 +209,26 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
+    // Style native GFM <details> drawers for Tests
+    const nativeDetails = sec.querySelectorAll(":scope > details");
+    nativeDetails.forEach(function (details) {
+      details.classList.add("choice-tests-drawer");
+      if (!details.querySelector(".choice-tests-body")) {
+        const bodyDiv = document.createElement("div");
+        bodyDiv.className = "choice-tests-body";
+        Array.from(details.childNodes).forEach(function (node) {
+          if (
+            node.nodeType === 1 &&
+            node.tagName.toLowerCase() === "summary"
+          ) {
+            return;
+          }
+          bodyDiv.appendChild(node);
+        });
+        details.appendChild(bodyDiv);
+      }
+    });
+
     // Build verdict pills strip right after h3
     const verdictStrip = document.createElement("div");
     verdictStrip.className = "choice-verdicts";
@@ -222,11 +251,62 @@ document.addEventListener("DOMContentLoaded", function () {
     // Wrap the first bold rule paragraph in .choice-rule-callout
     const paragraphs = wrapLeadRuleCallout(sec);
 
-    // Style the "Example..." paragraph and transform text code blocks into Input -> Output tables
+    // Style the "Example..." paragraph and transform Example tables / text blocks
     paragraphs.forEach(function (p) {
       if (p.textContent.trim().indexOf("Example") === 0) {
         p.classList.add("choice-example-label");
       }
+    });
+
+    // Transform GFM Example tables inside choice cards into dark terminal IO tables
+    const gfmTables = sec.querySelectorAll(":scope > table.docutils, :scope > div.wy-table-responsive > table.docutils");
+    gfmTables.forEach(function (origTable) {
+      const wrap = document.createElement("div");
+      wrap.className = "choice-io-wrap";
+      const table = document.createElement("table");
+      table.className = "choice-io-table";
+      const tbody = document.createElement("tbody");
+
+      const rows = origTable.querySelectorAll("tbody tr");
+      rows.forEach(function (origRow) {
+        const cells = origRow.querySelectorAll("td");
+        if (cells.length < 3) return;
+        const tr = document.createElement("tr");
+
+        const tdIn = document.createElement("td");
+        tdIn.className = "choice-io-in";
+        tdIn.innerHTML = cells[0].innerHTML;
+
+        const tdArr = document.createElement("td");
+        tdArr.className = "choice-io-arr";
+        tdArr.textContent = cells[1].textContent.trim() || "→";
+
+        const outText = cells[2].textContent.trim();
+        const isErr =
+          /Error|false|refused|panics|Err\b|not equivalent|Different|rejected/i.test(
+            outText
+          );
+        const tdOut = document.createElement("td");
+        tdOut.className = "choice-io-out" + (isErr ? " is-err" : "");
+        tdOut.innerHTML = cells[2].innerHTML;
+
+        const tdNote = document.createElement("td");
+        tdNote.className = "choice-io-note";
+        tdNote.innerHTML = cells[3] ? cells[3].innerHTML : "";
+
+        tr.appendChild(tdIn);
+        tr.appendChild(tdArr);
+        tr.appendChild(tdOut);
+        tr.appendChild(tdNote);
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      const targetToReplace = origTable.parentElement.classList.contains("wy-table-responsive")
+        ? origTable.parentElement
+        : origTable;
+      targetToReplace.replaceWith(wrap);
     });
 
     const codeBlocks = sec.querySelectorAll(":scope > div.highlight-text");
