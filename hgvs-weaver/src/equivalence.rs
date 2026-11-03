@@ -90,33 +90,33 @@ impl<'a> VariantEquivalence<'a> {
         let var2 = rna_alone(var2);
         // A gene symbol is read on each of the gene's accessions of its kind,
         // before an r. description is converted on its transcript.
-        let on1 = self.on_each_gene_accession(&var1)?;
-        let on2 = self.on_each_gene_accession(&var2)?;
-        // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
-        let vars1 = self.held(
-            on1.iter()
-                .map(|v| self.rna_as_transcript(v))
-                .collect::<Result<_, _>>()?,
-        )?;
-        let vars2 = self.held(
-            on2.iter()
-                .map(|v| self.rna_as_transcript(v))
-                .collect::<Result<_, _>>()?,
-        )?;
+        let read1 = self.held(self.readings(&var1)?)?;
+        let read2 = self.held(self.readings(&var2)?)?;
         // An r. change across a splice junction has no genomic form, so it is
-        // compared only with its own spelling or by the protein it leaves.
-        if spelling(&var1) != spelling(&var2) {
-            let mut sides = [(&var1, &on1, &var2), (&var2, &on2, &var1)];
-            // The refusal names one description whichever order they come in.
-            sides.sort_by_cached_key(|(var, _, _)| spelling(var));
-            for (_, on_each, other) in sides {
-                if other.coordinate_type() != "p" {
-                    for rna in on_each {
-                        self.rna_on_the_genome(rna)?;
-                    }
+        // compared only with its own spelling or by the protein it leaves. A
+        // reading refused so takes no part, and is the error only when no
+        // other reading makes the two the same.
+        let same_spelling = spelling(&var1) == spelling(&var2);
+        let mut refusals = Vec::new();
+        let mut comparable = |read: &[(SequenceVariant, SequenceVariant)],
+                              other: &SequenceVariant|
+         -> Result<Vec<SequenceVariant>, HgvsError> {
+            let mut kept = Vec::with_capacity(read.len());
+            for (written, converted) in read {
+                if same_spelling || other.coordinate_type() == "p" {
+                    kept.push(converted.clone());
+                    continue;
+                }
+                match self.rna_on_the_genome(written) {
+                    Ok(()) => kept.push(converted.clone()),
+                    Err(e) if is_a_refusal(&e) => refusals.push((spelling(written), e)),
+                    Err(e) => return Err(e),
                 }
             }
-        }
+            Ok(kept)
+        };
+        let vars1 = comparable(&read1, &var2)?;
+        let vars2 = comparable(&read2, &var1)?;
 
         for v1 in &vars1 {
             for v2 in &vars2 {
@@ -125,6 +125,10 @@ impl<'a> VariantEquivalence<'a> {
                     return Ok(lvl);
                 }
             }
+        }
+        // The refusal names one reading whichever order the two come in.
+        if let Some((_, e)) = refusals.into_iter().min_by(|a, b| a.0.cmp(&b.0)) {
+            return Err(e);
         }
         Ok(EquivalenceLevel::Different)
     }
@@ -178,17 +182,35 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// The readings of a description, one per accession a gene symbol expands
-    /// to, whose references hold what they state ([`check_stated`]). Each
-    /// accession of a gene numbers its own sequence, so a reading the
+    /// to, each as written and as compared: an r. reading in its c. or n.
+    /// spelling.
+    fn readings(
+        &self,
+        var: &SequenceVariant,
+    ) -> Result<Vec<(SequenceVariant, SequenceVariant)>, HgvsError> {
+        self.on_each_gene_accession(var)?
+            .into_iter()
+            .map(|written| {
+                let converted = self.rna_as_transcript(&written)?;
+                Ok((written, converted))
+            })
+            .collect()
+    }
+
+    /// The readings whose references hold what they state ([`check_stated`]).
+    /// Each accession of a gene numbers its own sequence, so a reading the
     /// reference contradicts is set aside; when every reading is contradicted,
     /// the first contradiction is the error.
     ///
     /// [`check_stated`]: Self::check_stated
-    fn held(&self, readings: Vec<SequenceVariant>) -> Result<Vec<SequenceVariant>, HgvsError> {
+    fn held(
+        &self,
+        readings: Vec<(SequenceVariant, SequenceVariant)>,
+    ) -> Result<Vec<(SequenceVariant, SequenceVariant)>, HgvsError> {
         let mut held = Vec::with_capacity(readings.len());
         let mut contradiction = None;
         for reading in readings {
-            match self.check_stated(&reading) {
+            match self.check_stated(&reading.1) {
                 Ok(()) => held.push(reading),
                 Err(
                     e @ (HgvsError::ReferenceMismatch { .. }
@@ -881,6 +903,16 @@ fn rna_alone(var: std::borrow::Cow<'_, SequenceVariant>) -> std::borrow::Cow<'_,
             std::borrow::Cow::Owned(cis.members[0].clone())
         }
         _ => var,
+    }
+}
+
+/// Whether `e` refuses a description outright, alone or as a member of an
+/// allele, rather than failing to find what it names.
+fn is_a_refusal(e: &HgvsError) -> bool {
+    match e {
+        HgvsError::UnsupportedOperation(_) => true,
+        HgvsError::CisMember { source, .. } => is_a_refusal(source),
+        _ => false,
     }
 }
 

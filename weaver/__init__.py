@@ -131,9 +131,9 @@ class AccessionCatalogue(Protocol):
     def get_accession_versions(self, ac: str) -> list[str]:
         """Return every versioned accession held under the unversioned ``ac``, newest first.
 
-        Only the store knows what newest means: the version number for RefSeq and Ensembl,
-        the release that held it for a record with no version of its own. Empty when none
-        is held.
+        Each is ``ac`` followed by ``.`` and its version; a record with no version of its
+        own, such as a UniProt accession, is listed as ``ac`` itself. Only the store knows
+        what newest means. Empty when none is held.
         """
         ...
 

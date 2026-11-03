@@ -5,13 +5,13 @@
 mod support;
 
 use hgvs_weaver::data::{
-    AccessionCatalogue, AccessionStatus, AccessionTag, IdentifierType, Strand,
+    AccessionCatalogue, AccessionInfo, AccessionStatus, AccessionTag, IdentifierType, Strand,
 };
 use hgvs_weaver::equivalence::{EquivalenceLevel, VariantEquivalence};
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::mapper::VariantMapper;
 use hgvs_weaver::{parse_hgvs_variant, SequenceVariant};
-use support::{single_exon_transcript, Provider};
+use support::{exon, single_exon_transcript, transcript, Provider};
 
 const UTR5: &str = "GGGGG";
 /// M K L A Y R *: c.4_6 is AAA.
@@ -142,18 +142,26 @@ fn a_description_no_version_holds_gives_nothing() {
 #[test]
 fn each_variant_returned_gives_itself_alone() {
     let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let again = |c: &hgvs_weaver::consistent::ConsistentVariant| {
+        mapper
+            .consistent_variants(&c.variant, Some(&hdp))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.variant)
+            .collect::<Vec<_>>()
+    };
+    let found = mapper
+        .consistent_variants(&parse("CG:c.6A>G"), Some(&hdp))
+        .unwrap();
     assert_eq!(
-        consistent(&hdp, "NM_C.1:c.6A>G", Some(&hdp)).unwrap(),
-        ["NM_C.1:c.6A>G"]
+        found.len(),
+        3,
+        "NM_C.1, NM_C.2 and NM_D.1 all hold A at c.6"
     );
-    assert_eq!(
-        consistent(&hdp, "NM_D.1:c.6A>G", Some(&hdp)).unwrap(),
-        ["NM_D.1:c.6A>G"]
-    );
-    assert_eq!(
-        consistent(&hdp, "CG:c.6A>G", Some(&hdp)).unwrap(),
-        ["NM_C.1:c.6A>G", "NM_C.2:c.6A>G", "NM_D.1:c.6A>G"]
-    );
+    assert_eq!(again(&found[0]), [found[0].variant.clone()]);
+    assert_eq!(again(&found[1]), [found[1].variant.clone()]);
+    assert_eq!(again(&found[2]), [found[2].variant.clone()]);
 }
 
 #[test]
@@ -270,4 +278,145 @@ fn an_r_description_on_a_gene_symbol_is_its_c_spelling_on_a_transcript_of_the_ge
         .equivalent_level(&parse("CG:r.4a>g"), &parse("NM_C.1:c.4A>G"))
         .unwrap()
         .is_equivalent());
+}
+
+#[test]
+fn an_allele_on_a_gene_symbol_gives_the_allele_on_each_transcript_that_holds_it() {
+    let hdp = provider();
+    assert_eq!(
+        consistent(&hdp, "CG:c.[4A>G;6A>G]", None).unwrap(),
+        ["NM_C.1:c.[4A>G;6A>G]", "NM_D.1:c.[4A>G;6A>G]"]
+    );
+}
+
+#[test]
+fn a_record_the_catalogue_lists_as_its_own_version_gives_itself() {
+    // QX1 is held under its bare name, as a UniProt accession is.
+    let hdp = provider().sequence("QX1", "MKLAYR");
+    assert_eq!(
+        consistent(&hdp, "QX1:p.Lys2Glu", Some(&hdp)).unwrap(),
+        ["QX1:p.Lys2Glu"]
+    );
+}
+
+/// A catalogue that lists another accession as NM_C's version.
+struct Misnaming;
+
+impl AccessionCatalogue for Misnaming {
+    fn get_accession_versions(&self, _ac: &str) -> Result<Vec<String>, HgvsError> {
+        Ok(vec!["NM_D.1".to_string()])
+    }
+    fn get_accession_info(&self, _ac: &str) -> Result<Option<AccessionInfo>, HgvsError> {
+        Ok(None)
+    }
+}
+
+#[test]
+fn a_catalogue_listing_another_accession_as_a_version_is_an_error() {
+    let hdp = provider();
+    let err = consistent(&hdp, "NM_C:c.4A>G", Some(&Misnaming)).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::DataProviderError(m) if m.contains("NM_D.1")),
+        "{err}"
+    );
+}
+
+/// Gene `LG` has `NM_S.1`, the `CG` transcript record, and `NM_L.1`, the same
+/// with ten more bases of 3'UTR, so `c.*16` lies past the end of `NM_S.1`
+/// only; and `NM_J.1`, the `NM_S.1` record split after c.5 by an intron on
+/// `NC_J.1`, so c.4_6 crosses its junction and lies in one exon of the
+/// others.
+fn disagreeing_provider() -> Provider {
+    let short = format!("{UTR5}{CDS}{UTR3}");
+    let long = format!("{short}AAAAAAAAAA");
+    let cds = (UTR5.len() as i32, (UTR5.len() + CDS.len()) as i32 - 1);
+    let of_lg = |mut t: hgvs_weaver::data::TranscriptData| {
+        t.gene = "LG".to_string();
+        t
+    };
+    let split = 10;
+    let intron = "GTAAGTCCAG";
+    Provider::new()
+        .sequence("NC_S.1", &format!("TTTTTTTTTT{long}CCCCCCCCCC"))
+        .sequence(
+            "NC_J.1",
+            &format!(
+                "TTTTTTTTTT{}{intron}{}CCCCCCCCCC",
+                &short[..split],
+                &short[split..]
+            ),
+        )
+        .sequence("NM_S.1", &short)
+        .sequence("NM_L.1", &long)
+        .sequence("NM_J.1", &short)
+        .transcript(of_lg(single_exon_transcript(
+            "NM_S.1",
+            "NC_S.1",
+            10,
+            Strand::Plus,
+            cds.0,
+            cds.1,
+            short.len() as i32,
+        )))
+        .transcript(of_lg(single_exon_transcript(
+            "NM_L.1",
+            "NC_S.1",
+            10,
+            Strand::Plus,
+            cds.0,
+            cds.1,
+            long.len() as i32,
+        )))
+        .transcript(of_lg(transcript(
+            "NM_J.1",
+            "NC_J.1",
+            Strand::Plus,
+            Some(cds),
+            vec![
+                exon((0, split as i32), (10, 10 + split as i32 - 1), Strand::Plus),
+                exon(
+                    (split as i32, short.len() as i32),
+                    (
+                        10 + (split + intron.len()) as i32,
+                        10 + (short.len() + intron.len()) as i32 - 1,
+                    ),
+                    Strand::Plus,
+                ),
+            ],
+        )))
+        .identifier_type("LG", IdentifierType::GeneSymbol)
+}
+
+#[test]
+fn an_r_description_on_a_gene_symbol_is_compared_on_the_transcripts_that_hold_it() {
+    let hdp = disagreeing_provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("LG:r.*16del"), &parse("NM_L.1:c.*16del"))
+        .unwrap()
+        .is_equivalent());
+}
+
+#[test]
+fn an_r_description_on_a_gene_symbol_crossing_one_transcripts_junction_is_compared_on_the_others() {
+    let hdp = disagreeing_provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("LG:r.4_6del"), &parse("NM_S.1:c.4_6del"))
+        .unwrap()
+        .is_equivalent());
+}
+
+#[test]
+fn an_r_description_on_a_gene_symbol_crossing_a_junction_is_refused_where_no_other_reading_matches()
+{
+    let hdp = disagreeing_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let err = VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("LG:r.4_6del"), &parse("NM_S.1:c.10del"))
+        .unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("NM_J.1") && m.contains("splice junction")),
+        "{err}"
+    );
 }

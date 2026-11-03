@@ -30,9 +30,11 @@ impl<'a> VariantMapper<'a> {
     /// [`validate`](Self::validate) finds it: a gene symbol gives the
     /// description on each of the gene's accessions of its kind, an
     /// unversioned accession on each version `catalogue` lists, newest first,
-    /// and a versioned accession the description itself. Empty when the store
-    /// holds sequences under the name and none is consistent with the
-    /// description. Each variant it returns gives itself alone.
+    /// and a versioned accession the description itself. A record with no
+    /// version of its own, a UniProt accession, is read as itself where the
+    /// catalogue lists it so. Empty when the store holds sequences under the
+    /// name and none is consistent with the description. Each variant it
+    /// returns, read again with the same catalogue, gives itself alone.
     ///
     /// # Errors
     ///
@@ -80,7 +82,7 @@ impl<'a> VariantMapper<'a> {
         }
         let catalogue = catalogue.ok_or_else(|| {
             HgvsError::DataProviderError(format!(
-                "{name} names no version, and there is no accession catalogue to list them"
+                "{name} is not a versioned accession, and there is no accession catalogue to read it"
             ))
         })?;
         let versions = catalogue.get_accession_versions(name)?;
@@ -89,12 +91,17 @@ impl<'a> VariantMapper<'a> {
                 "no version of {name} is held"
             )));
         }
+        if let Some(other) = versions.iter().find(|ac| !is_a_version_of(ac, name)) {
+            return Err(HgvsError::DataProviderError(format!(
+                "the accession catalogue lists {other} as a version of {name}"
+            )));
+        }
         Ok(versions.into_iter().map(|ac| on(var, ac)).collect())
     }
 
     /// `var`, on a gene symbol, on each of the gene's accessions of its kind:
-    /// transcripts for `c.`, `n.` and `r.`, proteins for `p.`, the genome and
-    /// transcripts for `g.`.
+    /// transcripts for `c.`, `n.` and `r.`, proteins for `p.`, genomic
+    /// sequences for `g.`.
     pub(crate) fn on_each_of_the_genes_accessions(
         &self,
         var: &SequenceVariant,
@@ -103,10 +110,7 @@ impl<'a> VariantMapper<'a> {
         let (target, compatible): (IdentifierKind, &[T]) = match var.coordinate_type() {
             "p" => (IdentifierKind::Protein, &[T::ProteinAccession]),
             "c" | "n" | "r" => (IdentifierKind::Transcript, &[T::TranscriptAccession]),
-            "g" => (
-                IdentifierKind::Genomic,
-                &[T::GenomicAccession, T::TranscriptAccession],
-            ),
+            "g" => (IdentifierKind::Genomic, &[T::GenomicAccession]),
             _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
         };
         let on_each: Vec<SequenceVariant> = self
@@ -134,10 +138,23 @@ fn on(var: &SequenceVariant, ac: String) -> SequenceVariant {
     var
 }
 
+/// Whether `ac` is `name` followed by `.` and digits, or `name` itself, the
+/// one version of a record that has none of its own.
+fn is_a_version_of(ac: &str, name: &str) -> bool {
+    ac == name
+        || ac
+            .strip_prefix(name)
+            .and_then(|v| v.strip_prefix('.'))
+            .is_some_and(is_digits)
+}
+
+fn is_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// Whether `ac` ends in a version, `.` and digits.
 fn is_versioned(ac: &str) -> bool {
-    ac.rsplit_once('.')
-        .is_some_and(|(_, v)| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+    ac.rsplit_once('.').is_some_and(|(_, v)| is_digits(v))
 }
 
 /// Whether `var` states bases or residues its sequence must hold: a

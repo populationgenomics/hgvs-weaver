@@ -3291,13 +3291,17 @@ description. A versioned description the reference contradicts gives an empty li
 error means the store could not say what the name refers to: a name nothing is held under, a gene with no accession of
 the description's kind, or an unversioned accession with no catalogue to list its versions. Every variant returned is on
 a versioned accession and holds there, so reading it again gives it alone. Kinds are never crossed: a description on a
-transcript is read on transcripts, and a bare transcript does not become its protein.
+transcript is read on transcripts, a `g.` description on a gene symbol on genomic sequences only, and a bare transcript
+does not become its protein. A record with no version of its own, a UniProt accession, is its own one version where the
+catalogue lists it so, and a catalogue that lists anything but the name and its versions is an error.
 
 Equivalence reads a gene symbol on each of the gene's accessions, sets aside those whose reference contradicts the
 description, and answers from any reading that makes the two the same. It reads the symbol before an `r.` description is
-converted to its `c.` spelling, so an `r.` description on a gene symbol compares as its `c.` spelling does. Answering
-from any reading departs from [one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the
-readings disagree; whether equivalence should instead refuse such a description, listing its readings, is open in
+converted to its `c.` spelling, so an `r.` description on a gene symbol compares as its `c.` spelling does. A reading
+that crosses an exon junction on its transcript is [refused](#a-range-across-an-exon-junction-is-the-genomic-range) and
+takes no part; the refusal is the answer only when no other reading makes the two the same. Answering from any reading
+departs from [one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the readings
+disagree; whether equivalence should instead refuse such a description, listing its readings, is open in
 [#145](https://github.com/populationgenomics/hgvs-weaver/issues/145). Equivalence does not read an unversioned accession
 on its versions.
 
@@ -3322,7 +3326,7 @@ on its versions.
   name that is not one sequence.
 
 <details>
-<summary><strong>Tests asserting this choice (24)</strong></summary>
+<summary><strong>Tests asserting this choice (31)</strong></summary>
 
 `consistent_variants_test::a_gene_symbol_gives_the_description_on_each_transcript_that_holds_it`,
 `::a_protein_description_on_a_gene_symbol_gives_each_protein_that_holds_it`,
@@ -3338,13 +3342,20 @@ on its versions.
 `::an_unversioned_accession_with_no_version_held_is_an_error`,
 `::a_gene_symbol_with_no_accession_of_the_descriptions_kind_is_an_error`,
 `::an_r_description_on_a_gene_symbol_is_its_own_spelling`,
-`::an_r_description_on_a_gene_symbol_is_its_c_spelling_on_a_transcript_of_the_gene`;
+`::an_r_description_on_a_gene_symbol_is_its_c_spelling_on_a_transcript_of_the_gene`,
+`::an_allele_on_a_gene_symbol_gives_the_allele_on_each_transcript_that_holds_it`,
+`::a_record_the_catalogue_lists_as_its_own_version_gives_itself`,
+`::a_catalogue_listing_another_accession_as_a_version_is_an_error`,
+`::an_r_description_on_a_gene_symbol_is_compared_on_the_transcripts_that_hold_it`,
+`::an_r_description_on_a_gene_symbol_crossing_one_transcripts_junction_is_compared_on_the_others`,
+`::an_r_description_on_a_gene_symbol_crossing_a_junction_is_refused_where_no_other_reading_matches`;
 `tests/test_consistent_variants.py::test_a_catalogue_answering_names_gives_each_variant_its_status_and_tags`,
 `::test_a_catalogue_answering_members_is_read_as_one_answering_names`,
 `::test_a_status_the_protocol_does_not_name_is_a_provider_error`,
 `::test_a_tag_the_protocol_does_not_name_is_a_provider_error`,
 `::test_an_unversioned_accession_without_a_catalogue_is_a_provider_error`,
-`::test_a_gene_symbol_without_a_catalogue_gives_its_variants_with_no_status`.
+`::test_a_gene_symbol_without_a_catalogue_gives_its_variants_with_no_status`,
+`::test_a_description_stating_a_base_is_marked_as_stating_one`.
 
 </details>
 

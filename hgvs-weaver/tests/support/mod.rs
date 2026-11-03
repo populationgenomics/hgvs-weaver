@@ -295,6 +295,10 @@ impl AccessionCatalogue for Provider {
             .collect();
         held.sort_by(|a, b| b.cmp(a));
         held.dedup();
+        // A record held under its bare name has no version of its own.
+        if held.is_empty() && self.sequences.contains_key(ac) {
+            return Ok(vec![ac.to_string()]);
+        }
         Ok(held.into_iter().map(|(_, ac)| ac).collect())
     }
 

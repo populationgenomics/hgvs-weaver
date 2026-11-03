@@ -137,6 +137,9 @@ def test_an_unversioned_accession_without_a_catalogue_is_a_provider_error() -> N
 
 def test_a_gene_symbol_without_a_catalogue_gives_its_variants_with_no_status() -> None:
     found = weaver.VariantMapper(Provider()).consistent_variants(weaver.parse("CG:c.4A>G"))
-    assert [(c.variant.format(), c.states_bases, c.status, c.tags) for c in found] == [
-        ("NM_C.1:c.4A>G", True, None, []),
-    ]
+    assert [(c.variant.format(), c.status, c.tags) for c in found] == [("NM_C.1:c.4A>G", None, [])]
+
+
+def test_a_description_stating_a_base_is_marked_as_stating_one() -> None:
+    found = weaver.VariantMapper(Provider()).consistent_variants(weaver.parse("NM_C.1:c.4A>G"))
+    assert [(c.variant.format(), c.states_bases) for c in found] == [("NM_C.1:c.4A>G", True)]
