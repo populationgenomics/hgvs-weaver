@@ -2386,15 +2386,15 @@ alters an earlier one, and the order never reaches it.
 **Example** (the toy CDS with 3'UTR `CCG TAG`, or `CCG TAT AAG TAA GG` for the inversion; and a CDS
 `ATG GCT GAA CAA CCA CTT TCT GAA GCT TAA`, Met Ala Glu Gln Pro Leu Ser Glu Ala Ter, with 3'UTR `GGC CGG CCG GC`):
 
-| Input                        |     | Output                                                                           | Note                                                   |
-| :--------------------------- | :-: | :------------------------------------------------------------------------------- | :----------------------------------------------------- |
-| `toy c.16_21delinsCGCCAA`    | `→` | `p.Ter7GlnextTer2`                                                               | Arg6 rewritten as itself: the stop is the first change |
-| `toy c.16_21delinsTGGCAA`    | `→` | `p.Arg6TrpfsTer4`                                                                | Arg6 is Trp, and the stop Gln                          |
-| `toy c.16_21del`             | `→` | `p.Arg6ProfsTer2`                                                                | not `p.Arg6_Ter7delinsProTer`                          |
-| `toy c.4_*2inv`              | `→` | `p.Lys2_Arg6delinsGlyTer` not `p.Lys2_Pro8delinsGlyTer`, Pro8 being read-through |                                                        |
-| `toy c.16_*3delinsTGGCAATAA` | `→` | `p.Arg6delinsTrpGlnTer`                                                          |                                                        |
-| `c.26_28delinsTTG`           | `→` | `p.Ala9ValfsTer?`                                                                | not `p.Ter10GluextTer?`, which drops Ala9Val           |
-|                              | `→` | `p.(Ala9_Ter10delinsValGluGlyArgProXaa)`                                         | biocommons                                             |
+| Input                        |     | Output                                   | Note                                                   |
+| :--------------------------- | :-: | :--------------------------------------- | :----------------------------------------------------- |
+| `toy c.16_21delinsCGCCAA`    | `→` | `p.Ter7GlnextTer2`                       | Arg6 rewritten as itself: the stop is the first change |
+| `toy c.16_21delinsTGGCAA`    | `→` | `p.Arg6TrpfsTer4`                        | Arg6 is Trp, and the stop Gln                          |
+| `toy c.16_21del`             | `→` | `p.Arg6ProfsTer2`                        | not `p.Arg6_Ter7delinsProTer`                          |
+| `toy c.4_*2inv`              | `→` | `p.Lys2_Arg6delinsGlyTer`                | not `p.Lys2_Pro8delinsGlyTer`, Pro8 being read-through |
+| `toy c.16_*3delinsTGGCAATAA` | `→` | `p.Arg6delinsTrpGlnTer`                  |                                                        |
+| `c.26_28delinsTTG`           | `→` | `p.Ala9ValfsTer?`                        | not `p.Ter10GluextTer?`, which drops Ala9Val           |
+|                              | `→` | `p.(Ala9_Ter10delinsValGluGlyArgProXaa)` | biocommons                                             |
 
 - **Differs:** biocommons, which lists the read-through residues in a delins and ends it in `Xaa` when no stop follows,
   and writes `toy c.16_21del` as `p.(Arg6Pro)`.
@@ -2479,10 +2479,10 @@ ______________________________________________________________________
 
 ### A change to the start codon is an unknown change from Met1
 
-> **A change that alters the start codon is `p.(Met1?)`, unless it deletes the whole CDS or leaves no codon to read:
-> `c.1A>G` is `p.(Met1?)`, not `p.(Met1Val)`. Whether the first codon changed is read from the sequences, the edited
-> transcript's first codon against the reference's, not from where the edit is written, save for the three cases listed
-> below.**
+> **A change that alters the start codon is `p.(Met1?)`, unless it deletes the whole CDS from the 5'UTR or leaves no
+> codon to read: `c.1A>G` is `p.(Met1?)`, not `p.(Met1Val)`. Whether the first codon changed is read from the sequences,
+> the edited transcript's first codon against the reference's, not from where the edit is written, save for the three
+> cases listed below.**
 
 Residue 1 is not read from its codon: the initiator tRNA brings Met whichever codon it pairs with
 ([the protein is read as its record writes it](#the-protein-is-read-as-its-record-writes-it)), so a change to the start
@@ -2687,7 +2687,8 @@ ______________________________________________________________________
 > **Edits outside the coding sequence, or spanning its boundaries, produce HGVS protein statements (`p.0?`, `p.(Met1?)`,
 > `p.?`, `p.(=)`) rather than residue-level predictions.**
 
-- **Whole-CDS deletion:** `p.0?`.
+- **Deletion from the 5'UTR through the whole CDS:** `p.0?`. One from `c.1` is
+  [a change to the start codon](#a-change-to-the-start-codon-is-an-unknown-change-from-met1).
 - **Edit starting in the 5'UTR and changing the start codon:** `p.(Met1?)`.
 - **Any other change that alters the 5'UTR:** `p.?`.
 - **Edit entirely in the 3'UTR:** `p.(=)`.
@@ -2703,9 +2704,10 @@ transcript can leave fewer than three bases after the last intact codon: transla
 no stop and no residue to name at the first change, so weaver says nothing rather than read the missing codon as a stop.
 Whether a change lies upstream, reaches into the CDS or starts in it is read from the sequences, on its 3'-most
 spelling, not from where it is written. Placing it needs the bases, so an edit from the 5'UTR that starts before the
-record's first base and has to be placed is refused rather than answered from its position. A deletion of the whole CDS,
-an edit whose bases are not spelled out, a repeat of uncertain count among them, and one that changes nothing are still
-read where they are written ([changes to the start codon](#a-change-to-the-start-codon-is-an-unknown-change-from-met1)).
+record's first base and has to be placed is refused rather than answered from its position. A deletion from the 5'UTR of
+the whole CDS, an edit whose bases are not spelled out, a repeat of uncertain count among them, and one that changes
+nothing are still read where they are written
+([changes to the start codon](#a-change-to-the-start-codon-is-an-unknown-change-from-met1)).
 
 These statements are about a change, and a change predicts the whole protein, every base it does not name taken as the
 reference's: `c.*3G>A` leaves the protein as it is, `p.(=)`. An identity, `=`, is not a change but a statement, and
@@ -2909,14 +2911,14 @@ ______________________________________________________________________
 > **`fsTer N` counts residues from the first changed one to the first stop the new frame reaches; an immediate stop is a
 > plain nonsense substitution.**
 
-**Example** (the toy CDS):
+**Example** (the toy CDS with 3'UTR `CCG TAT AA`):
 
-| Input            |     | Output            | Note                                             |
-| :--------------- | :-: | :---------------- | :----------------------------------------------- |
-| `toy c.17_18del` | `→` | `p.Arg6LeufsTer4` | Leu Ala Val Ter: four residues counting the stop |
-| `toy c.4A>T`     | `→` | `p.Lys2Ter`       | AAA → TAA, immediate                             |
-| `toy c.4A>C`     | `→` | `p.Lys2Gln`       |                                                  |
-| `toy c.6A>G`     | `→` | `p.Lys2=`         | AAA → AAG                                        |
+| Input            |     | Output            | Note                                                              |
+| :--------------- | :-: | :---------------- | :---------------------------------------------------------------- |
+| `toy c.17_18del` | `→` | `p.Arg6LeufsTer4` | CTA ACC GTA TAA, Leu Thr Val Ter: four residues counting the stop |
+| `toy c.4A>T`     | `→` | `p.Lys2Ter`       | AAA → TAA, immediate                                              |
+| `toy c.4A>C`     | `→` | `p.Lys2Gln`       |                                                                   |
+| `toy c.6A>G`     | `→` | `p.Lys2=`         | AAA → AAG                                                         |
 
 - **Others:** not checked.
 - **Spec (agrees):** [frameshift](https://hgvs-nomenclature.org/stable/recommendations/protein/frameshift/): the stop
@@ -2937,13 +2939,14 @@ ______________________________________________________________________
 ### Protein alleles come from the coding change
 
 > **From a `p.` description, only edits that name a sequence have an allele. From a coding variant, every consequence
-> has one, because the edited transcript's translation is known.**
+> that names residues has one, because the edited transcript's translation is known; `p.(Met1?)`, `p.?` and `p.(=)` name
+> none.**
 
 A frameshift's allele is the residues from the first change to the new stop. The translated CDS must be the protein the
 provider serves; a difference is an annotation error and is reported as one. A silent change is the reference allele
 over the codons the edit touched; a deleted CDS is the deletion of the whole protein.
 
-**Example** (`NP_X.1` is `MKLAYR`; SPDI is `sequence:position:deleted:inserted`):
+**Example** (`NP_TEST.1` is `MKLAAAYRQ` and `NP_X.1` is `MKLAYR`; SPDI is `sequence:position:deleted:inserted`):
 
 | Input                              |     | Output                                                                            | Note                               |
 | :--------------------------------- | :-: | :-------------------------------------------------------------------------------- | :--------------------------------- |
