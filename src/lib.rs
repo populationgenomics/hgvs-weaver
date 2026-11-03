@@ -8,29 +8,36 @@ use pyo3::types::PyDict;
 use pyo3::{Bound, PyErr};
 
 /// The base of every error weaver raises.
-#[pyclass(extends = pyo3::exceptions::PyException, subclass, module = "weaver._weaver")]
+#[pyclass(
+    extends = pyo3::exceptions::PyException,
+    subclass,
+    weakref,
+    module = "weaver._weaver"
+)]
 pub struct HGVSError;
 
 #[pymethods]
 impl HGVSError {
     #[new]
-    fn new(message: &str) -> Self {
-        // The message reaches BaseException as args; naming it gives __new__ its signature.
-        let _ = message;
+    #[pyo3(signature = (*args))]
+    fn new(args: &Bound<'_, pyo3::types::PyTuple>) -> Self {
+        // BaseException keeps the arguments as args, as for any exception.
+        let _ = args;
         HGVSError
     }
 }
 
 /// A description that does not parse.
-#[pyclass(extends = HGVSError, subclass, module = "weaver._weaver")]
+#[pyclass(extends = HGVSError, subclass, weakref, module = "weaver._weaver")]
 pub struct ParseError;
 
 #[pymethods]
 impl ParseError {
     #[new]
-    fn new(message: &str) -> PyClassInitializer<Self> {
-        // The message reaches BaseException as args; naming it gives __new__ its signature.
-        let _ = message;
+    #[pyo3(signature = (*args))]
+    fn new(args: &Bound<'_, pyo3::types::PyTuple>) -> PyClassInitializer<Self> {
+        // BaseException keeps the arguments as args, as for any exception.
+        let _ = args;
         PyClassInitializer::from(HGVSError).add_subclass(ParseError)
     }
 }
@@ -38,8 +45,8 @@ impl ParseError {
 /// A residue token as Python sees it: `(text, start, end)`.
 type Token = (String, usize, usize);
 
-#[doc = "A p. description that writes residues in both the one- and three-letter amino acid codes. one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."]
-#[pyclass(extends = ParseError, module = "weaver._weaver")]
+#[doc = "A p. description that writes residues in both the one- and three-letter amino acid codes.\n\none_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."]
+#[pyclass(extends = ParseError, weakref, module = "weaver._weaver")]
 pub struct MixedResidueCodesError {
     message: String,
     #[pyo3(get)]
@@ -74,8 +81,8 @@ impl MixedResidueCodesError {
     }
 }
 
-#[doc = "A one-letter X in a p. description where a stop and any residue could both stand: the new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."]
-#[pyclass(extends = ParseError, module = "weaver._weaver")]
+#[doc = "A one-letter X in a p. description where a stop and any residue could both stand.\n\nThe new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."]
+#[pyclass(extends = ParseError, weakref, module = "weaver._weaver")]
 pub struct AmbiguousResidueError {
     message: String,
     #[pyo3(get)]
@@ -106,8 +113,8 @@ impl AmbiguousResidueError {
     }
 }
 
-#[doc = "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."]
-#[pyclass(extends = HGVSError, module = "weaver._weaver")]
+#[doc = "A description with several readings that make different sequences or state different bases.\n\nweaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."]
+#[pyclass(extends = HGVSError, weakref, module = "weaver._weaver")]
 pub struct AmbiguousDescriptionError {
     message: String,
     #[pyo3(get)]
@@ -134,21 +141,21 @@ pyo3::create_exception!(
     weaver._weaver,
     ReferenceMismatchError,
     HGVSError,
-    "A base or residue a description states is not what its reference holds: the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases; Variant.validate answers False instead."
+    "A base or residue a description states is not what its reference holds.\n\nThe reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases; Variant.validate answers False instead."
 );
 
 pyo3::create_exception!(
     weaver._weaver,
     PositionOutsideSequenceError,
     HGVSError,
-    "A description names a position its reference does not have: past the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one counting past the end of its intron, names no position of the transcript either. Raised by every operation that reads the positions; Variant.validate answers False instead."
+    "A description names a position its reference does not have.\n\nThe reference ends at the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one counting past the end of its intron, names no position of the transcript either. Raised by every operation that reads the positions; Variant.validate answers False instead."
 );
 
 pyo3::create_exception!(
     weaver._weaver,
     NoProteinStatementError,
     HGVSError,
-    "A description makes no statement about the protein: an identity that covers no whole codon, which states bases rather than residues. HGVS has no p. form for it: p.(=) would claim the whole protein, and p.? an effect."
+    "A description makes no statement about the protein.\n\nAn identity that covers no whole codon states bases rather than residues. HGVS has no p. form for it: p.(=) would claim the whole protein, and p.? an effect."
 );
 
 fn map_hgvs_error(e: HgvsError) -> PyErr {
@@ -249,7 +256,7 @@ fn mixed_residue_codes_error(
 }
 
 /// Residue tokens as Python sees them, `(text, start, end)`.
-fn token_tuples(tokens: Vec<ResidueToken>) -> Vec<(String, usize, usize)> {
+fn token_tuples(tokens: Vec<ResidueToken>) -> Vec<Token> {
     tokens
         .into_iter()
         .map(|t| (t.text, t.start, t.end))
@@ -284,7 +291,9 @@ fn json_object<'py>(py: Python<'py>, json: &str) -> PyResult<Bound<'py, PyDict>>
 /// A VRS object as given to from_vrs: its JSON text, or the dict to_vrs returns.
 #[derive(FromPyObject)]
 enum VrsObject<'py> {
+    #[pyo3(annotation = "str")]
     Json(String),
+    #[pyo3(annotation = "dict")]
     Object(Bound<'py, PyDict>),
 }
 

@@ -32,9 +32,10 @@ class AccessionTag:
 @final
 class AmbiguousDescriptionError(HGVSError):
     """
-    A description with several readings that make different sequences or state different bases. weaver does not pick
-    one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the
-    genome, and its readings are written in g.
+    A description with several readings that make different sequences or state different bases.
+
+    weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic
+    member is read on the genome, and its readings are written in g.
     """
     def __new__(cls, message: str, readings: Sequence[Variant]) -> AmbiguousDescriptionError: ...
     @property
@@ -43,9 +44,11 @@ class AmbiguousDescriptionError(HGVSError):
 @final
 class AmbiguousResidueError(ParseError):
     """
-    A one-letter X in a p. description where a stop and any residue could both stand: the new residue of a substitution
-    at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as
-    (text, start, end) with text == description[start:end], one per X, in the order written.
+    A one-letter X in a p. description where a stop and any residue could both stand.
+
+    The new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names.
+    ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order
+    written.
     """
     def __new__(
         cls,
@@ -104,7 +107,7 @@ class EquivalenceLevel:
 
 class HGVSError(Exception):
     """The base of every error weaver raises."""
-    def __new__(cls, message: str) -> Self: ...
+    def __new__(cls, *args: Any) -> Self: ...
 
 @final
 class IdentifierType:
@@ -121,11 +124,12 @@ class IdentifierType:
 @final
 class MixedResidueCodesError(ParseError):
     """
-    A p. description that writes residues in both the one- and three-letter amino acid codes. one_letter and
-    three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end],
-    in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a
-    stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of
-    that run's token.
+    A p. description that writes residues in both the one- and three-letter amino acid codes.
+
+    one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text ==
+    description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one
+    token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one
+    inside a run is part of that run's token.
     """
     def __new__(
         cls,
@@ -143,29 +147,35 @@ class MixedResidueCodesError(ParseError):
 
 class NoProteinStatementError(HGVSError):
     """
-    A description makes no statement about the protein: an identity that covers no whole codon, which states bases
-    rather than residues. HGVS has no p. form for it: p.(=) would claim the whole protein, and p.? an effect.
+    A description makes no statement about the protein.
+
+    An identity that covers no whole codon states bases rather than residues. HGVS has no p. form for it: p.(=) would
+    claim the whole protein, and p.? an effect.
     """
 
 class ParseError(HGVSError):
     """A description that does not parse."""
-    def __new__(cls, message: str) -> Self: ...
+    def __new__(cls, *args: Any) -> Self: ...
 
 class PositionOutsideSequenceError(HGVSError):
     """
-    A description names a position its reference does not have: past the end of the genome for g. and m., of the
-    transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its
-    stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base
-    is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last
-    base of an exon, -k from the first), or one counting past the end of its intron, names no position of the transcript
-    either. Raised by every operation that reads the positions; Variant.validate answers False instead.
+    A description names a position its reference does not have.
+
+    The reference ends at the end of the genome for g. and m., of the transcript record for an exonic c., n. or r.
+    position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An
+    insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from
+    a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one
+    counting past the end of its intron, names no position of the transcript either. Raised by every operation that
+    reads the positions; Variant.validate answers False instead.
     """
 
 class ReferenceMismatchError(HGVSError):
     """
-    A base or residue a description states is not what its reference holds: the transcript record for an exonic c., n.
-    or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for
-    p. Raised by every operation that reads the stated bases; Variant.validate answers False instead.
+    A base or residue a description states is not what its reference holds.
+
+    The reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for
+    an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases;
+    Variant.validate answers False instead.
     """
 
 class UnsupportedOperationError(HGVSError): ...

@@ -107,7 +107,7 @@ def test_every_exception_class_round_trips_through_pickle(cls: type[BaseExceptio
 
 @pytest.mark.parametrize("name", sorted(WITH_ATTRIBUTES))
 def test_an_error_with_attributes_is_not_made_from_a_message_alone(name: str) -> None:
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="missing"):
         getattr(_weaver, name)("the message")
 
 
