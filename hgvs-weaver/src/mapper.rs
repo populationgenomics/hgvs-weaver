@@ -4857,9 +4857,10 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// r. to g., for a change within one exon. A change spanning a splice
-    /// junction describes the spliced RNA and has no single genomic form.
-    pub fn r_to_g(&self, r: &RVariant, reference_ac: Option<&str>) -> Result<GVariant, HgvsError> {
+    /// An r. variant as the c. or n. variant it is spelled from, refused
+    /// when it spans a splice junction: the spliced RNA has no single genomic
+    /// equivalent, so nothing that reads it on the genome can take it.
+    pub fn r_on_the_genome(&self, r: &RVariant) -> Result<crate::SequenceVariant, HgvsError> {
         let tx = self.r_as_transcript(r)?;
         let posedit = match &tx {
             crate::SequenceVariant::Coding(c) => &c.posedit,
@@ -4879,6 +4880,13 @@ impl<'a> VariantMapper<'a> {
                 }
             }
         }
+        Ok(tx)
+    }
+
+    /// r. to g., for a change within one exon. A change spanning a splice
+    /// junction describes the spliced RNA and has no single genomic form.
+    pub fn r_to_g(&self, r: &RVariant, reference_ac: Option<&str>) -> Result<GVariant, HgvsError> {
+        let tx = self.r_on_the_genome(r)?;
         as_rna_error(
             r,
             match tx {

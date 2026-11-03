@@ -84,6 +84,15 @@ impl<'a> VariantEquivalence<'a> {
         // reference; compare it as one.
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
+        // An r. change across a splice junction has no genomic form, so it is
+        // compared only with its own spelling or by the protein it leaves.
+        if spelling(&var1) != spelling(&var2) {
+            for (rna, other) in [(&*var1, &*var2), (&*var2, &*var1)] {
+                if other.coordinate_type() != "p" {
+                    self.rna_on_the_genome(rna)?;
+                }
+            }
+        }
         // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
         let var1 = self.rna_as_transcript(var1)?;
         let var2 = self.rna_as_transcript(var2)?;
@@ -100,6 +109,30 @@ impl<'a> VariantEquivalence<'a> {
             }
         }
         Ok(EquivalenceLevel::Different)
+    }
+
+    /// Refuses an r. change, alone or a member of an allele, that spans a
+    /// splice junction.
+    fn rna_on_the_genome(&self, var: &SequenceVariant) -> Result<(), HgvsError> {
+        let on_the_genome = |r: &crate::structs::RVariant| {
+            if r.posedit.edit.is_whole_transcript() {
+                Ok(())
+            } else {
+                self.mapper.r_on_the_genome(r).map(|_| ())
+            }
+        };
+        match var {
+            SequenceVariant::Rna(r) => on_the_genome(r),
+            SequenceVariant::CisPhased(cis) => {
+                for (i, member) in cis.members.iter().enumerate() {
+                    if let SequenceVariant::Rna(r) = member {
+                        on_the_genome(r).map_err(|e| crate::cis::member_error(cis, i, e))?;
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     fn rna_as_transcript<'v>(
