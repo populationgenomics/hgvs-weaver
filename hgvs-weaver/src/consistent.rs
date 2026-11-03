@@ -31,9 +31,9 @@ impl<'a> VariantMapper<'a> {
     /// sequence, that is consistent with that sequence as
     /// [`validate`](Self::validate) finds it. A gene symbol gives the
     /// description on each of the gene's accessions that can carry it:
-    /// coding transcripts for `c.`, non-coding ones for `n.`, either for
-    /// `r.` unless it counts a position from the CDS, proteins for `p.`,
-    /// genomic sequences for `g.`. An unversioned accession gives it on each
+    /// coding transcripts for `c.`, any transcript for `n.`, and for `r.`
+    /// unless it counts a position from the CDS, proteins for `p.`, genomic
+    /// sequences for `g.`. An unversioned accession gives it on each
     /// version `catalogue` lists, newest first, or on the accession itself
     /// where the catalogue lists that alone, for a record with no version of
     /// its own. A versioned accession gives the description itself. Empty
@@ -75,7 +75,7 @@ impl<'a> VariantMapper<'a> {
     /// `var` on each versioned accession its name stands for, unchecked:
     /// itself on a versioned accession, on each of a gene's accessions of its
     /// kind, or on each version of an unversioned accession.
-    pub(crate) fn on_each_accession(
+    fn on_each_accession(
         &self,
         var: &SequenceVariant,
         catalogue: Option<&dyn AccessionCatalogue>,
@@ -129,7 +129,6 @@ impl<'a> VariantMapper<'a> {
         let (target, compatible): (IdentifierKind, &[T]) = match var.coordinate_type() {
             "p" => (IdentifierKind::Protein, &[T::ProteinAccession]),
             "c" | "n" | "r" => (IdentifierKind::Transcript, &[T::TranscriptAccession]),
-            "g" => (IdentifierKind::Genomic, &[T::GenomicAccession]),
             _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
         };
         let mut on_each = Vec::new();
@@ -154,20 +153,15 @@ impl<'a> VariantMapper<'a> {
 
 impl VariantMapper<'_> {
     /// Whether the transcript `ac` can carry `var` as written: a `c.`
-    /// description needs a CDS, an `n.` one a transcript without one, and an
-    /// `r.` one, numbered as either, a CDS where it names a position counted
-    /// from one. Anything else is not a transcript description.
+    /// description needs a CDS, and an `r.` one a CDS where it names a
+    /// position counted from one; an `n.` one numbers any transcript.
     fn carries(&self, ac: &str, var: &SequenceVariant) -> Result<bool, HgvsError> {
         let kind = var.coordinate_type();
-        if !matches!(kind, "c" | "n" | "r") {
+        if !matches!(kind, "c" | "r") {
             return Ok(true);
         }
         let coding = self.has_cds(ac, ReadAs::Description(kind))?;
-        Ok(match kind {
-            "c" => coding,
-            "n" => !coding,
-            _ => coding || !counts_from_the_cds(var),
-        })
+        Ok(coding || (kind == "r" && !counts_from_the_cds(var)))
     }
 }
 

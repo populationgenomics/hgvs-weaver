@@ -98,28 +98,35 @@ impl<'a> VariantEquivalence<'a> {
         // refusal is the error only when no other pair makes the two the same.
         let mut refused1 = self.refusals(&read1, &var2)?;
         let mut refused2 = self.refusals(&read2, &var1)?;
-        let mut skipped: Vec<(String, bool, usize)> = Vec::new();
-        for (i, (written1, compared1)) in read1.iter().enumerate() {
-            for (j, (written2, compared2)) in read2.iter().enumerate() {
-                if spelling(written1) != spelling(written2)
-                    && (refused1[i].is_some() || refused2[j].is_some())
-                {
+        let spelled1: Vec<String> = read1.iter().map(|(w, _)| spelling(w)).collect();
+        let spelled2: Vec<String> = read2.iter().map(|(w, _)| spelling(w)).collect();
+        let mut skipped: Vec<(&str, bool, usize)> = Vec::new();
+        let mut best = EquivalenceLevel::Different;
+        for (i, (_, compared1)) in read1.iter().enumerate() {
+            for (j, (_, compared2)) in read2.iter().enumerate() {
+                if spelled1[i] != spelled2[j] && (refused1[i].is_some() || refused2[j].is_some()) {
                     if refused1[i].is_some() {
-                        skipped.push((spelling(written1), true, i));
+                        skipped.push((&spelled1[i], true, i));
                     }
                     if refused2[j].is_some() {
-                        skipped.push((spelling(written2), false, j));
+                        skipped.push((&spelled2[j], false, j));
                     }
                     continue;
                 }
-                let lvl = self.equivalent_level_single(compared1, compared2)?;
-                if lvl.is_equivalent() {
-                    return Ok(lvl);
+                // The strongest level any pair gives, whatever order the
+                // gene's accessions come in.
+                match self.equivalent_level_single(compared1, compared2)? {
+                    EquivalenceLevel::Identity => return Ok(EquivalenceLevel::Identity),
+                    EquivalenceLevel::Analogous => best = EquivalenceLevel::Analogous,
+                    _ => {}
                 }
             }
         }
+        if best.is_equivalent() {
+            return Ok(best);
+        }
         // The refusal names one reading whichever order the two come in.
-        if let Some((_, first, k)) = skipped.into_iter().min_by(|a, b| a.0.cmp(&b.0)) {
+        if let Some((_, first, k)) = skipped.into_iter().min_by(|a, b| a.0.cmp(b.0)) {
             let refused = if first { &mut refused1 } else { &mut refused2 };
             if let Some(e) = refused[k].take() {
                 return Err(e);

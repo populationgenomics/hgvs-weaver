@@ -3269,8 +3269,8 @@ ______________________________________________________________________
 > **A description on a gene symbol, or on an accession without a version, names no one sequence. `consistent_variants`
 > reads it on each accession the store holds as one sequence under the name, a gene's accessions that can carry the
 > description, or an accession's versions newest first, and keeps those whose sequence holds what the description
-> states. It does not choose among them. Equivalence reads a gene symbol the same way, and two descriptions are the same
-> change if any reading makes them so.**
+> states. It does not choose among them. Equivalence reads a gene symbol the same way, and two descriptions are as
+> equivalent as their closest readings.**
 
 The literature, lab reports and ClinVar write `BRCA2:c.68_69del`, `NM_000059:c.68_69del` and `P38398:p.Cys61Gly`. weaver
 reads a description on one sequence, and does not fall back from one version to another ([`PRODUCT.md`](../PRODUCT.md)),
@@ -3293,18 +3293,18 @@ the description's kind, or an unversioned accession with no catalogue to list it
 an accession that is one sequence, and holds there, so reading it again gives it alone. A record with no version of its
 own, a UniProt accession, is its own one version where the catalogue lists it alone, and a catalogue that lists anything
 but the name's versions is an error. Kinds are never crossed. A gene symbol is read on the accessions that can carry the
-description: a `c.` description on the gene's coding transcripts, an `n.` one on its non-coding transcripts, an `r.` one
-on either unless it counts a position from the CDS, a `p.` one on the gene's proteins and a `g.` one on its genomic
-sequences. A bare transcript does not become its protein.
+description: a `c.` description on the gene's coding transcripts, an `n.` one on all of them, an `r.` one on all of them
+unless it counts a position from the CDS, a `p.` one on the gene's proteins and a `g.` one on its genomic sequences. A
+bare transcript does not become its protein.
 
 Equivalence reads a gene symbol on each of the gene's accessions, sets aside those whose reference contradicts the
-description, and answers from any reading that makes the two the same. It reads the symbol before an `r.` description is
-converted to its `c.` spelling, so an `r.` description on a gene symbol compares as its `c.` spelling does. A reading
-that crosses an exon junction on its transcript is [refused](#a-range-across-an-exon-junction-is-the-genomic-range)
-against any reading spelled otherwise, and takes no part; the refusal is the answer only when no other pair of readings
-makes the two the same. Answering from any reading departs from
-[one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the readings disagree; whether
-equivalence should instead refuse such a description, listing its readings, is open in
+description, and answers with the strongest level any pair of readings gives, whatever order the gene's accessions come
+in. It reads the symbol before an `r.` description is converted to its `c.` spelling, so an `r.` description on a gene
+symbol compares as its `c.` spelling does. A reading that crosses an exon junction on its transcript is
+[refused](#a-range-across-an-exon-junction-is-the-genomic-range) against any reading spelled otherwise, and takes no
+part; the refusal is the answer only when no other pair of readings makes the two the same. Answering from any reading
+departs from [one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the readings
+disagree; whether equivalence should instead refuse such a description, listing its readings, is open in
 [#145](https://github.com/populationgenomics/hgvs-weaver/issues/145). Equivalence does not read an unversioned accession
 on its versions.
 
@@ -3329,7 +3329,7 @@ on its versions.
   name that is not one sequence.
 
 <details>
-<summary><strong>Tests asserting this choice (40)</strong></summary>
+<summary><strong>Tests asserting this choice (43)</strong></summary>
 
 `consistent_variants_test::a_gene_symbol_gives_the_description_on_each_transcript_that_holds_it`,
 `::a_protein_description_on_a_gene_symbol_gives_each_protein_that_holds_it`,
@@ -3353,10 +3353,13 @@ on its versions.
 `::a_catalogue_listing_the_bare_name_beside_its_versions_is_an_error`,
 `::a_genomic_description_on_a_gene_symbol_with_no_genomic_accession_is_an_error`,
 `::a_coding_description_on_a_gene_symbol_is_read_on_its_coding_transcripts`,
-`::a_non_coding_description_on_a_gene_symbol_is_read_on_its_non_coding_transcripts`,
+`::a_non_coding_description_on_a_gene_symbol_is_read_on_every_transcript`,
 `::an_r_description_on_a_gene_symbol_is_read_on_coding_and_non_coding_transcripts`,
 `::an_r_description_counting_from_the_cds_on_a_gene_symbol_is_read_on_its_coding_transcripts`,
 `::an_r_description_on_a_gene_symbol_is_its_own_spelling_on_a_transcript_whose_junction_it_crosses`,
+`::a_non_coding_description_on_a_gene_symbol_is_its_coding_spelling`,
+`::a_gene_symbol_is_as_equivalent_as_its_closest_reading`,
+`::a_gene_symbol_refused_at_a_junction_names_the_same_reading_in_either_order`,
 `::an_r_description_on_a_gene_symbol_is_compared_on_the_transcripts_that_hold_it`,
 `::an_r_description_on_a_gene_symbol_crossing_one_transcripts_junction_is_compared_on_the_others`,
 `::an_r_description_on_a_gene_symbol_crossing_a_junction_is_refused_where_no_other_reading_matches`;

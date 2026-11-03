@@ -399,12 +399,12 @@ fn a_coding_description_on_a_gene_symbol_is_read_on_its_coding_transcripts() {
 }
 
 #[test]
-fn a_non_coding_description_on_a_gene_symbol_is_read_on_its_non_coding_transcripts() {
-    // n.9 is c.4 on NM_M.1, an A.
+fn a_non_coding_description_on_a_gene_symbol_is_read_on_every_transcript() {
+    // n.9 is the A of c.4 on NM_M.1, and the same base of NR_M.1.
     let hdp = mixed_provider();
     assert_eq!(
         consistent(&hdp, "MX:n.9A>G", None).unwrap(),
-        ["NR_M.1:n.9A>G"]
+        ["NM_M.1:n.9A>G", "NR_M.1:n.9A>G"]
     );
 }
 
@@ -546,5 +546,42 @@ fn an_r_description_on_a_gene_symbol_is_its_own_spelling_on_a_transcript_whose_j
     assert_eq!(
         eq.equivalent_level(&b, &a).unwrap(),
         EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_non_coding_description_on_a_gene_symbol_is_its_coding_spelling() {
+    // n.9 of NM_C.1 is its c.4.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("CG:n.9A>G"), &parse("CG:c.4A>G"))
+        .unwrap()
+        .is_equivalent());
+}
+
+#[test]
+fn a_gene_symbol_is_as_equivalent_as_its_closest_reading() {
+    // The NM_C.1 reading is Analogous to the NM_D.1 allele; the NM_D.1
+    // reading is the same text.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert_eq!(
+        VariantEquivalence::new(&mapper, &hdp)
+            .equivalent_level(&parse("CG:c.[4A>G;6A>G]"), &parse("NM_D.1:c.[4A>G;6A>G]"))
+            .unwrap(),
+        EquivalenceLevel::Identity
+    );
+}
+
+#[test]
+fn a_gene_symbol_refused_at_a_junction_names_the_same_reading_in_either_order() {
+    let hdp = disagreeing_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (parse("LG:r.4_6del"), parse("NM_S.1:c.10del"));
+    assert_eq!(
+        eq.equivalent_level(&a, &b).unwrap_err().to_string(),
+        eq.equivalent_level(&b, &a).unwrap_err().to_string()
     );
 }

@@ -251,8 +251,8 @@ class VariantMapper:
         sequence, consistent with that sequence as validate finds it.
 
         A gene symbol gives the description on each of the gene's accessions that can carry
-        it: coding transcripts for c., non-coding ones for n., either for r. unless it
-        counts a position from the CDS, proteins for p., genomic sequences for g. An
+        it: coding transcripts for c., any transcript for n., and for r. unless it counts
+        a position from the CDS, proteins for p., genomic sequences for g. An
         unversioned accession gives it on each version the catalogue lists, newest first,
         or on the accession itself where the catalogue lists that alone, for a record with
         no version of its own. A versioned accession gives the description itself.
