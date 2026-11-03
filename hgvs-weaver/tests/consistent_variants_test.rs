@@ -299,25 +299,136 @@ fn a_record_the_catalogue_lists_as_its_own_version_gives_itself() {
     );
 }
 
-/// A catalogue that lists another accession as NM_C's version.
-struct Misnaming;
+/// A catalogue that lists the accessions it was given as NM_C's versions.
+struct Listing(&'static [&'static str]);
 
-impl AccessionCatalogue for Misnaming {
+impl AccessionCatalogue for Listing {
     fn get_accession_versions(&self, _ac: &str) -> Result<Vec<String>, HgvsError> {
-        Ok(vec!["NM_D.1".to_string()])
+        Ok(self.0.iter().map(|ac| ac.to_string()).collect())
     }
     fn get_accession_info(&self, _ac: &str) -> Result<Option<AccessionInfo>, HgvsError> {
         Ok(None)
     }
 }
 
+/// The error `NM_C:c.6A>G` gives with a catalogue listing `versions`.
+fn listing_error(versions: &'static [&'static str]) -> HgvsError {
+    let hdp = provider();
+    consistent(&hdp, "NM_C:c.6A>G", Some(&Listing(versions))).unwrap_err()
+}
+
 #[test]
 fn a_catalogue_listing_another_accession_as_a_version_is_an_error() {
-    let hdp = provider();
-    let err = consistent(&hdp, "NM_C:c.4A>G", Some(&Misnaming)).unwrap_err();
+    let err = listing_error(&["NM_D.1"]);
     assert!(
         matches!(&err, HgvsError::DataProviderError(m) if m.contains("NM_D.1")),
         "{err}"
+    );
+}
+
+#[test]
+fn a_catalogue_listing_a_version_with_a_leading_zero_is_an_error() {
+    let err = listing_error(&["NM_C.01"]);
+    assert!(
+        matches!(&err, HgvsError::DataProviderError(m) if m.contains("NM_C.01")),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_catalogue_listing_a_version_twice_is_an_error() {
+    let err = listing_error(&["NM_C.2", "NM_C.2"]);
+    assert!(
+        matches!(&err, HgvsError::DataProviderError(m) if m.contains("twice")),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_catalogue_listing_the_bare_name_beside_its_versions_is_an_error() {
+    let err = listing_error(&["NM_C.2", "NM_C"]);
+    assert!(
+        matches!(&err, HgvsError::DataProviderError(m) if m.contains("lists NM_C as")),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_genomic_description_on_a_gene_symbol_with_no_genomic_accession_is_an_error() {
+    let hdp = provider();
+    let err = consistent(&hdp, "CG:g.16A>G", None).unwrap_err();
+    assert!(
+        matches!(&err, HgvsError::DataProviderError(m) if m.contains("CG")),
+        "{err}"
+    );
+}
+
+/// Gene `MX` has the coding `NM_M.1` and the non-coding `NR_M.1`, one record
+/// on `NC_M.1`.
+fn mixed_provider() -> Provider {
+    let record = format!("{UTR5}{CDS}{UTR3}");
+    let len = record.len() as i32;
+    let cds = (UTR5.len() as i32, (UTR5.len() + CDS.len()) as i32 - 1);
+    let mut coding =
+        single_exon_transcript("NM_M.1", "NC_M.1", 10, Strand::Plus, cds.0, cds.1, len);
+    coding.gene = "MX".to_string();
+    let mut non_coding = transcript(
+        "NR_M.1",
+        "NC_M.1",
+        Strand::Plus,
+        None,
+        vec![exon((0, len), (10, 10 + len - 1), Strand::Plus)],
+    );
+    non_coding.gene = "MX".to_string();
+    Provider::new()
+        .sequence("NC_M.1", &format!("TTTTTTTTTT{record}CCCCCCCCCC"))
+        .sequence("NM_M.1", &record)
+        .sequence("NR_M.1", &record)
+        .transcript(coding)
+        .transcript(non_coding)
+        .identifier_type("MX", IdentifierType::GeneSymbol)
+}
+
+#[test]
+fn a_coding_description_on_a_gene_symbol_is_read_on_its_coding_transcripts() {
+    let hdp = mixed_provider();
+    assert_eq!(
+        consistent(&hdp, "MX:c.4A>G", None).unwrap(),
+        ["NM_M.1:c.4A>G"]
+    );
+}
+
+#[test]
+fn a_non_coding_description_on_a_gene_symbol_is_read_on_its_non_coding_transcripts() {
+    // n.9 is c.4 on NM_M.1, an A.
+    let hdp = mixed_provider();
+    assert_eq!(
+        consistent(&hdp, "MX:n.9A>G", None).unwrap(),
+        ["NR_M.1:n.9A>G"]
+    );
+}
+
+#[test]
+fn an_r_description_on_a_gene_symbol_is_read_on_coding_and_non_coding_transcripts() {
+    // r.9 is c.9 on NM_M.1, a G, and n.9 on NR_M.1, an A.
+    let hdp = mixed_provider();
+    assert_eq!(
+        consistent(&hdp, "MX:r.9a>g", None).unwrap(),
+        ["NR_M.1:r.9a>g"]
+    );
+    assert_eq!(
+        consistent(&hdp, "MX:r.9g>a", None).unwrap(),
+        ["NM_M.1:r.9g>a"]
+    );
+}
+
+#[test]
+fn an_r_description_counting_from_the_cds_on_a_gene_symbol_is_read_on_its_coding_transcripts() {
+    // r.-2 is the G two bases before the CDS on NM_M.1; NR_M.1 has no CDS to count from.
+    let hdp = mixed_provider();
+    assert_eq!(
+        consistent(&hdp, "MX:r.-2g>a", None).unwrap(),
+        ["NM_M.1:r.-2g>a"]
     );
 }
 
@@ -418,5 +529,22 @@ fn an_r_description_on_a_gene_symbol_crossing_a_junction_is_refused_where_no_oth
     assert!(
         matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("NM_J.1") && m.contains("splice junction")),
         "{err}"
+    );
+}
+
+#[test]
+fn an_r_description_on_a_gene_symbol_is_its_own_spelling_on_a_transcript_whose_junction_it_crosses()
+{
+    let hdp = disagreeing_provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (parse("LG:r.4_6del"), parse("NM_J.1:r.4_6del"));
+    assert_eq!(
+        eq.equivalent_level(&a, &b).unwrap(),
+        EquivalenceLevel::Identity
+    );
+    assert_eq!(
+        eq.equivalent_level(&b, &a).unwrap(),
+        EquivalenceLevel::Identity
     );
 }

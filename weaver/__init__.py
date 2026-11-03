@@ -132,7 +132,7 @@ class AccessionCatalogue(Protocol):
         """Return every versioned accession held under the unversioned ``ac``, newest first.
 
         Each is ``ac`` followed by ``.`` and its version; a record with no version of its
-        own, such as a UniProt accession, is listed as ``ac`` itself. Only the store knows
+        own, such as a UniProt accession, is listed as ``ac`` itself, alone. Only the store knows
         what newest means. Empty when none is held.
         """
         ...

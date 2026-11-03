@@ -318,8 +318,8 @@ pub trait TranscriptSearch {
 /// [`DataProvider`].
 pub trait AccessionCatalogue {
     /// Every versioned accession held under the unversioned `ac`, newest
-    /// first: `ac` followed by `.` and its version, or `ac` itself for a
-    /// record with no version of its own, such as a UniProt accession. Empty
+    /// first: `ac` followed by `.` and its version, or `ac` itself, alone, for
+    /// a record with no version of its own, such as a UniProt accession. Empty
     /// when the store holds none.
     fn get_accession_versions(&self, ac: &str) -> Result<Vec<String>, HgvsError>;
     /// The status and tags of the versioned accession `ac`, `None` when the

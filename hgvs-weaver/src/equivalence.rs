@@ -92,45 +92,62 @@ impl<'a> VariantEquivalence<'a> {
         // before an r. description is converted on its transcript.
         let read1 = self.held(self.readings(&var1)?)?;
         let read2 = self.held(self.readings(&var2)?)?;
-        // An r. change across a splice junction has no genomic form, so it is
-        // compared only with its own spelling or by the protein it leaves. A
-        // reading refused so takes no part, and is the error only when no
-        // other reading makes the two the same.
-        let same_spelling = spelling(&var1) == spelling(&var2);
-        let mut refusals = Vec::new();
-        let mut comparable = |read: &[(SequenceVariant, SequenceVariant)],
-                              other: &SequenceVariant|
-         -> Result<Vec<SequenceVariant>, HgvsError> {
-            let mut kept = Vec::with_capacity(read.len());
-            for (written, converted) in read {
-                if same_spelling || other.coordinate_type() == "p" {
-                    kept.push(converted.clone());
+        // An r. change across a splice junction has no genomic form, so a
+        // reading of one is compared only with its own spelling or by the
+        // protein it leaves. A pair it is refused in takes no part, and the
+        // refusal is the error only when no other pair makes the two the same.
+        let mut refused1 = self.refusals(&read1, &var2)?;
+        let mut refused2 = self.refusals(&read2, &var1)?;
+        let mut skipped: Vec<(String, bool, usize)> = Vec::new();
+        for (i, (written1, compared1)) in read1.iter().enumerate() {
+            for (j, (written2, compared2)) in read2.iter().enumerate() {
+                if spelling(written1) != spelling(written2)
+                    && (refused1[i].is_some() || refused2[j].is_some())
+                {
+                    if refused1[i].is_some() {
+                        skipped.push((spelling(written1), true, i));
+                    }
+                    if refused2[j].is_some() {
+                        skipped.push((spelling(written2), false, j));
+                    }
                     continue;
                 }
-                match self.rna_on_the_genome(written) {
-                    Ok(()) => kept.push(converted.clone()),
-                    Err(e) if is_a_refusal(&e) => refusals.push((spelling(written), e)),
-                    Err(e) => return Err(e),
-                }
-            }
-            Ok(kept)
-        };
-        let vars1 = comparable(&read1, &var2)?;
-        let vars2 = comparable(&read2, &var1)?;
-
-        for v1 in &vars1 {
-            for v2 in &vars2 {
-                let lvl = self.equivalent_level_single(v1, v2)?;
+                let lvl = self.equivalent_level_single(compared1, compared2)?;
                 if lvl.is_equivalent() {
                     return Ok(lvl);
                 }
             }
         }
         // The refusal names one reading whichever order the two come in.
-        if let Some((_, e)) = refusals.into_iter().min_by(|a, b| a.0.cmp(&b.0)) {
-            return Err(e);
+        if let Some((_, first, k)) = skipped.into_iter().min_by(|a, b| a.0.cmp(&b.0)) {
+            let refused = if first { &mut refused1 } else { &mut refused2 };
+            if let Some(e) = refused[k].take() {
+                return Err(e);
+            }
         }
         Ok(EquivalenceLevel::Different)
+    }
+
+    /// For each reading, its refusal as an r. change across a splice
+    /// junction, `None` where it is not one or `other` is a protein
+    /// description, which is compared by the protein each leaves.
+    fn refusals(
+        &self,
+        read: &[(SequenceVariant, SequenceVariant)],
+        other: &SequenceVariant,
+    ) -> Result<Vec<Option<HgvsError>>, HgvsError> {
+        read.iter()
+            .map(|(written, _)| {
+                if other.coordinate_type() == "p" {
+                    return Ok(None);
+                }
+                match self.rna_on_the_genome(written) {
+                    Ok(()) => Ok(None),
+                    Err(e) if is_a_refusal(&e) => Ok(Some(e)),
+                    Err(e) => Err(e),
+                }
+            })
+            .collect()
     }
 
     /// Refuses an r. change, alone or a member of an allele, that spans a

@@ -6,14 +6,16 @@
 use crate::coords::SequenceVariant;
 use crate::data::{AccessionCatalogue, AccessionInfo, IdentifierKind, IdentifierType};
 use crate::error::HgvsError;
-use crate::mapper::VariantMapper;
+use crate::mapper::{ReadAs, VariantMapper};
 use crate::structs::Variant;
+use crate::structs::{Anchor, BaseOffsetPosition};
 
-/// A description on a versioned accession, consistent with its sequence.
+/// A description on an accession the store holds as one sequence,
+/// consistent with that sequence.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ConsistentVariant {
-    /// The description on one versioned accession.
+    /// The description on one accession.
     pub variant: SequenceVariant,
     /// Whether the description states bases or residues the sequence was
     /// found to hold. Without any, it is consistent with every sequence its
@@ -25,23 +27,28 @@ pub struct ConsistentVariant {
 }
 
 impl<'a> VariantMapper<'a> {
-    /// Every variant `var` can be on a versioned accession the store holds,
-    /// that is consistent with that accession's sequence as
-    /// [`validate`](Self::validate) finds it: a gene symbol gives the
-    /// description on each of the gene's accessions of its kind, an
-    /// unversioned accession on each version `catalogue` lists, newest first,
-    /// and a versioned accession the description itself. A record with no
-    /// version of its own, a UniProt accession, is read as itself where the
-    /// catalogue lists it so. Empty when the store holds sequences under the
-    /// name and none is consistent with the description. Each variant it
-    /// returns, read again with the same catalogue, gives itself alone.
+    /// Every variant `var` can be on an accession the store holds as one
+    /// sequence, that is consistent with that sequence as
+    /// [`validate`](Self::validate) finds it. A gene symbol gives the
+    /// description on each of the gene's accessions that can carry it:
+    /// coding transcripts for `c.`, non-coding ones for `n.`, either for
+    /// `r.` unless it counts a position from the CDS, proteins for `p.`,
+    /// genomic sequences for `g.`. An unversioned accession gives it on each
+    /// version `catalogue` lists, newest first, or on the accession itself
+    /// where the catalogue lists that alone, for a record with no version of
+    /// its own. A versioned accession gives the description itself. Empty
+    /// when the store holds sequences under the name and none is consistent
+    /// with the description. Each variant it returns, read again with the
+    /// same catalogue, gives itself alone.
     ///
     /// # Errors
     ///
     /// [`HgvsError::DataProviderError`] when the store holds nothing under
-    /// the name of the description's kind, or the name is an unversioned accession and there is no
-    /// `catalogue` to list its versions; any error the provider or the
-    /// catalogue raises, and any `validate` raises rather than answering.
+    /// the name that can carry the description, when the name is an
+    /// unversioned accession and there is no `catalogue`, or when the
+    /// catalogue lists something other than the name's versions; any error
+    /// the provider or the catalogue raises, and any `validate` raises
+    /// rather than answering.
     pub fn consistent_variants(
         &self,
         var: &SequenceVariant,
@@ -91,10 +98,22 @@ impl<'a> VariantMapper<'a> {
                 "no version of {name} is held"
             )));
         }
-        if let Some(other) = versions.iter().find(|ac| !is_a_version_of(ac, name)) {
-            return Err(HgvsError::DataProviderError(format!(
-                "the accession catalogue lists {other} as a version of {name}"
-            )));
+        let bare = versions.len() == 1 && versions[0] == name;
+        if !bare {
+            if let Some(other) = versions.iter().find(|ac| !is_a_version_of(ac, name)) {
+                return Err(HgvsError::DataProviderError(format!(
+                    "the accession catalogue lists {other} as a version of {name}"
+                )));
+            }
+            if let Some(twice) = versions
+                .iter()
+                .enumerate()
+                .find_map(|(i, ac)| versions[..i].contains(ac).then_some(ac))
+            {
+                return Err(HgvsError::DataProviderError(format!(
+                    "the accession catalogue lists {twice} twice as a version of {name}"
+                )));
+            }
         }
         Ok(versions.into_iter().map(|ac| on(var, ac)).collect())
     }
@@ -113,13 +132,15 @@ impl<'a> VariantMapper<'a> {
             "g" => (IdentifierKind::Genomic, &[T::GenomicAccession]),
             _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
         };
-        let on_each: Vec<SequenceVariant> = self
-            .provider()
-            .get_symbol_accessions(var.ac(), IdentifierKind::Gene, target)?
-            .into_iter()
-            .filter(|(kind, _)| compatible.contains(kind))
-            .map(|(_, ac)| on(var, ac))
-            .collect();
+        let mut on_each = Vec::new();
+        for (kind, ac) in
+            self.provider()
+                .get_symbol_accessions(var.ac(), IdentifierKind::Gene, target)?
+        {
+            if compatible.contains(&kind) && self.carries(&ac, var)? {
+                on_each.push(on(var, ac));
+            }
+        }
         if on_each.is_empty() {
             return Err(HgvsError::DataProviderError(format!(
                 "no accession of {} for a {}. description is held",
@@ -131,6 +152,38 @@ impl<'a> VariantMapper<'a> {
     }
 }
 
+impl VariantMapper<'_> {
+    /// Whether the transcript `ac` can carry `var` as written: a `c.`
+    /// description needs a CDS, an `n.` one a transcript without one, and an
+    /// `r.` one, numbered as either, a CDS where it names a position counted
+    /// from one. Anything else is not a transcript description.
+    fn carries(&self, ac: &str, var: &SequenceVariant) -> Result<bool, HgvsError> {
+        let kind = var.coordinate_type();
+        if !matches!(kind, "c" | "n" | "r") {
+            return Ok(true);
+        }
+        let coding = self.has_cds(ac, ReadAs::Description(kind))?;
+        Ok(match kind {
+            "c" => coding,
+            "n" => !coding,
+            _ => coding || !counts_from_the_cds(var),
+        })
+    }
+}
+
+/// Whether an `r.` description, or a member of one, names a position counted
+/// from the CDS: before its first base, `r.-2`, or after its stop, `r.*5`.
+fn counts_from_the_cds(var: &SequenceVariant) -> bool {
+    let from_the_cds = |p: &BaseOffsetPosition| p.anchor == Anchor::CdsEnd || p.base.0 < 1;
+    match var {
+        SequenceVariant::Rna(r) => r.posedit.pos.as_ref().is_some_and(|pos| {
+            from_the_cds(&pos.start) || pos.end.as_ref().is_some_and(from_the_cds)
+        }),
+        SequenceVariant::CisPhased(cis) => cis.members.iter().any(counts_from_the_cds),
+        _ => false,
+    }
+}
+
 /// `var` on `ac`.
 fn on(var: &SequenceVariant, ac: String) -> SequenceVariant {
     let mut var = var.clone();
@@ -138,14 +191,11 @@ fn on(var: &SequenceVariant, ac: String) -> SequenceVariant {
     var
 }
 
-/// Whether `ac` is `name` followed by `.` and digits, or `name` itself, the
-/// one version of a record that has none of its own.
+/// Whether `ac` is `name` followed by `.` and a version number.
 fn is_a_version_of(ac: &str, name: &str) -> bool {
-    ac == name
-        || ac
-            .strip_prefix(name)
-            .and_then(|v| v.strip_prefix('.'))
-            .is_some_and(is_digits)
+    ac.strip_prefix(name)
+        .and_then(|v| v.strip_prefix('.'))
+        .is_some_and(|v| is_digits(v) && !v.starts_with('0'))
 }
 
 fn is_digits(s: &str) -> bool {

@@ -3267,8 +3267,8 @@ ______________________________________________________________________
 ### A name that is not one sequence is read on each the store holds
 
 > **A description on a gene symbol, or on an accession without a version, names no one sequence. `consistent_variants`
-> reads it on each versioned accession the store holds under the name, a gene's transcripts or proteins of the
-> description's kind, or an accession's versions newest first, and keeps those whose sequence holds what the description
+> reads it on each accession the store holds as one sequence under the name, a gene's accessions that can carry the
+> description, or an accession's versions newest first, and keeps those whose sequence holds what the description
 > states. It does not choose among them. Equivalence reads a gene symbol the same way, and two descriptions are the same
 > change if any reading makes them so.**
 
@@ -3290,18 +3290,21 @@ The answer is a list, and an empty one is an answer: the store holds sequences u
 description. A versioned description the reference contradicts gives an empty list too, as `validate` gives false. An
 error means the store could not say what the name refers to: a name nothing is held under, a gene with no accession of
 the description's kind, or an unversioned accession with no catalogue to list its versions. Every variant returned is on
-a versioned accession and holds there, so reading it again gives it alone. Kinds are never crossed: a description on a
-transcript is read on transcripts, a `g.` description on a gene symbol on genomic sequences only, and a bare transcript
-does not become its protein. A record with no version of its own, a UniProt accession, is its own one version where the
-catalogue lists it so, and a catalogue that lists anything but the name and its versions is an error.
+an accession that is one sequence, and holds there, so reading it again gives it alone. A record with no version of its
+own, a UniProt accession, is its own one version where the catalogue lists it alone, and a catalogue that lists anything
+but the name's versions is an error. Kinds are never crossed. A gene symbol is read on the accessions that can carry the
+description: a `c.` description on the gene's coding transcripts, an `n.` one on its non-coding transcripts, an `r.` one
+on either unless it counts a position from the CDS, a `p.` one on the gene's proteins and a `g.` one on its genomic
+sequences. A bare transcript does not become its protein.
 
 Equivalence reads a gene symbol on each of the gene's accessions, sets aside those whose reference contradicts the
 description, and answers from any reading that makes the two the same. It reads the symbol before an `r.` description is
 converted to its `c.` spelling, so an `r.` description on a gene symbol compares as its `c.` spelling does. A reading
-that crosses an exon junction on its transcript is [refused](#a-range-across-an-exon-junction-is-the-genomic-range) and
-takes no part; the refusal is the answer only when no other reading makes the two the same. Answering from any reading
-departs from [one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the readings
-disagree; whether equivalence should instead refuse such a description, listing its readings, is open in
+that crosses an exon junction on its transcript is [refused](#a-range-across-an-exon-junction-is-the-genomic-range)
+against any reading spelled otherwise, and takes no part; the refusal is the answer only when no other pair of readings
+makes the two the same. Answering from any reading departs from
+[one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the readings disagree; whether
+equivalence should instead refuse such a description, listing its readings, is open in
 [#145](https://github.com/populationgenomics/hgvs-weaver/issues/145). Equivalence does not read an unversioned accession
 on its versions.
 
@@ -3326,7 +3329,7 @@ on its versions.
   name that is not one sequence.
 
 <details>
-<summary><strong>Tests asserting this choice (31)</strong></summary>
+<summary><strong>Tests asserting this choice (40)</strong></summary>
 
 `consistent_variants_test::a_gene_symbol_gives_the_description_on_each_transcript_that_holds_it`,
 `::a_protein_description_on_a_gene_symbol_gives_each_protein_that_holds_it`,
@@ -3346,6 +3349,14 @@ on its versions.
 `::an_allele_on_a_gene_symbol_gives_the_allele_on_each_transcript_that_holds_it`,
 `::a_record_the_catalogue_lists_as_its_own_version_gives_itself`,
 `::a_catalogue_listing_another_accession_as_a_version_is_an_error`,
+`::a_catalogue_listing_a_version_with_a_leading_zero_is_an_error`, `::a_catalogue_listing_a_version_twice_is_an_error`,
+`::a_catalogue_listing_the_bare_name_beside_its_versions_is_an_error`,
+`::a_genomic_description_on_a_gene_symbol_with_no_genomic_accession_is_an_error`,
+`::a_coding_description_on_a_gene_symbol_is_read_on_its_coding_transcripts`,
+`::a_non_coding_description_on_a_gene_symbol_is_read_on_its_non_coding_transcripts`,
+`::an_r_description_on_a_gene_symbol_is_read_on_coding_and_non_coding_transcripts`,
+`::an_r_description_counting_from_the_cds_on_a_gene_symbol_is_read_on_its_coding_transcripts`,
+`::an_r_description_on_a_gene_symbol_is_its_own_spelling_on_a_transcript_whose_junction_it_crosses`,
 `::an_r_description_on_a_gene_symbol_is_compared_on_the_transcripts_that_hold_it`,
 `::an_r_description_on_a_gene_symbol_crossing_one_transcripts_junction_is_compared_on_the_others`,
 `::an_r_description_on_a_gene_symbol_crossing_a_junction_is_refused_where_no_other_reading_matches`;

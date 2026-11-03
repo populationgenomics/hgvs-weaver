@@ -782,9 +782,9 @@ impl PyAccessionTag {
     module = "weaver._weaver",
     skip_from_py_object
 )]
-#[doc = "A description on a versioned accession, consistent with its sequence."]
+#[doc = "A description on an accession the store holds as one sequence, consistent with that\nsequence."]
 pub struct PyConsistentVariant {
-    /// The description on one versioned accession.
+    /// The description on one accession.
     #[pyo3(get)]
     variant: PyVariant,
     /// Whether the description states bases or residues the sequence was found
@@ -971,7 +971,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var, catalogue = None))]
-    #[doc = "Every variant a description can be on a versioned accession the store holds,\nconsistent with that accession's sequence as validate finds it.\n\nA gene symbol gives the description on each of the gene's accessions of its kind\n(transcripts for c., n. and r., proteins for p.); an unversioned accession on each\nversion the catalogue lists, newest first; a versioned accession the description\nitself. Each variant returned gives itself alone. Choosing among them, such as the\nMANE Select transcript where it is consistent, is the caller's.\n\nArgs:\n    var: The Variant, on a gene symbol, an unversioned accession or a versioned one.\n    catalogue: Optional AccessionCatalogue: lists the versions of an unversioned\n        accession, and gives each result its status and tags. Without it, an\n        unversioned accession is an error, and status is None.\n\nReturns:\n    A list of ConsistentVariant, empty when the store holds sequences under the\n    name and none is consistent with the description.\n\nRaises:\n    DataProviderError: If the store holds nothing under the name of the\n        description's kind, or the name is an unversioned accession and there is no\n        catalogue, or the provider or catalogue fails.\n    HGVSError: If validate raises rather than answering for a candidate."]
+    #[doc = "Every variant a description can be on an accession the store holds as one\nsequence, consistent with that sequence as validate finds it.\n\nA gene symbol gives the description on each of the gene's accessions that can carry\nit: coding transcripts for c., non-coding ones for n., either for r. unless it\ncounts a position from the CDS, proteins for p., genomic sequences for g. An\nunversioned accession gives it on each version the catalogue lists, newest first,\nor on the accession itself where the catalogue lists that alone, for a record with\nno version of its own. A versioned accession gives the description itself.\nEach variant returned gives itself alone. Choosing among them, such as the MANE\nSelect transcript where it is consistent, is the caller's.\n\nArgs:\n    var: The Variant, on a gene symbol, an unversioned accession or a versioned one.\n    catalogue: Optional AccessionCatalogue: lists the versions of an unversioned\n        accession, and gives each result its status and tags. Without it, an\n        unversioned accession is an error, and status is None.\n\nReturns:\n    A list of ConsistentVariant, empty when the store holds sequences under the\n    name and none is consistent with the description.\n\nRaises:\n    DataProviderError: If the store holds nothing under the name of the\n        description's kind, or the name is an unversioned accession and there is no\n        catalogue, or the catalogue lists something other than the name's versions, or the\n        provider or catalogue fails.\n    HGVSError: If validate raises rather than answering for a candidate."]
     fn consistent_variants(
         &self,
         var: &PyVariant,

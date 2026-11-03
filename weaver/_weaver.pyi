@@ -50,7 +50,10 @@ class CigarError(HGVSError): ...
 
 @final
 class ConsistentVariant:
-    """A description on a versioned accession, consistent with its sequence."""
+    """
+    A description on an accession the store holds as one sequence, consistent with that
+    sequence.
+    """
     @property
     def states_bases(self) -> bool:
         """Whether the description states bases or residues the sequence was found
@@ -69,7 +72,7 @@ class ConsistentVariant:
         """
     @property
     def variant(self) -> Variant:
-        """The description on one versioned accession."""
+        """The description on one accession."""
 
 class DataProviderError(HGVSError): ...
 
@@ -244,14 +247,17 @@ class VariantMapper:
         """
     def consistent_variants(self, var: Variant, catalogue: Any | None = ...) -> list[ConsistentVariant]:
         """
-        Every variant a description can be on a versioned accession the store holds,
-        consistent with that accession's sequence as validate finds it.
+        Every variant a description can be on an accession the store holds as one
+        sequence, consistent with that sequence as validate finds it.
 
-        A gene symbol gives the description on each of the gene's accessions of its kind
-        (transcripts for c., n. and r., proteins for p.); an unversioned accession on each
-        version the catalogue lists, newest first; a versioned accession the description
-        itself. Each variant returned gives itself alone. Choosing among them, such as the
-        MANE Select transcript where it is consistent, is the caller's.
+        A gene symbol gives the description on each of the gene's accessions that can carry
+        it: coding transcripts for c., non-coding ones for n., either for r. unless it
+        counts a position from the CDS, proteins for p., genomic sequences for g. An
+        unversioned accession gives it on each version the catalogue lists, newest first,
+        or on the accession itself where the catalogue lists that alone, for a record with
+        no version of its own. A versioned accession gives the description itself.
+        Each variant returned gives itself alone. Choosing among them, such as the MANE
+        Select transcript where it is consistent, is the caller's.
 
         Args:
             var: The Variant, on a gene symbol, an unversioned accession or a versioned one.
@@ -266,7 +272,8 @@ class VariantMapper:
         Raises:
             DataProviderError: If the store holds nothing under the name of the
                 description's kind, or the name is an unversioned accession and there is no
-                catalogue, or the provider or catalogue fails.
+                catalogue, or the catalogue lists something other than the name's versions, or the
+                provider or catalogue fails.
             HGVSError: If validate raises rather than answering for a candidate.
         """
     def c_to_g(self, var_c: Variant, reference_ac: str | None = ...) -> Variant:
