@@ -413,3 +413,33 @@ fn protein_alleles_alike_on_both_versions_are_analogous_in_either_order() {
         [EquivalenceLevel::Analogous, EquivalenceLevel::Analogous]
     );
 }
+
+#[test]
+fn a_protein_version_the_provider_does_not_serve_is_an_error_in_either_order() {
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (
+        parse_hgvs_variant("NP_X.1:p.Lys2Gln").unwrap(),
+        parse_hgvs_variant("NP_X.2:p.Lys2del").unwrap(),
+    );
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let err = eq.equivalent_level(x, y).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::DataProviderError(m) if m.contains("NP_X.2")),
+            "{x} vs {y}: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_protein_allele_and_one_description_alike_on_both_versions_are_analogous_in_either_order() {
+    assert_eq!(
+        across_versions(
+            "MKLAYK",
+            "NP_X.1:p.[Lys2Gln;Ala4Gly]",
+            "NP_X.0:p.Lys2_Ala4delinsGlnLeuGly"
+        ),
+        [EquivalenceLevel::Analogous, EquivalenceLevel::Analogous]
+    );
+}

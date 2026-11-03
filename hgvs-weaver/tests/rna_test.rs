@@ -399,3 +399,46 @@ fn an_r_change_across_the_junction_is_its_one_member_allele() {
         .unwrap()
         .is_equivalent());
 }
+
+#[test]
+fn a_record_that_cannot_be_found_beside_a_junction_change_is_the_error_in_either_order() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (parse("NM_R.1:r.44_47del"), parse("NM_ABSENT.1:c.10C>G"));
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let err = eq.equivalent_level(x, y).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::DataProviderError(m) if m.contains("NM_ABSENT.1")),
+            "{x} vs {y}: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_base_the_record_lacks_beside_a_junction_change_is_the_error_in_either_order() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    // c.10 is a C.
+    let (a, b) = (parse("NM_R.1:r.44_47del"), parse("NM_R.1:c.10A>G"));
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let err = eq.equivalent_level(x, y).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::ReferenceMismatch { .. }),
+            "{x} vs {y}: {err}"
+        );
+    }
+}
+
+#[test]
+fn two_junction_changes_are_refused_naming_one_in_either_order() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (parse("NM_R.1:r.44_47del"), parse("NM_R.1:r.44_47delinsa"));
+    assert_eq!(
+        eq.equivalent_level(&a, &b).unwrap_err().to_string(),
+        eq.equivalent_level(&b, &a).unwrap_err().to_string()
+    );
+}

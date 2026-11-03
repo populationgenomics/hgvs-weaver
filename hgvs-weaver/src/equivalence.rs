@@ -88,32 +88,25 @@ impl<'a> VariantEquivalence<'a> {
         // n. letters below as an allele's members are not.
         let var1 = rna_alone(var1);
         let var2 = rna_alone(var2);
-        // An r. change across a splice junction has no genomic form, so it is
-        // compared only with its own spelling or by the protein it leaves.
-        if spelling(&var1) != spelling(&var2) {
-            let checks = [(&*var1, &*var2), (&*var2, &*var1)].map(|(rna, other)| {
-                if other.coordinate_type() == "p" {
-                    Ok(())
-                } else {
-                    self.rna_on_the_genome(rna)
-                }
-            });
-            // A record that cannot be found is the error before a refusal,
-            // whichever side names it.
-            let (refusals, failures): (Vec<_>, Vec<_>) = checks
-                .into_iter()
-                .filter_map(Result::err)
-                .partition(is_a_junction_refusal);
-            if let Some(e) = failures.into_iter().chain(refusals).next() {
-                return Err(e);
-            }
-        }
+        let (rna1, rna2) = (var1.clone(), var2.clone());
         // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
         let var1 = self.rna_as_transcript(var1)?;
         let var2 = self.rna_as_transcript(var2)?;
         // Expand gene symbols if present
         let vars1 = self.held(self.expand_if_gene_symbol(&var1)?)?;
         let vars2 = self.held(self.expand_if_gene_symbol(&var2)?)?;
+        // An r. change across a splice junction has no genomic form, so it is
+        // compared only with its own spelling or by the protein it leaves.
+        if spelling(&rna1) != spelling(&rna2) {
+            let mut sides = [(&*rna1, &*rna2), (&*rna2, &*rna1)];
+            // The refusal names one description whichever order they come in.
+            sides.sort_by_cached_key(|(rna, _)| spelling(rna));
+            for (rna, other) in sides {
+                if other.coordinate_type() != "p" {
+                    self.rna_on_the_genome(rna)?;
+                }
+            }
+        }
 
         for v1 in &vars1 {
             for v2 in &vars2 {
@@ -911,16 +904,6 @@ fn rna_alone(var: std::borrow::Cow<'_, SequenceVariant>) -> std::borrow::Cow<'_,
             std::borrow::Cow::Owned(cis.members[0].clone())
         }
         _ => var,
-    }
-}
-
-/// Whether `e` is [`VariantMapper::r_on_the_genome`]'s refusal, of a
-/// description or of a member of an allele.
-fn is_a_junction_refusal(e: &HgvsError) -> bool {
-    match e {
-        HgvsError::UnsupportedOperation(_) => true,
-        HgvsError::CisMember { source, .. } => is_a_junction_refusal(source),
-        _ => false,
     }
 }
 

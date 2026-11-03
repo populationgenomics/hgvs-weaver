@@ -4860,7 +4860,10 @@ impl<'a> VariantMapper<'a> {
     /// An r. variant as the c. or n. variant it is spelled from, refused
     /// when it spans a splice junction: the spliced RNA has no single genomic
     /// equivalent, so nothing that reads it on the genome can take it.
-    pub fn r_on_the_genome(&self, r: &RVariant) -> Result<crate::SequenceVariant, HgvsError> {
+    pub(crate) fn r_on_the_genome(
+        &self,
+        r: &RVariant,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
         let tx = self.r_as_transcript(r)?;
         let posedit = match &tx {
             crate::SequenceVariant::Coding(c) => &c.posedit,
