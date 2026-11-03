@@ -312,6 +312,53 @@ pub trait TranscriptSearch {
     ) -> Result<Vec<String>, HgvsError>;
 }
 
+/// Interface for what a store holds under an accession: the versions of an
+/// unversioned one, and the status and tags of a versioned one. Optional, as
+/// [`TranscriptSearch`] is: a provider that cannot list versions is still a
+/// [`DataProvider`].
+pub trait AccessionCatalogue {
+    /// Every versioned accession held under the unversioned `ac`, newest
+    /// first; empty when the store holds none.
+    fn get_accession_versions(&self, ac: &str) -> Result<Vec<String>, HgvsError>;
+    /// The status and tags of the versioned accession `ac`, `None` when the
+    /// store holds nothing under it. A protein carries the tags of the
+    /// transcripts that encode it.
+    fn get_accession_info(&self, ac: &str) -> Result<Option<AccessionInfo>, HgvsError>;
+}
+
+/// What a store records about a versioned accession.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessionInfo {
+    pub status: AccessionStatus,
+    pub tags: Vec<AccessionTag>,
+}
+
+/// Whether an accession is the version its publisher's current release names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AccessionStatus {
+    /// The version the current release names.
+    Current,
+    /// Replaced by a later version.
+    Superseded,
+    /// Withdrawn.
+    Suppressed,
+}
+
+/// A designation a curated set gives an accession.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AccessionTag {
+    /// MANE Select: the one transcript MANE chose for a protein-coding gene.
+    ManeSelect,
+    /// MANE Plus Clinical: a transcript MANE adds for clinical reporting.
+    ManePlusClinical,
+    /// RefSeq Select: NCBI's representative transcript for a gene.
+    RefSeqSelect,
+    /// Ensembl canonical: Ensembl's representative transcript for a gene.
+    EnsemblCanonical,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum IdentifierKind {

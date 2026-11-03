@@ -88,22 +88,32 @@ impl<'a> VariantEquivalence<'a> {
         // n. letters below as an allele's members are not.
         let var1 = rna_alone(var1);
         let var2 = rna_alone(var2);
-        let (rna1, rna2) = (var1.clone(), var2.clone());
+        // A gene symbol is read on each of the gene's accessions of its kind,
+        // before an r. description is converted on its transcript.
+        let on1 = self.on_each_gene_accession(&var1)?;
+        let on2 = self.on_each_gene_accession(&var2)?;
         // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
-        let var1 = self.rna_as_transcript(var1)?;
-        let var2 = self.rna_as_transcript(var2)?;
-        // Expand gene symbols if present
-        let vars1 = self.held(self.expand_if_gene_symbol(&var1)?)?;
-        let vars2 = self.held(self.expand_if_gene_symbol(&var2)?)?;
+        let vars1 = self.held(
+            on1.iter()
+                .map(|v| self.rna_as_transcript(v))
+                .collect::<Result<_, _>>()?,
+        )?;
+        let vars2 = self.held(
+            on2.iter()
+                .map(|v| self.rna_as_transcript(v))
+                .collect::<Result<_, _>>()?,
+        )?;
         // An r. change across a splice junction has no genomic form, so it is
         // compared only with its own spelling or by the protein it leaves.
-        if spelling(&rna1) != spelling(&rna2) {
-            let mut sides = [(&*rna1, &*rna2), (&*rna2, &*rna1)];
+        if spelling(&var1) != spelling(&var2) {
+            let mut sides = [(&var1, &on1, &var2), (&var2, &on2, &var1)];
             // The refusal names one description whichever order they come in.
-            sides.sort_by_cached_key(|(rna, _)| spelling(rna));
-            for (rna, other) in sides {
+            sides.sort_by_cached_key(|(var, _, _)| spelling(var));
+            for (_, on_each, other) in sides {
                 if other.coordinate_type() != "p" {
-                    self.rna_on_the_genome(rna)?;
+                    for rna in on_each {
+                        self.rna_on_the_genome(rna)?;
+                    }
                 }
             }
         }
@@ -143,15 +153,27 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
-    fn rna_as_transcript<'v>(
-        &self,
-        var: std::borrow::Cow<'v, SequenceVariant>,
-    ) -> Result<std::borrow::Cow<'v, SequenceVariant>, HgvsError> {
-        match &*var {
+    /// An r. variant as the c. or n. variant it is spelled from; any other
+    /// variant as it is.
+    fn rna_as_transcript(&self, var: &SequenceVariant) -> Result<SequenceVariant, HgvsError> {
+        match var {
             SequenceVariant::Rna(r) if !r.posedit.edit.is_whole_transcript() => {
-                Ok(std::borrow::Cow::Owned(self.mapper.r_as_transcript(r)?))
+                self.mapper.r_as_transcript(r)
             }
-            _ => Ok(var),
+            var => Ok(var.clone()),
+        }
+    }
+
+    /// `var` on each of a gene's accessions of its kind where it names a
+    /// gene symbol, else `var` alone.
+    fn on_each_gene_accession(
+        &self,
+        var: &SequenceVariant,
+    ) -> Result<Vec<SequenceVariant>, HgvsError> {
+        if self.mapper.refs.identifier_type(var.ac())? == crate::data::IdentifierType::GeneSymbol {
+            self.mapper.on_each_of_the_genes_accessions(var)
+        } else {
+            Ok(vec![var.clone()])
         }
     }
 
@@ -448,7 +470,7 @@ impl<'a> VariantEquivalence<'a> {
         let mut keys = Vec::with_capacity(cis.members.len());
         for m in &cis.members {
             if !m.has_exact_position() {
-                let m = self.rna_as_transcript(mito_as_genomic(m))?;
+                let m = self.rna_as_transcript(&mito_as_genomic(m))?;
                 keys.push(MemberKey::Spelling(spelling(&m)));
                 continue;
             }
@@ -808,51 +830,6 @@ impl<'a> VariantEquivalence<'a> {
             ProteinRead::Said(outcome) => Ok(outcome),
             ProteinRead::Edit(edit) => Ok(Some(edit.outcome(&self.mapper.reference_protein(ac)?))),
         }
-    }
-
-    fn expand_if_gene_symbol(
-        &self,
-        var: &SequenceVariant,
-    ) -> Result<Vec<SequenceVariant>, HgvsError> {
-        let ac = var.ac();
-
-        // Use DataProvider to determine if this is a symbol or an accession.
-        let id_type = self.mapper.refs.identifier_type(ac)?;
-
-        if id_type == crate::data::IdentifierType::GeneSymbol {
-            // An allele on a gene symbol is expanded as its members would be.
-            use crate::data::IdentifierType as T;
-            let (target_kind, compatible): (IdentifierKind, &[T]) = match var.coordinate_type() {
-                "p" => (IdentifierKind::Protein, &[T::ProteinAccession]),
-                "c" | "n" | "r" => (IdentifierKind::Transcript, &[T::TranscriptAccession]),
-                "g" => (
-                    IdentifierKind::Genomic,
-                    &[T::GenomicAccession, T::TranscriptAccession],
-                ),
-                _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
-            };
-
-            let accessions = self.mapper.provider().get_symbol_accessions(
-                ac,
-                IdentifierKind::Gene,
-                target_kind,
-            )?;
-            let expanded: Vec<SequenceVariant> = accessions
-                .into_iter()
-                .filter(|(ac_type, _)| compatible.contains(ac_type))
-                .map(|(_, new_ac)| {
-                    let mut v = var.clone();
-                    v.set_ac(new_ac);
-                    v
-                })
-                .collect();
-            if !expanded.is_empty() {
-                return Ok(expanded);
-            }
-        }
-
-        // Default: return as-is.
-        Ok(vec![var.clone()])
     }
 }
 

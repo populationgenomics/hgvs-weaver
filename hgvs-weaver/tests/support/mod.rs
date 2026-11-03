@@ -9,15 +9,17 @@
 //! transcripts it was given; maps transcripts to proteins and back through
 //! [`DataProvider::get_symbol_accessions`]; classifies accessions by prefix
 //! unless told otherwise; finds transcripts by reference for
-//! [`TranscriptSearch`]; and looks sequences up by refget digest for
-//! [`Refget`], so `from_vrs` round-trips work.
+//! [`TranscriptSearch`]; looks sequences up by refget digest for
+//! [`Refget`], so `from_vrs` round-trips work; and lists the versions it
+//! holds of an accession, with the status and tags it was told, for
+//! [`AccessionCatalogue`].
 
 #![allow(dead_code)]
 
 use hgvs_weaver::coords::{GenomicPos, TranscriptPos};
 use hgvs_weaver::data::{
-    DataProvider, ExonData, IdentifierKind, IdentifierType, Strand, TranscriptData,
-    TranscriptSearch,
+    AccessionCatalogue, AccessionInfo, AccessionStatus, AccessionTag, DataProvider, ExonData,
+    IdentifierKind, IdentifierType, Strand, TranscriptData, TranscriptSearch,
 };
 use hgvs_weaver::error::HgvsError;
 use hgvs_weaver::refget::Refget;
@@ -39,6 +41,8 @@ pub struct Provider {
     /// When set, a protein's transcripts are not found, as hgvs-weaver-data
     /// does not look them up.
     no_protein_transcripts: bool,
+    /// What the catalogue records about an accession.
+    accession_info: BTreeMap<String, AccessionInfo>,
 }
 
 impl Provider {
@@ -81,6 +85,23 @@ impl Provider {
     /// Maps `tx_ac` to `np_ac` (Transcript -> Protein) and back.
     pub fn protein_for(mut self, tx_ac: &str, np_ac: &str) -> Self {
         self.proteins.push((tx_ac.to_string(), np_ac.to_string()));
+        self
+    }
+
+    /// Records `status` and `tags` for the versioned accession `ac`.
+    pub fn accession_info(
+        mut self,
+        ac: &str,
+        status: AccessionStatus,
+        tags: &[AccessionTag],
+    ) -> Self {
+        self.accession_info.insert(
+            ac.to_string(),
+            AccessionInfo {
+                status,
+                tags: tags.to_vec(),
+            },
+        );
         self
     }
 
@@ -258,6 +279,27 @@ impl DataProvider for Provider {
             .get(ac)
             .copied()
             .unwrap_or_else(|| identifier_type_from_prefix(ac)))
+    }
+}
+
+impl AccessionCatalogue for Provider {
+    fn get_accession_versions(&self, ac: &str) -> Result<Vec<String>, HgvsError> {
+        let mut held: Vec<(u32, String)> = self
+            .sequences
+            .keys()
+            .chain(self.transcripts.iter().map(|t| &t.ac))
+            .filter_map(|held| {
+                let version = held.strip_prefix(ac)?.strip_prefix('.')?.parse().ok()?;
+                Some((version, held.clone()))
+            })
+            .collect();
+        held.sort_by(|a, b| b.cmp(a));
+        held.dedup();
+        Ok(held.into_iter().map(|(_, ac)| ac).collect())
+    }
+
+    fn get_accession_info(&self, ac: &str) -> Result<Option<AccessionInfo>, HgvsError> {
+        Ok(self.accession_info.get(ac).cloned())
     }
 }
 
