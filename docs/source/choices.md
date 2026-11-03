@@ -96,7 +96,8 @@ or not, `dup` or `ins`, `c.` or `g.`, with its bases stated or bare. Text compar
 genome rather than the transcript keeps equivalence transitive: two transcript changes that leave one transcript can
 still be different changes to the genome when they sit on either side of an exon junction. A stated base the reference
 lacks is [an error](#a-stated-base-the-reference-lacks-is-an-error) before any comparison, even against the
-description's own spelling: the description is wrong, not different.
+description's own spelling: the description is wrong, not different. A gene symbol is refused only when every accession
+it names contradicts it.
 
 On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG:CAG`. `c.10=` and `c.20=` both make the
 reference, and are different statements; `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and says more.
@@ -121,7 +122,7 @@ question asked. The preferred spelling serves the readers that need one: tools t
 description's parts one at a time. A normalisation that changed the sequence, or the change on the genome, would hand
 them a different variant. What is kept is the change's placement, and its shape wherever the target's bases allow: a
 projection [states the target's bases](#a-projection-states-the-bases-of-the-target), widens a repeat to
-[its whole run](#a-repeat-is-projected-as-its-whole-run), and writes an edit touching bases the genome lacks over
+[its whole run](#a-repeat-is-projected-as-its-whole-run), and writes an edit touching bases one sequence lacks over
 [the whole unaligned run](#a-transcript-base-the-genome-lacks-projects-as-an-insertion). Spellings the specification
 treats as one value, `ins(20)` and `insN[20]`, `M` and `Met`, are one value when parsed.
 
@@ -151,7 +152,7 @@ changes meaning in storage, and one the specification reads differently means di
 each form is written as the specification spells it, the parentheses of each statement as the specification gives that
 statement, and no form is written that the specification gives another meaning, such as `X`, which has been used for a
 stop. The property tests hold every projection, normalisation and reading back from SPDI and VRS of a single variant to
-the first half; no property generates an allele in cis.
+the first half; no property parses back an allele in cis that weaver wrote.
 
 `p.M1?` is stored and printed as `p.Met1?`, and the `p.(Met1?)` that `c_to_p` writes for a lost start codon parses to
 the value it built.
@@ -739,8 +740,9 @@ ______________________________________________________________________
 The provider says so with `cds_start_open` and `cds_end_open` on the transcript model. Without them a publisher's open
 CDS can only be given as whole, which numbers from a codon the record does not carry, or withheld, which reads every
 `c.` name as non-coding. With a 5' end open no change is predicted in `p.`, since the frame is a fact about the missing
-start; `c.=`, which names no position, still predicts `p.(=)`
-([below](#the-whole-transcript-unchanged-is-a-statement-not-a-change)).
+start; the statements, which name no position, still predict theirs: `c.=`, `r.=` and `r.(=)` give `p.(=)`
+([below](#the-whole-transcript-unchanged-is-a-statement-not-a-change)), `r.0` gives `p.0?`, and `r.spl` and `r.?` give
+`p.?`.
 
 With a 3' end open the record holds every base of every whole codon it carries, the last one included, so a change
 inside them is predicted, and only an answer that needs a base past the last whole codon is refused. Three kinds of
@@ -1014,10 +1016,11 @@ from. weaver does not invent any of these (for example, a reference allele over 
 what follows from the statement:
 
 - **Protein.** If nothing changed in the transcript, the protein it encodes is predicted unchanged, so `c.=` gives
-  `p.(=)`. This holds even where the record lacks the start codon (a CDS open at its 5' end). The statement covers only
-  the protein the provider pairs with the transcript: naming another protein is an error, and so is `c.=` on a
-  transcript without a CDS. In equivalence `c.=` is the same as `p.(=)` and `p.=` on that protein, Identity with both,
-  and not equivalent to either on any other protein. A `p.(=)` names no residues, so `c.=` has no protein allele.
+  `p.(=)`. This holds even where the record lacks the start codon (a CDS open at its 5' end), for `r.=` and `r.(=)` as
+  for `c.=`. The statement covers only the protein the provider pairs with the transcript: naming another protein is an
+  error, and so is `c.=` on a transcript without a CDS. In equivalence `c.=` is the same as `p.(=)` and `p.=` on that
+  protein, Identity with both, and not equivalent to either on any other protein. A `p.(=)` names no residues, so `c.=`
+  has no protein allele.
 - **No `r.` spelling.** `c.=` and `r.=` make different claims: one says the DNA was analysed, the other the RNA. So
   `c_to_r` refuses `c.=` and `r_to_c` refuses `r.=`, as both refuse `r.spl`. For the same reason the two are not
   equivalent. They do not contradict each other, but neither implies the other. `r.=` and `r.(=)` keep their own
@@ -1452,8 +1455,8 @@ ______________________________________________________________________
 
 > **`normalize` writes `c.306del`, not `c.306delC`, whether or not the edit moved. The same holds for every reference
 > base an edit can state: a duplication's, an inversion's, the deleted part of a delins and an identity's all come out
-> bare. A substitution keeps its base, which is part of how it is written. Parsing, projecting and the other operations
-> keep what was written.**
+> bare. A substitution keeps its base, which is part of how it is written. Parsing and the other operations keep what
+> was written, except where projecting [states the target's bases](#a-projection-states-the-bases-of-the-target).**
 
 A deletion written with its bases and one written without are one change, and `normalize` gives one change one spelling.
 Written with their bases or without, `g.6_8delCAG` and `g.6_8del` would otherwise each be normalised output, two
@@ -2942,12 +2945,12 @@ ______________________________________________________________________
 ### Protein alleles come from the coding change
 
 > **From a `p.` description, only edits that name a sequence have an allele. From a coding variant, every consequence
-> that names residues has one, because the edited transcript's translation is known; `p.(Met1?)`, `p.?` and `p.(=)` name
-> none.**
+> but `p.(Met1?)`, `p.?` and `p.(=)` has one, because the edited transcript's translation is known; `p.0?`'s is the
+> deletion of the whole protein.**
 
 A frameshift's allele is the residues from the first change to the new stop. The translated CDS must be the protein the
 provider serves; a difference is an annotation error and is reported as one. A silent change is the reference allele
-over the codons the edit touched; a deleted CDS is the deletion of the whole protein.
+over the codons the edit touched; a CDS deleted from the 5'UTR is the deletion of the whole protein.
 
 **Example** (`NP_TEST.1` is `MKLAAAYRQ` and `NP_X.1` is `MKLAYR`; SPDI is `sequence:position:deleted:inserted`):
 
@@ -3912,18 +3915,18 @@ apart are described as their own changes even where one delins of the same bases
 one change makes both. The allele states two changes with an unchanged codon between them, and its description names the
 change at each, as it does for members apart anywhere else in the CDS; written as one frameshift, it would name a change
 the allele does not state. Equivalence compares the two descriptions by the protein each leaves, which is the same, and
-grades them Analogous. A deletion of the whole CDS, apart from the other members, is `p.0?`; merged with a member beside
-it, it is the delins they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand alone: nothing
-is stated beside them. A member at an uncertain position, or one whose bases are not stated, leaves no codons to read,
-so `c_to_p` refuses the allele naming it, even where that member alone, in a UTR or an intron, would answer; a
-contradictory or ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is predicted
-unless the change its members make, or one of the changes it is finally written as, needs a base past the last whole
-codon the record carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is
+grades them Analogous. A deletion of the whole CDS from the 5'UTR, apart from the other members, is `p.0?`; merged with
+a member beside it, it is the delins they make together, as for one change. `p.?`, `p.(Met1?)`, `p.0?` and `p.(=)` stand
+alone: nothing is stated beside them. A member at an uncertain position, or one whose bases are not stated, leaves no
+codons to read, so `c_to_p` refuses the allele naming it, even where that member alone, in a UTR or an intron, would
+answer; a contradictory or ambiguous allele is refused as it is everywhere. On a CDS open at its 3' end, an allele is
+predicted unless the change its members make, or one of the changes it is finally written as, needs a base past the last
+whole codon the record carries ([the open CDS entry](#an-open-cds-end-numbers-no-position)): `c.[5C>T;29G>A]` is
 `p.[(Ala2Val;Gly10Glu)]` on a ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
 
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
 that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement, which names no
-bases: `?`, `spl`, `0` or `r.(?)`, found only in `r.` alleles, since the whole-sequence `c.=`
+bases: `?`, `spl`, `0` or `r.(?)`, found, among nucleotide alleles, only in `r.` alleles, since the whole-sequence `c.=`
 [cannot share an allele with a change](#overlapping-members-of-a-cis-allele-need-one-reading). An allele with either is
 compared member by member, as [the uncertain position entry](#an-uncertain-position-names-no-one-change) sets out: an
 uncertain member matches a member spelled as it is and each exact member is compared by its canonical allele, so
@@ -4709,10 +4712,10 @@ ______________________________________________________________________
 
 > **Letters uppercased, everything else dropped, as the refget specification defines.**
 
-With a `Refget` lookup, a sequence's accession is the one the lookup knows, and `from_vrs` uses the lookup to find the
-sequence a location names. Without one, the accession is computed from the whole sequence, and `from_vrs` needs the
-sequence's name passed. Either way, `from_vrs` refuses a location whose digest is not the named sequence's accession, so
-a wrong name is an error rather than a variant on another sequence.
+A sequence's accession is the one a `Refget` lookup knows, and otherwise is computed from the whole sequence. `from_vrs`
+uses a sequence name passed to it as given; with none, it needs a `Refget` lookup to find the sequence a location names.
+Either way, `from_vrs` refuses a location whose digest is not the named sequence's accession, so a wrong name is an
+error rather than a variant on another sequence.
 
 **Example:**
 
@@ -4990,16 +4993,16 @@ ______________________________________________________________________
 > `(70_80)`; three-letter residues rather than one-letter; bare `del` and `dup` where weaver writes the edit.**
 
 A description read in an older or shorter spelling is stored as the spelling it prints, so the printed text parses back
-to the same value. Bases or a count an edit states, `delC`, `dupC` or `del3`, are not a spelling but part of what the
-description says, and are checked; parsing keeps them, and the output of `normalize` and of reading back from SPDI or
-VRS [writes them bare](#deletions-and-duplications-are-written-bare). A position, a substituted residue, and the
-residues of a frameshift or extension are written in three-letter code: `p.M1?` is stored and printed as `p.Met1?`.
-Where only a stop can stand, `X` or `*` is `Ter`: after `fs`, after `ext` with a count (`ext*5` and `extX+5`, not the
-offset of `extXaa-5`), and at the start of an extension past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Where only
-any residue can stand, at any other position and in a repeat unit, it is `Xaa`; where both could, it is refused
-([below](#a-one-letter-x-that-could-be-a-stop-or-any-residue-is-refused)). The count after `fs` or `ext` is a number, so
-`ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion, deletion-insertion or repeat names are
-three-letter too, so that the printed description writes one code throughout
+to the same value. Bases an edit states, `delC` or `dupC`, are not a spelling but part of what the description says, and
+are checked; a count, `del3`, is kept but states nothing to check. Parsing keeps both, and the output of `normalize` and
+of reading back from SPDI or VRS [writes them bare](#deletions-and-duplications-are-written-bare). A position, a
+substituted residue, and the residues of a frameshift or extension are written in three-letter code: `p.M1?` is stored
+and printed as `p.Met1?`. Where only a stop can stand, `X` or `*` is `Ter`: after `fs`, after `ext` with a count
+(`ext*5` and `extX+5`, not the offset of `extXaa-5`), and at the start of an extension past the stop (`p.X30Qext*5` is
+`p.Ter30GlnextTer5`). Where only any residue can stand, at any other position and in a repeat unit, it is `Xaa`; where
+both could, it is refused ([below](#a-one-letter-x-that-could-be-a-stop-or-any-residue-is-refused)). The count after
+`fs` or `ext` is a number, so `ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion,
+deletion-insertion or repeat names are three-letter too, so that the printed description writes one code throughout
 ([below](#a-protein-description-uses-one-amino-acid-code)): `p.R2delinsKL` is `p.Arg2delinsLysLeu`.
 
 **Example:**
