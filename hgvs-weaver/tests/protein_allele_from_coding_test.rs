@@ -375,3 +375,41 @@ fn a_silent_change_across_the_stop_names_no_residue_past_it() {
     let p = mapper.c_to_p(&coding("NM_X.1:c.21_*1dup"), None).unwrap();
     assert_eq!(p.to_string(), "NP_X.1:p.(Ter7=)");
 }
+
+#[test]
+fn protein_alleles_alike_on_one_version_only_are_different_in_either_order() {
+    // On MKLLYR both delete one Leu of two and change Tyr5; on MKLAYR
+    // residue 4 is Ala.
+    assert_eq!(
+        across_versions(
+            "MKLLYR",
+            "NP_X.1:p.[Leu3del;Tyr5Asp]",
+            "NP_X.0:p.[Leu4del;Tyr5Asp]"
+        ),
+        [EquivalenceLevel::Different, EquivalenceLevel::Different]
+    );
+}
+
+#[test]
+fn a_protein_allele_naming_a_residue_another_version_lacks_is_different_in_either_order() {
+    assert_eq!(
+        across_versions(
+            "MKLAYRWW",
+            "NP_X.1:p.[Lys2Gln;Ala4Gly]",
+            "NP_X.0:p.[Lys2Gln;Trp7Gly]"
+        ),
+        [EquivalenceLevel::Different, EquivalenceLevel::Different]
+    );
+}
+
+#[test]
+fn protein_alleles_alike_on_both_versions_are_analogous_in_either_order() {
+    assert_eq!(
+        across_versions(
+            "MKLAYK",
+            "NP_X.1:p.[Lys2Gln;Ala4Gly]",
+            "NP_X.0:p.[Ala4Gly;Lys2Gln]"
+        ),
+        [EquivalenceLevel::Analogous, EquivalenceLevel::Analogous]
+    );
+}

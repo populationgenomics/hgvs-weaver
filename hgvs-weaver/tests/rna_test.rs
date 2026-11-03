@@ -374,3 +374,28 @@ fn an_r_change_across_the_junction_is_compared_with_the_protein_it_leaves() {
         .unwrap()
         .is_equivalent());
 }
+
+#[test]
+fn a_record_that_cannot_be_found_is_the_error_before_a_junction_refusal_in_either_order() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (parse("NM_R.1:r.44_47del"), parse("NM_ABSENT.1:r.44_47del"));
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let err = eq.equivalent_level(x, y).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::DataProviderError(m) if m.contains("NM_ABSENT.1")),
+            "{x} vs {y}: {err}"
+        );
+    }
+}
+
+#[test]
+fn an_r_change_across_the_junction_is_its_one_member_allele() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    assert!(VariantEquivalence::new(&mapper, &hdp)
+        .equivalent_level(&parse("NM_R.1:r.44_47del"), &parse("NM_R.1:r.[44_47del]"),)
+        .unwrap()
+        .is_equivalent());
+}

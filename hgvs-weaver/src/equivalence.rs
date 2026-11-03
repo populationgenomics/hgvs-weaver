@@ -84,13 +84,28 @@ impl<'a> VariantEquivalence<'a> {
         // reference; compare it as one.
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
+        // An r. allele of one member is that member, which is read in c. or
+        // n. letters below as an allele's members are not.
+        let var1 = rna_alone(var1);
+        let var2 = rna_alone(var2);
         // An r. change across a splice junction has no genomic form, so it is
         // compared only with its own spelling or by the protein it leaves.
         if spelling(&var1) != spelling(&var2) {
-            for (rna, other) in [(&*var1, &*var2), (&*var2, &*var1)] {
-                if other.coordinate_type() != "p" {
-                    self.rna_on_the_genome(rna)?;
+            let checks = [(&*var1, &*var2), (&*var2, &*var1)].map(|(rna, other)| {
+                if other.coordinate_type() == "p" {
+                    Ok(())
+                } else {
+                    self.rna_on_the_genome(rna)
                 }
+            });
+            // A record that cannot be found is the error before a refusal,
+            // whichever side names it.
+            let (refusals, failures): (Vec<_>, Vec<_>) = checks
+                .into_iter()
+                .filter_map(Result::err)
+                .partition(is_a_junction_refusal);
+            if let Some(e) = failures.into_iter().chain(refusals).next() {
+                return Err(e);
             }
         }
         // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
@@ -211,9 +226,7 @@ impl<'a> VariantEquivalence<'a> {
         }
         let same = match (var1, var2) {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
-                // On two versions of one accession, the two are the same
-                // change only when they are on each version, so the order in
-                // which they are given does not matter.
+                // Read each on the other's version too; Analogous only if both agree.
                 let level = self.protein_level(p1, || self.protein_outcome_on(p1, &p1.ac), p2)?;
                 if level == EquivalenceLevel::Analogous && p1.ac != p2.ac {
                     return self.protein_level(p2, || self.protein_outcome_on(p2, &p2.ac), p1);
@@ -350,20 +363,27 @@ impl<'a> VariantEquivalence<'a> {
         if base_accession(allele.ac()) != base_accession(other.ac()) {
             return Ok(EquivalenceLevel::Different);
         }
-        let ac = allele.ac();
-        let same = match (
-            self.mapper.protein_comparand(allele, ac)?,
-            self.mapper.protein_comparand(other, ac)?,
-        ) {
-            (Some(a), Some(b)) => a.same(b),
-            _ => match (allele, other) {
-                (SequenceVariant::CisPhased(a), SequenceVariant::CisPhased(b)) => matches!(
-                    (self.member_keys(a)?, self.member_keys(b)?),
-                    (Some(x), Some(y)) if x == y
-                ),
-                _ => false,
-            },
+        let differ = allele.ac() != other.ac();
+        let same_on = |ac: &str| -> Result<bool, HgvsError> {
+            let (Some(a), Some(b)) = (
+                read_across_versions(self.mapper.protein_comparand(allele, ac), differ)?,
+                read_across_versions(self.mapper.protein_comparand(other, ac), differ)?,
+            ) else {
+                return Ok(false);
+            };
+            Ok(match (a, b) {
+                (Some(a), Some(b)) => a.same(b),
+                _ => match (allele, other) {
+                    (SequenceVariant::CisPhased(a), SequenceVariant::CisPhased(b)) => matches!(
+                        (self.member_keys(a)?, self.member_keys(b)?),
+                        (Some(x), Some(y)) if x == y
+                    ),
+                    _ => false,
+                },
+            })
         };
+        // On two versions, the same change on each.
+        let same = same_on(allele.ac())? && (!differ || same_on(other.ac())?);
         Ok(if same {
             EquivalenceLevel::Analogous
         } else {
@@ -530,13 +550,10 @@ impl<'a> VariantEquivalence<'a> {
         }
         let same = base_accession(&p1.ac) == base_accession(&p2.ac)
             && (posedit_spelling(&p1.posedit) == posedit_spelling(&p2.posedit)
-                || match self.protein_outcome_on(p2, &p1.ac) {
-                    Ok(outcome) => same_protein(left()?, outcome),
-                    Err(
-                        HgvsError::ReferenceMismatch { .. }
-                        | HgvsError::PositionOutsideSequence { .. },
-                    ) if p1.ac != p2.ac => false,
-                    Err(e) => return Err(e),
+                || match read_across_versions(self.protein_outcome_on(p2, &p1.ac), p1.ac != p2.ac)?
+                {
+                    Some(outcome) => same_protein(left()?, outcome),
+                    None => false,
                 });
         Ok(if same {
             EquivalenceLevel::Analogous
@@ -864,6 +881,46 @@ fn spelling(var: &SequenceVariant) -> String {
         one_letter(&text)
     } else {
         text
+    }
+}
+
+/// A description's reading on `ac`, `None` where `ac` is another version
+/// of its accession that contradicts what it states or lacks a residue it
+/// names: checked on its own version, it names a change `ac` does not have.
+fn read_across_versions<T>(
+    read: Result<T, HgvsError>,
+    other_version: bool,
+) -> Result<Option<T>, HgvsError> {
+    match read {
+        Ok(read) => Ok(Some(read)),
+        Err(HgvsError::ReferenceMismatch { .. } | HgvsError::PositionOutsideSequence { .. })
+            if other_version =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// An r. allele of one member as that member.
+fn rna_alone(var: std::borrow::Cow<'_, SequenceVariant>) -> std::borrow::Cow<'_, SequenceVariant> {
+    match &*var {
+        SequenceVariant::CisPhased(cis)
+            if cis.coordinate_type() == "r" && cis.members.len() == 1 =>
+        {
+            std::borrow::Cow::Owned(cis.members[0].clone())
+        }
+        _ => var,
+    }
+}
+
+/// Whether `e` is [`VariantMapper::r_on_the_genome`]'s refusal, of a
+/// description or of a member of an allele.
+fn is_a_junction_refusal(e: &HgvsError) -> bool {
+    match e {
+        HgvsError::UnsupportedOperation(_) => true,
+        HgvsError::CisMember { source, .. } => is_a_junction_refusal(source),
+        _ => false,
     }
 }
 
