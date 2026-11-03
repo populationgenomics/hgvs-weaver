@@ -7,20 +7,125 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyErr};
 
-pyo3::create_exception!(weaver._weaver, HGVSError, pyo3::exceptions::PyException);
-pyo3::create_exception!(weaver._weaver, ParseError, HGVSError);
-pyo3::create_exception!(
-    weaver._weaver,
-    MixedResidueCodesError,
-    ParseError,
-    "A p. description that writes residues in both the one- and three-letter amino acid codes. one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."
-);
-pyo3::create_exception!(
-    weaver._weaver,
-    AmbiguousResidueError,
-    ParseError,
-    "A one-letter X in a p. description where a stop and any residue could both stand: the new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."
-);
+/// The base of every error weaver raises.
+#[pyclass(extends = pyo3::exceptions::PyException, subclass, module = "weaver._weaver")]
+pub struct HGVSError;
+
+#[pymethods]
+impl HGVSError {
+    #[new]
+    fn new(message: &str) -> Self {
+        // The message reaches BaseException as args; naming it gives __new__ its signature.
+        let _ = message;
+        HGVSError
+    }
+}
+
+/// A description that does not parse.
+#[pyclass(extends = HGVSError, subclass, module = "weaver._weaver")]
+pub struct ParseError;
+
+#[pymethods]
+impl ParseError {
+    #[new]
+    fn new(message: &str) -> PyClassInitializer<Self> {
+        // The message reaches BaseException as args; naming it gives __new__ its signature.
+        let _ = message;
+        PyClassInitializer::from(HGVSError).add_subclass(ParseError)
+    }
+}
+
+/// A residue token as Python sees it: `(text, start, end)`.
+type Token = (String, usize, usize);
+
+#[doc = "A p. description that writes residues in both the one- and three-letter amino acid codes. one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."]
+#[pyclass(extends = ParseError, module = "weaver._weaver")]
+pub struct MixedResidueCodesError {
+    message: String,
+    #[pyo3(get)]
+    description: String,
+    #[pyo3(get)]
+    one_letter: Vec<Token>,
+    #[pyo3(get)]
+    three_letter: Vec<Token>,
+}
+
+#[pymethods]
+impl MixedResidueCodesError {
+    #[new]
+    fn new(
+        message: String,
+        description: String,
+        one_letter: Vec<Token>,
+        three_letter: Vec<Token>,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError)
+            .add_subclass(ParseError)
+            .add_subclass(MixedResidueCodesError {
+                message,
+                description,
+                one_letter,
+                three_letter,
+            })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
+
+#[doc = "A one-letter X in a p. description where a stop and any residue could both stand: the new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."]
+#[pyclass(extends = ParseError, module = "weaver._weaver")]
+pub struct AmbiguousResidueError {
+    message: String,
+    #[pyo3(get)]
+    description: String,
+    #[pyo3(get)]
+    ambiguous: Vec<Token>,
+}
+
+#[pymethods]
+impl AmbiguousResidueError {
+    #[new]
+    fn new(
+        message: String,
+        description: String,
+        ambiguous: Vec<Token>,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError)
+            .add_subclass(ParseError)
+            .add_subclass(AmbiguousResidueError {
+                message,
+                description,
+                ambiguous,
+            })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
+
+#[doc = "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."]
+#[pyclass(extends = HGVSError, module = "weaver._weaver")]
+pub struct AmbiguousDescriptionError {
+    message: String,
+    #[pyo3(get)]
+    readings: Vec<Py<PyVariant>>,
+}
+
+#[pymethods]
+impl AmbiguousDescriptionError {
+    #[new]
+    fn new(message: String, readings: Vec<Py<PyVariant>>) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError)
+            .add_subclass(AmbiguousDescriptionError { message, readings })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
 pyo3::create_exception!(weaver._weaver, ValidationError, HGVSError);
 pyo3::create_exception!(weaver._weaver, DataProviderError, HGVSError);
 pyo3::create_exception!(weaver._weaver, UnsupportedOperationError, HGVSError);
@@ -41,13 +146,6 @@ pyo3::create_exception!(
 
 pyo3::create_exception!(
     weaver._weaver,
-    AmbiguousDescriptionError,
-    HGVSError,
-    "A description with several readings that make different sequences or state different bases. weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."
-);
-
-pyo3::create_exception!(
-    weaver._weaver,
     NoProteinStatementError,
     HGVSError,
     "A description makes no statement about the protein: an identity that covers no whole codon, which states bases rather than residues. HGVS has no p. form for it: p.(=) would claim the whole protein, and p.? an effect."
@@ -61,7 +159,7 @@ fn map_hgvs_error(e: HgvsError) -> PyErr {
 /// allele in cis fails with its own kind of error, named in the message.
 fn py_error(e: HgvsError, context: String) -> PyErr {
     match e {
-        HgvsError::PestError(msg) => ParseError::new_err(context + &msg),
+        HgvsError::PestError(msg) => PyErr::new::<ParseError, _>(context + &msg),
         HgvsError::MixedResidueCodes {
             description,
             one_letter,
@@ -84,15 +182,7 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
                 ambiguous: ambiguous.clone(),
             }
             .to_string();
-            let err = AmbiguousResidueError::new_err(context + &message);
-            Python::attach(|py| {
-                let value = err.value(py);
-                value.setattr("description", description)?;
-                value.setattr("ambiguous", token_tuples(ambiguous))?;
-                Ok::<(), PyErr>(())
-            })
-            .err()
-            .unwrap_or(err)
+            PyErr::new::<AmbiguousResidueError, _>((context + &message, description, token_tuples(ambiguous)))
         }
         HgvsError::ValidationError(msg) => ValidationError::new_err(context + &msg),
         HgvsError::DataProviderError(msg) => DataProviderError::new_err(context + &msg),
@@ -122,7 +212,7 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             ValidationError::new_err(context + &e.to_string())
         }
         HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
-        HgvsError::Other(msg) => HGVSError::new_err(context + &msg),
+        HgvsError::Other(msg) => PyErr::new::<HGVSError, _>(context + &msg),
         HgvsError::Ambiguous {
             description,
             readings,
@@ -138,7 +228,7 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
         ),
         // HgvsError is non_exhaustive; a variant added without its own arm is
         // still raised, as the base class, with its message.
-        other => HGVSError::new_err(context + &other.to_string()),
+        other => PyErr::new::<HGVSError, _>(context + &other.to_string()),
     }
 }
 
@@ -150,16 +240,12 @@ fn mixed_residue_codes_error(
     one_letter: Vec<ResidueToken>,
     three_letter: Vec<ResidueToken>,
 ) -> PyErr {
-    let err = MixedResidueCodesError::new_err(message);
-    Python::attach(|py| {
-        let value = err.value(py);
-        value.setattr("description", description)?;
-        value.setattr("one_letter", token_tuples(one_letter))?;
-        value.setattr("three_letter", token_tuples(three_letter))?;
-        Ok::<(), PyErr>(())
-    })
-    .err()
-    .unwrap_or(err)
+    PyErr::new::<MixedResidueCodesError, _>((
+        message,
+        description,
+        token_tuples(one_letter),
+        token_tuples(three_letter),
+    ))
 }
 
 /// Residue tokens as Python sees them, `(text, start, end)`.
@@ -174,21 +260,32 @@ fn token_tuples(tokens: Vec<ResidueToken>) -> Vec<(String, usize, usize)> {
 /// variants.
 fn ambiguity_error(context: String, description: String, readings: Vec<SequenceVariant>) -> PyErr {
     let listed: Vec<String> = readings.iter().map(ToString::to_string).collect();
-    let err = AmbiguousDescriptionError::new_err(format!(
-        "{context}{description} reads as {}",
-        listed.join(" | ")
-    ));
+    let message = format!("{context}{description} reads as {}", listed.join(" | "));
     Python::attach(|py| {
         let variants = readings
             .into_iter()
             .map(|inner| Py::new(py, PyVariant { inner }))
             .collect::<PyResult<Vec<_>>>()?;
-        let list = pyo3::types::PyList::new(py, variants)?;
-        err.value(py).setattr("readings", list)?;
-        Ok::<(), PyErr>(())
+        Ok::<PyErr, PyErr>(PyErr::new::<AmbiguousDescriptionError, _>((
+            message, variants,
+        )))
     })
-    .err()
-    .unwrap_or(err)
+    .unwrap_or_else(|e| e)
+}
+
+/// The JSON object `json` encodes, as a dict.
+fn json_object<'py>(py: Python<'py>, json: &str) -> PyResult<Bound<'py, PyDict>> {
+    Ok(py
+        .import("json")?
+        .call_method1("loads", (json,))?
+        .cast_into::<PyDict>()?)
+}
+
+/// A VRS object as given to from_vrs: its JSON text, or the dict to_vrs returns.
+#[derive(FromPyObject)]
+enum VrsObject<'py> {
+    Json(String),
+    Object(Bound<'py, PyDict>),
 }
 
 #[pyclass(name = "IdentifierType", module = "weaver._weaver", from_py_object)]
@@ -1069,20 +1166,19 @@ impl PyVariantMapper {
 
     #[pyo3(signature = (var_c, protein_ac=None))]
     #[doc = "Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.\n\nThe residues from the first change to the end of the protein become the\nresidues the edited transcript encodes, up to its new stop, then the allele\nis canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,\nextensions and stop losses. The predicted p. description is carried as an\nhgvs.p expression.\n\nArgs:\n    var_c: The coding Variant.\n    protein_ac: Optional protein accession; else the provider's mapping for the transcript.\n\nRaises:\n    ValueError: If var_c is not a coding variant.\n    HGVSError: If the consequence is a statement (p.?, p.(Met1?)), or the translated CDS is not the protein the provider serves."]
-    fn protein_vrs(
+    fn protein_vrs<'py>(
         &self,
-        py: Python,
+        py: Python<'py>,
         var_c: &PyVariant,
         protein_ac: Option<String>,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> PyResult<Bound<'py, PyDict>> {
         let v = expect_coding(&var_c.inner)?;
         let mapper = self.mapper();
         let json_str = mapper
             .protein_vrs(v, protein_ac.as_deref())
             .map_err(map_hgvs_error)?
             .to_json();
-        let json_mod = py.import("json")?;
-        Ok(json_mod.call_method1("loads", (json_str,))?.unbind())
+        json_object(py, &json_str)
     }
 
     #[pyo3(signature = (var_c, protein_ac=None))]
@@ -1192,14 +1288,13 @@ impl PyVariantMapper {
 
     #[pyo3(signature = (var))]
     #[doc = "Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, a\nCopyNumberCount for a copy-number edit, a CopyNumberChange for a\nduplication with uncertain breakpoints, or a CisPhasedBlock for an allele\nin cis.\n\nA nucleotide variant is projected to its genomic reference; a protein\nvariant stays on its protein. Either is canonicalised (fully justified\nover its region of ambiguity) and rendered with computed identifiers. The\nsequence is identified by its refget accession, from the Refget given at\nconstruction or computed from the whole sequence.\n\nA g. or m. copy-number edit, g.1000_2000copy3, becomes a CopyNumberCount\nover the range with the count as ``copies``; it is not normalised.\n\nA g. or m. duplication with uncertain breakpoints,\ng.(100_200)_(300_400)dup, has no Allele (its bases are unknown) and\nbecomes a CopyNumberChange over the Range bounds with ``copyChange``\n\"gain\" (EFO:0030070, copy number gain); a deletion with uncertain\nbreakpoints stays an Allele, as below.\n\nAn insertion of bases known only by number, c.123_124insN[20] (also the\nolder ins(20); insN[(20_30)] for a range of lengths), becomes an Allele\nover the insertion point whose state is a LengthExpression,\n``{\"type\": \"LengthExpression\", \"length\": 20}``; delinsN[20] does the\nsame over the deleted range. Unknown bases cannot slide, so neither is\nnormalised.\n\nAn allele in cis of nucleotide members is projected to the genome, where the\nmembers that overlap, touch or would shift into each other become one Allele,\na change justified only up to a positional identity beside it in the allele;\nno codon groups them there, so a c. allele and its g. projection get one\nidentifier. One that is a single change there is that change's object;\notherwise it becomes a CisPhasedBlock whose ``members`` are the Alleles, in\norder along the genome, with the shared sequence as ``sequenceReference``. Its\nidentifier (ga4gh:CPB.) does not depend on the order of the members. An allele\nof protein members becomes a block of its members as written.\n\nThe dict's ``type`` says which object was returned.\n\nArgs:\n    var: A g., m., c., n., r. or p. Variant, or an allele in cis of any of\n        them. Protein variants must describe a sequence: frameshifts,\n        extensions and p.? have no allele. A g. or m. deletion with\n        uncertain breakpoints, g.(?_100)_(200_?)del, is rendered as given,\n        with Range bounds ([min, max], null when unbounded) and an empty\n        literal state; it is not normalised.\n\nReturns:\n    A dict in the VRS 2.0 Allele, CopyNumberCount, CopyNumberChange or\n    CisPhasedBlock schema.\n\nRaises:\n    PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic\n        one counts its offset from a base that is not an exon border, or lies past the end of its\n        intron.\n    HGVSError: If the variant cannot be resolved against the reference.\n    AmbiguousDescriptionError: If an allele in cis has several readings.\n    ValidationError: If an allele in cis has no reading. It is raised too where a p. description\n        is on an accession the provider classifies as a transcript or genomic sequence, or a g., m.,\n        c., n. or r. one on a protein.\n    UnsupportedOperationError: If an allele in cis cannot be written on the\n        genome as the Alleles it makes, or a member has no Allele."]
-    fn to_vrs(&self, py: Python, var: &PyVariant) -> PyResult<Py<PyAny>> {
+    fn to_vrs<'py>(&self, py: Python<'py>, var: &PyVariant) -> PyResult<Bound<'py, PyDict>> {
         let mapper = self.mapper();
         let json_str = mapper
             .to_vrs_variation(&var.inner)
             .map_err(map_hgvs_error)?
             .to_json();
-        let json_mod = py.import("json")?;
-        Ok(json_mod.call_method1("loads", (json_str,))?.unbind())
+        json_object(py, &json_str)
     }
 
     #[pyo3(signature = (var))]
@@ -1219,15 +1314,15 @@ impl PyVariantMapper {
     fn from_vrs(
         &self,
         py: Python,
-        allele: &Bound<'_, PyAny>,
+        allele: VrsObject<'_>,
         accession: Option<String>,
     ) -> PyResult<PyVariant> {
-        let json: String = if let Ok(s) = allele.extract::<String>() {
-            s
-        } else {
-            py.import("json")?
-                .call_method1("dumps", (allele,))?
-                .extract()?
+        let json: String = match allele {
+            VrsObject::Json(s) => s,
+            VrsObject::Object(object) => py
+                .import("json")?
+                .call_method1("dumps", (object,))?
+                .extract()?,
         };
         let mapper = self.mapper();
         let inner = mapper
