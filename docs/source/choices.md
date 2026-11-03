@@ -237,6 +237,7 @@ Variation Representation Specification 2.0.1.
 | [A stated base the reference lacks is an error](#a-stated-base-the-reference-lacks-is-an-error)                                     |                                 🟢 agrees                                  | 🟡 differs intronic  |        🟡 differs intronic         |          –          |
 | [A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)                         |                                 🟢 agrees                                  |          –           |                 –                  |          –          |
 | [A description is read on a reference of its kind](#a-description-is-read-on-a-reference-of-its-kind)                               |                                 🟢 agrees                                  |          –           |                 –                  |          –          |
+| [A name that is not one sequence is read on each the store holds](#a-name-that-is-not-one-sequence-is-read-on-each-the-store-holds) |                                     –                                      |          –           |                 –                  |          –          |
 | [Judged by allele and by the protein left behind](#judged-by-allele-and-by-the-protein-left-behind)                                 |                                     –                                      |      🟡 differs      |                 –                  |          –          |
 | [A description that says nothing matches nothing](#a-description-that-says-nothing-matches-nothing)                                 |                      🟢 agrees; silent on `p.Arg12?`                       |          –           |                 –                  |     🟡 differs      |
 | [An N-terminal extension adds residues before Met1](#an-n-terminal-extension-adds-residues-before-met1)                             | 🟡 agrees; **differs**: reads `p.Met1Valext-4`, which it says not to write |          –           |                 –                  |          –          |
@@ -3258,6 +3259,92 @@ own accession.
 `::c_to_p_refuses_a_genome_as_the_protein_to_predict_on`, `::normalize_refuses_a_genomic_description_on_a_protein`, (the
 rows above), and the file's other tests: `n_to_g`, `r_to_g`, `c_to_p`, `to_vrs`, `g_to_c_all`, and a protein as the
 sequence a projection lands on; `tests/test_api.py::test_validate_refuses_a_protein_description_on_a_transcript`.
+
+</details>
+
+______________________________________________________________________
+
+### A name that is not one sequence is read on each the store holds
+
+> **A description on a gene symbol, or on an accession without a version, names no one sequence. `consistent_variants`
+> reads it on each versioned accession the store holds under the name, a gene's transcripts or proteins of the
+> description's kind, or an accession's versions newest first, and keeps those whose sequence holds what the description
+> states. It does not choose among them. Equivalence reads a gene symbol the same way, and two descriptions are the same
+> change if any reading makes them so.**
+
+The literature, lab reports and ClinVar write `BRCA2:c.68_69del`, `NM_000059:c.68_69del` and `P38398:p.Cys61Gly`. weaver
+reads a description on one sequence, and does not fall back from one version to another ([`PRODUCT.md`](../PRODUCT.md)),
+so such a name needs a choice of sequence before anything else can be done with it. That choice is a policy, and callers
+want different ones: most want the MANE Select transcript where it is consistent, even when it is not the newest
+version; some the newest current version; a cautious one only a name that one sequence supports. weaver answers the
+question every policy starts from, which sequences the description can be on, and leaves the choice to the caller. Each
+result carries what a policy reads: the accession's status, current, superseded or suppressed, and its tags, MANE
+Select, MANE Plus Clinical, RefSeq Select and Ensembl canonical, as an optional accession catalogue reports them.
+
+Being consistent with a sequence is weak evidence. A description that states one residue matches a version whose
+numbering is shifted by an upstream insertion 5–10% of the time by chance, and one that states no base at all, a bare
+`c.68_69del`, matches every version its positions lie on. So each result says whether the description stated anything
+that was checked there.
+
+The answer is a list, and an empty one is an answer: the store holds sequences under the name, and none holds the
+description. A versioned description the reference contradicts gives an empty list too, as `validate` gives false. An
+error means the store could not say what the name refers to: a name nothing is held under, a gene with no accession of
+the description's kind, or an unversioned accession with no catalogue to list its versions. Every variant returned is on
+a versioned accession and holds there, so reading it again gives it alone. Kinds are never crossed: a description on a
+transcript is read on transcripts, and a bare transcript does not become its protein.
+
+Equivalence reads a gene symbol on each of the gene's accessions, sets aside those whose reference contradicts the
+description, and answers from any reading that makes the two the same. It reads the symbol before an `r.` description is
+converted to its `c.` spelling, so an `r.` description on a gene symbol compares as its `c.` spelling does. Answering
+from any reading departs from [one reading is an answer](#one-reading-is-an-answer-none-or-several-is-an-error) when the
+readings disagree; whether equivalence should instead refuse such a description, listing its readings, is open in
+[#145](https://github.com/populationgenomics/hgvs-weaver/issues/145). Equivalence does not read an unversioned accession
+on its versions.
+
+**Example** (gene `CG` has transcripts `NM_C.1` and `NM_D.1`, whose c.4 is A, and `NM_C.2`, the newer version of
+`NM_C.1`, whose c.4 is G; c.6 is A on all three):
+
+| Input                            |     | Output                                 | Note                                 |
+| :------------------------------- | :-: | :------------------------------------- | :----------------------------------- |
+| `CG:c.4A>G`                      | `→` | `NM_C.1:c.4A>G`, `NM_D.1:c.4A>G`       | `NM_C.2` holds G at c.4              |
+| `CG:p.Lys2Glu`                   | `→` | `NP_C.1:p.Lys2Glu`, `NP_D.1:p.Lys2Glu` | the gene's proteins                  |
+| `NM_C:c.6A>G`                    | `→` | `NM_C.2:c.6A>G`, `NM_C.1:c.6A>G`       | newest first                         |
+| `NM_C:c.4A>G`                    | `→` | `NM_C.1:c.4A>G`                        |                                      |
+| `NM_C:c.6del`                    | `→` | both versions                          | each marked as stating no base       |
+| `NM_C.1:c.4A>G`                  | `→` | `NM_C.1:c.4A>G`                        | itself                               |
+| `NM_C.2:c.4A>G`                  | `→` | none                                   |                                      |
+| `NM_C:c.4A>G` with no catalogue  | `→` | `DataProviderError`                    | nothing lists the versions           |
+| `CG:r.4a>g` *vs* `NM_C.1:c.4A>G` | `→` | equivalent                             | read on the gene's transcripts first |
+
+- **Others:** not checked.
+- **Spec (silent):** [reference sequences](https://hgvs-nomenclature.org/stable/background/refseq/) asks for a reference
+  sequence with its version, and allows a gene symbol only beside one, in parentheses; it says nothing about reading a
+  name that is not one sequence.
+
+<details>
+<summary><strong>Tests asserting this choice (24)</strong></summary>
+
+`consistent_variants_test::a_gene_symbol_gives_the_description_on_each_transcript_that_holds_it`,
+`::a_protein_description_on_a_gene_symbol_gives_each_protein_that_holds_it`,
+`::an_r_description_on_a_gene_symbol_gives_each_transcript_that_holds_it`,
+`::an_unversioned_accession_gives_each_version_that_holds_it_newest_first`,
+`::an_unversioned_accession_gives_only_the_versions_that_hold_it`, `::a_versioned_description_that_holds_gives_itself`,
+`::a_versioned_description_that_does_not_hold_gives_nothing`, `::a_description_no_version_holds_gives_nothing`,
+`::each_variant_returned_gives_itself_alone`, `::a_description_stating_bases_is_marked_as_stating_them`,
+`::a_description_stating_no_bases_is_marked_as_stating_none`,
+`::each_variant_carries_what_the_catalogue_records_about_its_accession`,
+`::without_a_catalogue_a_gene_symbol_gives_its_variants_with_no_record`,
+`::without_a_catalogue_an_unversioned_accession_is_an_error`,
+`::an_unversioned_accession_with_no_version_held_is_an_error`,
+`::a_gene_symbol_with_no_accession_of_the_descriptions_kind_is_an_error`,
+`::an_r_description_on_a_gene_symbol_is_its_own_spelling`,
+`::an_r_description_on_a_gene_symbol_is_its_c_spelling_on_a_transcript_of_the_gene`;
+`tests/test_consistent_variants.py::test_a_catalogue_answering_names_gives_each_variant_its_status_and_tags`,
+`::test_a_catalogue_answering_members_is_read_as_one_answering_names`,
+`::test_a_status_the_protocol_does_not_name_is_a_provider_error`,
+`::test_a_tag_the_protocol_does_not_name_is_a_provider_error`,
+`::test_an_unversioned_accession_without_a_catalogue_is_a_provider_error`,
+`::test_a_gene_symbol_without_a_catalogue_gives_its_variants_with_no_status`.
 
 </details>
 
