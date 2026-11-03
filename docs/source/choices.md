@@ -1247,8 +1247,8 @@ of the last residues as much as any other
 `::an_spdi_insertion_after_the_last_residue_reads_as_an_extension`;
 `src/normalize.rs::deletion_shifts_3_prime_and_states_no_bases`,
 `::insertion_that_repeats_preceding_bases_becomes_duplication`, `::a_slid_insertion_is_rotated`,
-`::shift_5_mirrors_shift_3` (the last two rows above, read from the 0-based ranges those tests assert);
-`transcript_coordinates_test::normalize_converts_genomic_and_noncoding_insertions_to_duplications`;
+`::shift_5_mirrors_shift_3` (the `TTCAGCAGTT` deletion and the `GGGGGGGGG` insertion above, read from the 0-based ranges
+those tests assert); `transcript_coordinates_test::normalize_converts_genomic_and_noncoding_insertions_to_duplications`;
 `normalising_preserves_the_edited_sequence` and `ambiguous_range_is_sound_and_complete` (properties).
 
 </details>
@@ -1463,20 +1463,20 @@ rewritten as the deletion of `CAG`.
 
 **Example** (on `TTCAGCAGTT`):
 
-| Input                |     | Output              | Note                             |
-| :------------------- | :-: | :------------------ | :------------------------------- |
-| `NM_TEST:c.4_5del`   | `→` | `NM_TEST:c.5_6del`  | bare, shifted                    |
-| `g.3_5delCAG`        | `→` | `g.6_8del`          | shifted                          |
-| `g.6_8delCAG`        | `→` | `g.6_8del`          | not moved, and bare all the same |
-| `g.6_8del3`          | `→` | `g.6_8del`          | a count is not written either    |
-| `g.6_8dupCAG`        | `→` | `g.6_8dup`          |                                  |
-| `g.3_4invCA`         | `→` | `g.3_4inv`          |                                  |
-| `g.3C=`              | `→` | `g.3=`              |                                  |
-| `g.3_5CAG=`          | `→` | `g.3_5=`            |                                  |
-| `g.3_5delCAGinsTT`   | `→` | `g.3_5delinsTT`     |                                  |
-| `g.3_5delCAGinsN[2]` | `→` | `g.3_5delinsN[2]`   |                                  |
-| `g.3_5delAAA`        | `→` | `ReferenceMismatch` | the AAA it states is not there   |
-| `g.3C>T`             | `→` | `g.3C>T`            | a substitution keeps its base    |
+| Input                |     | Output              | Note                                         |
+| :------------------- | :-: | :------------------ | :------------------------------------------- |
+| `NM_TEST:c.4_5del`   | `→` | `NM_TEST:c.5_6del`  | bare, shifted along `NM_TEST`'s c.4_6, `GGG` |
+| `g.3_5delCAG`        | `→` | `g.6_8del`          | shifted                                      |
+| `g.6_8delCAG`        | `→` | `g.6_8del`          | not moved, and bare all the same             |
+| `g.6_8del3`          | `→` | `g.6_8del`          | a count is not written either                |
+| `g.6_8dupCAG`        | `→` | `g.6_8dup`          |                                              |
+| `g.3_4invCA`         | `→` | `g.3_4inv`          |                                              |
+| `g.3C=`              | `→` | `g.3=`              |                                              |
+| `g.3_5CAG=`          | `→` | `g.3_5=`            |                                              |
+| `g.3_5delCAGinsTT`   | `→` | `g.3_5delinsTT`     |                                              |
+| `g.3_5delCAGinsN[2]` | `→` | `g.3_5delinsN[2]`   |                                              |
+| `g.3_5delAAA`        | `→` | `ReferenceMismatch` | the AAA it states is not there               |
+| `g.3C>T`             | `→` | `g.3C>T`            | a substitution keeps its base                |
 
 - **Agrees:** biocommons, as it prints by default (`max_ref_length` 0; it fills the bases into the value it returns), on
   every genomic row but two; VariantValidator on deletions and duplications, not checked on the rest.
