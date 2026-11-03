@@ -982,12 +982,12 @@ is the same as itself and different from `r.?`, alone or among the members of a 
   it is silent on are weaver's.
 
 <details>
-<summary><strong>Tests asserting this choice (22)</strong></summary>
+<summary><strong>Tests asserting this choice (23)</strong></summary>
 
 `transcript_coordinates_test::mitochondrial_variants_share_the_genomic_implementation`;
 `rna_test::r_is_c_in_rna_letters`, `::r_on_a_non_coding_transcript_is_n`,
 `::statements_about_the_transcript_round_trip`, `::r_predicts_the_protein_like_c`,
-`::r_normalises_validates_and_has_alleles_like_c`,
+`::r_normalises_validates_and_has_alleles_like_c`, `::r_projects_to_the_genome_within_one_exon_only`,
 `::an_r_change_on_a_transcript_the_provider_lacks_is_not_compared_even_with_itself`;
 `rna_is_the_transcript_in_other_letters` (property); `statements_test::r_follows_the_dna_is_its_own_statement`,
 `::r_follows_the_dna_prints_back_as_parsed`, `::r_follows_the_dna_survives_json`,
@@ -5026,7 +5026,7 @@ deletion-insertion or repeat names are three-letter too, so that the printed des
   code and "use 'Xaa' only", since `X` has been used for a stop.
 
 <details>
-<summary><strong>Tests asserting this choice (24)</strong></summary>
+<summary><strong>Tests asserting this choice (22)</strong></summary>
 
 `vrs_length_test::length_expressions_read_back_as_the_recommended_spelling`;
 `real_transcripts_test::biocommons_real_transcript_cases` (`ext*` compared equal to `extTer`);
