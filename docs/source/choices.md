@@ -85,15 +85,18 @@ ______________________________________________________________________
 
 > **Two descriptions are the same change when they make the same sequence and state the same bases unchanged. Their
 > spelling, their coordinate system, and anything they record that is not part of the allele, such as a stated reference
-> base, do not enter. A description states bases unchanged through its identity members, `c.10=`, and through members
-> that cancel each other; one that only changes the sequence states none. Nucleotide descriptions are compared on the
-> genome, because a change written on a transcript is a change to the genome.**
+> base, do not enter, though what a description states is checked before it is compared. A description states bases
+> unchanged through its identity members, `c.10=`, and through members that cancel each other; one that only changes the
+> sequence states none. Nucleotide descriptions are compared on the genome, because a change written on a transcript is
+> a change to the genome.**
 
 Where an identity or a set of cancelling members is written is what it states, not a spelling: on a run of A,
 `c.[4_5insA;5del]` states c.4 and c.5, and `c.[5_6insA;6del]` states c.5 and c.6. One change has many spellings: shifted
 or not, `dup` or `ins`, `c.` or `g.`, with its bases stated or bare. Text comparison sees the spelling. Comparing on the
 genome rather than the transcript keeps equivalence transitive: two transcript changes that leave one transcript can
-still be different changes to the genome when they sit on either side of an exon junction.
+still be different changes to the genome when they sit on either side of an exon junction. A stated base the reference
+lacks is [an error](#a-stated-base-the-reference-lacks-is-an-error) before any comparison, even against the
+description's own spelling: the description is wrong, not different.
 
 On `TTCAGCAGTT`, `g.3_5del` and `g.6_8del` are one canonical allele, `X:2:CAGCAG:CAG`. `c.10=` and `c.20=` both make the
 reference, and are different statements; `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and says more.
@@ -108,16 +111,19 @@ ______________________________________________________________________
 
 ### Only normalize rewrites a description
 
-> **Parsing, validating, projecting and comparing keep a change where and as it was written. `normalize` alone rewrites
-> it, into the preferred spelling for interchange; it keeps the sequence the description makes, normalising twice is
-> normalising once, and it never changes what the description means on the genome, so nothing it moves crosses an exon
-> junction.**
+> **Parsing, validating, projecting and comparing keep a change where it was written, and as it was written except where
+> the target's own bases make projecting rewrite it. `normalize` alone rewrites it, into the preferred spelling for
+> interchange; it keeps the sequence the description makes, normalising twice is normalising once, and it never changes
+> what the description means on the genome, so nothing it moves crosses an exon junction.**
 
 Where a change is written can carry what its author meant, and a result moved somewhere else is hard to relate to the
 question asked. The preferred spelling serves the readers that need one: tools that match strings, and tools that read a
 description's parts one at a time. A normalisation that changed the sequence, or the change on the genome, would hand
-them a different variant. What is kept is the change's placement and shape; spellings the specification treats as one
-value, `ins(20)` and `insN[20]`, `M` and `Met`, are one value when parsed.
+them a different variant. What is kept is the change's placement, and its shape wherever the target's bases allow: a
+projection [states the target's bases](#a-projection-states-the-bases-of-the-target), widens a repeat to
+[its whole run](#a-repeat-is-projected-as-its-whole-run), and writes an edit touching bases the genome lacks over
+[the whole unaligned run](#a-transcript-base-the-genome-lacks-projects-as-an-insertion). Spellings the specification
+treats as one value, `ins(20)` and `insN[20]`, `M` and `Met`, are one value when parsed.
 
 `NM_001372044.2:c.1568dup` projects at c.1568, where VariantValidator shifts it to c.1569 first. When it does rewrite,
 `normalize` writes `NM_J.1:c.4del` as `c.5del`, on the last base of its exon, not as `c.6del`, which the transcript
@@ -144,7 +150,8 @@ What weaver writes is stored and read later, by weaver and by other tools. A des
 changes meaning in storage, and one the specification reads differently means different things to different readers. So
 each form is written as the specification spells it, the parentheses of each statement as the specification gives that
 statement, and no form is written that the specification gives another meaning, such as `X`, which has been used for a
-stop. The property tests hold every projection, normalisation and reading back from SPDI and VRS to the first half.
+stop. The property tests hold every projection, normalisation and reading back from SPDI and VRS of a single variant to
+the first half; no property generates an allele in cis.
 
 `p.M1?` is stored and printed as `p.Met1?`, and the `p.(Met1?)` that `c_to_p` writes for a lost start codon parses to
 the value it built.
@@ -4691,17 +4698,18 @@ ______________________________________________________________________
 
 > **Letters uppercased, everything else dropped, as the refget specification defines.**
 
-Without a `Refget` lookup the accession is computed from the whole sequence, and `from_vrs` then needs the accession
-passed. The digest is checked against the sequence either way.
+With a `Refget` lookup, a sequence's accession is the one the lookup knows, and `from_vrs` uses the lookup to find the
+sequence a location names. Without one, the accession is computed from the whole sequence, and `from_vrs` needs the
+sequence's name passed. Either way, `from_vrs` refuses a location whose digest is not the named sequence's accession, so
+a wrong name is an error rather than a variant on another sequence.
 
 **Example:**
 
-| Input                            |     | Output                                                                   | Note                            |
-| :------------------------------- | :-: | :----------------------------------------------------------------------- | :------------------------------ |
-| `ACGT`                           | `→` | `SQ.aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2`                                    | the specification's own example |
-| `acgt`                           | `→` | the same                                                                 |                                 |
-| `AC⏎G T⏎`                        | `→` | the same                                                                 |                                 |
-| `chr19 of the NCBI GRCh38 FASTA` | `→` | SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl, the specification's published value |                                 |
+| Input     |     | Output                                | Note                            |
+| :-------- | :-: | :------------------------------------ | :------------------------------ |
+| `ACGT`    | `→` | `SQ.aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2` | the specification's own example |
+| `acgt`    | `→` | the same                              |                                 |
+| `AC⏎G T⏎` | `→` | the same                              |                                 |
 
 - **Spec (agrees):** [refget](https://samtools.github.io/hts-specs/refget.html), "Sequence Normalization" and the
   `ga4gh` identifier.
