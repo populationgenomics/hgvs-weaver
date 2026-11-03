@@ -4944,7 +4944,8 @@ ______________________________________________________________________
 - Copy-number variants (`copy4`).
 - `r.` positions in the 3'UTR (`r.*5u>a`).
 
-**Example** (each parses and prints back as written):
+**Example** (each parses and prints back as written, except `ins(20)`, which prints as
+[`insN[20]`](#recommended-spellings-on-output)):
 
 ```text
 NM_004006.2:c.[145C>T;147C>G]      NP_X.1:p.[Lys2Leu;Ala4del]      NM_X.1:r.[7c>u;13u>g]
@@ -4980,14 +4981,16 @@ ______________________________________________________________________
 ### Recommended spellings on output
 
 > **`insN[20]` rather than `ins(20)`; `extTer8` rather than `ext*8`; a range of repeat copies as `[(70_80)]` rather than
-> `(70_80)`; three-letter residues rather than one-letter; bare `del` and `dup`.**
+> `(70_80)`; three-letter residues rather than one-letter; bare `del` and `dup` where weaver writes the edit.**
 
 A description read in an older or shorter spelling is stored as the spelling it prints, so the printed text parses back
-to the same value. A position, a substituted residue, and the residues of a frameshift or extension are written in
-three-letter code: `p.M1?` is stored and printed as `p.Met1?`. Where only a stop can stand, `X` or `*` is `Ter`: after
-`fs`, after `ext` with a count (`ext*5` and `extX+5`, not the offset of `extXaa-5`), and at the start of an extension
-past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Where only any residue can stand, at any other position and in a
-repeat unit, it is `Xaa`; where both could, it is refused
+to the same value. Bases or a count an edit states, `delC`, `dupC` or `del3`, are not a spelling but part of what the
+description says, and are checked; parsing keeps them, and the output of `normalize` and of reading back from SPDI or
+VRS [writes them bare](#deletions-and-duplications-are-written-bare). A position, a substituted residue, and the
+residues of a frameshift or extension are written in three-letter code: `p.M1?` is stored and printed as `p.Met1?`.
+Where only a stop can stand, `X` or `*` is `Ter`: after `fs`, after `ext` with a count (`ext*5` and `extX+5`, not the
+offset of `extXaa-5`), and at the start of an extension past the stop (`p.X30Qext*5` is `p.Ter30GlnextTer5`). Where only
+any residue can stand, at any other position and in a repeat unit, it is `Xaa`; where both could, it is refused
 ([below](#a-one-letter-x-that-could-be-a-stop-or-any-residue-is-refused)). The count after `fs` or `ext` is a number, so
 `ext+5` is `ext5` and `fsTer007` is `fsTer7`. The residues an insertion, deletion-insertion or repeat names are
 three-letter too, so that the printed description writes one code throughout
@@ -4998,7 +5001,7 @@ three-letter too, so that the printed description writes one code throughout
 | Input                          |     | Output                               | Note                                                             |
 | :----------------------------- | :-: | :----------------------------------- | :--------------------------------------------------------------- |
 | `NC_TEST.1:g.10_11ins(20)`     | `→` | `NC_TEST.1:g.10_11insN[20]`          |                                                                  |
-| `NC_TEST.1:g.10_12del3insN[5]` | `→` | `NC_TEST.1:g.10_12delinsN[5]`        |                                                                  |
+| `NC_TEST.1:g.10_12del3insN[5]` | `→` | `NC_TEST.1:g.10_12delinsN[5]`        | read back from VRS; parsed, it prints as written                 |
 | `NM_W.1:c.10_12CAG(70_80)`     | `→` | `NM_W.1:c.10_12CAG[(70_80)]`         |                                                                  |
 | `NP_W.1:p.R97Pfs*23`           | `→` | `NP_W.1:p.Arg97ProfsTer23`           |                                                                  |
 | `NP_W.1:p.A356_G357insDPA`     | `→` | `NP_W.1:p.Ala356_Gly357insAspProAla` |                                                                  |
