@@ -512,18 +512,27 @@ impl TranscriptMapper {
     /// [`HgvsError::PositionOutsideSequence`]; before its first, a
     /// `ValidationError`.
     fn outside_the_transcript(&self, n_pos: TranscriptPos, written: &str) -> HgvsError {
+        self.past_the_end(n_pos).unwrap_or_else(|| {
+            HgvsError::ValidationError(format!(
+                "{}:{written} counts from a base before the transcript's first",
+                self.transcript.ac
+            ))
+        })
+    }
+
+    /// The refusal of `n_pos`, a transcript index past the last base, as
+    /// [`HgvsError::PositionOutsideSequence`]; `None` for one before the
+    /// first, which that error, counting from 0, cannot name.
+    fn past_the_end(&self, n_pos: TranscriptPos) -> Option<HgvsError> {
         let length: i32 = (0..self.exons.len()).map(|i| self.exon_tx_len(i)).sum();
         match (usize::try_from(n_pos.0), usize::try_from(length)) {
-            (Ok(start), Ok(length)) => HgvsError::PositionOutsideSequence {
+            (Ok(start), Ok(length)) => Some(HgvsError::PositionOutsideSequence {
                 accession: self.transcript.ac.clone(),
                 start,
                 end: start + 1,
                 length,
-            },
-            _ => HgvsError::ValidationError(format!(
-                "{}:{written} counts from a base before the transcript's first",
-                self.transcript.ac
-            )),
+            }),
+            _ => None,
         }
     }
 
@@ -574,9 +583,12 @@ impl TranscriptMapper {
             };
             return Ok((i, exon, Footprint { range, gap_run }));
         }
-        Err(HgvsError::ValidationError(
-            "Transcript position out of exon bounds".into(),
-        ))
+        Err(self.past_the_end(n_pos).unwrap_or_else(|| {
+            HgvsError::ValidationError(format!(
+                "{} has no base at transcript index {}: it is before the first",
+                self.transcript.ac, n_pos.0
+            ))
+        }))
     }
 }
 

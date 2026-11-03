@@ -740,22 +740,44 @@ fn exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_the
 }
 
 #[test]
-fn an_exact_member_inside_an_uncertain_one_is_compared_member_by_member() {
-    // g.1007 lies inside the bases (1001_1010)del may remove; that overlap is
-    // not refused in equivalence.
-    assert_eq!(
-        level(
+fn an_exact_member_inside_an_uncertain_one_is_refused_against_its_own_spelling() {
+    // g.1007 lies inside the bases (1001_1010)del may remove, so the allele has
+    // no reading, in equivalence as in validate.
+    assert!(matches!(
+        judge(
             "NC_TEST.1:g.[(1001_1010)del;1007G>A]",
             "NC_TEST.1:g.[1007G>A;(1001_1010)del]"
         ),
-        Identity
-    );
+        Err(HgvsError::ValidationError(_))
+    ));
 }
 
 #[test]
 fn an_allele_against_a_contradictory_one_is_refused() {
     assert!(matches!(
         judge("NM_X.1:c.[7C>T;13T>G]", "NM_X.1:c.[7C>T;7C>G]"),
+        Err(HgvsError::ValidationError(_))
+    ));
+}
+
+#[test]
+fn an_uncertain_member_beside_an_intronic_one_is_itself_in_another_order() {
+    // The intronic member reads the allele on the genome; the uncertain one
+    // reaches over c.7_8 there without being projected.
+    assert_eq!(
+        level("NM_S.1:c.[(7_8)del;5+2T>A]", "NM_S.1:c.[5+2T>A;(7_8)del]"),
+        Identity
+    );
+}
+
+#[test]
+fn an_uncertain_member_beside_an_intronic_one_is_held_to_the_overlap_rule() {
+    // c.8 is the T of CTG, inside the bases (7_9)del may remove.
+    assert!(matches!(
+        judge(
+            "NM_S.1:c.[(7_9)del;8T>G;5+2T>A]",
+            "NM_S.1:c.[(7_9)del;8T>G;5+2T>A]"
+        ),
         Err(HgvsError::ValidationError(_))
     ));
 }

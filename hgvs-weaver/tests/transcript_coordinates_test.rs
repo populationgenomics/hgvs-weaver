@@ -425,7 +425,10 @@ fn a_position_in_no_exon_is_an_error_not_an_extrapolation() {
         mapper.c_to_g(c, None).unwrap_err(),
         mapper.to_spdi_unambiguous(&var).unwrap_err(),
     ] {
-        assert!(matches!(err, HgvsError::ValidationError(_)), "{err}");
+        assert!(
+            matches!(err, HgvsError::PositionOutsideSequence { length: 100, .. }),
+            "{err}"
+        );
     }
     // The last base is fine.
     assert!(mapper

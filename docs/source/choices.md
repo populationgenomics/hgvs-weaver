@@ -695,18 +695,19 @@ ______________________________________________________________________
 ### A position outside every exon is an error
 
 > **A transcript position projects through the exon structure only; projecting a position past the last exon is a
-> `ValidationError`, not an extrapolated coordinate.** An operation that reads the position on the record instead finds
-> it past the record's end
-> ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)).
+> `PositionOutsideSequenceError` naming the transcript and its length, not an extrapolated coordinate.** A `c.` or `n.`
+> position past the record's end, with an intronic offset or without, is that error from every operation that reads it
+> ([A position past the end of its sequence is an error](#a-position-past-the-end-of-its-sequence-is-an-error)); one
+> before the first base is a `ValidationError`, which, unlike that error, can name a position before index 0.
 
 A silently extrapolated coordinate is wrong without saying so.
 
 **Example** (`NM_PLUS10.1` is one exon of 100 bases; c.\*60 is its last base):
 
-| Input                  |     | Output                                                       |
-| :--------------------- | :-: | :----------------------------------------------------------- |
-| `NM_PLUS10.1:c.*60T>A` | `→` | projects                                                     |
-| `NM_PLUS10.1:c.*61A>G` | `→` | `ValidationError`, from c_to_g and to_spdi_unambiguous alike |
+| Input                  |     | Output                                                                    |
+| :--------------------- | :-: | :------------------------------------------------------------------------ |
+| `NM_PLUS10.1:c.*60T>A` | `→` | projects                                                                  |
+| `NM_PLUS10.1:c.*61A>G` | `→` | `PositionOutsideSequenceError`, from c_to_g and to_spdi_unambiguous alike |
 
 - **Differs:** biocommons extrapolates in some paths.
 - **Spec (agrees):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/): "it is not allowed to
@@ -1102,10 +1103,10 @@ them in another order.
 All or nothing follows from what an allele is. A chromosome carrying two changes, one of which has no genomic form, is
 not described by the genomic form of the other, so returning the members that did project would describe a different
 allele. The error is the failing member's own, an `UnsupportedOperation` for an `r.` member across a splice junction or
-an insertion at one, a `ValidationError` for a position outside every exon, wrapped with the member and its place in the
-allele, so a caller can still match on why. A member that projects to a form the target cannot hold fails the same way:
-an `r.` change across a splice junction has [no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range),
-and neither has an allele containing one.
+an insertion at one, a `PositionOutsideSequenceError` for a position past the last exon, wrapped with the member and its
+place in the allele, so a caller can still match on why. A member that projects to a form the target cannot hold fails
+the same way: an `r.` change across a splice junction has
+[no genomic form](#a-range-across-an-exon-junction-is-the-genomic-range), and neither has an allele containing one.
 
 One member reads differently alone. A duplication inserts its copy "directly 3' of the original copy", on the strand it
 is written on, and on the other strand 3' is the other side. Alone that does not matter: a copy beside the original
@@ -1144,7 +1145,7 @@ it in `NC_S.1`, so c.4 is g.19 and c.6 is g.31):
 | `NM_S.1:r.[4a>u;5_6del]`                  | `→` | `UnsupportedOperation`, member 2, `NM_S.1:r.5_6del`: spans a splice junction              |                                               |
 | `NM_S.1:c.[4_6=;7C>T]`                    | `→` | `NC_S.1:g.[19_31=;32C>T]`                                                                 | a range across the junction, intron included  |
 | `NM_S.1:c.[5_6insT;7C>T]`                 | `→` | `UnsupportedOperation`, member 1, `NM_S.1:c.5_6insT`: inserts at an exon junction         |                                               |
-| `NM_X.1:c.[7C>T;*20del]`                  | `→` | `ValidationError`, member 2, `NM_X.1:c.*20del`: outside every exon                        |                                               |
+| `NM_X.1:c.[7C>T;*20del]`                  | `→` | `PositionOutsideSequenceError`, member 2, `NM_X.1:c.*20del`: past the last exon           |                                               |
 
 - **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
 - **Spec (agrees; silent on a duplication whose side of the original the strands disagree on):**
@@ -3534,10 +3535,10 @@ members beside it are compared by their canonical alleles, as an exact single va
 `g.[(3_4)del;10dup]` wherever g.10 is an A: `10dup` and `10_11insA` are judged by one rule whatever stands beside them.
 The members of a `[;]` allele are unordered, so `g.[(3_4)del;10G>A]` is `g.[10G>A;(3_4)del]`, and a member written twice
 counts once, so `g.[(3_4)del;(3_4)del;10G>A]` is `g.[(3_4)del;10G>A]`. An uncertain member is still never an exact one:
-`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`. The exact members are still held to the
-[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) among themselves, so `g.[(3_4)del;10G>A;10G>C]` is
-refused as `g.[10G>A;10G>C]` is. An overlap that involves the uncertain member itself, `g.[(3_12)del;10G>A]`, is not
-refused when two descriptions are judged: the allele is compared member by member, as above.
+`g.[(3_4)del;10G>A]` is not `g.[3del;10G>A]`. Before anything is compared, the allele is held to the
+[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) as `validate` holds it, an uncertain member on its
+outer bounds: `g.[(3_4)del;10G>A;10G>C]` is refused as `g.[10G>A;10G>C]` is, and `g.[(3_12)del;10G>A]`, whose deletion
+may remove the g.10 the other member changes, is refused too, against its own spelling as against any other.
 
 **Example** (`NC_TEST.1` is `ACGT` repeated; `NM_X.1:c.4_6` is `NC_X.1:g.109_111`; `NC_S.1:g.6_8` is `ATG` and
 `NM_S.1:c.4_6` is `AAA`):
@@ -3571,7 +3572,7 @@ refused when two descriptions are judged: the allele is compared member by membe
   alike is weaver's reading; the specification does not compare descriptions.
 
 <details>
-<summary><strong>Tests asserting this choice (47)</strong></summary>
+<summary><strong>Tests asserting this choice (49)</strong></summary>
 
 `equivalence_test::one_base_deleted_somewhere_in_a_range_is_not_the_range_deleted`,
 `::one_base_deleted_somewhere_in_a_range_is_not_its_first_base_deleted`,
@@ -3606,7 +3607,9 @@ refused when two descriptions are judged: the allele is compared member by membe
 `::the_exact_protein_members_beside_an_uncertain_one_compare_by_their_alleles`;
 `cis_equivalence_test::exact_members_beside_an_uncertain_one_that_contradict_are_refused`,
 `::exact_members_beside_an_uncertain_one_that_contradict_are_refused_against_themselves`,
-`::an_exact_member_inside_an_uncertain_one_is_compared_member_by_member`;
+`::an_exact_member_inside_an_uncertain_one_is_refused_against_its_own_spelling`,
+`::an_uncertain_member_beside_an_intronic_one_is_itself_in_another_order`,
+`::an_uncertain_member_beside_an_intronic_one_is_held_to_the_overlap_rule`;
 `vrs_range_test::uncertain_breakpoints_become_ranges`;
 `stated_bases_test::validate_refuses_bases_stated_at_an_uncertain_genomic_position`,
 `::validate_refuses_bases_stated_at_an_uncertain_transcript_position`,
@@ -5180,8 +5183,11 @@ ______________________________________________________________________
 > **A range whose start is after its end is a `ParseError`, not a variant that projects to a plausible-looking genomic
 > range and panics when its bases are sliced.**
 
-Transcript positions order by region (5'UTR and CDS before the 3'UTR), then base, then intronic offset. A range built in
-code that runs backwards is a `ValidationError` where it is resolved. Published variants do contain them, as typos.
+Transcript positions order by region (5'UTR and CDS before the 3'UTR), then base, then intronic offset. An uncertain
+range is held to the same order: every bound it knows, read as written, runs 5' to 3', so `g.(100_50)del` and
+`g.(10_20)_(5_8)del` are refused, and in `(a_b)_(c_d)` the inner bounds, `b_c`, the least the change can cover, are in
+order too. A range built in code that runs backwards is a `ValidationError` where it is resolved. Published variants do
+contain them, as typos.
 
 **Example:**
 
@@ -5190,6 +5196,7 @@ code that runs backwards is a `ValidationError` where it is resolved. Published 
 | `NM_025137.4:c.100_50del`     | `→` | `ParseError`: runs backwards | and `g.1100_1050del`, `p.Lys10_Leu5del`, `c.88-1_87+1del` |
 | `NM_206933.4:c.8559_2A>G`     | `→` | `ParseError`                 | as published                                              |
 | `NM_025137.4:c.6331_6232insG` | `→` | `ParseError`                 | as published                                              |
+| `NC_000001.11:g.(100_50)del`  | `→` | `ParseError`: runs backwards | and `g.(10_20)_(5_8)del`, `g.(10_20)_(15_30)del`          |
 | `NM_X.1:c.87+1_88-1del`       | `→` | `parses`                     | an intron, in order                                       |
 | `NM_X.1:c.-5_10del`           | `→` | `parses`                     |                                                           |
 
@@ -5199,10 +5206,12 @@ code that runs backwards is a `ValidationError` where it is resolved. Published 
   in a range are given 5' to 3'.
 
 <details>
-<summary><strong>Tests asserting this choice (2)</strong></summary>
+<summary><strong>Tests asserting this choice (4)</strong></summary>
 
 `inverted_range_test::a_range_written_backwards_is_refused_when_parsed`,
-`::a_range_built_backwards_is_an_error_wherever_it_is_resolved`.
+`::a_range_built_backwards_is_an_error_wherever_it_is_resolved`,
+`::an_uncertain_range_written_backwards_is_refused_when_parsed`,
+`::an_uncertain_range_built_backwards_is_an_error_where_it_is_resolved`.
 
 </details>
 

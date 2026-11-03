@@ -821,6 +821,16 @@ impl SimpleInterval {
             None => Ok(1),
         }
     }
+
+    /// Every bound the interval writes, in the order written: `(a_b)_(c_d)`
+    /// is a, b, c, d; an unknown one is [`GenomicBound::Unknown`].
+    pub fn bounds(&self) -> impl Iterator<Item = GenomicBound> + '_ {
+        let of = |p: &SimplePosition| [Some(p.base), p.end];
+        of(&self.start)
+            .into_iter()
+            .chain(self.end.iter().flat_map(of))
+            .flatten()
+    }
 }
 
 /// A position in genomic or mitochondrial coordinates: a base, or with `end`

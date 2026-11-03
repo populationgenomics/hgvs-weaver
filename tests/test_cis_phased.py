@@ -167,7 +167,10 @@ def test_an_rna_allele_projects_to_the_genome(mapper: weaver.VariantMapper) -> N
 
 
 def test_a_member_that_fails_raises_its_own_error_naming_it(mapper: weaver.VariantMapper) -> None:
-    with pytest.raises(weaver.ValidationError, match=r"Member 2 of NM_X\.1:c\.\[7C>T;\*20del\], NM_X\.1:c\.\*20del"):
+    with pytest.raises(
+        weaver.PositionOutsideSequenceError,
+        match=r"Member 2 of NM_X\.1:c\.\[7C>T;\*20del\], NM_X\.1:c\.\*20del",
+    ):
         mapper.c_to_g(weaver.parse("NM_X.1:c.[7C>T;*20del]"))
 
 
