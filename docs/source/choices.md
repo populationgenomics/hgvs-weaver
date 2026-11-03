@@ -738,8 +738,9 @@ ______________________________________________________________________
 
 The provider says so with `cds_start_open` and `cds_end_open` on the transcript model. Without them a publisher's open
 CDS can only be given as whole, which numbers from a codon the record does not carry, or withheld, which reads every
-`c.` name as non-coding. With a 5' end open nothing in `p.` is predicted, since the frame is a fact about the missing
-start.
+`c.` name as non-coding. With a 5' end open no change is predicted in `p.`, since the frame is a fact about the missing
+start; `c.=`, which names no position, still predicts `p.(=)`
+([below](#the-whole-transcript-unchanged-is-a-statement-not-a-change)).
 
 With a 3' end open the record holds every base of every whole codon it carries, the last one included, so a change
 inside them is predicted, and only an answer that needs a base past the last whole codon is refused. Three kinds of
@@ -943,16 +944,18 @@ ______________________________________________________________________
 > **`m.` is `g.` on the mitochondrial reference; `r.` is `c.` or `n.` in RNA letters.**
 
 `m.` and `g.` differ only in the letter they are written with: normalisation, SPDI, validation and equivalence are
-shared. Every `r.` operation is a conversion to the `c.` (coding transcript) or `n.` (non-coding) spelling and back; the
-statements `r.0`, `r.spl`, `r.?` and `r.(=)` map to `p.0?`, `p.?`, `p.?` and `p.(=)`.
+shared. Every `r.` operation is a conversion to the `c.` (coding transcript) or `n.` (non-coding) spelling and back,
+except that a change across an exon junction is refused when projected to the genome, where its `c.` spelling
+[projects over the intron](#a-range-across-an-exon-junction-is-the-genomic-range); the statements `r.0`, `r.spl`, `r.?`
+and `r.(=)` map to `p.0?`, `p.?`, `p.?` and `p.(=)`.
 
 `r.(?)` is a statement of its own, not `r.?` predicted: its parentheses belong to the statement, where those of `r.(=)`
 mark a prediction. The uncertain page reads it as "RNA was not analysed but … no changes on the RNA level are expected
 other than those simply derived from the change on the DNA level", and the deletion page pairs it with that change's own
 consequence, `c.1521_1523del r.(?) p.(Phe508del)`. It says the RNA follows a DNA change it does not carry, so weaver
 gives it no protein consequence (`r_to_p` is an `UnsupportedOperation`, where `r.?` gives `p.?`), and in equivalence it
-is the same as itself and different from `r.?`, alone or among the members of a cis allele. No statement about the RNA
-is predicted, so a dict that marks `r.?` predicted is refused rather than read as `r.(?)`.
+is the same as itself and different from `r.?`, alone or among the members of a cis allele. Of the RNA statements only
+`r.(=)` is written as a prediction, so a dict that marks `r.?` predicted is refused rather than read as `r.(?)`.
 
 **Example:**
 
@@ -1135,24 +1138,24 @@ is g.22; `NR_XR.1` reads the same forty bases of `NC_X.1` on the minus strand, s
 `NM_XR.1` is `NR_XR.1` with its CDS from n.4; `NM_S.1` is `NM_X.1` with exon 1 ending at c.5 and a ten-base intron after
 it in `NC_S.1`, so c.4 is g.19 and c.6 is g.31):
 
-| Input                                     |     | Output                                                                                    | Note                                          |
-| :---------------------------------------- | :-: | :---------------------------------------------------------------------------------------- | :-------------------------------------------- |
-| `NM_X.1:c.[7C>T;13T>G]`                   | `→` | `NC_X.1:g.[22C>T;28T>G]`                                                                  |                                               |
-| `NC_X.1:g.[22C>T;28T>G]`                  | `→` | `NM_X.1:c.[7C>T;13T>G]`                                                                   |                                               |
-| `NR_XR.1:n.[23A>C;29G>A]`                 | `→` | `NC_X.1:g.[22C>T;28T>G]`                                                                  | the minus strand reverses the members         |
-| `NC_X.1:g.[22C>T;28T>G]`                  | `→` | `NM_XR.1:c.[20A>C;26G>A]`                                                                 | and back                                      |
-| `NM_S.1:c.[4A>T;6A>T]`                    | `→` | `NC_S.1:g.[19A>T;31A>T]`                                                                  | members in two exons                          |
-| `NM_S.1:c.[5+2T>A;7C>T]`                  | `→` | `NC_S.1:g.[22T>A;32C>T]`                                                                  | an intronic member, carried as given          |
-| `NM_X.1:c.[7C>T]`                         | `→` | `NC_X.1:g.[22C>T]`                                                                        | one member, still an allele                   |
-| `NM_X.1:c.[7C>T;13T>G]`                   | `→` | `NM_X.1:r.[7c>u;13u>g]`                                                                   |                                               |
-| `NR_XR.1:n.[23_25dup;29G>A]`              | `→` | `NC_X.1:g.[22C>T;26_28dup]`                                                               | nothing inserted beside the copy              |
-| `NR_XR.1:n.[22_23insA;23_25dup]`          | `→` | `NC_X.1:g.[25_26insCCT;28_29insT]`                                                        | the copy written where the transcript puts it |
-| `NC_X.1:g.[25_26insA;26_28dup]`           | `→` | `NM_XR.1:c.[19_20insAGG;22_23insT]`                                                       |                                               |
-| `NR_XR.1:n.[26_28dup;22_23insA;23_25dup]` | `→` | `NC_X.1:g.[25_26insCCT;28_29insT;22_23insTGG]` the second copy meets the first, rewritten |                                               |
-| `NM_S.1:r.[4a>u;5_6del]`                  | `→` | `UnsupportedOperation`, member 2, `NM_S.1:r.5_6del`: spans a splice junction              |                                               |
-| `NM_S.1:c.[4_6=;7C>T]`                    | `→` | `NC_S.1:g.[19_31=;32C>T]`                                                                 | a range across the junction, intron included  |
-| `NM_S.1:c.[5_6insT;7C>T]`                 | `→` | `UnsupportedOperation`, member 1, `NM_S.1:c.5_6insT`: inserts at an exon junction         |                                               |
-| `NM_X.1:c.[7C>T;*20del]`                  | `→` | `PositionOutsideSequenceError`, member 2, `NM_X.1:c.*20del`: past the last exon           |                                               |
+| Input                                     |     | Output                                                                            | Note                                          |
+| :---------------------------------------- | :-: | :-------------------------------------------------------------------------------- | :-------------------------------------------- |
+| `NM_X.1:c.[7C>T;13T>G]`                   | `→` | `NC_X.1:g.[22C>T;28T>G]`                                                          |                                               |
+| `NC_X.1:g.[22C>T;28T>G]`                  | `→` | `NM_X.1:c.[7C>T;13T>G]`                                                           |                                               |
+| `NR_XR.1:n.[23A>C;29G>A]`                 | `→` | `NC_X.1:g.[22C>T;28T>G]`                                                          | the minus strand reverses the members         |
+| `NC_X.1:g.[22C>T;28T>G]`                  | `→` | `NM_XR.1:c.[20A>C;26G>A]`                                                         | and back                                      |
+| `NM_S.1:c.[4A>T;6A>T]`                    | `→` | `NC_S.1:g.[19A>T;31A>T]`                                                          | members in two exons                          |
+| `NM_S.1:c.[5+2T>A;7C>T]`                  | `→` | `NC_S.1:g.[22T>A;32C>T]`                                                          | an intronic member, carried as given          |
+| `NM_X.1:c.[7C>T]`                         | `→` | `NC_X.1:g.[22C>T]`                                                                | one member, still an allele                   |
+| `NM_X.1:c.[7C>T;13T>G]`                   | `→` | `NM_X.1:r.[7c>u;13u>g]`                                                           |                                               |
+| `NR_XR.1:n.[23_25dup;29G>A]`              | `→` | `NC_X.1:g.[22C>T;26_28dup]`                                                       | nothing inserted beside the copy              |
+| `NR_XR.1:n.[22_23insA;23_25dup]`          | `→` | `NC_X.1:g.[25_26insCCT;28_29insT]`                                                | the copy written where the transcript puts it |
+| `NC_X.1:g.[25_26insA;26_28dup]`           | `→` | `NM_XR.1:c.[19_20insAGG;22_23insT]`                                               |                                               |
+| `NR_XR.1:n.[26_28dup;22_23insA;23_25dup]` | `→` | `NC_X.1:g.[25_26insCCT;28_29insT;22_23insTGG]`                                    | the second copy meets the first, rewritten    |
+| `NM_S.1:r.[4a>u;5_6del]`                  | `→` | `UnsupportedOperation`, member 2, `NM_S.1:r.5_6del`: spans a splice junction      |                                               |
+| `NM_S.1:c.[4_6=;7C>T]`                    | `→` | `NC_S.1:g.[19_31=;32C>T]`                                                         | a range across the junction, intron included  |
+| `NM_S.1:c.[5_6insT;7C>T]`                 | `→` | `UnsupportedOperation`, member 1, `NM_S.1:c.5_6insT`: inserts at an exon junction |                                               |
+| `NM_X.1:c.[7C>T;*20del]`                  | `→` | `PositionOutsideSequenceError`, member 2, `NM_X.1:c.*20del`: past the last exon   |                                               |
 
 - **Others:** biocommons 1.5.7 does not parse alleles in cis; VariantValidator and ClinVar not checked.
 - **Spec (agrees; silent on a duplication whose side of the original the strands disagree on):**
