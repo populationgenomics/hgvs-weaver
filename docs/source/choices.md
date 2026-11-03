@@ -3803,7 +3803,8 @@ read.
 
 A nucleotide allele is compared on the genome. Each member is projected to the genome on its own, and the two projected
 descriptions are applied there. Where the provider has no genome sequence, the comparison raises the provider's error,
-even when every member is in an exon. Comparing on the transcript whenever both descriptions are on one would answer a
+even when every member is in an exon, unless the two descriptions are one spelling, the members in any order: that is
+Identity, and nothing is projected. Comparing on the transcript whenever both descriptions are on one would answer a
 different question. On `NM_S.1`, which is `NM_X.1` with exon 1 ending at c.5, `c.[4A>T;6A>T]` and `c.4_6delinsTAT` make
 one transcript. The first projects to `g.[19A>T;31A>T]`; the second is a `c.` change across a junction, which
 [projects over the intron](#a-range-across-an-exon-junction-is-the-genomic-range), to `g.19_31delinsTAT`. Each
@@ -3912,27 +3913,28 @@ codon the record carries ([the open CDS entry](#an-open-cds-end-numbers-no-posit
 `p.[(Ala2Val;Gly10Glu)]` on a ten-codon fragment, and `c.[5C>T;28_30del]` is refused.
 
 Some members cannot be applied to a sequence. Two kinds leave the allele with no one sequence to compare: a position
-that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement (the whole-sequence
-`=`, `?`, `spl`, `0`, `r.(?)`), which names no bases. An allele with either is compared member by member, as
-[the uncertain position entry](#an-uncertain-position-names-no-one-change) sets out: an uncertain member matches a
-member spelled as it is and each exact member is compared by its canonical allele, so `g.[(30_31)del;22C>T;23T>G]` is
-not `g.[(30_31)del;22_23delinsTG]`, though the exact members make one sequence; an allele with a statement among several
-members is the same only as its own spelling. The rest leave the members beside them readable: inserted bases that are
-not stated, `insN[20]`, or written `N`, which is a base not stated; a copy number; and a conversion, whose bases weaver
-does not model, and which is not an identity though it prints as one. A positional identity, `c.10_12=`, is not among
-them: it replaces its bases with themselves, so `c.[7C>T;10_12=]` makes what `c.7C>T` makes, and states c.10 to c.12
-besides. An allele with members that cannot be applied is compared in two parts: the members that can be applied by the
-sequence they make, as above, and the members that cannot as an unordered collection of their projections to the genome,
-identical members counting once, as an edit written twice is read once, so `g.[30_35copy3;30_35copy3]` is
-`g.30_35copy3`. Two alleles are the same change when both parts match. An applicable part that makes the reference is
-compared as the statement it makes, so `c.[4_5insA;5del;10_12copy3]` is `c.[4_5=;10_12copy3]` and not
-`c.[13=;10_12copy3]`. Order still does not matter, so `g.[22C>T;30_35copy3]` is `g.[30_35copy3;22C>T]`, and a split of
-the applicable part still does not, so `c.[7C>T;8T>G;10_12copy3]` is `c.[7_8delinsTG;10_12copy3]`; a member that cannot
-be applied matches only its own projection, so `30_35copy3` is not `30_35copy4`. The projection, not the text as
-written, is compared, so `c.[7_8delinsTG;10_12copy3]` and `g.[22C>T;23T>G;25_27copy3]` are one allele though
-`10_12copy3` and `25_27copy3` are different text. Such a member is still held to the
-[overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so `g.[22C>T;20_30copy3]` is
-refused rather than compared in two parts.
+that is uncertain or imprecise, `g.(?_5)_(10_?)del`, which is not projected either, and a statement, which names no
+bases: `?`, `spl`, `0` or `r.(?)`, found only in `r.` alleles, since the whole-sequence `c.=`
+[cannot share an allele with a change](#overlapping-members-of-a-cis-allele-need-one-reading). An allele with either is
+compared member by member, as [the uncertain position entry](#an-uncertain-position-names-no-one-change) sets out: an
+uncertain member matches a member spelled as it is and each exact member is compared by its canonical allele, so
+`g.[(30_31)del;22C>T;23T>G]` is not `g.[(30_31)del;22_23delinsTG]`, though the exact members make one sequence; an
+allele with a statement among several members is the same only as its own spelling. The rest leave the members beside
+them readable: inserted bases that are not stated, `insN[20]`, or written `N`, which is a base not stated; a copy
+number; and a conversion, whose bases weaver does not model, and which is not an identity though it prints as one. A
+positional identity, `c.10_12=`, is not among them: it replaces its bases with themselves, so `c.[7C>T;10_12=]` makes
+what `c.7C>T` makes, and states c.10 to c.12 besides. An allele with members that cannot be applied is compared in two
+parts: the members that can be applied by the sequence they make, as above, and the members that cannot as an unordered
+collection of their projections to the genome, identical members counting once, as an edit written twice is read once,
+so `g.[30_35copy3;30_35copy3]` is `g.30_35copy3`. Two alleles are the same change when both parts match. An applicable
+part that makes the reference is compared as the statement it makes, so `c.[4_5insA;5del;10_12copy3]` is
+`c.[4_5=;10_12copy3]` and not `c.[13=;10_12copy3]`. Order still does not matter, so `g.[22C>T;30_35copy3]` is
+`g.[30_35copy3;22C>T]`, and a split of the applicable part still does not, so `c.[7C>T;8T>G;10_12copy3]` is
+`c.[7_8delinsTG;10_12copy3]`; a member that cannot be applied matches only its own projection, so `30_35copy3` is not
+`30_35copy4`. The projection, not the text as written, is compared, so `c.[7_8delinsTG;10_12copy3]` and
+`g.[22C>T;23T>G;25_27copy3]` are one allele though `10_12copy3` and `25_27copy3` are different text. Such a member is
+still held to the [overlap rule](#overlapping-members-of-a-cis-allele-need-one-reading) on its outer bounds, so
+`g.[22C>T;20_30copy3]` is refused rather than compared in two parts.
 
 A `p.` frameshift or extension can be applied. Equivalence already turns a single one into
 [the protein it leaves](equivalence_logic.md#the-protein-a-description-leaves): residues it does not name match any
@@ -4281,7 +4283,7 @@ no change was found and names one, a contradiction, and stays refused
 
 A member that cannot be applied, a copy number or a position that is uncertain or imprecise, still names a stretch, and
 is held to this rule on its outer bounds. `g.[22C>T;20_30copy3]` changes a base inside the stretch whose copies it
-counts, and `g.[(?_5)_(10_?)del;7A>T]` changes g.7, which lies inside even the bases the deletion certainly removes:
+counts, and `g.[(?_5)_(10_?)del;7T>A]` changes g.7, which lies inside even the bases the deletion certainly removes:
 both are contradictory. An unknown outer bound, the `?` of `(?_5)`, reaches the end of the sequence on that side, as a
 bound for this check only: nothing is built or read for it. An insertion of bases it does not state, `insN[3]` or
 `insN`, an `N` being a base not stated, names only its junction, so `c.[7_8insN[3];8T>G]` is accepted as
