@@ -211,7 +211,14 @@ impl<'a> VariantEquivalence<'a> {
         }
         let same = match (var1, var2) {
             (SequenceVariant::Protein(p1), SequenceVariant::Protein(p2)) => {
-                return self.protein_level(p1, || self.protein_outcome_on(p1, &p1.ac), p2);
+                // On two versions of one accession, the two are the same
+                // change only when they are on each version, so the order in
+                // which they are given does not matter.
+                let level = self.protein_level(p1, || self.protein_outcome_on(p1, &p1.ac), p2)?;
+                if level == EquivalenceLevel::Analogous && p1.ac != p2.ac {
+                    return self.protein_level(p2, || self.protein_outcome_on(p2, &p2.ac), p1);
+                }
+                return Ok(level);
             }
             (protein @ SequenceVariant::Protein(_), nucleotide)
             | (nucleotide, protein @ SequenceVariant::Protein(_)) => {
@@ -508,7 +515,9 @@ impl<'a> VariantEquivalence<'a> {
     /// How the protein description `p1`, which leaves the protein `left`, and
     /// `p2` compare: `Identity` as one spelling, `Analogous` on two versions of
     /// one accession as one spelling or when they can leave the same protein,
-    /// read on `p1`'s accession. `left` is asked for only when the spellings
+    /// read on `p1`'s accession. A `p2` that does not read on that version,
+    /// having been checked on its own, names a change that version does not
+    /// have, and is `Different`. `left` is asked for only when the spellings
     /// differ, since it needs the protein sequence.
     fn protein_level(
         &self,
@@ -519,10 +528,16 @@ impl<'a> VariantEquivalence<'a> {
         if protein_spelling(p1) == protein_spelling(p2) {
             return Ok(EquivalenceLevel::Identity);
         }
-        // Versions of one protein accession are compared on ours.
         let same = base_accession(&p1.ac) == base_accession(&p2.ac)
             && (posedit_spelling(&p1.posedit) == posedit_spelling(&p2.posedit)
-                || same_protein(left()?, self.protein_outcome_on(p2, &p1.ac)?));
+                || match self.protein_outcome_on(p2, &p1.ac) {
+                    Ok(outcome) => same_protein(left()?, outcome),
+                    Err(
+                        HgvsError::ReferenceMismatch { .. }
+                        | HgvsError::PositionOutsideSequence { .. },
+                    ) if p1.ac != p2.ac => false,
+                    Err(e) => return Err(e),
+                });
         Ok(if same {
             EquivalenceLevel::Analogous
         } else {
