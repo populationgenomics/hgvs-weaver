@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol, TypedDict
 
 from weaver._weaver import (  # type: ignore[attr-defined]
+    AccessionStatus,
+    AccessionTag,
     AmbiguousDescriptionError,
     AmbiguousResidueError,
     CigarError,
+    ConsistentVariant,
     DataProviderError,
     EquivalenceLevel,
     HGVSError,
@@ -23,9 +27,13 @@ from weaver._weaver import (  # type: ignore[attr-defined]
 )
 
 __all__ = [
+    "AccessionCatalogue",
+    "AccessionStatus",
+    "AccessionTag",
     "AmbiguousDescriptionError",
     "AmbiguousResidueError",
     "CigarError",
+    "ConsistentVariant",
     "DataProvider",
     "DataProviderError",
     "EquivalenceLevel",
@@ -109,6 +117,37 @@ class TranscriptSearch(Protocol):
 
     def get_transcripts_for_region(self, chrom: str, start: int, end: int) -> list[str]:
         """Return list of transcript accessions overlapping the given genomic region."""
+        ...
+
+
+class AccessionCatalogue(Protocol):
+    """Optional lookup passed to ``VariantMapper.consistent_variants(var, catalogue)``.
+
+    What a store holds under an accession: the versions of an unversioned one, and the
+    status and tags of a versioned one. Without it, ``consistent_variants`` cannot read an
+    unversioned accession, and gives no status or tags.
+    """
+
+    def get_accession_versions(self, ac: str) -> list[str]:
+        """Return every versioned accession held under the unversioned ``ac``, newest first.
+
+        Only the store knows what newest means: the version number for RefSeq and Ensembl,
+        the release that held it for a record with no version of its own. Empty when none
+        is held.
+        """
+        ...
+
+    def get_accession_info(
+        self,
+        ac: str,
+    ) -> tuple[str | AccessionStatus, Sequence[str | AccessionTag]] | None:
+        """Return the status and tags of the versioned ``ac``, or None if nothing is held under it.
+
+        The status is ``'current'``, ``'superseded'`` or ``'suppressed'``, or an
+        AccessionStatus; each tag is ``'mane_select'``, ``'mane_plus_clinical'``,
+        ``'refseq_select'`` or ``'ensembl_canonical'``, or an AccessionTag. A protein
+        carries the tags of the transcripts that encode it.
+        """
         ...
 
 

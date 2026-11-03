@@ -313,6 +313,7 @@ stubloom generate --module weaver._weaver --package hgvs-weaver-py --out weaver/
     --allow-any Variant.validate.provider \
     --allow-any VariantMapper.__new__.provider \
     --allow-any VariantMapper.__new__.refget \
+    --allow-any VariantMapper.consistent_variants.catalogue \
     --allow-any VariantMapper.from_vrs.allele \
     --allow-any VariantMapper.equivalent.searcher \
     --allow-any VariantMapper.equivalent_level.searcher \
