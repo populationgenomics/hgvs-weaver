@@ -259,6 +259,53 @@ fn a_coding_variant_agrees_with_every_spelling_of_its_consequence() {
     assert!(!pp("NP_X.1:p.Lys2Gln", "NP_Y.1:p.Lys2Gln"));
 }
 
+/// Two versions of one protein accession, `NP_X.1` as `PROTEIN` and `NP_X.0`
+/// as `older`, compared both ways round.
+fn across_versions(older: &str, a: &str, b: &str) -> [EquivalenceLevel; 2] {
+    let hdp = provider(PROTEIN).sequence("NP_X.0", older);
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (
+        parse_hgvs_variant(a).unwrap(),
+        parse_hgvs_variant(b).unwrap(),
+    );
+    [
+        eq.equivalent_level(&a, &b).unwrap(),
+        eq.equivalent_level(&b, &a).unwrap(),
+    ]
+}
+
+#[test]
+fn a_protein_description_naming_a_residue_another_version_lacks_is_different_in_either_order() {
+    // MKLAYR has no Trp7; MKLAYRWW does.
+    assert_eq!(
+        across_versions("MKLAYRWW", "NP_X.1:p.Lys2Gln", "NP_X.0:p.Trp7Gln"),
+        [EquivalenceLevel::Different, EquivalenceLevel::Different]
+    );
+}
+
+#[test]
+fn protein_descriptions_alike_on_one_version_only_are_different_in_either_order() {
+    // On MKLLYR both delete one Leu of two; on MKLAYR residue 4 is Ala.
+    assert_eq!(
+        across_versions("MKLLYR", "NP_X.1:p.Leu3del", "NP_X.0:p.Leu4del"),
+        [EquivalenceLevel::Different, EquivalenceLevel::Different]
+    );
+}
+
+#[test]
+fn protein_descriptions_alike_on_both_versions_are_analogous_in_either_order() {
+    // On MKLAYR and MKLAYK alike, the two delete Lys2.
+    assert_eq!(
+        across_versions(
+            "MKLAYK",
+            "NP_X.1:p.Lys2del",
+            "NP_X.0:p.Met1_Leu3delinsMetLeu"
+        ),
+        [EquivalenceLevel::Analogous, EquivalenceLevel::Analogous]
+    );
+}
+
 #[test]
 fn edits_around_the_cds_start_are_statements() {
     // Entirely in the 5'UTR: nothing can be said. Reaching into the CDS from
@@ -327,4 +374,72 @@ fn a_silent_change_across_the_stop_names_no_residue_past_it() {
     let mapper = VariantMapper::new(&hdp);
     let p = mapper.c_to_p(&coding("NM_X.1:c.21_*1dup"), None).unwrap();
     assert_eq!(p.to_string(), "NP_X.1:p.(Ter7=)");
+}
+
+#[test]
+fn protein_alleles_alike_on_one_version_only_are_different_in_either_order() {
+    // On MKLLYR both delete one Leu of two and change Tyr5; on MKLAYR
+    // residue 4 is Ala.
+    assert_eq!(
+        across_versions(
+            "MKLLYR",
+            "NP_X.1:p.[Leu3del;Tyr5Asp]",
+            "NP_X.0:p.[Leu4del;Tyr5Asp]"
+        ),
+        [EquivalenceLevel::Different, EquivalenceLevel::Different]
+    );
+}
+
+#[test]
+fn a_protein_allele_naming_a_residue_another_version_lacks_is_different_in_either_order() {
+    assert_eq!(
+        across_versions(
+            "MKLAYRWW",
+            "NP_X.1:p.[Lys2Gln;Ala4Gly]",
+            "NP_X.0:p.[Lys2Gln;Trp7Gly]"
+        ),
+        [EquivalenceLevel::Different, EquivalenceLevel::Different]
+    );
+}
+
+#[test]
+fn protein_alleles_alike_on_both_versions_are_analogous_in_either_order() {
+    assert_eq!(
+        across_versions(
+            "MKLAYK",
+            "NP_X.1:p.[Lys2Gln;Ala4Gly]",
+            "NP_X.0:p.[Ala4Gly;Lys2Gln]"
+        ),
+        [EquivalenceLevel::Analogous, EquivalenceLevel::Analogous]
+    );
+}
+
+#[test]
+fn a_protein_version_the_provider_does_not_serve_is_an_error_in_either_order() {
+    let hdp = provider(PROTEIN);
+    let mapper = VariantMapper::new(&hdp);
+    let eq = VariantEquivalence::new(&mapper, &hdp);
+    let (a, b) = (
+        parse_hgvs_variant("NP_X.1:p.Lys2Gln").unwrap(),
+        parse_hgvs_variant("NP_X.2:p.Lys2del").unwrap(),
+    );
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let err = eq.equivalent_level(x, y).unwrap_err();
+        assert!(
+            matches!(&err, HgvsError::DataProviderError(m) if m.contains("NP_X.2")),
+            "{x} vs {y}: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_protein_allele_and_one_description_alike_on_both_versions_are_analogous_in_either_order() {
+    assert_eq!(
+        across_versions(
+            "MKLAYK",
+            "NP_X.1:p.[Lys2Gln;Ala4Gly]",
+            "NP_X.0:p.Lys2_Ala4delinsGlnLeuGly"
+        ),
+        [EquivalenceLevel::Analogous, EquivalenceLevel::Analogous]
+    );
 }
