@@ -417,3 +417,89 @@ fn a_protein_block_reads_back_in_residue_order() {
         "NP_TEST.1:p.[Lys2Asn;Tyr7His]"
     );
 }
+
+/// Whether `result` is the refusal of an allele with no one reading.
+fn has_no_reading<T: std::fmt::Debug>(result: Result<T, HgvsError>) -> bool {
+    matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("no reading"))
+}
+
+#[test]
+fn to_vrs_refuses_a_protein_allele_inserting_twice_at_one_point() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2_Leu3insGln;Lys2_Leu3insGly]").unwrap();
+    assert!(has_no_reading(mapper.to_vrs_variation(&var)));
+}
+
+#[test]
+fn to_vrs_refuses_a_protein_allele_changing_one_residue_two_ways() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2Asn;Lys2Thr]").unwrap();
+    assert!(has_no_reading(mapper.to_vrs_variation(&var)));
+}
+
+#[test]
+fn validate_refuses_a_protein_allele_changing_one_residue_two_ways() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2Asn;Lys2Thr]").unwrap();
+    assert!(has_no_reading(mapper.validate(&var)));
+}
+
+#[test]
+fn a_protein_block_changing_one_residue_two_ways_does_not_read_back() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = block_on(PROTEIN, &[(1, 2, "N"), (1, 2, "T")]);
+    assert!(has_no_reading(mapper.from_vrs(&block, None)));
+}
+
+#[test]
+fn a_protein_block_inserting_twice_after_the_last_residue_does_not_read_back() {
+    // MKLAAAYRQ is served without its stop, so index 9 is before the stop.
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    let block = block_on(PROTEIN, &[(9, 9, "Q"), (9, 9, "G")]);
+    assert!(has_no_reading(mapper.from_vrs(&block, None)));
+}
+
+#[test]
+fn a_protein_insertion_beside_a_change_on_its_right_has_a_reading() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2_Leu3insGln;Leu3Pro]").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}
+
+#[test]
+fn a_protein_insertion_beside_a_change_on_its_left_has_a_reading() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2Pro;Lys2_Leu3insGln]").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}
+
+#[test]
+fn a_protein_change_written_twice_is_read_once() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2Asn;Tyr7Asp;Tyr7Asp]").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}
+
+#[test]
+fn a_protein_member_naming_no_residues_does_not_hide_two_that_clash() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Met1?;Lys2Asn;Lys2Thr]").unwrap();
+    assert!(has_no_reading(mapper.validate(&var)));
+}
+
+#[test]
+fn normalize_refuses_a_protein_allele_changing_one_residue_two_ways() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Lys2Asn;Lys2Thr]").unwrap();
+    assert!(has_no_reading(mapper.normalize_variant(var)));
+}
