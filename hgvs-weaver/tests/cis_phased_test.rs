@@ -1222,12 +1222,16 @@ fn validate_refuses_a_contradictory_allele_rather_than_answering_false() {
 }
 
 #[test]
-fn validate_answers_false_for_a_wrong_base_stated_over_an_uncertain_interval() {
+fn validate_refuses_bases_stated_at_an_uncertain_position_in_an_allele() {
     let hdp = reading_provider();
     let mapper = VariantMapper::new(&hdp);
-    // g.21_23 are CCC
-    let wrong = parse_hgvs_variant("NC_X.1:g.[(21_23)delAAA;40T>A]").unwrap();
-    assert!(!mapper.validate(&wrong).unwrap());
+    // g.21_23 are CCC, as stated, and still the bases name no one position.
+    let var = parse_hgvs_variant("NC_X.1:g.[(21_23)delCCC;40T>A]").unwrap();
+    assert!(
+        matches!(mapper.validate(&var), Err(HgvsError::ValidationError(m)) if m.contains("uncertain position")),
+        "{:?}",
+        mapper.validate(&var)
+    );
 }
 
 #[test]
