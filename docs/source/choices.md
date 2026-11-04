@@ -1421,7 +1421,7 @@ of `TEST`):
   exon/exon junction, and says nothing of a reference whose junctions are not known.
 
 <details>
-<summary><strong>Tests asserting this choice (20)</strong></summary>
+<summary><strong>Tests asserting this choice (21)</strong></summary>
 
 `unplaced_transcript_test::a_deletion_shifts_across_where_a_junction_would_be`,
 `::an_rna_deletion_shifts_across_where_a_junction_would_be`, `::a_repeat_at_the_records_count_normalises_on_the_record`,
@@ -1429,8 +1429,8 @@ of `TEST`):
 `::a_coding_change_has_its_protein_consequence`, `::a_coding_change_has_its_rna_form`,
 `::an_intronic_position_is_refused_for_want_of_a_placement`, `::an_intronic_position_is_not_normalised`,
 `::an_intronic_position_has_no_protein_consequence`, `::a_coding_change_has_no_genomic_form`,
-`::an_rna_change_has_no_genomic_form`, `::a_coding_change_has_no_spdi`,
-`::two_spellings_on_the_record_are_not_compared_without_the_genome`,
+`::a_coding_change_has_no_form_on_a_named_genome`, `::an_rna_change_has_no_genomic_form`,
+`::a_coding_change_has_no_spdi`, `::two_spellings_on_the_record_are_not_compared_without_the_genome`,
 `::a_gene_symbols_intronic_change_is_read_on_its_placed_transcripts_alone`,
 `::a_gene_symbols_change_no_placed_transcript_holds_is_unplaced_rather_than_inconsistent`,
 `::a_gene_symbol_is_equivalent_to_the_genome_through_its_placed_transcript`,
