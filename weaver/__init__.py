@@ -182,6 +182,8 @@ class DataProvider(Protocol):
         """Retrieve transcript model for the given accession.
 
         If reference_ac is provided, returns the alignment for that specific reference.
+        A record placed on no genome is returned unplaced whatever reference_ac is, so
+        weaver can say the placement is missing rather than report the lookup failing.
         """
         ...
 

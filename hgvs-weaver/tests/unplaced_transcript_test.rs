@@ -207,6 +207,15 @@ fn a_coding_change_has_no_genomic_form() {
 }
 
 #[test]
+fn a_coding_change_has_no_form_on_a_named_genome() {
+    let hdp = unplaced();
+
+    let result = VariantMapper::new(&hdp).c_to_g(&coding("NM_U.1:c.5A>G"), Some("NC_J.1"));
+
+    assert!(unplaced_refusal(&result), "{result:?}");
+}
+
+#[test]
 fn an_rna_change_has_no_genomic_form() {
     let hdp = unplaced();
     let r = match parse("NM_U.1:r.5a>g") {

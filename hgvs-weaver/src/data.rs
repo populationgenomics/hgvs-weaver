@@ -371,6 +371,10 @@ impl TranscriptData {
 
 /// Interface for retrieving transcript and sequence data.
 pub trait DataProvider {
+    /// The model of `transcript_ac`, placed on `reference_ac` where one is
+    /// given. A record placed on no genome is returned unplaced whatever
+    /// `reference_ac` is, so the caller is told the placement is missing
+    /// ([`HgvsError::Unplaced`]) rather than that the lookup failed.
     fn get_transcript(
         &self,
         transcript_ac: &str,
