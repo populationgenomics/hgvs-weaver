@@ -702,7 +702,7 @@ impl IntervalSpdi for BaseOffsetInterval {
             ),
             None,
         )?;
-        let reference_ac = transcript.reference_accession.clone();
+        let reference_ac = transcript.placed()?.reference_accession.clone();
         let am = crate::transcript_mapper::TranscriptMapper::new(transcript)?;
         let (start, end) = am.interval_to_g(self)?;
         Ok((start.0, end.0, reference_ac))

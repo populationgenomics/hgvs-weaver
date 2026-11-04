@@ -83,6 +83,32 @@ impl ExonData {
     }
 }
 
+/// Where a transcript lies on a genome: the genomic sequence
+/// `reference_accession`, the strand the transcript reads, and its exons,
+/// each aligned to that sequence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct Placement {
+    pub reference_accession: String,
+    pub strand: Strand,
+    pub exons: Vec<ExonData>,
+}
+
+impl Placement {
+    /// The exons `exons`, on `strand` of `reference_accession`.
+    pub fn new(
+        reference_accession: impl Into<String>,
+        strand: Strand,
+        exons: Vec<ExonData>,
+    ) -> Self {
+        Placement {
+            reference_accession: reference_accession.into(),
+            strand,
+            exons,
+        }
+    }
+}
+
 /// What the codon at a transcript's `cds_start_index` is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
@@ -105,7 +131,9 @@ pub enum CdsStart {
 
 /// A transcript model as a provider writes it. `cds_start` is two optional
 /// keys, `cds_start_open` (default false) and `cds_start_initiates` (default
-/// true), and a start that is open and initiates is refused.
+/// true), and a start that is open and initiates is refused. The placement is
+/// three keys, `strand`, `reference_accession` and `exons`, all present or
+/// all absent.
 #[derive(Serialize, Deserialize)]
 struct TranscriptRecord {
     ac: String,
@@ -116,20 +144,37 @@ struct TranscriptRecord {
     cds_start_open: bool,
     #[serde(
         default,
-        deserialize_with = "present_bool",
+        deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
     cds_start_initiates: Option<bool>,
     #[serde(default)]
     cds_end_open: bool,
-    strand: Strand,
-    reference_accession: String,
-    exons: Vec<ExonData>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    strand: Option<Strand>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    reference_accession: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    exons: Option<Vec<ExonData>>,
 }
 
-/// A key that, when present, holds a boolean: `null` is refused, not read as absent.
-fn present_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, D::Error> {
-    bool::deserialize(deserializer).map(Some)
+/// A key that, when present, holds a value: `null` is refused, not read as absent.
+fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 impl TryFrom<TranscriptRecord> for TranscriptData {
@@ -148,6 +193,30 @@ impl TryFrom<TranscriptRecord> for TranscriptData {
             (false, Some(false)) => CdsStart::Internal,
             (false, _) => CdsStart::Initiator,
         };
+        let placement = match (r.reference_accession, r.strand, r.exons) {
+            (Some(reference_accession), Some(strand), Some(exons)) => Some(Placement {
+                reference_accession,
+                strand,
+                exons,
+            }),
+            (None, None, None) => None,
+            (reference_accession, strand, exons) => {
+                let missing: Vec<&str> = [
+                    ("reference_accession", reference_accession.is_none()),
+                    ("strand", strand.is_none()),
+                    ("exons", exons.is_none()),
+                ]
+                .into_iter()
+                .filter_map(|(key, absent)| absent.then_some(key))
+                .collect();
+                return Err(format!(
+                    "{}: a placement is reference_accession, strand and exons together, \
+                     and {} absent",
+                    r.ac,
+                    missing.join(" and ")
+                ));
+            }
+        };
         Ok(TranscriptData {
             ac: r.ac,
             gene: r.gene,
@@ -155,9 +224,7 @@ impl TryFrom<TranscriptRecord> for TranscriptData {
             cds_end_index: r.cds_end_index,
             cds_start,
             cds_end_open: r.cds_end_open,
-            strand: r.strand,
-            reference_accession: r.reference_accession,
-            exons: r.exons,
+            placement,
         })
     }
 }
@@ -169,6 +236,10 @@ impl From<TranscriptData> for TranscriptRecord {
             CdsStart::Internal => (false, Some(false)),
             CdsStart::Open => (true, None),
         };
+        let (reference_accession, strand, exons) = match t.placement {
+            Some(p) => (Some(p.reference_accession), Some(p.strand), Some(p.exons)),
+            None => (None, None, None),
+        };
         TranscriptRecord {
             ac: t.ac,
             gene: t.gene,
@@ -177,9 +248,9 @@ impl From<TranscriptData> for TranscriptRecord {
             cds_start_open,
             cds_start_initiates,
             cds_end_open: t.cds_end_open,
-            strand: t.strand,
-            reference_accession: t.reference_accession,
-            exons: t.exons,
+            strand,
+            reference_accession,
+            exons,
         }
     }
 }
@@ -200,9 +271,11 @@ pub struct TranscriptData {
     /// position is numbered from the stop codon, and no protein consequence is
     /// predicted that needs a base past the last whole codon the record carries.
     pub cds_end_open: bool,
-    pub strand: Strand,
-    pub reference_accession: String,
-    pub exons: Vec<ExonData>,
+    /// Where the transcript lies on a genome; `None` for a record no
+    /// assembly places, such as a GenBank mRNA. An unplaced record is read on
+    /// its own sequence alone: an operation that needs the genome is
+    /// [`HgvsError::Unplaced`].
+    pub placement: Option<Placement>,
 }
 
 impl TranscriptData {
@@ -252,10 +325,34 @@ impl TranscriptData {
             cds_end_index: cds.map(|(_, end)| end),
             cds_start: CdsStart::Initiator,
             cds_end_open: false,
-            strand,
-            reference_accession: reference_accession.into(),
-            exons,
+            placement: Some(Placement::new(reference_accession, strand, exons)),
         }
+    }
+
+    /// A transcript model as [`new`](Self::new) makes one, but placed on no
+    /// genome.
+    pub fn unplaced(
+        ac: impl Into<String>,
+        gene: impl Into<String>,
+        cds: Option<(TranscriptPos, TranscriptPos)>,
+    ) -> Self {
+        TranscriptData {
+            ac: ac.into(),
+            gene: gene.into(),
+            cds_start_index: cds.map(|(start, _)| start),
+            cds_end_index: cds.map(|(_, end)| end),
+            cds_start: CdsStart::Initiator,
+            cds_end_open: false,
+            placement: None,
+        }
+    }
+
+    /// Where the transcript lies on a genome, for an operation that needs it:
+    /// [`HgvsError::Unplaced`] for a record placed on none.
+    pub fn placed(&self) -> Result<&Placement, HgvsError> {
+        self.placement.as_ref().ok_or_else(|| HgvsError::Unplaced {
+            accession: self.ac.clone(),
+        })
     }
 
     /// The same model with the codon at `cds_start_index` read as `cds_start`.

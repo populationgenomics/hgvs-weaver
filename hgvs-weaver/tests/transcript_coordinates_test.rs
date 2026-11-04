@@ -50,14 +50,15 @@ fn transcript_on(
 
 /// The bases of `transcript`'s one exon, read from its genome on its strand.
 fn transcript_sequence(transcript: &TranscriptData) -> String {
-    let genome = if transcript.reference_accession == REP_AC {
+    let placement = transcript.placement.as_ref().expect("a placed transcript");
+    let genome = if placement.reference_accession == REP_AC {
         rep_genome()
     } else {
         genome()
     };
-    let exon = &transcript.exons[0];
+    let exon = &placement.exons[0];
     let exonic = &genome[exon.reference_start.0 as usize..=exon.reference_end.0 as usize];
-    match transcript.strand {
+    match placement.strand {
         Strand::Plus => exonic.to_string(),
         Strand::Minus => exonic
             .chars()

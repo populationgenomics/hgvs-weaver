@@ -150,6 +150,11 @@ pub enum HgvsError {
         read_as: ReferenceUse,
         kind: IdentifierType,
     },
+    /// An operation that needs the genome, asked of the transcript record
+    /// `accession`, which its provider places on no genome: a GenBank mRNA
+    /// read on its own sequence. A projection, an intronic position and a
+    /// genomic form all need a placement.
+    Unplaced { accession: String },
     /// A description that makes no statement about the protein: an identity
     /// that covers no whole codon. HGVS has no `p.` form for it; `p.(=)`
     /// would claim the whole protein, and `p.?` an effect.
@@ -279,6 +284,11 @@ impl fmt::Display for HgvsError {
                     "Wrong reference kind: {accession} is {named} accession, and {read_as} needs {needs} reference"
                 )
             }
+            HgvsError::Unplaced { accession } => write!(
+                f,
+                "Unplaced: {accession} has no genome placement, so nothing that needs the genome \
+                 can be read on it"
+            ),
             HgvsError::NoProteinStatement(msg) => write!(f, "No protein statement: {msg}"),
             HgvsError::Other(msg) => write!(f, "Other error: {msg}"),
             HgvsError::CisMember {

@@ -16,6 +16,17 @@ from weaver import refseq
 RefSeqDataProvider = refseq.RefSeqDataProvider
 
 
+def _placement(tx: weaver.TranscriptData) -> tuple[str, int, list[weaver.ExonData]]:
+    """The genome, strand and exons of a transcript, which biocommons reads only placed.
+
+    Raises:
+        ValueError: If the provider places the transcript on no genome.
+    """
+    if "reference_accession" not in tx or "strand" not in tx or "exons" not in tx:
+        raise ValueError(f"{tx['ac']} has no genome placement")
+    return tx["reference_accession"], tx["strand"], tx["exons"]
+
+
 class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
     """Bridge between weaver DataProvider and hgvs library Interface.
 
@@ -44,12 +55,13 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
     ) -> dict[str, typing.Any] | None:
         try:
             tx = self.rp.get_transcript(tx_ac, alt_ac)
+            genome, strand, _ = _placement(tx)
             return {
                 "hgnc": tx["gene"],
                 "cds_start_i": tx["cds_start_index"],
                 "cds_end_i": tx["cds_end_index"] + 1 if tx["cds_end_index"] is not None else None,
-                "strand": tx["strand"],
-                "alt_ac": tx["reference_accession"],
+                "strand": strand,
+                "alt_ac": genome,
                 "alt_aln_method": "transcript",
             }
         except Exception:
@@ -62,21 +74,21 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
         _alt_aln_method: str | None = None,
     ) -> list[dict[str, typing.Any]] | None:
         try:
-            tx = self.rp.get_transcript(tx_ac, alt_ac)
+            genome, strand, exons = _placement(self.rp.get_transcript(tx_ac, alt_ac))
             res: list[dict[str, typing.Any]] = []
-            exons_transcript = sorted(tx["exons"], key=lambda x: x["transcript_start"])
+            exons_transcript = sorted(exons, key=lambda x: x["transcript_start"])
             for i, e in enumerate(exons_transcript):
                 res.append(
                     {
                         "tx_ac": tx_ac,
-                        "alt_ac": tx["reference_accession"],
+                        "alt_ac": genome,
                         "alt_aln_method": "transcript",
                         "ord": i,
                         "tx_start_i": e["transcript_start"],
                         "tx_end_i": e["transcript_end"],
                         "alt_start_i": e["reference_start"],
                         "alt_end_i": e["reference_end"] + 1,
-                        "alt_strand": tx["strand"],
+                        "alt_strand": strand,
                         "cigar": e["cigar"],
                     },
                 )
@@ -88,12 +100,13 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
     def get_tx_identity_info(self, tx_ac: str) -> dict[str, typing.Any] | None:
         try:
             tx = self.rp.get_transcript(tx_ac, None)
-            total_len = tx["exons"][-1]["transcript_end"]
+            genome, _, exons = _placement(tx)
+            total_len = exons[-1]["transcript_end"]
             return {
                 "hgnc": tx["gene"],
                 "lengths": [total_len],
                 "tx_ac": tx_ac,
-                "alt_acs": [tx["reference_accession"]],
+                "alt_acs": [genome],
                 "cds_start_i": tx["cds_start_index"],
                 "cds_end_i": tx["cds_end_index"] + 1 if tx["cds_end_index"] is not None else None,
             }
@@ -129,11 +142,7 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
         """Every reference the transcript is placed on where the provider lists them, else its default placement."""
         try:
             listed = getattr(self.rp, "tx_to_refs", None)
-            refs = (
-                listed.get(tx_ac, [])
-                if listed is not None
-                else [self.rp.get_transcript(tx_ac, None)["reference_accession"]]
-            )
+            refs = listed.get(tx_ac, []) if listed is not None else [_placement(self.rp.get_transcript(tx_ac, None))[0]]
             return [{"tx_ac": tx_ac, "alt_ac": r, "alt_aln_method": "transcript"} for r in refs]
         except Exception:
             return []

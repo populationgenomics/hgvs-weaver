@@ -2238,8 +2238,9 @@ impl VariantMapper<'_> {
             ),
             None,
         )?;
-        let minus = transcript.strand == Strand::Minus;
-        let genome = transcript.reference_accession.clone();
+        let placement = transcript.placed()?;
+        let minus = placement.strand == Strand::Minus;
+        let genome = placement.reference_accession.clone();
         let am = TranscriptMapper::new(transcript)?;
         let reference = self
             .refs

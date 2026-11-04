@@ -101,6 +101,8 @@ impl<'a> VariantEquivalence<'a> {
         let spelled1: Vec<String> = read1.iter().map(|(w, _)| spelling(w)).collect();
         let spelled2: Vec<String> = read2.iter().map(|(w, _)| spelling(w)).collect();
         let mut skipped: Vec<(&str, bool, usize)> = Vec::new();
+        // Pairs that need the genome of a record placed on none.
+        let mut unplaced = Vec::new();
         let mut best = EquivalenceLevel::Different;
         for (i, (_, compared1)) in read1.iter().enumerate() {
             for (j, (_, compared2)) in read2.iter().enumerate() {
@@ -115,10 +117,12 @@ impl<'a> VariantEquivalence<'a> {
                 }
                 // The strongest level any pair gives, whatever order the
                 // gene's accessions come in.
-                match self.equivalent_level_single(compared1, compared2)? {
-                    EquivalenceLevel::Identity => return Ok(EquivalenceLevel::Identity),
-                    EquivalenceLevel::Analogous => best = EquivalenceLevel::Analogous,
-                    _ => {}
+                match self.equivalent_level_single(compared1, compared2) {
+                    Ok(EquivalenceLevel::Identity) => return Ok(EquivalenceLevel::Identity),
+                    Ok(EquivalenceLevel::Analogous) => best = EquivalenceLevel::Analogous,
+                    Ok(_) => {}
+                    Err(e @ HgvsError::Unplaced { .. }) => unplaced.push(e),
+                    Err(e) => return Err(e),
                 }
             }
         }
@@ -131,6 +135,9 @@ impl<'a> VariantEquivalence<'a> {
             if let Some(e) = refused[k].take() {
                 return Err(e);
             }
+        }
+        if let Some(e) = first_unplaced(unplaced) {
+            return Err(e);
         }
         Ok(EquivalenceLevel::Different)
     }
@@ -223,8 +230,10 @@ impl<'a> VariantEquivalence<'a> {
 
     /// The readings whose references hold what they state ([`check_stated`]).
     /// Each accession of a gene numbers its own sequence, so a reading the
-    /// reference contradicts is set aside; when every reading is contradicted,
-    /// the first contradiction is the error.
+    /// reference contradicts is set aside, as is one that needs the genome of
+    /// a record placed on none; when every reading is set aside, the first
+    /// contradiction is the error, or else the first unplaced record by
+    /// accession.
     ///
     /// [`check_stated`]: Self::check_stated
     fn held(
@@ -233,6 +242,7 @@ impl<'a> VariantEquivalence<'a> {
     ) -> Result<Vec<(SequenceVariant, SequenceVariant)>, HgvsError> {
         let mut held = Vec::with_capacity(readings.len());
         let mut contradiction = None;
+        let mut unplaced = Vec::new();
         for reading in readings {
             match self.check_stated(&reading.1) {
                 Ok(()) => held.push(reading),
@@ -244,12 +254,16 @@ impl<'a> VariantEquivalence<'a> {
                 ) => {
                     contradiction.get_or_insert(e);
                 }
+                Err(e @ HgvsError::Unplaced { .. }) => unplaced.push(e),
                 Err(e) => return Err(e),
             }
         }
-        match contradiction {
-            Some(e) if held.is_empty() => Err(e),
-            _ => Ok(held),
+        if !held.is_empty() {
+            return Ok(held);
+        }
+        match contradiction.or_else(|| first_unplaced(unplaced)) {
+            Some(e) => Err(e),
+            None => Ok(held),
         }
     }
 
@@ -783,7 +797,9 @@ impl<'a> VariantEquivalence<'a> {
             Ok(self
                 .mapper
                 .transcript((ac, crate::mapper::ReadAs::Description("n")), None)?
-                .reference_accession)
+                .placed()?
+                .reference_accession
+                .clone())
         };
         Ok(match var {
             SequenceVariant::Coding(c) => vec![Coding::One(c.clone())],
@@ -807,7 +823,9 @@ impl<'a> VariantEquivalence<'a> {
                         vec![Coding::Cis(self.mapper.r_to_c_cis(cis)?)]
                     } else {
                         let n = self.mapper.r_to_n_cis(cis)?;
-                        let g = self.mapper.n_to_g_cis(&n, Some(&tx.reference_accession))?;
+                        let g = self
+                            .mapper
+                            .n_to_g_cis(&n, Some(&tx.placed()?.reference_accession))?;
                         self.coding_of_genomic_cis(&g)?
                     }
                 }
@@ -932,6 +950,21 @@ fn rna_alone(var: std::borrow::Cow<'_, SequenceVariant>) -> std::borrow::Cow<'_,
 
 /// Whether `e` refuses a description outright, alone or as a member of an
 /// allele, rather than failing to find what it names.
+/// Of `Unplaced` errors, the one naming the first accession, whatever order
+/// they were found in.
+pub(crate) fn first_unplaced(errors: Vec<HgvsError>) -> Option<HgvsError> {
+    errors
+        .into_iter()
+        .min_by(|a, b| unplaced_accession(a).cmp(unplaced_accession(b)))
+}
+
+fn unplaced_accession(e: &HgvsError) -> &str {
+    match e {
+        HgvsError::Unplaced { accession } => accession,
+        _ => "",
+    }
+}
+
 fn is_a_refusal(e: &HgvsError) -> bool {
     match e {
         HgvsError::UnsupportedOperation(_) => true,
