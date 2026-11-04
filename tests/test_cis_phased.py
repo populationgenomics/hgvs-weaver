@@ -166,12 +166,14 @@ def test_an_rna_allele_projects_to_the_genome(mapper: weaver.VariantMapper) -> N
     assert str(g) == "NC_X.1:g.[22C>T;28T>G]"
 
 
-def test_a_member_that_fails_raises_its_own_error_naming_it(mapper: weaver.VariantMapper) -> None:
+def test_a_member_that_fails_is_named_and_its_own_error_held(mapper: weaver.VariantMapper) -> None:
     with pytest.raises(
-        weaver.PositionOutsideSequenceError,
+        weaver.CisMemberError,
         match=r"Member 2 of NM_X\.1:c\.\[7C>T;\*20del\], NM_X\.1:c\.\*20del",
-    ):
+    ) as raised:
         mapper.c_to_g(weaver.parse("NM_X.1:c.[7C>T;*20del]"))
+
+    assert isinstance(raised.value.source, weaver.PositionOutsideSequenceError)
 
 
 def test_an_allele_of_another_system_is_refused(mapper: weaver.VariantMapper) -> None:

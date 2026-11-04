@@ -1,4 +1,4 @@
-use ::hgvs_weaver::error::ResidueToken;
+use ::hgvs_weaver::error::{ReferenceUse, ResidueToken};
 use ::hgvs_weaver::{
     DataProvider, HgvsError, IdentifierKind, SequenceVariant, TranscriptData, TranscriptSearch,
     Variant as VariantTrait, VariantMapper,
@@ -113,10 +113,12 @@ impl AmbiguousResidueError {
     }
 }
 
-#[doc = "A description with several readings that make different sequences or state different bases.\n\nweaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic member is read on the genome, and its readings are written in g."]
+#[doc = "A description with several readings that make different sequences or state different bases.\n\nweaver does not pick one: readings holds each, as a Variant with one reading, of description. A transcript allele with an intronic member is read on the genome, and its readings are written in g."]
 #[pyclass(extends = HGVSError, weakref, module = "weaver._weaver")]
 pub struct AmbiguousDescriptionError {
     message: String,
+    #[pyo3(get)]
+    description: String,
     #[pyo3(get)]
     readings: Vec<Py<PyVariant>>,
 }
@@ -124,32 +126,345 @@ pub struct AmbiguousDescriptionError {
 #[pymethods]
 impl AmbiguousDescriptionError {
     #[new]
-    fn new(message: String, readings: Vec<Py<PyVariant>>) -> PyClassInitializer<Self> {
-        PyClassInitializer::from(HGVSError)
-            .add_subclass(AmbiguousDescriptionError { message, readings })
+    fn new(
+        message: String,
+        description: String,
+        readings: Vec<Py<PyVariant>>,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError).add_subclass(AmbiguousDescriptionError {
+            message,
+            description,
+            readings,
+        })
     }
 
     fn __str__(&self) -> &str {
         &self.message
     }
 }
-pyo3::create_exception!(weaver._weaver, ValidationError, HGVSError);
-pyo3::create_exception!(weaver._weaver, DataProviderError, HGVSError);
-pyo3::create_exception!(weaver._weaver, UnsupportedOperationError, HGVSError);
-pyo3::create_exception!(weaver._weaver, CigarError, HGVSError);
-pyo3::create_exception!(
-    weaver._weaver,
-    ReferenceMismatchError,
-    HGVSError,
-    "A base or residue a description states is not what its reference holds.\n\nThe reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases; Variant.validate answers False instead."
-);
 
-pyo3::create_exception!(
-    weaver._weaver,
-    PositionOutsideSequenceError,
-    HGVSError,
-    "A description names a position its reference does not have.\n\nThe reference ends at the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one counting past the end of its intron, names no position of the transcript either. Raised by every operation that reads the positions; Variant.validate answers False instead."
-);
+/// A transcript model that breaks what the mapper relies on, or a description that cannot be read as written.
+#[pyclass(extends = HGVSError, subclass, weakref, module = "weaver._weaver")]
+pub struct ValidationError;
+
+#[pymethods]
+impl ValidationError {
+    #[new]
+    #[pyo3(signature = (*args))]
+    fn new(args: &Bound<'_, pyo3::types::PyTuple>) -> PyClassInitializer<Self> {
+        // BaseException keeps the arguments as args, as for any exception.
+        let _ = args;
+        PyClassInitializer::from(HGVSError).add_subclass(ValidationError)
+    }
+}
+
+#[doc = "An accession read as one kind of sequence that its provider says is another.\n\nA p. description on a transcript, a c. one on a protein, a genome given as the protein to predict on: read_as is what accession was read as, kind what the provider classifies it as."]
+#[pyclass(extends = ValidationError, weakref, module = "weaver._weaver")]
+pub struct WrongReferenceKindError {
+    message: String,
+    #[pyo3(get)]
+    accession: String,
+    #[pyo3(get)]
+    read_as: Py<PyReferenceUse>,
+    #[pyo3(get)]
+    kind: PyIdentifierType,
+}
+
+#[pymethods]
+impl WrongReferenceKindError {
+    #[new]
+    fn new(
+        message: String,
+        accession: String,
+        read_as: Py<PyReferenceUse>,
+        kind: PyIdentifierType,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError)
+            .add_subclass(ValidationError)
+            .add_subclass(WrongReferenceKindError {
+                message,
+                accession,
+                read_as,
+                kind,
+            })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
+
+#[doc = "What an accession was read as, for a WrongReferenceKindError.\n\nDescription is the accession a description of coordinate_type (\"c\", \"p\") is written on; Protein and Nucleotide are a sequence an operation was given, named as its caller knows it."]
+#[pyclass(
+    name = "ReferenceUse",
+    module = "weaver._weaver",
+    eq,
+    hash,
+    frozen,
+    skip_from_py_object
+)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PyReferenceUse {
+    Description { coordinate_type: String },
+    Protein { name: String },
+    Nucleotide { name: String },
+}
+
+#[pymethods]
+impl PyReferenceUse {
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, pyo3::types::PyTuple>> {
+        let field = match slf.get() {
+            PyReferenceUse::Description { coordinate_type } => coordinate_type.clone(),
+            PyReferenceUse::Protein { name } | PyReferenceUse::Nucleotide { name } => name.clone(),
+        };
+        (slf.as_any().get_type(), (field,)).into_pyobject(slf.py())
+    }
+
+    fn __repr__(&self) -> String {
+        match self {
+            PyReferenceUse::Description { coordinate_type } => {
+                format!("ReferenceUse.Description(coordinate_type={coordinate_type:?})")
+            }
+            PyReferenceUse::Protein { name } => format!("ReferenceUse.Protein(name={name:?})"),
+            PyReferenceUse::Nucleotide { name } => {
+                format!("ReferenceUse.Nucleotide(name={name:?})")
+            }
+        }
+    }
+}
+
+/// `read_as` as Python sees it; `None` for a use added to the core without a
+/// counterpart here.
+fn reference_use(read_as: &ReferenceUse) -> Option<PyReferenceUse> {
+    match read_as {
+        ReferenceUse::Description(ct) => Some(PyReferenceUse::Description {
+            coordinate_type: ct.clone(),
+        }),
+        ReferenceUse::Protein(name) => Some(PyReferenceUse::Protein { name: name.clone() }),
+        ReferenceUse::Nucleotide(name) => Some(PyReferenceUse::Nucleotide { name: name.clone() }),
+        _ => None,
+    }
+}
+
+/// An operation weaver does not perform, on this input or at all.
+#[pyclass(extends = HGVSError, subclass, weakref, module = "weaver._weaver")]
+pub struct UnsupportedOperationError;
+
+#[pymethods]
+impl UnsupportedOperationError {
+    #[new]
+    #[pyo3(signature = (*args))]
+    fn new(args: &Bound<'_, pyo3::types::PyTuple>) -> PyClassInitializer<Self> {
+        // BaseException keeps the arguments as args, as for any exception.
+        let _ = args;
+        PyClassInitializer::from(HGVSError).add_subclass(UnsupportedOperationError)
+    }
+}
+
+#[doc = "An operation that needs the genome, asked of a transcript record its provider places on no genome.\n\naccession is the record: a GenBank mRNA read on its own sequence. A projection, an intronic position and a genomic form all need a placement."]
+#[pyclass(extends = UnsupportedOperationError, weakref, module = "weaver._weaver")]
+pub struct UnplacedError {
+    message: String,
+    #[pyo3(get)]
+    accession: String,
+}
+
+#[pymethods]
+impl UnplacedError {
+    #[new]
+    fn new(message: String, accession: String) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError)
+            .add_subclass(UnsupportedOperationError)
+            .add_subclass(UnplacedError { message, accession })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
+
+pyo3::create_exception!(weaver._weaver, DataProviderError, HGVSError);
+pyo3::create_exception!(weaver._weaver, CigarError, HGVSError);
+
+#[doc = "A base or residue a description states is not what its reference holds.\n\nThe reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. expected is the stated bases, found the reference's over the 0-based half-open [start, end) of accession, read on the strand the description is written on. Raised by every operation that reads the stated bases; Variant.validate answers False instead."]
+#[pyclass(extends = HGVSError, subclass, weakref, module = "weaver._weaver")]
+pub struct ReferenceMismatchError {
+    message: String,
+    #[pyo3(get)]
+    accession: String,
+    #[pyo3(get)]
+    expected: String,
+    #[pyo3(get)]
+    found: String,
+    #[pyo3(get)]
+    start: usize,
+    #[pyo3(get)]
+    end: usize,
+}
+
+#[pymethods]
+impl ReferenceMismatchError {
+    #[new]
+    fn new(
+        message: String,
+        accession: String,
+        expected: String,
+        found: String,
+        start: usize,
+        end: usize,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError).add_subclass(ReferenceMismatchError {
+            message,
+            accession,
+            expected,
+            found,
+            start,
+            end,
+        })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
+
+#[doc = "A description names a position its reference, accession, does not have.\n\nThe reference ends at the end of the genome for g. and m., of the transcript record for an exonic c., n. or r. position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one counting past the end of its intron, names no position of the transcript either. Each case is a subclass. Raised by every operation that reads the positions; Variant.validate answers False instead."]
+#[pyclass(extends = HGVSError, subclass, weakref, module = "weaver._weaver")]
+pub struct PositionOutsideSequenceError {
+    message: String,
+    #[pyo3(get)]
+    accession: String,
+}
+
+#[pymethods]
+impl PositionOutsideSequenceError {
+    #[new]
+    fn new(message: String, accession: String) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError)
+            .add_subclass(PositionOutsideSequenceError { message, accession })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
+
+/// The initializer of a `PositionOutsideSequenceError` subclass, up to the
+/// subclass itself.
+fn position_outside(
+    message: String,
+    accession: String,
+) -> PyClassInitializer<PositionOutsideSequenceError> {
+    PyClassInitializer::from(HGVSError)
+        .add_subclass(PositionOutsideSequenceError { message, accession })
+}
+
+#[doc = "A range that runs past the end of its reference.\n\nThe 0-based half-open [start, end) runs past the end of accession's length bases or residues."]
+#[pyclass(extends = PositionOutsideSequenceError, weakref, module = "weaver._weaver")]
+pub struct PositionPastEndError {
+    #[pyo3(get)]
+    start: usize,
+    #[pyo3(get)]
+    end: usize,
+    #[pyo3(get)]
+    length: usize,
+}
+
+#[pymethods]
+impl PositionPastEndError {
+    #[new]
+    fn new(
+        message: String,
+        accession: String,
+        start: usize,
+        end: usize,
+        length: usize,
+    ) -> PyClassInitializer<Self> {
+        position_outside(message, accession).add_subclass(PositionPastEndError {
+            start,
+            end,
+            length,
+        })
+    }
+}
+
+#[doc = "An intronic offset counted from a base that is not the exon border its sign needs.\n\n+k counts from the last base of an exon, -k from the first, and the transcript's first and last bases count outward. position is the position as written (\"c.9-1\")."]
+#[pyclass(extends = PositionOutsideSequenceError, weakref, module = "weaver._weaver")]
+pub struct NotAnExonBorderError {
+    #[pyo3(get)]
+    position: String,
+}
+
+#[pymethods]
+impl NotAnExonBorderError {
+    #[new]
+    fn new(message: String, accession: String, position: String) -> PyClassInitializer<Self> {
+        position_outside(message, accession).add_subclass(NotAnExonBorderError { position })
+    }
+}
+
+#[doc = "An intronic offset that counts past the end of its intron, into the next exon.\n\nposition is the position as written (\"c.17+11\"); its intron has intron_length bases. An offset from the transcript's first or last base has no intron to stay inside."]
+#[pyclass(extends = PositionOutsideSequenceError, weakref, module = "weaver._weaver")]
+pub struct OffsetPastIntronError {
+    #[pyo3(get)]
+    position: String,
+    #[pyo3(get)]
+    intron_length: usize,
+}
+
+#[pymethods]
+impl OffsetPastIntronError {
+    #[new]
+    fn new(
+        message: String,
+        accession: String,
+        position: String,
+        intron_length: usize,
+    ) -> PyClassInitializer<Self> {
+        position_outside(message, accession).add_subclass(OffsetPastIntronError {
+            position,
+            intron_length,
+        })
+    }
+}
+
+#[doc = "A member of an allele in cis failed, so the allele did.\n\nsource is the member's own error, for the member written member, the index-th (from 0) of allele. The message names the member and ends with source's."]
+#[pyclass(extends = HGVSError, weakref, module = "weaver._weaver")]
+pub struct CisMemberError {
+    message: String,
+    #[pyo3(get)]
+    allele: String,
+    #[pyo3(get)]
+    index: usize,
+    #[pyo3(get)]
+    member: String,
+    #[pyo3(get)]
+    source: Py<HGVSError>,
+}
+
+#[pymethods]
+impl CisMemberError {
+    #[new]
+    fn new(
+        message: String,
+        allele: String,
+        index: usize,
+        member: String,
+        source: Py<HGVSError>,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(HGVSError).add_subclass(CisMemberError {
+            message,
+            allele,
+            index,
+            member,
+            source,
+        })
+    }
+
+    fn __str__(&self) -> &str {
+        &self.message
+    }
+}
 
 pyo3::create_exception!(
     weaver._weaver,
@@ -159,68 +474,100 @@ pyo3::create_exception!(
 );
 
 fn map_hgvs_error(e: HgvsError) -> PyErr {
-    py_error(e, String::new())
+    py_error(&e, String::new())
 }
 
-/// The Python exception for `e`, its message after `context`. A member of an
-/// allele in cis fails with its own kind of error, named in the message.
-fn py_error(e: HgvsError, context: String) -> PyErr {
+/// The Python exception for `e`, its message after `context`: the class
+/// that mirrors `e`'s variant, carrying its fields.
+fn py_error(e: &HgvsError, context: String) -> PyErr {
     match e {
-        HgvsError::PestError(msg) => PyErr::new::<ParseError, _>(context + &msg),
+        HgvsError::PestError(msg) => PyErr::new::<ParseError, _>(context + msg),
         HgvsError::MixedResidueCodes {
             description,
             one_letter,
             three_letter,
-        } => {
-            let message = HgvsError::MixedResidueCodes {
-                description: description.clone(),
-                one_letter: one_letter.clone(),
-                three_letter: three_letter.clone(),
-            }
-            .to_string();
-            mixed_residue_codes_error(context + &message, description, one_letter, three_letter)
-        }
+        } => PyErr::new::<MixedResidueCodesError, _>((
+            context + &e.to_string(),
+            description.clone(),
+            token_tuples(one_letter),
+            token_tuples(three_letter),
+        )),
         HgvsError::AmbiguousResidue {
             description,
             ambiguous,
-        } => {
-            let message = HgvsError::AmbiguousResidue {
-                description: description.clone(),
-                ambiguous: ambiguous.clone(),
-            }
-            .to_string();
-            PyErr::new::<AmbiguousResidueError, _>((context + &message, description, token_tuples(ambiguous)))
+        } => PyErr::new::<AmbiguousResidueError, _>((
+            context + &e.to_string(),
+            description.clone(),
+            token_tuples(ambiguous),
+        )),
+        HgvsError::ValidationError(msg) => PyErr::new::<ValidationError, _>(context + msg),
+        HgvsError::DataProviderError(msg) => DataProviderError::new_err(context + msg),
+        HgvsError::UnsupportedOperation(msg) => {
+            PyErr::new::<UnsupportedOperationError, _>(context + msg)
         }
-        HgvsError::ValidationError(msg) => ValidationError::new_err(context + &msg),
-        HgvsError::DataProviderError(msg) => DataProviderError::new_err(context + &msg),
-        HgvsError::UnsupportedOperation(msg) => UnsupportedOperationError::new_err(context + &msg),
-        HgvsError::CigarError(msg) => CigarError::new_err(context + &msg),
+        HgvsError::CigarError(msg) => CigarError::new_err(context + msg),
         HgvsError::ReferenceMismatch {
             accession,
             expected,
             found,
             start,
             end,
-        } => ReferenceMismatchError::new_err(format!(
-            "{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"
+        } => PyErr::new::<ReferenceMismatchError, _>((
+            format!("{context}expected {expected}, found {found} on {accession} at indices {start}..{end}"),
+            accession.clone(),
+            expected.clone(),
+            found.clone(),
+            *start,
+            *end,
         )),
         HgvsError::PositionOutsideSequence {
             accession,
             start,
             end,
             length,
-        } => PositionOutsideSequenceError::new_err(format!(
-            "{context}{accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"
+        } => PyErr::new::<PositionPastEndError, _>((
+            format!("{context}{accession} has {length} positions, and the 0-based range [{start}, {end}) runs past its end"),
+            accession.clone(),
+            *start,
+            *end,
+            *length,
         )),
-        e @ (HgvsError::NotAnExonBorder { .. } | HgvsError::OffsetPastIntron { .. }) => {
-            PositionOutsideSequenceError::new_err(context + &e.to_string())
+        HgvsError::NotAnExonBorder {
+            accession,
+            position,
+        } => PyErr::new::<NotAnExonBorderError, _>((
+            context + &e.to_string(),
+            accession.clone(),
+            position.clone(),
+        )),
+        HgvsError::OffsetPastIntron {
+            accession,
+            position,
+            intron_length,
+        } => PyErr::new::<OffsetPastIntronError, _>((
+            context + &e.to_string(),
+            accession.clone(),
+            position.clone(),
+            *intron_length,
+        )),
+        HgvsError::Unplaced { accession } => {
+            PyErr::new::<UnplacedError, _>((context + &e.to_string(), accession.clone()))
         }
-        e @ HgvsError::Unplaced { .. } => UnsupportedOperationError::new_err(context + &e.to_string()),
-        e @ HgvsError::WrongReferenceKind { .. } => {
-            ValidationError::new_err(context + &e.to_string())
-        }
-        HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + &msg),
-        HgvsError::Other(msg) => PyErr::new::<HGVSError, _>(context + &msg),
+        HgvsError::WrongReferenceKind {
+            accession,
+            read_as,
+            kind,
+        } => match reference_use(read_as) {
+            Some(read_as) => PyErr::new::<WrongReferenceKindError, _>((
+                context + &e.to_string(),
+                accession.clone(),
+                read_as,
+                PyIdentifierType::from(*kind),
+            )),
+            None => PyErr::new::<ValidationError, _>(context + &e.to_string()),
+        },
+        HgvsError::NoProteinStatement(msg) => NoProteinStatementError::new_err(context + msg),
+        HgvsError::Other(msg) => PyErr::new::<HGVSError, _>(context + msg),
         HgvsError::Ambiguous {
             description,
             readings,
@@ -230,52 +577,72 @@ fn py_error(e: HgvsError, context: String) -> PyErr {
             index,
             member,
             source,
-        } => py_error(
-            *source,
-            format!("{context}Member {} of {allele}, {member}: ", index + 1),
-        ),
+        } => cis_member_error(context, allele, *index, member, source),
         // HgvsError is non_exhaustive; a variant added without its own arm is
         // still raised, as the base class, with its message.
         other => PyErr::new::<HGVSError, _>(context + &other.to_string()),
     }
 }
 
-/// A `MixedResidueCodesError` with `message`, carrying the description and
-/// its tokens as `(text, start, end)` tuples.
-fn mixed_residue_codes_error(
-    message: String,
-    description: String,
-    one_letter: Vec<ResidueToken>,
-    three_letter: Vec<ResidueToken>,
-) -> PyErr {
-    PyErr::new::<MixedResidueCodesError, _>((
-        message,
-        description,
-        token_tuples(one_letter),
-        token_tuples(three_letter),
-    ))
-}
-
 /// Residue tokens as Python sees them, `(text, start, end)`.
-fn token_tuples(tokens: Vec<ResidueToken>) -> Vec<Token> {
+fn token_tuples(tokens: &[ResidueToken]) -> Vec<Token> {
     tokens
-        .into_iter()
-        .map(|t| (t.text, t.start, t.end))
+        .iter()
+        .map(|t| (t.text.clone(), t.start, t.end))
         .collect()
 }
 
 /// An `AmbiguousDescriptionError` whose `readings` are the readings, as
 /// variants.
-fn ambiguity_error(context: String, description: String, readings: Vec<SequenceVariant>) -> PyErr {
+fn ambiguity_error(context: String, description: &str, readings: &[SequenceVariant]) -> PyErr {
     let listed: Vec<String> = readings.iter().map(ToString::to_string).collect();
     let message = format!("{context}{description} reads as {}", listed.join(" | "));
     Python::attach(|py| {
         let variants = readings
-            .into_iter()
-            .map(|inner| Py::new(py, PyVariant { inner }))
+            .iter()
+            .map(|inner| {
+                Py::new(
+                    py,
+                    PyVariant {
+                        inner: inner.clone(),
+                    },
+                )
+            })
             .collect::<PyResult<Vec<_>>>()?;
         Ok::<PyErr, PyErr>(PyErr::new::<AmbiguousDescriptionError, _>((
-            message, variants,
+            message,
+            description.to_owned(),
+            variants,
+        )))
+    })
+    .unwrap_or_else(|e| e)
+}
+
+/// A `CisMemberError` whose `source` is the member's own error, its message
+/// the member's after the member's name.
+fn cis_member_error(
+    context: String,
+    allele: &str,
+    index: usize,
+    member: &str,
+    source: &HgvsError,
+) -> PyErr {
+    Python::attach(|py| {
+        let source = py_error(source, String::new())
+            .into_value(py)
+            .into_bound(py)
+            .cast_into::<HGVSError>()?;
+        let message = format!(
+            "{context}Member {} of {allele}, {member}: {}",
+            index + 1,
+            source.str()?
+        );
+        Ok::<PyErr, PyErr>(PyErr::new::<CisMemberError, _>((
+            message,
+            allele.to_owned(),
+            index,
+            member.to_owned(),
+            source.unbind(),
         )))
     })
     .unwrap_or_else(|e| e)
@@ -348,6 +715,11 @@ impl From<::hgvs_weaver::data::IdentifierType> for PyIdentifierType {
 impl PyIdentifierType {
     fn __repr__(&self) -> String {
         format!("IdentifierType.{:?}", self)
+    }
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, pyo3::types::PyTuple>> {
+        let getattr = slf.py().import("builtins")?.getattr("getattr")?;
+        let name = format!("{:?}", *slf.borrow());
+        (getattr, (slf.as_any().get_type(), name)).into_pyobject(slf.py())
     }
     fn __eq__(&self, other: &Self) -> bool {
         self == other
@@ -1040,7 +1412,7 @@ impl PyVariantMapper {
         }
     }
     #[pyo3(signature = (var_g, transcript_ac))]
-    #[doc = "Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.\n\nThe edit is re-read against the transcript: a stated reference the genome has\nbut the record does not becomes the record's base, and a change the record\nalready carries is written =; no change on the genome (g.123=) is the record's\nbase becoming the genome's where the two differ, and a duplication or\ninversion carries the genome's bases. An intronic position has no transcript base and\nis carried as given. A range whose ends lie in two exons is written over\nthe c. range that numbers the same bases, intron included: g.19_31dup\nover c.4, c.5, the intron and c.6 is c.4_6dup. Where the record's bases\nthere differ from the genome's, only a statement projects, as the\nrecord's correction.\n\nAn allele in cis of g. members, g.[a;b], projects member by member to an\nallele in cis on the transcript, its members written in reverse on a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_g: The genomic Variant to map.\n    transcript_ac: The accession of the target transcript.\n\nReturns:\n    A new Variant object in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant or an allele in cis of them.\n    UnsupportedOperationError: If a range whose ends lie in two exons\n        changes bases where the record differs from the genome, or ends\n        on bases only one of them holds.\n        Also if the transcript is placed on no genome.\n    ValidationError: If var_g is on an accession the provider classifies as a protein, or\n        transcript_ac names a protein.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.\n\nThe edit is re-read against the transcript: a stated reference the genome has\nbut the record does not becomes the record's base, and a change the record\nalready carries is written =; no change on the genome (g.123=) is the record's\nbase becoming the genome's where the two differ, and a duplication or\ninversion carries the genome's bases. An intronic position has no transcript base and\nis carried as given. A range whose ends lie in two exons is written over\nthe c. range that numbers the same bases, intron included: g.19_31dup\nover c.4, c.5, the intron and c.6 is c.4_6dup. Where the record's bases\nthere differ from the genome's, only a statement projects, as the\nrecord's correction.\n\nAn allele in cis of g. members, g.[a;b], projects member by member to an\nallele in cis on the transcript, its members written in reverse on a\nminus-strand transcript. A member that fails raises CisMemberError,\nnaming the member and holding its own error as source.\n\nArgs:\n    var_g: The genomic Variant to map.\n    transcript_ac: The accession of the target transcript.\n\nReturns:\n    A new Variant object in 'c.' coordinates.\n\nRaises:\n    ValueError: If var_g is not a genomic variant or an allele in cis of them.\n    UnsupportedOperationError: If a range whose ends lie in two exons\n        changes bases where the record differs from the genome, or ends\n        on bases only one of them holds.\n        Also if the transcript is placed on no genome.\n    ValidationError: If var_g is on an accession the provider classifies as a protein, or\n        transcript_ac names a protein.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn g_to_c(&self, _py: Python, var_g: &PyVariant, transcript_ac: String) -> PyResult<PyVariant> {
         let mapper = self.mapper();
         let inner = match expect_genomic(&var_g.inner)? {
@@ -1109,7 +1481,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_c, reference_ac = None))]
-    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nA range across an exon junction is the genomic range it numbers, the\nintron included: c.4_6dup across the junction after c.5 duplicates\nc.4, c.5, the intron and c.6.\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises its own error,\nnaming the member.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    ReferenceMismatchError: If a base the variant states is not the record's\n        (exonic) or the genome's on the transcript's strand (intronic).\n    PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic\n        one lies past the end of the genome, counts its offset from a base that is not an exon\n        border, or lies past the end of its intron.\n    UnsupportedOperationError: If the variant inserts at an exon\n        junction (c.5_6insT where c.5 and c.6 lie in different\n        exons), which is before or after the intron on the genome.\n        The message names the spelling at each end of the intron,\n        c.5_5+1insT and c.6-1_6insT, either of which projects.\n        Also if the transcript is placed on no genome.\n    ValidationError: If var_c is on an accession the provider classifies as a protein, or\n        reference_ac names a protein.\n    HGVSError: If mapping fails due to data or alignment issues."]
+    #[doc = "Maps a coding cDNA variant (c.) to a genomic variant (g.).\n\nA range across an exon junction is the genomic range it numbers, the\nintron included: c.4_6dup across the junction after c.5 duplicates\nc.4, c.5, the intron and c.6.\n\nThe edit is re-read against the genome: a stated reference the record has\nbut the genome does not becomes the genome's base, and a change the genome\nalready carries is written =; no change on the record (c.123=) is the genome's\nbase becoming the record's where the two differ, and a duplication or\ninversion carries the record's bases (c.123dup over a differing genomic base\nis g.…delinsCC, as VariantValidator writes it).\n\nAn allele in cis of c. members, c.[a;b], projects member by member to an\nallele in cis on the genome, its members written in reverse from a\nminus-strand transcript. A member that fails raises CisMemberError,\nnaming the member and holding its own error as source.\n\nArgs:\n    var_c: The coding Variant to map.\n    reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript will be used.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_c is not a coding variant or an allele in cis of them.\n    ReferenceMismatchError: If a base the variant states is not the record's\n        (exonic) or the genome's on the transcript's strand (intronic).\n    PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic\n        one lies past the end of the genome, counts its offset from a base that is not an exon\n        border, or lies past the end of its intron.\n    UnsupportedOperationError: If the variant inserts at an exon\n        junction (c.5_6insT where c.5 and c.6 lie in different\n        exons), which is before or after the intron on the genome.\n        The message names the spelling at each end of the intron,\n        c.5_5+1insT and c.6-1_6insT, either of which projects.\n        Also if the transcript is placed on no genome.\n    ValidationError: If var_c is on an accession the provider classifies as a protein, or\n        reference_ac names a protein.\n    HGVSError: If mapping fails due to data or alignment issues."]
     fn c_to_g(
         &self,
         _py: Python,
@@ -1208,7 +1580,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_r, reference_ac = None))]
-    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nAn allele in cis of r. members projects member by member, as c_to_g\nprojects one of c. members: a member spanning a splice junction fails the\nallele.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    UnsupportedOperationError: If the transcript is placed on no genome.\n    HGVSError: If mapping fails."]
+    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nAn allele in cis of r. members projects member by member, as c_to_g\nprojects one of c. members: a member spanning a splice junction fails the\nallele, with a CisMemberError whose source is that UnsupportedOperationError.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    UnsupportedOperationError: If the transcript is placed on no genome.\n    HGVSError: If mapping fails."]
     fn r_to_g(
         &self,
         _py: Python,
@@ -1433,7 +1805,30 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "AmbiguousResidueError",
         m.py().get_type::<AmbiguousResidueError>(),
     )?;
-    m.add("ValidationError", m.py().get_type::<ValidationError>())?;
+    m.add_class::<PyReferenceUse>()?;
+    for (name, class) in [
+        ("ValidationError", m.py().get_type::<ValidationError>()),
+        (
+            "WrongReferenceKindError",
+            m.py().get_type::<WrongReferenceKindError>(),
+        ),
+        ("UnplacedError", m.py().get_type::<UnplacedError>()),
+        (
+            "PositionPastEndError",
+            m.py().get_type::<PositionPastEndError>(),
+        ),
+        (
+            "NotAnExonBorderError",
+            m.py().get_type::<NotAnExonBorderError>(),
+        ),
+        (
+            "OffsetPastIntronError",
+            m.py().get_type::<OffsetPastIntronError>(),
+        ),
+        ("CisMemberError", m.py().get_type::<CisMemberError>()),
+    ] {
+        m.add(name, class)?;
+    }
     m.add("DataProviderError", m.py().get_type::<DataProviderError>())?;
     m.add(
         "UnsupportedOperationError",

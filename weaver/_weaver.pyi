@@ -34,10 +34,12 @@ class AmbiguousDescriptionError(HGVSError):
     """
     A description with several readings that make different sequences or state different bases.
 
-    weaver does not pick one: readings holds each, as a Variant with one reading. A transcript allele with an intronic
-    member is read on the genome, and its readings are written in g.
+    weaver does not pick one: readings holds each, as a Variant with one reading, of description. A transcript allele
+    with an intronic member is read on the genome, and its readings are written in g.
     """
-    def __new__(cls, message: str, readings: Sequence[Variant]) -> AmbiguousDescriptionError: ...
+    def __new__(cls, message: str, description: str, readings: Sequence[Variant]) -> AmbiguousDescriptionError: ...
+    @property
+    def description(self) -> str: ...
     @property
     def readings(self) -> list[Variant]: ...
 
@@ -62,6 +64,24 @@ class AmbiguousResidueError(ParseError):
     def description(self) -> str: ...
 
 class CigarError(HGVSError): ...
+
+@final
+class CisMemberError(HGVSError):
+    """
+    A member of an allele in cis failed, so the allele did.
+
+    source is the member's own error, for the member written member, the index-th (from 0) of allele. The message names
+    the member and ends with source's.
+    """
+    def __new__(cls, message: str, allele: str, index: int, member: str, source: HGVSError) -> CisMemberError: ...
+    @property
+    def allele(self) -> str: ...
+    @property
+    def index(self) -> int: ...
+    @property
+    def member(self) -> str: ...
+    @property
+    def source(self) -> HGVSError: ...
 
 @final
 class ConsistentVariant:
@@ -115,6 +135,7 @@ class IdentifierType:
     def __eq__(self, value: object, /) -> bool: ...
     def __ne__(self, value: object, /) -> bool: ...
     def __int__(self) -> int: ...
+    def __reduce__(self) -> tuple: ...
     GenomicAccession: ClassVar[IdentifierType]
     TranscriptAccession: ClassVar[IdentifierType]
     ProteinAccession: ClassVar[IdentifierType]
@@ -153,33 +174,138 @@ class NoProteinStatementError(HGVSError):
     claim the whole protein, and p.? an effect.
     """
 
+@final
+class NotAnExonBorderError(PositionOutsideSequenceError):
+    """
+    An intronic offset counted from a base that is not the exon border its sign needs.
+
+    +k counts from the last base of an exon, -k from the first, and the transcript's first and last bases count outward.
+    position is the position as written ("c.9-1").
+    """
+    def __new__(cls, message: str, accession: str, position: str) -> NotAnExonBorderError: ...
+    @property
+    def position(self) -> str: ...
+
+@final
+class OffsetPastIntronError(PositionOutsideSequenceError):
+    """
+    An intronic offset that counts past the end of its intron, into the next exon.
+
+    position is the position as written ("c.17+11"); its intron has intron_length bases. An offset from the transcript's
+    first or last base has no intron to stay inside.
+    """
+    def __new__(cls, message: str, accession: str, position: str, intron_length: int) -> OffsetPastIntronError: ...
+    @property
+    def intron_length(self) -> int: ...
+    @property
+    def position(self) -> str: ...
+
 class ParseError(HGVSError):
     """A description that does not parse."""
     def __new__(cls, *args: Any) -> Self: ...
 
 class PositionOutsideSequenceError(HGVSError):
     """
-    A description names a position its reference does not have.
+    A description names a position its reference, accession, does not have.
 
     The reference ends at the end of the genome for g. and m., of the transcript record for an exonic c., n. or r.
     position, of the protein for p., where a protein served without its stop has the stop one past its last residue. An
     insertion needs both its flanking bases, so one after the last base is outside too. An intronic offset counted from
     a base that is not the exon border its sign needs (+k from the last base of an exon, -k from the first), or one
-    counting past the end of its intron, names no position of the transcript either. Raised by every operation that
-    reads the positions; Variant.validate answers False instead.
+    counting past the end of its intron, names no position of the transcript either. Each case is a subclass. Raised by
+    every operation that reads the positions; Variant.validate answers False instead.
     """
+    def __new__(cls, message: str, accession: str) -> Self: ...
+    @property
+    def accession(self) -> str: ...
+
+@final
+class PositionPastEndError(PositionOutsideSequenceError):
+    """
+    A range that runs past the end of its reference.
+
+    The 0-based half-open [start, end) runs past the end of accession's length bases or residues.
+    """
+    def __new__(cls, message: str, accession: str, start: int, end: int, length: int) -> PositionPastEndError: ...
+    @property
+    def end(self) -> int: ...
+    @property
+    def length(self) -> int: ...
+    @property
+    def start(self) -> int: ...
 
 class ReferenceMismatchError(HGVSError):
     """
     A base or residue a description states is not what its reference holds.
 
     The reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for
-    an intronic one, the genome for g. and m., the protein for p. Raised by every operation that reads the stated bases;
-    Variant.validate answers False instead.
+    an intronic one, the genome for g. and m., the protein for p. expected is the stated bases, found the reference's
+    over the 0-based half-open [start, end) of accession, read on the strand the description is written on. Raised by
+    every operation that reads the stated bases; Variant.validate answers False instead.
     """
+    def __new__(cls, message: str, accession: str, expected: str, found: str, start: int, end: int) -> Self: ...
+    @property
+    def accession(self) -> str: ...
+    @property
+    def end(self) -> int: ...
+    @property
+    def expected(self) -> str: ...
+    @property
+    def found(self) -> str: ...
+    @property
+    def start(self) -> int: ...
 
-class UnsupportedOperationError(HGVSError): ...
-class ValidationError(HGVSError): ...
+class ReferenceUse:
+    """
+    What an accession was read as, for a WrongReferenceKindError.
+
+    Description is the accession a description of coordinate_type ("c", "p") is written on; Protein and Nucleotide are a
+    sequence an operation was given, named as its caller knows it.
+    """
+    def __hash__(self) -> int: ...
+    def __eq__(self, value: object, /) -> bool: ...
+    def __ne__(self, value: object, /) -> bool: ...
+    def __reduce__(self) -> tuple: ...
+    @final
+    class Description(ReferenceUse):
+        def __new__(cls, coordinate_type: str) -> ReferenceUse.Description: ...
+        @property
+        def coordinate_type(self) -> str: ...
+        __match_args__ = ("coordinate_type",)
+
+    @final
+    class Protein(ReferenceUse):
+        def __new__(cls, name: str) -> ReferenceUse.Protein: ...
+        @property
+        def name(self) -> str: ...
+        __match_args__ = ("name",)
+
+    @final
+    class Nucleotide(ReferenceUse):
+        def __new__(cls, name: str) -> ReferenceUse.Nucleotide: ...
+        @property
+        def name(self) -> str: ...
+        __match_args__ = ("name",)
+
+@final
+class UnplacedError(UnsupportedOperationError):
+    """
+    An operation that needs the genome, asked of a transcript record its provider places on no genome.
+
+    accession is the record: a GenBank mRNA read on its own sequence. A projection, an intronic position and a genomic
+    form all need a placement.
+    """
+    def __new__(cls, message: str, accession: str) -> UnplacedError: ...
+    @property
+    def accession(self) -> str: ...
+
+class UnsupportedOperationError(HGVSError):
+    """An operation weaver does not perform, on this input or at all."""
+    def __new__(cls, *args: Any) -> Self: ...
+
+class ValidationError(HGVSError):
+    """A transcript model that breaks what the mapper relies on, or a description that cannot be read as written."""
+    def __new__(cls, *args: Any) -> Self: ...
 
 @final
 class Variant:
@@ -305,8 +431,8 @@ class VariantMapper:
 
         An allele in cis of g. members, g.[a;b], projects member by member to an
         allele in cis on the transcript, its members written in reverse on a
-        minus-strand transcript. A member that fails raises its own error,
-        naming the member.
+        minus-strand transcript. A member that fails raises CisMemberError,
+        naming the member and holding its own error as source.
 
         Args:
             var_g: The genomic Variant to map.
@@ -394,8 +520,8 @@ class VariantMapper:
 
         An allele in cis of c. members, c.[a;b], projects member by member to an
         allele in cis on the genome, its members written in reverse from a
-        minus-strand transcript. A member that fails raises its own error,
-        naming the member.
+        minus-strand transcript. A member that fails raises CisMemberError,
+        naming the member and holding its own error as source.
 
         Args:
             var_c: The coding Variant to map.
@@ -529,7 +655,7 @@ class VariantMapper:
 
         An allele in cis of r. members projects member by member, as c_to_g
         projects one of c. members: a member spanning a splice junction fails the
-        allele.
+        allele, with a CisMemberError whose source is that UnsupportedOperationError.
 
         Args:
             var_r: The RNA Variant to map.
@@ -869,6 +995,28 @@ class VariantMapper:
             UnsupportedOperationError: If a transcript variant is on a transcript placed on no genome.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
+
+@final
+class WrongReferenceKindError(ValidationError):
+    """
+    An accession read as one kind of sequence that its provider says is another.
+
+    A p. description on a transcript, a c. one on a protein, a genome given as the protein to predict on: read_as is
+    what accession was read as, kind what the provider classifies it as.
+    """
+    def __new__(
+        cls,
+        message: str,
+        accession: str,
+        read_as: ReferenceUse,
+        kind: IdentifierType,
+    ) -> WrongReferenceKindError: ...
+    @property
+    def accession(self) -> str: ...
+    @property
+    def kind(self) -> IdentifierType: ...
+    @property
+    def read_as(self) -> ReferenceUse: ...
 
 def parse(input: str) -> Variant:
     """

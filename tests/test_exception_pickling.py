@@ -5,7 +5,6 @@ from __future__ import annotations
 import concurrent.futures
 import copy
 import pickle
-import typing
 from collections.abc import Callable
 
 import pytest
@@ -17,71 +16,53 @@ EXCEPTION_CLASSES = sorted(
     (value for value in vars(_weaver).values() if isinstance(value, type) and issubclass(value, BaseException)),
     key=lambda cls: cls.__name__,
 )
-# These carry attributes, so a message alone does not make one.
-WITH_ATTRIBUTES = {"AmbiguousDescriptionError", "AmbiguousResidueError", "MixedResidueCodesError"}
+_MISMATCH = _weaver.ReferenceMismatchError("expected C, found T", "NM_X.1", "C", "T", 9, 10)
+
+# Each class that carries attributes, made as the core makes it, with the attributes it carries.
+WITH_ATTRIBUTES: dict[str, tuple[tuple[object, ...], set[str]]] = {
+    "AmbiguousDescriptionError": (
+        ("m", "NM_X.1:c.[7_8insA;7_8insG]", [weaver.parse("NM_X.1:c.7_8insAG")]),
+        {"description", "readings"},
+    ),
+    "AmbiguousResidueError": (("m", "NP_W.1:p.R2X", [("X", 10, 11)]), {"description", "ambiguous"}),
+    "CisMemberError": (
+        ("m", "NM_X.1:c.[1A>G;10C>T]", 1, "NM_X.1:c.10C>T", _MISMATCH),
+        {"allele", "index", "member", "source"},
+    ),
+    "MixedResidueCodesError": (
+        ("m", "NP_000021.1:p.Arg111X", [("X", 20, 21)], [("Arg", 14, 17)]),
+        {"description", "one_letter", "three_letter"},
+    ),
+    "NotAnExonBorderError": (("m", "NM_X.1", "c.4+1"), {"accession", "position"}),
+    "OffsetPastIntronError": (("m", "NM_X.1", "c.5+6", 5), {"accession", "position", "intron_length"}),
+    "PositionOutsideSequenceError": (("m", "NM_X.1"), {"accession"}),
+    "PositionPastEndError": (("m", "NM_X.1", 16, 17, 12), {"accession", "start", "end", "length"}),
+    "ReferenceMismatchError": (
+        ("m", "NM_X.1", "C", "T", 9, 10),
+        {"accession", "expected", "found", "start", "end"},
+    ),
+    "UnplacedError": (("m", "NM_U.1"), {"accession"}),
+    "WrongReferenceKindError": (
+        (
+            "m",
+            "NM_X.1",
+            weaver.ReferenceUse.Description(coordinate_type="p"),
+            weaver.IdentifierType.TranscriptAccession,
+        ),
+        {"accession", "read_as", "kind"},
+    ),
+}
 MESSAGE_ONLY = [cls for cls in EXCEPTION_CLASSES if cls.__name__ not in WITH_ATTRIBUTES]
 
 
-def _raised(call: Callable[[], object]) -> weaver.HGVSError:
-    with pytest.raises(weaver.HGVSError) as raised:
-        call()
-    return raised.value
-
-
-def _mixed_residue_codes() -> weaver.HGVSError:
-    return _raised(lambda: weaver.parse("NP_000021.1:p.Arg111X"))
-
-
-def _ambiguous_residue() -> weaver.HGVSError:
-    return _raised(lambda: weaver.parse("NP_W.1:p.[R2X;A4_G5insKXX]"))
-
-
-TRANSCRIPT = "GGGGGATGAAACTGGCCTATCGCTAACCGTATAAGTAAGG"
-
-
-class Provider:
-    """One single-exon transcript, NM_X.1, laid on its genome NC_X.1 at index 10."""
-
-    def get_transcript(self, ac: str, _ref: str | None) -> dict[str, typing.Any]:
-        return {
-            "ac": ac,
-            "gene": "TEST",
-            "cds_start_index": 5,
-            "cds_end_index": 25,
-            "strand": 1,
-            "reference_accession": "NC_X.1",
-            "exons": [
-                {
-                    "transcript_start": 0,
-                    "transcript_end": len(TRANSCRIPT),
-                    "reference_start": 10,
-                    "reference_end": 10 + len(TRANSCRIPT) - 1,
-                    "alt_strand": 1,
-                    "cigar": f"{len(TRANSCRIPT)}=",
-                },
-            ],
-        }
-
-    def get_seq(self, ac: str, start: int, end: int | None, _kind: str) -> str:
-        sequences = {"NM_X.1": TRANSCRIPT, "NC_X.1": "T" * 10 + TRANSCRIPT + "C" * 10}
-        return sequences[ac][start:end]
-
-    def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
-        if identifier.startswith("NC_"):
-            return weaver.IdentifierType.GenomicAccession
-        return weaver.IdentifierType.TranscriptAccession
-
-
-def _ambiguous_description() -> weaver.HGVSError:
-    return _raised(lambda: weaver.parse("NM_X.1:c.[7_8insA;7_8insG]").validate(Provider()))
-
-
 def _comparable(value: object) -> object:
-    """An attribute's value with each Variant, which has no equality, as its dict."""
+    """An attribute's value with each Variant, which has no equality, as its dict, and each error as its args."""
     if isinstance(value, list):
         return [_comparable(item) for item in value]
     if isinstance(value, weaver.Variant):
         return value.to_dict()
+    if isinstance(value, BaseException):
+        return type(value), _comparable(list(value.args))
     return value
 
 
@@ -91,6 +72,10 @@ def _through_pickle(error: BaseException) -> BaseException:
 
 def _parse_in_worker(description: str) -> weaver.Variant:
     return weaver.parse(description)
+
+
+def _raise_in_worker(name: str) -> None:
+    raise getattr(_weaver, name)(*WITH_ATTRIBUTES[name][0])
 
 
 def test_the_extension_declares_exception_classes() -> None:
@@ -111,33 +96,25 @@ def test_an_error_with_attributes_is_not_made_from_a_message_alone(name: str) ->
         getattr(_weaver, name)("the message")
 
 
-@pytest.mark.parametrize(
-    ("make", "attributes"),
-    [
-        (_mixed_residue_codes, {"description", "one_letter", "three_letter"}),
-        (_ambiguous_residue, {"description", "ambiguous"}),
-        (_ambiguous_description, {"readings"}),
-    ],
-    ids=["MixedResidueCodesError", "AmbiguousResidueError", "AmbiguousDescriptionError"],
-)
+@pytest.mark.parametrize("name", sorted(WITH_ATTRIBUTES))
 @pytest.mark.parametrize(
     "duplicate",
     [_through_pickle, copy.copy, copy.deepcopy],
     ids=["pickle", "copy", "deepcopy"],
 )
 def test_an_error_keeps_its_attributes_through_a_copy(
-    make: Callable[[], weaver.HGVSError],
-    attributes: set[str],
+    name: str,
     duplicate: Callable[[BaseException], BaseException],
 ) -> None:
-    original = make()
+    args, attributes = WITH_ATTRIBUTES[name]
+    original = getattr(_weaver, name)(*args)
 
     restored = duplicate(original)
 
     assert type(restored) is type(original)
-    assert str(restored) == str(original)
-    assert {name: _comparable(getattr(restored, name)) for name in attributes} == {
-        name: _comparable(getattr(original, name)) for name in attributes
+    assert str(restored) == "m"
+    assert {attribute: _comparable(getattr(restored, attribute)) for attribute in attributes} == {
+        attribute: _comparable(getattr(original, attribute)) for attribute in attributes
     }
 
 
@@ -151,3 +128,14 @@ def test_an_error_raised_in_a_worker_process_reaches_the_parent() -> None:
     assert raised.value.description == "NP_000021.1:p.Arg111X"
     assert raised.value.three_letter == [("Arg", 14, 17)]
     assert raised.value.one_letter == [("X", 20, 21)]
+
+
+def test_an_error_holding_a_members_error_reaches_the_parent_with_it() -> None:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_raise_in_worker, "CisMemberError")
+        with pytest.raises(weaver.CisMemberError) as raised:
+            future.result()
+
+    source = raised.value.source
+    assert isinstance(source, weaver.ReferenceMismatchError)
+    assert (source.accession, source.expected, source.found, source.start, source.end) == ("NM_X.1", "C", "T", 9, 10)
