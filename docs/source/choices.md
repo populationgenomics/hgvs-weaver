@@ -1968,6 +1968,20 @@ after the identity, `g.13_14insGCCCG` read back, and not that of `g.10_11insCCGG
 whole run is not what ga4gh.vrs makes of the change alone, so in such a block weaver's identifier for that member
 differs from the one the change has alone; the block's identifier is the key, and it now names one allele.
 
+A protein allele is rendered the same way on its protein, which it is not projected from. Each change is justified
+between the identities beside it; changes whose Alleles then share a residue or an insertion point, or touch with no
+residue between them left as it was, are one Allele of the change they make together, and an allele that is then one
+change is that change's Allele, not a block: `p.[Lys2Asn;Leu3Pro]` has the identifier of `p.Lys2_Leu3delinsAsnPro`. A
+change written twice is one change, as the allele is read. Changes that together leave the protein as it is,
+`p.[Ala4del;Ala5dup]`, are refused with `UnsupportedOperation`: a nucleotide allele writes them as the identity of what
+they name, but a protein allele is not yet read as stating those residues, so that Allele would name a statement
+equivalence does not find in the allele. On `MKLAAAYRQ`, `p.[Ala4del;Ala6Gly]` deletes an Ala from the run and changes
+the last. Justified one at a time the deletion spans the run, and the block does not say which residues each member
+names: read back, the deletion is written 3'-most, `p.Ala6del`, beside a change to the residue it deletes, and the
+allele is refused. Merged, it is the Allele of `p.Ala5_Ala6delinsGly`, which makes `MKLAGYRQ` as the allele does. Two
+deletions in the run, `p.[Ala4del;Ala5del]`, were two identical Alleles, read back as one deletion; merged, they are
+`p.Ala5_Ala6del`.
+
 `from_vrs` reads a `CisPhasedBlock` back the same way: each member is trimmed to its minimal edit, every placement of
 that edit within the member's justified location is considered, and a combination of placements is a reading when the
 overlap rule accepts it, every member makes its own change, and it states only what the block's reference Alleles state.
@@ -1998,11 +2012,12 @@ readings render as the block's own Alleles, as one weaver wrote does, only those
 it written as their duplication for this, as `normalize` writes it: so `g.[1dup;2_12dup;6_10=]` on `CGCCTAGTTGGTAAG`
 reads back as itself, not as another allele of the same sequence with another identifier. The placements tried together
 are those of members whose locations overlap or touch, every combination of them, and a set with more than 16,384
-combinations is refused with `UnsupportedOperation` rather than tried; a protein block is read member by member, its
-members written in residue order as a nucleotide block's come back in genome order, whatever order the block lists them
-in. A block weaver wrote reads back as an allele with its identifier, and the same sequence and statements as the
-allele, though not always in the spelling `normalize` writes: changes `to_vrs` made one Allele come back as one change,
-`g.[8_12=;12dup;13delinsACAA]` as `g.[8_12=;13delinsAACAA]`.
+combinations is refused with `UnsupportedOperation` rather than tried; a protein block is read member by member, each
+placed 3'-most within its own location rather than along the whole protein, so that a change weaver justified short of
+an identity comes back short of it, and its members written in residue order as a nucleotide block's come back in genome
+order, whatever order the block lists them in. A block weaver wrote reads back as an allele with its identifier, and the
+same sequence and statements as the allele, though not always in the spelling `normalize` writes: changes `to_vrs` made
+one Allele come back as one change, `g.[8_12=;12dup;13delinsACAA]` as `g.[8_12=;13delinsAACAA]`.
 
 **Example** (`NM_X.1` and `NC_X.1` as in [the cis allele entry](#a-cis-allele-is-the-sequence-its-members-make); c.4_12
 reads `AAACTGGCC`, codons 2 to 4, and c.4 is g.19; `NM_S.1` is `NM_X.1` with exon 1 ending at c.5, so c.4_9 reads
@@ -2102,7 +2117,7 @@ X:g.[4_5insA;5del]                TTTTATTTTT   →  X:g.5T>A                 her
   that meet is what keeps normalisation sequence-preserving and idempotent, so weaver merges.
 
 <details>
-<summary><strong>Tests asserting this choice (125)</strong></summary>
+<summary><strong>Tests asserting this choice (138)</strong></summary>
 
 `cis_phased_test::members_that_meet_no_other_normalise_alone_and_validate_one_by_one`,
 `::a_single_variant_that_makes_the_reference_is_its_statement`, `::members_in_one_run_are_written_as_one_change`,
@@ -2179,7 +2194,18 @@ share a member, which reading the allele already refuses;
 `::to_vrs_refuses_a_protein_allele_inserting_twice_at_one_point`,
 `::to_vrs_refuses_a_protein_allele_changing_one_residue_two_ways`,
 `::a_protein_block_changing_one_residue_two_ways_does_not_read_back`,
-`::a_protein_block_inserting_twice_after_the_last_residue_does_not_read_back`;
+`::a_protein_block_inserting_twice_after_the_last_residue_does_not_read_back`,
+`::a_protein_deletion_in_a_run_beside_a_change_to_its_last_residue_reads_back`,
+`::a_protein_duplication_in_a_run_beside_a_change_to_its_last_residue_reads_back`,
+`::two_protein_deletions_in_one_run_read_back_as_both`,
+`::a_protein_member_meeting_none_stays_its_own_member_of_the_block`,
+`::a_protein_deletion_in_a_run_beside_an_identity_reads_back_short_of_it`,
+`::a_protein_duplication_in_a_run_beside_an_identity_reads_back_short_of_it`,
+`::a_protein_allele_that_is_one_change_renders_as_its_allele`,
+`::spellings_of_one_protein_allele_beside_an_identity_have_one_vrs_identifier`,
+`::protein_changes_that_touch_render_as_the_one_change_they_make`, `::a_protein_change_written_twice_renders_once`,
+`::a_protein_duplication_written_twice_renders_once`, `::a_protein_insertion_copying_a_stated_residue_reads_back`,
+`::to_vrs_refuses_protein_changes_that_together_leave_the_protein_as_it_is`;
 `repeat_projection_test::a_repeat_that_makes_the_reference_is_left_as_written_where_the_genome_counts_more`,
 `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_continues_its_run`,
 `::a_repeat_that_makes_the_reference_is_left_as_written_where_the_intron_completes_a_copy`,
@@ -4177,12 +4203,18 @@ from a coding allele meets a stated `p.` description the same way, so how either
 reach for one residue, or a member after a frameshift, a stop or an open end, leave the allele no reading, and it is
 refused as a contradictory nucleotide allele is, by every operation that reads it: `validate`, `normalize`, `to_vrs`
 before a block is built, `from_vrs` reading a block back, and equivalence. As for nucleotide members, an insertion
-beside a change, on either side, shares no residue with it, `p.[Lys2_Leu3insGln;Leu3Pro]`; two insertions at one point
-leave their order unsaid; and one change written twice is read once, `p.[Tyr5Asp;Tyr5Asp]`. A member that names no
-residues, `p.Met1?`, does not excuse the others from the rule. So `p.[Lys2_Leu3insGln;Lys2_Leu3insGly]`, which inserts
-twice between Lys2 and Leu3 and does not say in which order, has no VRS block, as `c.[6_7insCAG;6_7insGGG]` has none. A
-member that names no stretch of residues to replace, an uncertain range, `p.Met1?` or `p.?`, leaves the allele no one
-protein; such alleles are compared member by member, as nucleotide alleles with an uncertain member are.
+beside a change, on either side, shares no residue with it, `p.[Lys2_Leu3insGln;Leu3Pro]`. A change is set against an
+identity by the residues it alters, trimmed of those it writes back, so an insertion or a duplication beside an identity
+changes nothing it states: on `MKLAAAYRQ`, `p.[Ala6_Tyr7insAla;Tyr7=]` and `p.[Ala5=;Ala5dup]` have readings. At either
+end of the protein an insertion is read with the end it extends, as an extension that adds residues there is, since a
+change cut at the stop does not say which it was: `p.[Ter10=;Ter10GlnextTer5]`, `p.[Ter10=;Gln9_Ter10insGln]`,
+`p.[Ter10=;Gln9dup]` and `p.[Met1=;Met1ext-5]` have none. Two insertions at one point leave their order unsaid, a
+duplication's copy among them, `p.[Ala4dup;Ala4_Ala5insGly]`; and one change written twice is read once,
+`p.[Tyr5Asp;Tyr5Asp]`. A member that names no residues, `p.Met1?`, does not excuse the others from the rule. So
+`p.[Lys2_Leu3insGln;Lys2_Leu3insGly]`, which inserts twice between Lys2 and Leu3 and does not say in which order, has no
+VRS block, as `c.[6_7insCAG;6_7insGGG]` has none. A member that names no stretch of residues to replace, an uncertain
+range, `p.Met1?` or `p.?`, leaves the allele no one protein; such alleles are compared member by member, as nucleotide
+alleles with an uncertain member are.
 
 A VRS identifier is not a key for the change. `to_vrs`
 [merges the members that meet on the genome](#members-of-a-cis-allele-that-meet-are-written-as-one-change) into one
@@ -4306,7 +4338,7 @@ to_vrs_variation NM_X.1:c.5_9delinsGACTT →  an Allele, ga4gh:VA.…     the sa
   not how to compare two; that reading is weaver's.
 
 <details>
-<summary><strong>Tests asserting this choice (161)</strong></summary>
+<summary><strong>Tests asserting this choice (167)</strong></summary>
 
 the comparison: `cis_equivalence_test::adjacent_substitutions_are_the_delins_they_make`,
 `::a_delins_is_the_adjacent_substitutions_it_makes`,
@@ -4428,7 +4460,11 @@ building it: `::a_transcript_allele_read_on_the_genome_makes_its_projection`,
 `::normalize_refuses_a_protein_allele_changing_one_residue_two_ways`,
 `::a_protein_insertion_beside_a_change_on_its_right_has_a_reading`,
 `::a_protein_insertion_beside_a_change_on_its_left_has_a_reading`, `::a_protein_change_written_twice_is_read_once`,
-`::a_protein_member_naming_no_residues_does_not_hide_two_that_clash`.
+`::a_protein_member_naming_no_residues_does_not_hide_two_that_clash`,
+`::a_protein_insertion_beside_an_identity_has_a_reading`, `::a_protein_insertion_inside_an_identity_has_no_reading`,
+`::a_protein_duplication_of_a_stated_residue_has_a_reading`, `::a_protein_extension_past_a_stated_stop_has_no_reading`,
+`::a_protein_extension_before_a_stated_met1_has_no_reading`,
+`::a_protein_duplication_and_an_insertion_at_its_copy_have_no_reading`.
 
 </details>
 

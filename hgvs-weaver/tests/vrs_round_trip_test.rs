@@ -418,6 +418,220 @@ fn a_protein_block_reads_back_in_residue_order() {
     );
 }
 
+/// The protein allele `hgvs` rendered by `to_vrs_variation` and read back:
+/// the reading must render to the same identifier.
+fn protein_allele_read_back(mapper: &VariantMapper, hgvs: &str) -> String {
+    let vrs = mapper
+        .to_vrs_variation(&parse_hgvs_variant(hgvs).unwrap())
+        .unwrap();
+    let back = mapper.from_vrs(&vrs.to_json(), None).unwrap();
+    assert_eq!(
+        mapper.to_vrs_variation(&back).unwrap().id(),
+        vrs.id(),
+        "{hgvs} read back as {back}"
+    );
+    back.to_string()
+}
+
+#[test]
+fn a_protein_deletion_in_a_run_beside_a_change_to_its_last_residue_reads_back() {
+    // MKLAAAYRQ: an Ala deleted from Ala4_Ala6 and Ala6 changed leave MKLAGYRQ.
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Ala4del;Ala6Gly]"),
+        "NP_TEST.1:p.Ala5_Ala6delinsGly"
+    );
+}
+
+#[test]
+fn a_protein_duplication_in_a_run_beside_a_change_to_its_last_residue_reads_back() {
+    // MKLAAAYRQ: an Ala added to Ala4_Ala6 and Ala6 changed leave MKLAAAGYRQ.
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Ala4dup;Ala6Gly]"),
+        "NP_TEST.1:p.Ala6_Tyr7insGly"
+    );
+}
+
+#[test]
+fn two_protein_deletions_in_one_run_read_back_as_both() {
+    // MKLAAAYRQ: two of the three Ala deleted leave MKLAYRQ.
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Ala4del;Ala5del]"),
+        "NP_TEST.1:p.Ala5_Ala6del"
+    );
+}
+
+#[test]
+fn a_protein_member_meeting_none_stays_its_own_member_of_the_block() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Lys2Asn;Ala4del;Ala6Gly]"),
+        "NP_TEST.1:p.[Lys2Asn;Ala5_Ala6delinsGly]"
+    );
+}
+
+#[test]
+fn a_protein_deletion_in_a_run_beside_an_identity_reads_back_short_of_it() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Ala4del;Ala6=]"),
+        "NP_TEST.1:p.[Ala5del;Ala6=]"
+    );
+}
+
+#[test]
+fn a_protein_duplication_in_a_run_beside_an_identity_reads_back_short_of_it() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Ala4dup;Ala6=]"),
+        "NP_TEST.1:p.[Ala5dup;Ala6=]"
+    );
+}
+
+#[test]
+fn spellings_of_one_protein_allele_beside_an_identity_have_one_vrs_identifier() {
+    // MKLAAAYRQ: an Ala added to Ala4_Ala6, written anywhere in the run.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let id = |hgvs: &str| {
+        let var = parse_hgvs_variant(hgvs).unwrap();
+        mapper.to_vrs_variation(&var).unwrap().id().to_string()
+    };
+    assert_eq!(
+        id("NP_TEST.1:p.[Ala4dup;Tyr7=]"),
+        id("NP_TEST.1:p.[Ala6dup;Tyr7=]")
+    );
+}
+
+#[test]
+fn protein_changes_that_touch_render_as_the_one_change_they_make() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let allele = parse_hgvs_variant("NP_TEST.1:p.[Lys2Asn;Leu3Pro]").unwrap();
+    let one = parse_hgvs_variant("NP_TEST.1:p.Lys2_Leu3delinsAsnPro").unwrap();
+    assert_eq!(
+        mapper.to_vrs_variation(&allele).unwrap().id(),
+        mapper.to_vrs(&one).unwrap().id
+    );
+}
+
+#[test]
+fn a_protein_change_written_twice_renders_once() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let allele = parse_hgvs_variant("NP_TEST.1:p.[Lys2Asn;Lys2delinsAsn]").unwrap();
+    let one = parse_hgvs_variant("NP_TEST.1:p.Lys2Asn").unwrap();
+    assert_eq!(
+        mapper.to_vrs_variation(&allele).unwrap().id(),
+        mapper.to_vrs(&one).unwrap().id
+    );
+}
+
+#[test]
+fn a_protein_duplication_written_twice_renders_once() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let allele = parse_hgvs_variant("NP_TEST.1:p.[Ala4dup;Ala4dup]").unwrap();
+    let one = parse_hgvs_variant("NP_TEST.1:p.Ala4dup").unwrap();
+    assert_eq!(
+        mapper.to_vrs_variation(&allele).unwrap().id(),
+        mapper.to_vrs(&one).unwrap().id
+    );
+}
+
+#[test]
+fn a_protein_insertion_copying_a_stated_residue_reads_back() {
+    let hdp = provider();
+    let mapper = VariantMapper::with_refget(&hdp, &hdp);
+    assert_eq!(
+        protein_allele_read_back(&mapper, "NP_TEST.1:p.[Ala5=;Ala5_Ala6insAla;Ala6=]"),
+        "NP_TEST.1:p.[Ala5=;Ala5dup;Ala6=]"
+    );
+}
+
+#[test]
+fn a_protein_duplication_of_a_stated_residue_has_a_reading() {
+    // It inserts a copy beside Ala5, which it leaves as it was.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Ala5=;Ala5dup]").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}
+
+#[test]
+fn a_protein_extension_past_a_stated_stop_has_no_reading() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Ter10=;Ter10GlnextTer5]").unwrap();
+    assert!(has_no_reading(mapper.validate(&var)));
+}
+
+#[test]
+fn a_protein_extension_before_a_stated_met1_has_no_reading() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Met1=;Met1ext-5]").unwrap();
+    assert!(has_no_reading(mapper.validate(&var)));
+}
+
+#[test]
+fn to_vrs_refuses_protein_changes_that_together_leave_the_protein_as_it_is() {
+    // An Ala deleted from Ala4_Ala6 and one added back.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Ala4del;Ala5dup]").unwrap();
+    assert!(matches!(
+        mapper.to_vrs_variation(&var),
+        Err(HgvsError::UnsupportedOperation(m)) if m.contains("leave the protein as it is")
+    ));
+}
+
+#[test]
+fn a_protein_duplication_and_an_insertion_at_its_copy_have_no_reading() {
+    // Ala4dup puts its copy between Ala4 and Ala5, where the Gly goes too.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Ala4dup;Ala4_Ala5insGly]").unwrap();
+    assert!(has_no_reading(mapper.validate(&var)));
+}
+
+#[test]
+fn a_protein_insertion_beside_an_identity_has_a_reading() {
+    // The same molecule as p.[Ala6dup;Tyr7=]: the insertion changes no residue Tyr7= states.
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Ala6_Tyr7insAla;Tyr7=]").unwrap();
+    assert!(mapper.validate(&var).unwrap());
+}
+
+#[test]
+fn a_protein_insertion_inside_an_identity_has_no_reading() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let var = parse_hgvs_variant("NP_TEST.1:p.[Ala4_Ala6=;Ala4_Ala5insGly]").unwrap();
+    assert!(has_no_reading(mapper.validate(&var)));
+}
+
+#[test]
+fn a_protein_allele_that_is_one_change_renders_as_its_allele() {
+    let hdp = provider();
+    let mapper = VariantMapper::new(&hdp);
+    let allele = parse_hgvs_variant("NP_TEST.1:p.[Ala4del;Ala6Gly]").unwrap();
+    let one = parse_hgvs_variant("NP_TEST.1:p.Ala5_Ala6delinsGly").unwrap();
+    assert_eq!(
+        mapper.to_vrs_variation(&allele).unwrap().id(),
+        mapper.to_vrs(&one).unwrap().id
+    );
+}
+
 /// Whether `result` is the refusal of an allele with no one reading.
 fn has_no_reading<T: std::fmt::Debug>(result: Result<T, HgvsError>) -> bool {
     matches!(&result, Err(HgvsError::ValidationError(m)) if m.contains("no reading"))

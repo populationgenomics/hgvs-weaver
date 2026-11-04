@@ -15,10 +15,12 @@
 //! combination of each set's readings.
 
 use crate::data::IdentifierType;
+use crate::edits::ResolvedEdit;
 use crate::error::HgvsError;
-use crate::mapper::{g_variant, interval, VariantMapper};
-use crate::normalize;
+use crate::mapper::{g_variant, interval, protein_edit, ProteinWithStop, VariantMapper};
+use crate::normalize::{self, ExonBounds};
 use crate::reading::CisReading;
+use crate::reference::ReferenceStore;
 use crate::structs::{CisPhasedVariant, Variant};
 use crate::vrs::{VrsAllele, VrsBound, VrsCisPhasedBlock, VrsState, VrsVariation};
 use crate::SequenceVariant as SV;
@@ -44,12 +46,17 @@ type Key = (usize, usize, String);
 /// A member a block renders, and the bounds it is justified within.
 type Rendered = (SV, (usize, usize));
 
+/// A protein member's change as written, `[start, end)` and what replaces
+/// it, and the same change trimmed of what it writes back.
+type Change = ((usize, usize, String), ResolvedEdit);
+
 impl VariantMapper<'_> {
     /// `ac:g.[a;b]` (or `p.`) from a VRS `CisPhasedBlock`, on the sequence
     /// `accession` or the first member's refget accession names; every member
     /// must lie on it. A nucleotide block is read with its members placed
     /// together and normalised as one allele; a protein block member by
-    /// member, written in residue order whatever order the block lists them in.
+    /// member, each placed 3'-most within its own location, written in
+    /// residue order whatever order the block lists them in.
     pub(crate) fn cis_phased_from_vrs(
         &self,
         json: &str,
@@ -68,7 +75,12 @@ impl VariantMapper<'_> {
         let mut ac = accession.map(str::to_string);
         let mut members = Vec::with_capacity(block.members.len());
         for allele in &block.members {
-            let alone = self.from_vrs(&allele.to_json(), ac.as_deref())?;
+            // A protein member is read only as far as its location reaches:
+            // its block justifies it short of an identity beside it.
+            let mut alone = self.allele_from_vrs(allele, ac.as_deref(), false)?;
+            if matches!(alone, SV::Protein(_)) {
+                alone = self.allele_from_vrs(allele, ac.as_deref(), true)?;
+            }
             let ac = ac.get_or_insert_with(|| alone.ac().to_string());
             members.push(self.member(ac, allele, alone)?);
         }
@@ -438,30 +450,9 @@ impl VariantMapper<'_> {
                     None => None,
                 });
             }
-            // The changes whose Alleles meet, directly or through another,
-            // made one change together: one pair at a time, a merged change
-            // written at its own minimal spelling could move past a third
-            // member it meets.
-            let meets = |i: usize, j: usize| match (spans[i], spans[j]) {
-                (Some(a), Some(b)) => overlap(a, b),
-                _ => false,
-            };
-            let Some(first) =
-                (0..members.len()).find(|&i| (0..members.len()).any(|j| j != i && meets(i, j)))
-            else {
+            let Some(group) = meeting_group(&spans, overlap) else {
                 return Ok(members);
             };
-            let mut group = vec![first];
-            let mut k = 0;
-            while k < group.len() {
-                for j in 0..members.len() {
-                    if !group.contains(&j) && meets(group[k], j) {
-                        group.push(j);
-                    }
-                }
-                k += 1;
-            }
-            group.sort_unstable();
             let spans_of: Vec<(usize, usize)> = group.iter().filter_map(|&g| spans[g]).collect();
             let lo = spans_of.iter().map(|s| s.0).min().unwrap_or(0);
             let hi = spans_of.iter().map(|s| s.1).max().unwrap_or(0);
@@ -472,6 +463,137 @@ impl VariantMapper<'_> {
             let (edit, s, e) = normalize::minimal_edit(&reference, lo, hi, &ref_, &alt)?;
             let one = SV::Genomic(g_variant(&cis.ac, interval(s, e)?, edit));
             let bounds = members[group[0]].1;
+            for &g in group.iter().rev() {
+                members.remove(g);
+            }
+            members.insert(group[0], (one, bounds));
+        }
+    }
+
+    /// `cis`, a protein allele with one reading, as the members its block
+    /// renders and the bounds each is justified within, as
+    /// [`rendered_members`](Self::rendered_members) renders a `g.` allele: a
+    /// change is justified only between the residues identities beside it
+    /// name, and changes whose Alleles then share a residue or an insertion
+    /// point, or touch, are written as the one change they make together. Read alone,
+    /// each member of such a block gives back the allele's reading; members
+    /// justified one by one over a run they share do not say which residues
+    /// each one names.
+    pub(crate) fn rendered_protein_members(
+        &self,
+        cis: &CisPhasedVariant,
+    ) -> Result<Vec<Rendered>, HgvsError> {
+        let reference = self
+            .refs
+            .reference(&cis.ac, IdentifierType::ProteinAccession);
+        let with_stop = ProteinWithStop::of(&reference)?;
+        let store = ReferenceStore::new(&with_stop);
+        let shown = with_stop.reference(&store);
+        // Each member's change as written, and trimmed of what it writes
+        // back at either end; `None` for one that leaves its residues as
+        // they are.
+        let changes = |members: &[Rendered]| -> Result<Vec<Option<Change>>, HgvsError> {
+            members
+                .iter()
+                .map(|(m, _)| {
+                    let SV::Protein(vp) = m else {
+                        return Err(HgvsError::ValidationError(format!(
+                            "{cis} mixes a protein member with {m}"
+                        )));
+                    };
+                    let e = protein_edit(vp, &reference, &with_stop, &shown)?;
+                    let (at, r, a) =
+                        crate::structs::strip_common_prefix_suffix(e.start as i32, &e.ref_, &e.alt);
+                    let start = at as usize;
+                    let core = ResolvedEdit {
+                        start,
+                        end: start + r.len(),
+                        ref_: r,
+                        alt: a,
+                    };
+                    Ok((e.ref_ != e.alt).then_some(((e.start, e.end, e.alt), core)))
+                })
+                .collect()
+        };
+        let whole = (0, usize::MAX);
+        let mut members: Vec<Rendered> = cis.members.iter().map(|m| (m.clone(), whole)).collect();
+        let first = changes(&members)?;
+        let mut stated = Vec::new();
+        for (i, (m, _)) in members.iter().enumerate() {
+            if first[i].is_none() {
+                let SV::Protein(vp) = m else { continue };
+                stated.push(crate::mapper::residue_range(vp, &reference)?);
+            }
+        }
+        if !stated.is_empty() {
+            for (i, (_, bounds)) in members.iter_mut().enumerate() {
+                if let Some((_, core)) = &first[i] {
+                    *bounds = between(&stated, (core.start, core.end));
+                }
+            }
+        }
+        loop {
+            let edits = changes(&members)?;
+            let mut spans = Vec::with_capacity(members.len());
+            for ((m, bounds), edit) in members.iter().zip(&edits) {
+                spans.push(match edit {
+                    Some(_) => {
+                        let a = self.canonical_allele_within(m, *bounds)?;
+                        Some((a.start, a.end))
+                    }
+                    None => None,
+                });
+            }
+            // Changes that touch are one, as normalisation makes them one on a
+            // nucleotide: no residue between them is left as it was.
+            let touch =
+                |a: (usize, usize), b: (usize, usize)| overlap(a, b) || a.1 == b.0 || b.1 == a.0;
+            let Some(group) = meeting_group(&spans, touch) else {
+                return Ok(members);
+            };
+            let lo = group
+                .iter()
+                .filter_map(|&g| spans[g])
+                .map(|s| s.0)
+                .min()
+                .unwrap_or(0);
+            let hi = group
+                .iter()
+                .filter_map(|&g| spans[g])
+                .map(|s| s.1)
+                .max()
+                .unwrap_or(0);
+            let mut together: Vec<&Change> =
+                group.iter().filter_map(|&g| edits[g].as_ref()).collect();
+            together.sort_by(|(a, _), (b, _)| a.cmp(b));
+            // One change written twice is read once, as the allele is read;
+            // an insertion written twice the reading has already refused.
+            together.dedup_by(|(b, _), (a, _)| a.1 > a.0 && a == b);
+            let mut together: Vec<&ResolvedEdit> = together.into_iter().map(|(_, e)| e).collect();
+            together.sort_by_key(|e| (e.start, e.end));
+            let mut alt = String::new();
+            let mut at = lo;
+            for e in together {
+                if e.start < at {
+                    return Err(HgvsError::ValidationError(format!(
+                        "{cis} has two members that reach for one residue, so it has no reading"
+                    )));
+                }
+                alt.push_str(&shown.slice(at, e.start)?);
+                alt.push_str(&e.alt);
+                at = e.end;
+            }
+            alt.push_str(&shown.slice(at, hi)?);
+            if alt == shown.slice(lo, hi)? {
+                return Err(HgvsError::UnsupportedOperation(format!(
+                    "{cis} has changes that together leave the protein as it is, which are not \
+                     read as the statement they make on a protein"
+                )));
+            }
+            let bounds = members[group[0]].1;
+            let cuts = ExonBounds::unspliced().with_cuts([bounds.0, bounds.1]);
+            let one =
+                self.protein_from_allele(&reference, lo, hi, shown.slice(lo, hi)?, alt, &cuts)?;
             for &g in group.iter().rev() {
                 members.remove(g);
             }
@@ -506,6 +628,34 @@ impl VariantMapper<'_> {
         );
         Ok(Some((at as usize, at as usize + r.len())))
     }
+}
+
+/// The first set of members whose `spans` meet, directly or through
+/// another, sorted; `None` when no two meet. Such changes made one change
+/// together. A set is merged whole rather than one pair at a time: a merged
+/// change written at its own minimal spelling could move past a third member
+/// it meets.
+fn meeting_group(
+    spans: &[Option<(usize, usize)>],
+    meet: impl Fn((usize, usize), (usize, usize)) -> bool,
+) -> Option<Vec<usize>> {
+    let meets = |i: usize, j: usize| match (spans[i], spans[j]) {
+        (Some(a), Some(b)) => meet(a, b),
+        _ => false,
+    };
+    let first = (0..spans.len()).find(|&i| (0..spans.len()).any(|j| j != i && meets(i, j)))?;
+    let mut group = vec![first];
+    let mut k = 0;
+    while k < group.len() {
+        for j in 0..spans.len() {
+            if !group.contains(&j) && meets(group[k], j) {
+                group.push(j);
+            }
+        }
+        k += 1;
+    }
+    group.sort_unstable();
+    Some(group)
 }
 
 /// Whether two Allele locations share a base, or one inserts at a point

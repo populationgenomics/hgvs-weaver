@@ -774,7 +774,10 @@ class VariantMapper:
         otherwise it becomes a CisPhasedBlock whose ``members`` are the Alleles, in
         order along the genome, with the shared sequence as ``sequenceReference``. Its
         identifier (ga4gh:CPB.) does not depend on the order of the members. An allele
-        of protein members becomes a block of its members as written.
+        of protein members stays on its protein, where its changes are justified
+        only up to an identity beside them and those whose Alleles then share a
+        residue or an insertion point, or touch, become one Allele; one that is then a single
+        change is that change's Allele, otherwise a CisPhasedBlock.
 
         The dict's ``type`` says which object was returned.
 
@@ -843,7 +846,8 @@ class VariantMapper:
         once on the block as the spec allows. Nucleotide members whose locations
         meet are placed together, every placement of each member's edit within
         its location tried, and the allele is normalised as one; members a
-        protein block names are read one at a time.
+        protein block names are read one at a time, each placed 3'-most within its
+        own location.
 
         The sequence behind the object's refget accession is named by ``accession``
         when given, else looked up through the Refget given at construction; the

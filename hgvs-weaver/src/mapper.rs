@@ -999,6 +999,34 @@ pub(crate) fn ended_at_stop(
     }
 }
 
+/// The change the p. description `vp` makes to its protein `reference`,
+/// read on `with_stop`, as `shown`, with the stop after the last residue: a
+/// stop among the new residues ends the protein there.
+pub(crate) fn protein_edit(
+    vp: &PVariant,
+    reference: &crate::reference::Reference<'_, '_>,
+    with_stop: &ProteinWithStop,
+    shown: &crate::reference::Reference<'_, '_>,
+) -> Result<crate::edits::ResolvedEdit, HgvsError> {
+    let (start, end) = residue_range(vp, reference)?;
+    let residues = with_stop.residues().len();
+    let edit = match named_extension(&vp.posedit.edit, start, residues)? {
+        Some(added) => crate::edits::ResolvedEdit {
+            start: residues,
+            end: residues,
+            ref_: String::new(),
+            alt: added,
+        },
+        None => vp.posedit.edit.resolve(shown, start, end)?,
+    };
+    ended_at_stop(
+        edit,
+        with_stop.residues(),
+        vp.posedit.edit.is_identity(),
+        || vp.to_string(),
+    )
+}
+
 /// One protein sequence with its stop after the last residue, whether or not
 /// its provider serves the stop: the sequence a `p.` description and a
 /// protein allele are read on, so that an edit at the stop sees it.
@@ -3901,27 +3929,11 @@ impl<'a> VariantMapper<'a> {
             let reference = self
                 .refs
                 .reference(&vp.ac, IdentifierType::ProteinAccession);
-            let (start, end) = residue_range(vp, &reference)?;
             let with_stop = ProteinWithStop::of(&reference)?;
             let store = ReferenceStore::new(&with_stop);
             let shown = with_stop.reference(&store);
-            let residues = with_stop.residues().len();
-            let edit = match named_extension(&vp.posedit.edit, start, residues)? {
-                Some(added) => crate::edits::ResolvedEdit {
-                    start: residues,
-                    end: residues,
-                    ref_: String::new(),
-                    alt: added,
-                },
-                None => vp.posedit.edit.resolve(&shown, start, end)?,
-            };
-            let resolved = ended_at_stop(
-                edit,
-                with_stop.residues(),
-                vp.posedit.edit.is_identity(),
-                || vp.to_string(),
-            )?;
-            return CanonicalAllele::canonicalize(&shown, &vp.ac, &resolved);
+            let resolved = protein_edit(vp, &reference, &with_stop, &shown)?;
+            return CanonicalAllele::canonicalize_within(&shown, &vp.ac, &resolved, bounds);
         }
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
@@ -4195,7 +4207,9 @@ impl<'a> VariantMapper<'a> {
     /// [`to_vrs_variation`](Self::to_vrs_variation) renders it: projected to
     /// the genome, with the members that meet there as one Allele, in order
     /// along the genome. One that is a single change there is that change's
-    /// object, not a block.
+    /// object, not a block. An allele of protein members stays on its
+    /// protein, its members that meet there one Allele, and is a block only
+    /// where more than one change remains.
     pub fn to_vrs_cis_phased(
         &self,
         var: &crate::SequenceVariant,
@@ -4208,8 +4222,8 @@ impl<'a> VariantMapper<'a> {
         match self.to_vrs_variation(var)? {
             VrsVariation::CisPhasedBlock(block) => Ok(block),
             _ => Err(HgvsError::UnsupportedOperation(format!(
-                "{var} is one change on the genome, rendered as one VRS object rather than a \
-                 CisPhasedBlock; use to_vrs_variation"
+                "{var} is one change, rendered as one VRS object rather than a CisPhasedBlock; \
+                 use to_vrs_variation"
             ))),
         }
     }
@@ -4224,9 +4238,9 @@ impl<'a> VariantMapper<'a> {
         let members = match cis.coordinate_type() {
             "p" => {
                 self.check_protein_allele(cis)?;
-                cis.members
+                self.rendered_protein_members(cis)?
                     .iter()
-                    .map(|m| self.to_vrs(m))
+                    .map(|(m, bounds)| self.to_vrs_within(m, *bounds))
                     .collect::<Result<Vec<_>, _>>()?
             }
             _ => self
@@ -4271,15 +4285,26 @@ impl<'a> VariantMapper<'a> {
     /// normalisation stops there. One
     /// that is a single change there is that change's object, carrying the
     /// allele as written as its expression.
+    ///
+    /// An allele of protein members is refused if it has no reading, and
+    /// rendered on its protein the same way: each change justified only up
+    /// to an identity beside it, and the changes whose Alleles then share a
+    /// residue or an insertion point, or touch, one Allele of the change
+    /// they make together. One that is then a single change is that
+    /// change's Allele.
     pub fn to_vrs_variation(
         &self,
         var: &crate::SequenceVariant,
     ) -> Result<VrsVariation, HgvsError> {
         if let crate::SequenceVariant::CisPhased(cis) = var {
             if cis.coordinate_type() == "p" {
-                return Ok(VrsVariation::CisPhasedBlock(
-                    self.cis_phased_block(cis, var)?,
-                ));
+                let mut block = self.cis_phased_block(cis, var)?;
+                if block.members.len() == 1 {
+                    let mut one = block.members.remove(0);
+                    one.expressions = block.expressions;
+                    return Ok(VrsVariation::Allele(one));
+                }
+                return Ok(VrsVariation::CisPhasedBlock(block));
             }
             // Read where written, so that a contradictory or ambiguous allele
             // is refused before a block could conflate its readings; then
@@ -4349,7 +4374,7 @@ impl<'a> VariantMapper<'a> {
             }
             end
         };
-        self.allele_to_variant(ac, kind, start, end, ins.to_string())
+        self.allele_to_variant(ac, kind, start, end, ins.to_string(), None)
     }
 
     /// The variant a GA4GH VRS 2.0 object (as JSON) names, written in HGVS on
@@ -4381,7 +4406,18 @@ impl<'a> VariantMapper<'a> {
         if vrs_type(json)? == "CisPhasedBlock" {
             return self.cis_phased_from_vrs(json, accession);
         }
-        let allele = VrsAllele::from_json(json)?;
+        self.allele_from_vrs(&VrsAllele::from_json(json)?, accession, false)
+    }
+
+    /// The variant the VRS `allele` names on its sequence, 3'-normalised, or
+    /// only as far as its location reaches when `within_location`: a member
+    /// of a block justified short of an identity beside it.
+    pub(crate) fn allele_from_vrs(
+        &self,
+        allele: &VrsAllele,
+        accession: Option<&str>,
+        within_location: bool,
+    ) -> Result<crate::SequenceVariant, HgvsError> {
         let (ac, kind) = self.located_sequence(&allele.location, accession)?;
         let reference = self.refs.reference(&ac, kind);
         match (allele.location.start, allele.location.end) {
@@ -4412,7 +4448,8 @@ impl<'a> VariantMapper<'a> {
                         r[..unit].chars().cycle().take(*length).collect()
                     }
                 };
-                self.allele_to_variant(&ac, kind, start, end, alt)
+                let within = within_location.then_some((start, end));
+                self.allele_to_variant(&ac, kind, start, end, alt, within)
             }
             (start, end) => {
                 let empty = matches!(&allele.state, VrsState::Literal { sequence, .. } if sequence.is_empty());
@@ -4627,7 +4664,9 @@ impl<'a> VariantMapper<'a> {
         start: usize,
         end: usize,
         alt: String,
+        within: Option<(usize, usize)>,
     ) -> Result<crate::SequenceVariant, HgvsError> {
+        let exons = ExonBounds::unspliced().with_cuts(within.into_iter().flat_map(|(s, e)| [s, e]));
         let reference = self.refs.reference(ac, kind);
         let ref_ = reference.slice(start, end)?;
         let past_the_end = start > 0 && reference.base(start - 1)?.is_none();
@@ -4637,14 +4676,11 @@ impl<'a> VariantMapper<'a> {
             )));
         }
         if kind == IdentifierType::ProteinAccession {
-            return self.protein_from_allele(&reference, start, end, ref_, alt);
+            return self.protein_from_allele(&reference, start, end, ref_, alt, &exons);
         }
         let (edit, s, e) = normalize::minimal_edit(&reference, start, end, &ref_, &alt)?;
-        let placed = normalize::normalize(
-            &reference,
-            PlacedEdit::from_hgvs_range(s, e, edit),
-            &ExonBounds::unspliced(),
-        )?;
+        let placed =
+            normalize::normalize(&reference, PlacedEdit::from_hgvs_range(s, e, edit), &exons)?;
         let (s, e) = placed.hgvs_range();
         Ok(crate::SequenceVariant::Genomic(g_variant(
             ac,
@@ -4659,13 +4695,14 @@ impl<'a> VariantMapper<'a> {
     /// [`canonical_allele`](Self::canonical_allele) reads a description: so
     /// both servings give one variant, and it gives back the allele read.
     /// A change the stop leaves as no change is the stop unchanged.
-    fn protein_from_allele(
+    pub(crate) fn protein_from_allele(
         &self,
         reference: &crate::reference::Reference<'_, '_>,
         start: usize,
         end: usize,
         ref_: String,
         alt: String,
+        exons: &ExonBounds,
     ) -> Result<crate::SequenceVariant, HgvsError> {
         let ac = reference.accession();
         let with_stop = ProteinWithStop::of(reference)?;
@@ -4701,11 +4738,29 @@ impl<'a> VariantMapper<'a> {
         } else {
             normalize::minimal_edit(&shown, edit.start, edit.end, &edit.ref_, &edit.alt)?
         };
-        let placed = normalize::normalize(
-            &shown,
-            PlacedEdit::from_hgvs_range(s, e, edit),
-            &ExonBounds::unspliced(),
-        )?;
+        let placed = normalize::normalize(&shown, PlacedEdit::from_hgvs_range(s, e, edit), exons)?;
+        // Normalisation leaves an insertion at a cut as written; one of a copy
+        // of the residues before it, inside the cut, is their duplication.
+        let placed = match &placed.edit {
+            crate::edits::NaEdit::Ins {
+                alt: Some(added),
+                uncertain,
+            } if placed.start >= added.len()
+                && !added.is_empty()
+                && exons.same_exon(placed.start - added.len(), placed.start - 1)
+                && shown.slice(placed.start - added.len(), placed.start)? == *added =>
+            {
+                PlacedEdit {
+                    start: placed.start - added.len(),
+                    end: placed.start,
+                    edit: crate::edits::NaEdit::Dup {
+                        ref_: None,
+                        uncertain: *uncertain,
+                    },
+                }
+            }
+            _ => placed,
+        };
         let (s, e) = placed.hgvs_range();
         // Residues inserted after the last, or a copy of the last ones, extend
         // the protein at its C-terminal end: HGVS writes either as an extension.
