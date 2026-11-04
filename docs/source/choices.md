@@ -215,6 +215,7 @@ Variation Representation Specification 2.0.1.
 | [An allele in cis projects member by member](#an-allele-in-cis-projects-member-by-member)                                           |                    🟢 agrees; silent on the duplication                    |          –           |                 –                  |          –          |
 | [Shift 3', cyclically over repeats](#shift-3-cyclically-over-repeats)                                                               |  🟡 agrees; **differs** at exon/intron borders and for a projected repeat  |      🟢 agrees       |             🟢 agrees              |      🟢 agrees      |
 | [A shift stops at an exon/exon junction](#a-shift-stops-at-an-exonexon-junction)                                                    |             🟡 agrees at exon/exon; **differs** at exon/intron             |      🟡 differs      |                 –                  |      🟢 agrees      |
+| [A record with no genome placement is one stretch](#a-record-with-no-genome-placement-is-one-stretch)                               |                                 ⚪ silent                                  |      🟡 differs      |                 –                  |          –          |
 | [A delins is reduced before it is shifted](#a-delins-is-reduced-before-it-is-shifted)                                               |                                 🟢 agrees                                  |   🟢 agrees on g.    |                 –                  |          –          |
 | [Deletions and duplications are written bare](#deletions-and-duplications-are-written-bare)                                         |                                 🟢 agrees                                  |      🟡 differs      |             🟢 agrees              |          –          |
 | [A repeat resolves to its whole run](#a-repeat-resolves-to-its-whole-run)                                                           |                                 🟢 agrees                                  |          –           |                 –                  |      🟢 agrees      |
@@ -1367,6 +1368,75 @@ g.31):
 `::on_the_minus_strand_an_insertion_does_not_slide_onto_the_junction`;
 `normalising_on_the_transcript_keeps_the_genomic_allele` and `normalising_beside_a_junction_keeps_the_genomic_allele`
 (properties).
+
+</details>
+
+______________________________________________________________________
+
+### A record with no genome placement is one stretch
+
+> **A transcript record that its provider places on no genome is read on its own sequence. A shift on it runs across
+> where its exon junctions would be, and an operation that needs the genome is refused.**
+
+Some records that variant names cite have a sequence and a CDS but no published place on any assembly: GenBank mRNAs
+such as `U14680.1`, which about 3,700 ClinVar submissions on BRCA1 are written on, and constructs that carry a CDS. A
+provider serves such a record without a placement, and weaver reads what the record itself can answer: whether a stated
+base is there, the change normalised, its protein consequence, and its `r.` form.
+
+The junction rule ([above](#a-shift-stops-at-an-exonexon-junction)) exists so that a description stays one change on the
+genome. An unplaced record has no genome for the description to disagree with, and nothing tells weaver where its
+junctions are, so the record is one stretch and a shift runs to the end of the run it is in. Stopping at a junction
+would need exon bounds the provider does not have; refusing every shift, since a junction could be anywhere, would
+refuse every change that the 3' rule moves. If the record gains a placement, its descriptions normalise as any placed
+transcript's do, and a shift that crossed a junction is then held to its exon.
+
+Everything that needs the genome is refused with an error naming the missing placement, rather than answered from a
+placement made up for the purpose: a projection, an SPDI or VRS form, equivalence, which compares on the genome, and
+checking, normalising or translating an intronic position, which counts into an intron the record does not have.
+Respelling one in `r.` reads nothing, and is answered.
+
+A gene symbol can name such a record among its transcripts. Its readings there that need the genome are set aside, as
+contradicted ones are
+([a name that is not one sequence](#a-name-that-is-not-one-sequence-is-read-on-each-the-store-holds)), and the answer
+comes from the gene's placed transcripts. The missing placement is the error only when nothing else answers: equivalence
+where no other reading is equivalent, and `consistent_variants` where no reading is consistent, since an empty list
+would say that none is.
+
+**Example** (`NM_U.1` has the sequence of `NM_J.1` above, `ATGAA|AGGCCTGTAACC`, with no placement; both are transcripts
+of `TEST`):
+
+| Input             |     | Output                                       | Note                                                          |
+| :---------------- | :-: | :------------------------------------------- | :------------------------------------------------------------ |
+| `NM_U.1:c.4del`   | `→` | `NM_U.1:c.6del`                              | `NM_J.1:c.4del` stops at `c.5del`                             |
+| `NM_U.1:c.5A>G`   | `→` | `NP_U.1:p.(Lys2Arg)`                         | the protein consequence                                       |
+| `NM_U.1:c.5+1G>A` | `→` | `Unplaced`: "NM_U.1 has no genome placement" | from `validate` and `c_to_p`; `c.5+1del` from `normalize`     |
+| `NM_U.1:c.5A>G`   | `→` | `Unplaced`                                   | from `c_to_g` and `to_spdi`                                   |
+| `TEST:c.5+1G>A`   | `→` | `NM_J.1:c.5+1G>A`                            | `consistent_variants`; `NM_U.1` is a transcript of `TEST` too |
+
+- **Agrees:** biocommons when told to cross exon boundaries (`cross_boundaries=True`), which shifts over the whole
+  record; read in its normaliser's code.
+- **Differs:** biocommons by default, which reads exon bounds from the transcript's alignment and refuses a transcript
+  with none (`HGVSDataNotAvailableError`); read in its code. VariantValidator not checked.
+- **Spec (silent):** [numbering](https://hgvs-nomenclature.org/stable/background/numbering/) holds a shift at an
+  exon/exon junction, and says nothing of a reference whose junctions are not known.
+
+<details>
+<summary><strong>Tests asserting this choice (20)</strong></summary>
+
+`unplaced_transcript_test::a_deletion_shifts_across_where_a_junction_would_be`,
+`::an_rna_deletion_shifts_across_where_a_junction_would_be`, `::a_repeat_at_the_records_count_normalises_on_the_record`,
+`::an_exonic_change_is_validated_on_the_records_bases`, `::a_base_the_record_does_not_hold_is_invalid`,
+`::a_coding_change_has_its_protein_consequence`, `::a_coding_change_has_its_rna_form`,
+`::an_intronic_position_is_refused_for_want_of_a_placement`, `::an_intronic_position_is_not_normalised`,
+`::an_intronic_position_has_no_protein_consequence`, `::a_coding_change_has_no_genomic_form`,
+`::an_rna_change_has_no_genomic_form`, `::a_coding_change_has_no_spdi`,
+`::two_spellings_on_the_record_are_not_compared_without_the_genome`,
+`::a_gene_symbols_intronic_change_is_read_on_its_placed_transcripts_alone`,
+`::a_gene_symbols_change_no_placed_transcript_holds_is_unplaced_rather_than_inconsistent`,
+`::a_gene_symbol_is_equivalent_to_the_genome_through_its_placed_transcript`,
+`::a_gene_symbols_intronic_change_is_compared_on_its_placed_transcripts`;
+`tests/test_unplaced_transcript.py::test_a_record_without_placement_keys_is_read_on_its_bases`,
+`::test_projecting_an_unplaced_record_is_unsupported`.
 
 </details>
 

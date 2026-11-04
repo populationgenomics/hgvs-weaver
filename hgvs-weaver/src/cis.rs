@@ -201,6 +201,7 @@ impl VariantMapper<'_> {
                 ),
                 Some((&cis.ac, crate::mapper::ReadAs::Description("g"))),
             )?
+            .placed()?
             .strand;
         let mut genomic: Vec<GVariant> = project_members(cis, |m| match m {
             SV::Genomic(g) => Ok(g.clone()),
@@ -355,6 +356,7 @@ impl VariantMapper<'_> {
                     )
                 }),
             )?
+            .placed()?
             .strand;
         let mut projected = project_members(cis, project)?;
         if strand == Strand::Minus {

@@ -8,7 +8,7 @@ class AccessionStatus:
     """Whether an accession is the version its publisher's current release names."""
     def __hash__(self) -> int: ...
     def __eq__(self, value: object, /) -> bool: ...
-    def __ne__(self, other: object, /) -> bool: ...
+    def __ne__(self, value: object, /) -> bool: ...
     def __int__(self) -> int: ...
     Current: ClassVar[AccessionStatus]
     Superseded: ClassVar[AccessionStatus]
@@ -22,7 +22,7 @@ class AccessionTag:
     """
     def __hash__(self) -> int: ...
     def __eq__(self, value: object, /) -> bool: ...
-    def __ne__(self, other: object, /) -> bool: ...
+    def __ne__(self, value: object, /) -> bool: ...
     def __int__(self) -> int: ...
     ManeSelect: ClassVar[AccessionTag]
     ManePlusClinical: ClassVar[AccessionTag]
@@ -57,9 +57,9 @@ class AmbiguousResidueError(ParseError):
         ambiguous: Sequence[tuple[str, int, int]],
     ) -> AmbiguousResidueError: ...
     @property
-    def description(self) -> str: ...
-    @property
     def ambiguous(self) -> list[tuple[str, int, int]]: ...
+    @property
+    def description(self) -> str: ...
 
 class CigarError(HGVSError): ...
 
@@ -69,9 +69,6 @@ class ConsistentVariant:
     A description on an accession the store holds as one sequence, consistent with that
     sequence.
     """
-    @property
-    def variant(self) -> Variant:
-        """The description on one accession."""
     @property
     def states_bases(self) -> bool:
         """
@@ -91,6 +88,9 @@ class ConsistentVariant:
         The accession's tags as the catalogue records them; empty where it
         records none.
         """
+    @property
+    def variant(self) -> Variant:
+        """The description on one accession."""
 
 class DataProviderError(HGVSError): ...
 
@@ -98,7 +98,7 @@ class DataProviderError(HGVSError): ...
 class EquivalenceLevel:
     def __hash__(self) -> int: ...
     def __eq__(self, value: object, /) -> bool: ...
-    def __ne__(self, other: object, /) -> bool: ...
+    def __ne__(self, value: object, /) -> bool: ...
     def __int__(self) -> int: ...
     Identity: ClassVar[EquivalenceLevel]
     Analogous: ClassVar[EquivalenceLevel]
@@ -113,7 +113,7 @@ class HGVSError(Exception):
 class IdentifierType:
     def __hash__(self) -> int: ...
     def __eq__(self, value: object, /) -> bool: ...
-    def __ne__(self, other: object, /) -> bool: ...
+    def __ne__(self, value: object, /) -> bool: ...
     def __int__(self) -> int: ...
     GenomicAccession: ClassVar[IdentifierType]
     TranscriptAccession: ClassVar[IdentifierType]
@@ -242,17 +242,18 @@ class Variant:
             AmbiguousDescriptionError: If an allele in cis has several readings; its readings
                 are each of them.
             UnsupportedOperationError: If an allele in cis has readings weaver does not list.
+                Also if an intronic position is on a transcript placed on no genome.
             DataProviderError: If sequence data cannot be retrieved.
         """
     @property
     def ac(self) -> str:
         """The primary accession of the variant (e.g., 'NM_000051.3')."""
     @property
-    def gene(self) -> str | None:
-        """The gene symbol associated with the variant, if available."""
-    @property
     def coordinate_type(self) -> str:
         """The coordinate type of the variant ('g', 'c', 'p', etc.); for an allele in cis, its members'."""
+    @property
+    def gene(self) -> str | None:
+        """The gene symbol associated with the variant, if available."""
     @property
     def members(self) -> list[Variant] | None:
         """
@@ -319,6 +320,7 @@ class VariantMapper:
             UnsupportedOperationError: If a range whose ends lie in two exons
                 changes bases where the record differs from the genome, or ends
                 on bases only one of them holds.
+                Also if the transcript is placed on no genome.
             ValidationError: If var_g is on an accession the provider classifies as a protein, or
                 transcript_ac names a protein.
             HGVSError: If mapping fails due to data or alignment issues.
@@ -339,6 +341,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_g is not a genomic variant or an allele in cis of them.
+            UnsupportedOperationError: If the search names a transcript placed on no genome.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def consistent_variants(self, var: Variant, catalogue: Any | None = None) -> list[ConsistentVariant]:
@@ -370,6 +373,8 @@ class VariantMapper:
                 description's kind, or the name is an unversioned accession and there is no
                 catalogue, or the catalogue lists something other than the name's versions, or the
                 provider or catalogue fails.
+            UnsupportedOperationError: If nothing is consistent and a transcript placed on no
+                genome, which cannot be read for a description that needs the genome, might have been.
             HGVSError: If validate raises rather than answering for a candidate.
         """
     def c_to_g(self, var_c: Variant, reference_ac: str | None = None) -> Variant:
@@ -412,6 +417,7 @@ class VariantMapper:
                 exons), which is before or after the intron on the genome.
                 The message names the spelling at each end of the intron,
                 c.5_5+1insT and c.6-1_6insT, either of which projects.
+                Also if the transcript is placed on no genome.
             ValidationError: If var_c is on an accession the provider classifies as a protein, or
                 reference_ac names a protein.
             HGVSError: If mapping fails due to data or alignment issues.
@@ -434,6 +440,7 @@ class VariantMapper:
             ValueError: If var_n is not a non-coding variant or an allele in cis of them.
             UnsupportedOperationError: If the variant inserts at an exon
                 junction, as c_to_g refuses.
+                Also if the transcript is placed on no genome.
             HGVSError: If mapping fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = None) -> Variant:
@@ -471,6 +478,7 @@ class VariantMapper:
                 or an allele with a member at an uncertain position or whose bases
                 are not stated, or a member past the stop that shifts the frame of
                 the read-through.
+                Also if an intronic position is on a transcript placed on no genome.
             NoProteinStatementError: If var_c is an identity that covers no whole codon,
                 which states bases and no residue, or an allele that changes
                 nothing and states no whole codon.
@@ -532,6 +540,7 @@ class VariantMapper:
 
         Raises:
             ValueError: If var_r is not an RNA variant or an allele in cis of them.
+            UnsupportedOperationError: If the transcript is placed on no genome.
             HGVSError: If mapping fails.
         """
     def r_to_c(self, var_r: Variant) -> Variant:
@@ -666,6 +675,7 @@ class VariantMapper:
                 c., n. or r. one on a protein.
             UnsupportedOperationError: If an allele in cis cannot be written on the
                 genome as the Alleles it makes, or a member has no Allele.
+                Also if a transcript variant is on a transcript placed on no genome.
         """
     def vrs_id(self, var: Variant) -> str:
         """
@@ -768,6 +778,7 @@ class VariantMapper:
                 list, members that share bases across an exon junction, a form it
                 would be written in that does not read as it does, or members that
                 all project to the genome but have no reading there.
+                Also if an intronic position is on a transcript placed on no genome.
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
         """
@@ -789,6 +800,8 @@ class VariantMapper:
             PositionOutsideSequenceError: If either variant has a position past its transcript's last base,
                 or an intronic position whose offset counts from a base that is not an exon border, or lies
                 past the end of its intron.
+            UnsupportedOperationError: If a variant is on a transcript placed on no genome, which
+                equivalence reads on the genome, and no other reading of a gene symbol answers.
             HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
         """
     def equivalent_level(self, var1: Variant, var2: Variant, searcher: Any) -> EquivalenceLevel:
@@ -809,6 +822,8 @@ class VariantMapper:
             PositionOutsideSequenceError: If either variant has a position past its transcript's last base,
                 or an intronic position whose offset counts from a base that is not an exon border, or lies
                 past the end of its intron.
+            UnsupportedOperationError: If a variant is on a transcript placed on no genome, which
+                equivalence reads on the genome, and no other reading of a gene symbol answers.
             HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
         """
     def to_spdi(self, var: Variant, unambiguous: bool = False) -> str:
@@ -829,6 +844,7 @@ class VariantMapper:
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
                 one counts its offset from a base that is not an exon border, or lies past the end of its
                 intron.
+            UnsupportedOperationError: If a transcript variant is on a transcript placed on no genome.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
     def to_spdi_unambiguous(self, var: Variant) -> str:
@@ -850,6 +866,7 @@ class VariantMapper:
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
                 one counts its offset from a base that is not an exon border, or lies past the end of its
                 intron.
+            UnsupportedOperationError: If a transcript variant is on a transcript placed on no genome.
             HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
         """
 

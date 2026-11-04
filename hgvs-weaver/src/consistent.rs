@@ -38,26 +38,36 @@ impl<'a> VariantMapper<'a> {
     /// where the catalogue lists that alone, for a record with no version of
     /// its own. A versioned accession gives the description itself. Empty
     /// when the store holds sequences under the name and none is consistent
-    /// with the description. Each variant it returns, read again with the
-    /// same catalogue, gives itself alone.
+    /// with the description. A record placed on no genome cannot be judged
+    /// for a description that needs the genome, such as an intronic position,
+    /// and is left out. Each variant it returns, read again with the same
+    /// catalogue, gives itself alone.
     ///
     /// # Errors
     ///
     /// [`HgvsError::DataProviderError`] when the store holds nothing under
     /// the name that can carry the description, when the name is an
     /// unversioned accession and there is no `catalogue`, or when the
-    /// catalogue lists something other than the name's versions; any error
-    /// the provider or the catalogue raises, and any `validate` raises
-    /// rather than answering.
+    /// catalogue lists something other than the name's versions;
+    /// [`HgvsError::Unplaced`] when nothing is consistent and a record left
+    /// out for want of a placement might have been; any error the provider or
+    /// the catalogue raises, and any `validate` raises rather than answering.
     pub fn consistent_variants(
         &self,
         var: &SequenceVariant,
         catalogue: Option<&dyn AccessionCatalogue>,
     ) -> Result<Vec<ConsistentVariant>, HgvsError> {
         let mut consistent = Vec::new();
+        let mut unplaced = Vec::new();
         for candidate in self.on_each_accession(var, catalogue)? {
-            if !self.validate(&candidate)? {
-                continue;
+            match self.validate(&candidate) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e @ HgvsError::Unplaced { .. }) => {
+                    unplaced.push(e);
+                    continue;
+                }
+                Err(e) => return Err(e),
             }
             let info = match catalogue {
                 Some(c) => c.get_accession_info(candidate.ac())?,
@@ -68,6 +78,11 @@ impl<'a> VariantMapper<'a> {
                 variant: candidate,
                 info,
             });
+        }
+        if consistent.is_empty() {
+            if let Some(e) = crate::equivalence::first_unplaced(unplaced) {
+                return Err(e);
+            }
         }
         Ok(consistent)
     }

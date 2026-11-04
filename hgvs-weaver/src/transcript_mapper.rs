@@ -1,5 +1,5 @@
 use crate::cigar::Projected;
-use crate::data::{ExonData, Strand, TranscriptData};
+use crate::data::{ExonData, Placement, Strand, TranscriptData};
 use crate::error::HgvsError;
 use crate::normalize::ExonBounds;
 use crate::structs::{
@@ -43,17 +43,21 @@ pub struct GenomicFootprint {
 pub struct TranscriptMapper {
     /// The transcript model providing exon and CDS information.
     pub transcript: TranscriptData,
-    /// Sorted exons (transcript order).
-    pub exons: Vec<ExonData>,
-    /// CIGAR mappers for exons with non-trivial alignments.
-    pub cigar_mappers: Vec<Option<crate::cigar::CigarMapper>>,
+    /// The exons aligned to the genome, for a placed transcript.
+    aligned: Option<Aligned>,
 }
 
-impl TranscriptMapper {
-    /// Creates a new `TranscriptMapper` for the given transcript.
-    pub fn new(transcript: TranscriptData) -> Result<Self, HgvsError> {
-        let mut exons = transcript.exons.to_vec();
-        if transcript.strand == crate::data::Strand::Plus {
+/// A placed transcript's exons, in transcript order, each with the mapper of
+/// its alignment where that is not a plain match.
+struct Aligned {
+    exons: Vec<ExonData>,
+    cigar_mappers: Vec<Option<crate::cigar::CigarMapper>>,
+}
+
+impl Aligned {
+    fn new(placement: &Placement) -> Result<Self, HgvsError> {
+        let mut exons = placement.exons.to_vec();
+        if placement.strand == Strand::Plus {
             exons.sort_by_key(|e| e.reference_start.0);
         } else {
             exons.sort_by_key(|e| std::cmp::Reverse(e.reference_start.0));
@@ -69,15 +73,14 @@ impl TranscriptMapper {
                 cigar_mappers.push(None);
             }
         }
-        Ok(TranscriptMapper {
-            transcript,
+        Ok(Aligned {
             exons,
             cigar_mappers,
         })
     }
 
     /// How many transcript bases exon `i` (transcript order) carries.
-    fn exon_tx_len(&self, i: usize) -> i32 {
+    fn tx_len(&self, i: usize) -> i32 {
         let exon = &self.exons[i];
         self.cigar_mappers[i]
             .as_ref()
@@ -85,12 +88,43 @@ impl TranscriptMapper {
                 cm.tgt_len()
             })
     }
+}
 
-    /// The transcript's exons, as transcript indices.
+impl TranscriptMapper {
+    /// Creates a new `TranscriptMapper` for the given transcript.
+    pub fn new(transcript: TranscriptData) -> Result<Self, HgvsError> {
+        let aligned = transcript
+            .placement
+            .as_ref()
+            .map(Aligned::new)
+            .transpose()?;
+        Ok(TranscriptMapper {
+            transcript,
+            aligned,
+        })
+    }
+
+    /// The transcript's exons in transcript order, for an operation that
+    /// needs the genome.
+    pub fn exons(&self) -> Result<&[ExonData], HgvsError> {
+        Ok(&self.aligned()?.exons)
+    }
+
+    fn aligned(&self) -> Result<&Aligned, HgvsError> {
+        self.aligned.as_ref().ok_or_else(|| HgvsError::Unplaced {
+            accession: self.transcript.ac.clone(),
+        })
+    }
+
+    /// The transcript's exons, as transcript indices; one stretch for a
+    /// transcript placed on no genome (see choices.md).
     pub fn exon_bounds(&self) -> Result<ExonBounds, HgvsError> {
-        let lengths = (0..self.exons.len())
+        let Some(aligned) = &self.aligned else {
+            return Ok(ExonBounds::unspliced());
+        };
+        let lengths = (0..aligned.exons.len())
             .map(|i| {
-                let len = self.exon_tx_len(i);
+                let len = aligned.tx_len(i);
                 usize::try_from(len).map_err(|_| {
                     HgvsError::ValidationError(format!(
                         "{}: exon {} carries {len} transcript bases",
@@ -115,7 +149,7 @@ impl TranscriptMapper {
         if lo == hi {
             return Err(HgvsError::ValidationError(format!(
                 "{}:g.{} is a base {} lacks; it has no transcript index",
-                self.transcript.reference_accession,
+                self.transcript.placed()?.reference_accession,
                 g_pos.0 + 1,
                 self.transcript.ac,
             )));
@@ -132,12 +166,13 @@ impl TranscriptMapper {
     /// transcript bases of its own exon. One at either end of the exon's
     /// alignment has no such pair and is an error.
     pub fn g_to_n_footprint(&self, g_pos: GenomicPos) -> Result<GenomicFootprint, HgvsError> {
+        let aligned = self.aligned()?;
         let mut n_pos = 0;
-        for (i, exon) in self.exons.iter().enumerate() {
+        for (i, exon) in aligned.exons.iter().enumerate() {
             let (e_start, e_end) = (exon.reference_start.0, exon.reference_end.0);
             // e_start and e_end are 0-based inclusive
             if g_pos.0 < e_start || g_pos.0 > e_end {
-                n_pos += self.exon_tx_len(i);
+                n_pos += aligned.tx_len(i);
                 continue;
             }
             let minus = exon.alt_strand == Strand::Minus;
@@ -151,7 +186,7 @@ impl TranscriptMapper {
                 gap_run,
                 offset: IntronicOffset(0),
             };
-            let Some(cm) = &self.cigar_mappers[i] else {
+            let Some(cm) = &aligned.cigar_mappers[i] else {
                 return Ok(exonic(g_offset, g_offset + 1, None));
             };
             return match cm.map_ref_to_tgt(g_offset, true)? {
@@ -169,7 +204,7 @@ impl TranscriptMapper {
                 Projected::Gap { .. } => Err(HgvsError::ValidationError(format!(
                     "{}:g.{} is a base {} lacks at the edge of an exon's alignment; \
                      nothing places it on the transcript",
-                    self.transcript.reference_accession,
+                    self.transcript.placed()?.reference_accession,
                     g_pos.0 + 1,
                     self.transcript.ac,
                 ))),
@@ -185,7 +220,7 @@ impl TranscriptMapper {
         let mut best_dist = i32::MAX;
         let mut best_offset = 0;
         let mut curr_n = 0;
-        for (i, exon) in self.exons.iter().enumerate() {
+        for (i, exon) in aligned.exons.iter().enumerate() {
             let (e_start, e_end) = (exon.reference_start, exon.reference_end);
             let d_start = (g_pos.0 - e_start.0).abs();
             let d_end = (g_pos.0 - e_end.0).abs();
@@ -208,10 +243,10 @@ impl TranscriptMapper {
                 best_n = if before_first_base {
                     TranscriptPos(curr_n)
                 } else {
-                    TranscriptPos(curr_n + self.exon_tx_len(i) - 1)
+                    TranscriptPos(curr_n + aligned.tx_len(i) - 1)
                 };
             }
-            curr_n += self.exon_tx_len(i);
+            curr_n += aligned.tx_len(i);
         }
         Ok(GenomicFootprint {
             range: (best_n, TranscriptPos(best_n.0 + 1)),
@@ -450,25 +485,26 @@ impl TranscriptMapper {
                     "{}:n.{} is a base {} lacks; it has no genomic position",
                     self.transcript.ac,
                     n_pos.0 + 1,
-                    self.transcript.reference_accession,
+                    self.transcript.placed()?.reference_accession,
                 )));
             }
             return Ok(lo);
         }
+        let aligned = self.aligned()?;
         let mut first = 0;
-        let (index, exon, len) = self
+        let (index, exon, len) = aligned
             .exons
             .iter()
             .enumerate()
             .find_map(|(i, exon)| {
-                let len = self.exon_tx_len(i);
+                let len = aligned.tx_len(i);
                 if n_pos.0 < first + len {
                     return (n_pos.0 >= first).then_some((i, exon, len));
                 }
                 first += len;
                 None
             })
-            .ok_or_else(|| self.outside_the_transcript(n_pos, &written()))?;
+            .ok_or_else(|| self.outside_the_transcript(aligned, n_pos, &written()))?;
         let border = if offset.0 > 0 { first + len - 1 } else { first };
         if n_pos.0 != border {
             return Err(HgvsError::NotAnExonBorder {
@@ -477,9 +513,9 @@ impl TranscriptMapper {
             });
         }
         let neighbour = if offset.0 > 0 {
-            self.exons.get(index + 1)
+            aligned.exons.get(index + 1)
         } else {
-            index.checked_sub(1).and_then(|i| self.exons.get(i))
+            index.checked_sub(1).and_then(|i| aligned.exons.get(i))
         };
         if let Some(neighbour) = neighbour {
             // The genome bases strictly between the two exons' spans.
@@ -511,8 +547,13 @@ impl TranscriptMapper {
     /// does not have, as that base itself is refused: past its last base,
     /// [`HgvsError::PositionOutsideSequence`]; before its first, a
     /// `ValidationError`.
-    fn outside_the_transcript(&self, n_pos: TranscriptPos, written: &str) -> HgvsError {
-        self.past_the_end(n_pos).unwrap_or_else(|| {
+    fn outside_the_transcript(
+        &self,
+        aligned: &Aligned,
+        n_pos: TranscriptPos,
+        written: &str,
+    ) -> HgvsError {
+        self.past_the_end(aligned, n_pos).unwrap_or_else(|| {
             HgvsError::ValidationError(format!(
                 "{}:{written} counts from a base before the transcript's first",
                 self.transcript.ac
@@ -523,8 +564,8 @@ impl TranscriptMapper {
     /// The refusal of `n_pos`, a transcript index past the last base, as
     /// [`HgvsError::PositionOutsideSequence`]; `None` for one before the
     /// first, which that error, counting from 0, cannot name.
-    fn past_the_end(&self, n_pos: TranscriptPos) -> Option<HgvsError> {
-        let length: i32 = (0..self.exons.len()).map(|i| self.exon_tx_len(i)).sum();
+    fn past_the_end(&self, aligned: &Aligned, n_pos: TranscriptPos) -> Option<HgvsError> {
+        let length: i32 = (0..aligned.exons.len()).map(|i| aligned.tx_len(i)).sum();
         match (usize::try_from(n_pos.0), usize::try_from(length)) {
             (Ok(start), Ok(length)) => Some(HgvsError::PositionOutsideSequence {
                 accession: self.transcript.ac.clone(),
@@ -539,11 +580,12 @@ impl TranscriptMapper {
     /// The index (transcript order) of the exon holding a transcript index,
     /// the exon, and what the index occupies on the reference.
     fn place(&self, n_pos: TranscriptPos) -> Result<(usize, &ExonData, Footprint), HgvsError> {
+        let aligned = self.aligned()?;
         let mut curr_n = 0;
-        for (i, exon) in self.exons.iter().enumerate() {
+        for (i, exon) in aligned.exons.iter().enumerate() {
             let (e_start, e_end) = (exon.reference_start.0, exon.reference_end.0);
-            let cm = self.cigar_mappers[i].as_ref();
-            let e_tgt_len = self.exon_tx_len(i);
+            let cm = aligned.cigar_mappers[i].as_ref();
+            let e_tgt_len = aligned.tx_len(i);
             if n_pos.0 < curr_n || n_pos.0 >= curr_n + e_tgt_len {
                 curr_n += e_tgt_len;
                 continue;
@@ -566,7 +608,7 @@ impl TranscriptMapper {
                              nothing places it on the genome",
                             self.transcript.ac,
                             n_pos.0 + 1,
-                            self.transcript.reference_accession,
+                            self.transcript.placed()?.reference_accession,
                         )))
                     }
                     Projected::Intronic { .. } => {
@@ -583,7 +625,7 @@ impl TranscriptMapper {
             };
             return Ok((i, exon, Footprint { range, gap_run }));
         }
-        Err(self.past_the_end(n_pos).unwrap_or_else(|| {
+        Err(self.past_the_end(aligned, n_pos).unwrap_or_else(|| {
             HgvsError::ValidationError(format!(
                 "{} has no base at transcript index {}: it is before the first",
                 self.transcript.ac, n_pos.0
@@ -616,9 +658,7 @@ mod tests {
             cds_end_index: None,
             cds_start: crate::data::CdsStart::Initiator,
             cds_end_open: false,
-            strand,
-            reference_accession: "NC_000001.1".to_string(),
-            exons,
+            placement: Some(Placement::new("NC_000001.1", strand, exons)),
         }
     }
 

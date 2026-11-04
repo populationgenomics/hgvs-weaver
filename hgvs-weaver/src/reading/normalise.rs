@@ -1478,10 +1478,7 @@ impl VariantMapper<'_> {
             ),
             None,
         )?;
-        let minus = transcript
-            .exons
-            .first()
-            .is_some_and(|x| x.alt_strand == crate::data::Strand::Minus);
+        let minus = transcript.placed()?.strand == crate::data::Strand::Minus;
         let (edit, s, e) = normalize::minimal_edit(genome, lo, hi, &ref_, &alt)?;
         let (edit, s, e) = as_tandem_copy(genome, edit, s, e, minus)?;
         let placed = PlacedEdit::from_hgvs_range(s, e, edit);

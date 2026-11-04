@@ -81,9 +81,6 @@ class _TranscriptRecord(TypedDict):
     gene: str
     cds_start_index: int | None
     cds_end_index: int | None
-    strand: int  # 1 or -1
-    reference_accession: str  # Genomic accession (e.g., NC_000001.11)
-    exons: list[ExonData]
 
 
 class TranscriptData(_TranscriptRecord, total=False):
@@ -105,11 +102,21 @@ class TranscriptData(_TranscriptRecord, total=False):
     MAVE-HGVS numbers a target that is part of a protein, sets it False: codon 1
     is then read by the standard table, as any other codon is. It cannot be
     True on a CDS whose start is open.
+
+    strand, reference_accession and exons place the transcript on a genome, and
+    come together or not at all. A record no assembly places, such as a GenBank
+    mRNA, leaves all three out: weaver reads it on its own sequence, and refuses
+    with UnsupportedOperationError whatever needs the genome, a projection, an
+    intronic position or a genomic form. With no genome to answer to, a change
+    on it is normalised across where its exon junctions would be.
     """
 
     cds_start_open: bool
     cds_end_open: bool
     cds_start_initiates: bool
+    strand: int  # 1 or -1
+    reference_accession: str  # Genomic accession (e.g., NC_000001.11)
+    exons: list[ExonData]
 
 
 class TranscriptSearch(Protocol):

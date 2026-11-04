@@ -121,7 +121,8 @@ fn project_edit(
 /// the genome reads the run on from its 5' end, and on the plus strand where
 /// the exon's bases after the run, if any, begin a copy the intron could
 /// complete, or its exon is aligned with gaps. Otherwise the two runs are
-/// one, and need no genome to tell.
+/// one, and need no genome to tell. A transcript placed on no genome has no
+/// genome to count a longer run.
 pub(crate) fn genome_may_count_more(
     am: &TranscriptMapper,
     record: &crate::reference::Reference<'_, '_>,
@@ -133,7 +134,10 @@ pub(crate) fn genome_may_count_more(
             written.edit
         )));
     };
-    if am.transcript.strand == crate::data::Strand::Minus {
+    let Some(placement) = &am.transcript.placement else {
+        return Ok(false);
+    };
+    if placement.strand == crate::data::Strand::Minus {
         return Ok(true);
     }
     let (start, end) = (written.start, written.end);
@@ -141,8 +145,7 @@ pub(crate) fn genome_may_count_more(
     let run_end = repeat_run_end(&written.edit, &unit, record, (start, end))?;
     let last = run_end as i32 - 1;
     let exon = am
-        .transcript
-        .exons
+        .exons()?
         .iter()
         .find(|x| x.transcript_start.0 <= last && last < x.transcript_end.0)
         .ok_or_else(|| {
@@ -239,10 +242,11 @@ fn repeat_within_the_cap(
 }
 
 /// Whether transcript indices `[start, end)` lie in one exon.
-fn within_one_exon(am: &TranscriptMapper, start: i32, end: i32) -> bool {
-    am.exons
+fn within_one_exon(am: &TranscriptMapper, start: i32, end: i32) -> Result<bool, HgvsError> {
+    Ok(am
+        .exons()?
         .iter()
-        .any(|x| x.transcript_start.0 <= start && end <= x.transcript_end.0)
+        .any(|x| x.transcript_start.0 <= start && end <= x.transcript_end.0))
 }
 
 /// Whether `edit`, over transcript indices `[start, end)`, is read over the
@@ -253,12 +257,12 @@ fn read_over_the_genomic_range(
     am: &TranscriptMapper,
     edit: &crate::edits::NaEdit,
     (start, end): (usize, usize),
-) -> bool {
+) -> Result<bool, HgvsError> {
     use crate::edits::NaEdit;
-    !matches!(
+    Ok(!matches!(
         edit,
         NaEdit::Ins { .. } | NaEdit::InsLength { .. } | NaEdit::Repeat { .. }
-    ) && !within_one_exon(am, start as i32, end as i32)
+    ) && !within_one_exon(am, start as i32, end as i32)?)
 }
 
 /// A genomic range `[g_lo, g_hi)` that holds the record's indices
@@ -282,14 +286,15 @@ fn genomic_range_readings(
     (n_lo, n_hi): (usize, usize),
     (g_lo, g_hi): (usize, usize),
 ) -> Result<GenomicRangeReadings, HgvsError> {
-    let minus = am.transcript.strand == crate::data::Strand::Minus;
+    let minus = am.transcript.placed()?.strand == crate::data::Strand::Minus;
     let in_genome_order: Vec<usize> = if minus {
         (n_lo..n_hi).rev().collect()
     } else {
         (n_lo..n_hi).collect()
     };
+    let exons = am.exons()?;
     let exon_of = |n: usize| {
-        am.exons
+        exons
             .iter()
             .position(|x| x.transcript_start.0 <= n as i32 && (n as i32) < x.transcript_end.0)
     };
@@ -585,7 +590,7 @@ fn project_repeat(
 /// Whether the record's bases at `n - 1` and `n` lie in one exon and are
 /// neighbours on the genome.
 fn neighbours_on_the_genome(am: &TranscriptMapper, n: usize) -> Result<bool, HgvsError> {
-    if n == 0 || !within_one_exon(am, n as i32 - 1, n as i32 + 1) {
+    if n == 0 || !within_one_exon(am, n as i32 - 1, n as i32 + 1)? {
         return Ok(false);
     }
     let place = |n: usize| {
@@ -596,7 +601,7 @@ fn neighbours_on_the_genome(am: &TranscriptMapper, n: usize) -> Result<bool, Hgv
     if before_lo == before_hi || lo == hi {
         return Ok(false);
     }
-    Ok(match am.transcript.strand {
+    Ok(match am.transcript.placed()?.strand {
         crate::data::Strand::Minus => hi == before_lo,
         crate::data::Strand::Plus => before_hi == lo,
     })
@@ -619,7 +624,7 @@ fn neighbours_on_the_record(am: &TranscriptMapper, g: usize) -> Result<bool, Hgv
         before.range.0 .0.min(here.range.0 .0),
         before.range.1 .0.max(here.range.1 .0),
     );
-    Ok(hi - lo == 2 && within_one_exon(am, lo, hi))
+    Ok(hi - lo == 2 && within_one_exon(am, lo, hi)?)
 }
 
 /// Whether the genome holds the base at index `n` of `record` where it
@@ -640,8 +645,8 @@ fn genome_holds_the_records_base(
     if lo == hi {
         return Ok(false);
     }
-    let minus = am.transcript.strand == crate::data::Strand::Minus;
-    if n > 0 && within_one_exon(am, n as i32 - 1, n as i32 + 1) {
+    let minus = am.transcript.placed()?.strand == crate::data::Strand::Minus;
+    if n > 0 && within_one_exon(am, n as i32 - 1, n as i32 + 1)? {
         let (before_lo, before_hi) = place(n - 1)?;
         let next_to = if minus {
             hi == before_lo
@@ -680,7 +685,7 @@ fn record_holds_the_genomes_base(
     if lo == hi {
         return Ok(false);
     }
-    let minus = am.transcript.strand == crate::data::Strand::Minus;
+    let minus = am.transcript.placed()?.strand == crate::data::Strand::Minus;
     if g > 0 {
         let before = am.g_to_n_footprint(GenomicPos(g as i32 - 1))?;
         let (before_lo, before_hi) = before.range;
@@ -690,7 +695,7 @@ fn record_holds_the_genomes_base(
         } else {
             before_hi == lo
         };
-        if aligned && within_one_exon(am, lo.0.min(before_lo.0), hi.0.max(before_hi.0)) && !next_to
+        if aligned && within_one_exon(am, lo.0.min(before_lo.0), hi.0.max(before_hi.0))? && !next_to
         {
             return Ok(false);
         }
@@ -2195,13 +2200,14 @@ pub(crate) fn has_intronic_offset(pos: &BaseOffsetInterval) -> bool {
 /// Whether the genomic `[lo, hi)` lies between the first and last genome
 /// base the transcript's exons align to, which the alignment vouches the
 /// genome has.
-fn within_alignment(am: &TranscriptMapper, lo: usize, hi: usize) -> bool {
-    let first = am.exons.iter().map(|e| e.reference_start.0).min();
-    let last = am.exons.iter().map(|e| e.reference_end.0).max();
-    match (first, last) {
+fn within_alignment(am: &TranscriptMapper, lo: usize, hi: usize) -> Result<bool, HgvsError> {
+    let exons = am.exons()?;
+    let first = exons.iter().map(|e| e.reference_start.0).min();
+    let last = exons.iter().map(|e| e.reference_end.0).max();
+    Ok(match (first, last) {
         (Some(first), Some(last)) => lo as i64 >= first as i64 && hi as i64 <= last as i64 + 1,
         _ => false,
-    }
+    })
 }
 
 fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
@@ -2310,7 +2316,7 @@ impl<'a> VariantMapper<'a> {
         // A g. variant names positions and states bases on the genome,
         // intronic or not.
         let (s, e) = simple_interval_range(pos)?;
-        if var_g.posedit.edit.states_bases() || !within_alignment(&am, s, e) {
+        if var_g.posedit.edit.states_bases() || !within_alignment(&am, s, e)? {
             let genome = self
                 .refs
                 .reference(&var_g.ac, IdentifierType::GenomicAccession);
@@ -2367,13 +2373,13 @@ impl<'a> VariantMapper<'a> {
                 (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
             });
             let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
-            if repeat && !within_one_exon(&am, t_lo as i32, t_hi as i32) {
+            if repeat && !within_one_exon(&am, t_lo as i32, t_hi as i32)? {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "{var_g} counts a run across an intron, which the transcript holds across an \
                      exon junction: the transcript's count has no single place on the genome"
                 )));
             }
-            let (edit, s, e) = if read_over_the_genomic_range(&am, edit, (t_lo, t_hi)) {
+            let (edit, s, e) = if read_over_the_genomic_range(&am, edit, (t_lo, t_hi))? {
                 if touches_run {
                     return Err(ends_in_a_run_across_a_junction(&var_g.to_string()));
                 }
@@ -2391,7 +2397,7 @@ impl<'a> VariantMapper<'a> {
                     (&source, named, wide),
                     &target,
                     (t_lo, t_hi),
-                    am.transcript.strand,
+                    am.transcript.placed()?.strand,
                 )?
             } else {
                 project_edit(
@@ -2399,7 +2405,7 @@ impl<'a> VariantMapper<'a> {
                     Some((&source, named)),
                     &target,
                     (t_lo, t_hi),
-                    am.transcript.strand,
+                    am.transcript.placed()?.strand,
                     SharedWithSource {
                         base: &|n| genome_holds_the_records_base(&am, &target, &source, n),
                         neighbours: &|n| neighbours_on_the_genome(&am, n),
@@ -2407,7 +2413,7 @@ impl<'a> VariantMapper<'a> {
                 )?
             };
             let repeat = matches!(edit, crate::edits::NaEdit::Repeat { .. });
-            if repeat && !within_one_exon(&am, s as i32, e as i32) {
+            if repeat && !within_one_exon(&am, s as i32, e as i32)? {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "{var_g} counts a run that the transcript continues across an exon \
                      junction: the transcript's count has no single place on the genome"
@@ -2427,7 +2433,7 @@ impl<'a> VariantMapper<'a> {
             };
             (edit, position(TranscriptPos(s as i32), off_lo)?, end)
         } else {
-            let edit = apply_strand_complement(edit.clone(), am.transcript.strand);
+            let edit = apply_strand_complement(edit.clone(), am.transcript.placed()?.strand);
             let end = pos
                 .end
                 .as_ref()
@@ -2474,7 +2480,7 @@ impl<'a> VariantMapper<'a> {
             .eq_ignore_ascii_case(&readings.record)
         {
             return Ok((
-                apply_strand_complement(edit, am.transcript.strand),
+                apply_strand_complement(edit, am.transcript.placed()?.strand),
                 t_lo,
                 t_hi,
             ));
@@ -2486,7 +2492,7 @@ impl<'a> VariantMapper<'a> {
                 record.accession()
             )));
         }
-        let genomes = match am.transcript.strand {
+        let genomes = match am.transcript.placed()?.strand {
             crate::data::Strand::Minus => {
                 crate::utils::reverse_complement(&readings.spliced_genome)
             }
@@ -2522,7 +2528,7 @@ impl<'a> VariantMapper<'a> {
             .reference(var.ac(), IdentifierType::TranscriptAccession);
         let run = repeat_over_run(edit, &reference, n_start.0 as usize, n_end.0 as usize)?;
         if let Some((end, _)) = run {
-            if !within_one_exon(am, n_start.0, end as i32) {
+            if !within_one_exon(am, n_start.0, end as i32)? {
                 return Err(HgvsError::UnsupportedOperation(format!(
                     "{}:{}.{} counts a run that crosses an exon junction: the genome has \
                      no single place for the change",
@@ -2593,7 +2599,7 @@ impl<'a> VariantMapper<'a> {
             let fp = am.g_to_n_footprint(GenomicPos(i as i32))?;
             Ok(fp.offset.0 == 0 && fp.range.0 .0 >= 0)
         };
-        let minus = am.transcript.strand == crate::data::Strand::Minus;
+        let minus = am.transcript.placed()?.strand == crate::data::Strand::Minus;
         if !minus || (exonic(start)? && exonic(end - 1)?) {
             return Ok((interval, edit));
         }
@@ -2622,7 +2628,7 @@ impl<'a> VariantMapper<'a> {
                     am.transcript.ac, var_g.ac
                 )));
             }
-            let holding = am.exons.iter().position(|x| {
+            let holding = am.exons()?.iter().position(|x| {
                 x.transcript_start.0 <= fp.range.0 .0 && fp.range.0 .0 < x.transcript_end.0
             });
             if exon.is_some() && holding != exon {
@@ -2691,7 +2697,7 @@ impl<'a> VariantMapper<'a> {
         )?;
         let am = TranscriptMapper::new(transcript)?;
         let target_ac = reference_ac
-            .unwrap_or(am.transcript.reference_accession.as_str())
+            .unwrap_or(am.transcript.placed()?.reference_accession.as_str())
             .to_string();
 
         let pos = var_c
@@ -2769,7 +2775,7 @@ impl<'a> VariantMapper<'a> {
         let wide = runs.fold(named, |(lo, hi), (r_lo, r_hi)| {
             (lo.min(r_lo.0 as usize), hi.max(r_hi.0 as usize))
         });
-        let across_a_junction = exonic && !within_one_exon(&am, named.0 as i32, named.1 as i32);
+        let across_a_junction = exonic && !within_one_exon(&am, named.0 as i32, named.1 as i32)?;
         if across_a_junction
             && matches!(
                 edit,
@@ -2800,14 +2806,14 @@ impl<'a> VariantMapper<'a> {
             var_c
                 .posedit()
                 .edit
-                .check_against(&target, lo, hi, am.transcript.strand)?;
+                .check_against(&target, lo, hi, am.transcript.placed()?.strand)?;
             repeat_within_the_cap(edit, &target, (lo, hi))?;
         } else {
             repeat_within_the_cap(edit, &source, named)?;
         }
-        let minus = am.transcript.strand == crate::data::Strand::Minus;
+        let minus = am.transcript.placed()?.strand == crate::data::Strand::Minus;
         let intronic_repeat_on_minus = Repeat::of(edit).filter(|_| minus && !exonic);
-        let (edit, s, e) = if exonic && read_over_the_genomic_range(&am, edit, named) {
+        let (edit, s, e) = if exonic && read_over_the_genomic_range(&am, edit, named)? {
             if touches_run {
                 return Err(ends_in_a_run_across_a_junction(&format!(
                     "{}:{}.{}",
@@ -2824,7 +2830,7 @@ impl<'a> VariantMapper<'a> {
                 &readings.record,
                 &target,
                 range,
-                am.transcript.strand,
+                am.transcript.placed()?.strand,
             )?
         } else if touches_run {
             project_edit_over_run(
@@ -2832,7 +2838,7 @@ impl<'a> VariantMapper<'a> {
                 (&source, named, wide),
                 &target,
                 (g_lo as usize, g_hi as usize),
-                am.transcript.strand,
+                am.transcript.placed()?.strand,
             )?
         } else if let Some(repeat) = intronic_repeat_on_minus {
             intronic_repeat_on_the_minus_strand(&repeat, &target, (g_lo as usize, g_hi as usize))?
@@ -2842,7 +2848,7 @@ impl<'a> VariantMapper<'a> {
                 exonic.then_some((&source, named)),
                 &target,
                 (g_lo as usize, g_hi as usize),
-                am.transcript.strand,
+                am.transcript.placed()?.strand,
                 SharedWithSource {
                     base: &|g| record_holds_the_genomes_base(&am, &target, &source, g),
                     neighbours: &|g| neighbours_on_the_record(&am, g),
@@ -2919,6 +2925,8 @@ impl<'a> VariantMapper<'a> {
                     e @ (HgvsError::ReferenceMismatch { .. }
                     | HgvsError::PositionOutsideSequence { .. }),
                 ) => return Err(e),
+                // A region search names only transcripts placed in the region.
+                Err(e @ HgvsError::Unplaced { .. }) => return Err(e),
                 Err(e) => errors.push(format!("{}: {}", tx_ac, e)),
             }
         }
@@ -3669,13 +3677,13 @@ impl<'a> VariantMapper<'a> {
                 checked_usize(lo.0, "genomic start index")?,
                 checked_usize(hi.0, "genomic end index")?,
             );
-            if within_alignment(am, lo, hi) {
+            if within_alignment(am, lo, hi)? {
                 return Ok(());
             }
             return self
                 .refs
                 .reference(
-                    &am.transcript.reference_accession,
+                    &am.transcript.placed()?.reference_accession,
                     IdentifierType::GenomicAccession,
                 )
                 .check_range(lo, hi);
@@ -4876,7 +4884,7 @@ impl<'a> VariantMapper<'a> {
             // Intronic positions do not resolve to a transcript range; they
             // name the genome directly and need no guard.
             if let Ok((start, end)) = am.interval_to_n(pos) {
-                if !within_one_exon(&am, start.0, end.0) {
+                if !within_one_exon(&am, start.0, end.0)? {
                     return Err(HgvsError::UnsupportedOperation(format!(
                         "{r} spans a splice junction: the spliced RNA has no single genomic equivalent"
                     )));

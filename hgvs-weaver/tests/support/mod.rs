@@ -318,7 +318,11 @@ impl TranscriptSearch for Provider {
         let on_chrom: Vec<String> = self
             .transcripts
             .iter()
-            .filter(|t| t.reference_accession == chrom)
+            .filter(|t| {
+                t.placement
+                    .as_ref()
+                    .is_some_and(|p| p.reference_accession == chrom)
+            })
             .map(|t| t.ac.clone())
             .collect();
         if !on_chrom.is_empty() {
