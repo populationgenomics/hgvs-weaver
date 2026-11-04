@@ -214,12 +214,27 @@ impl VariantMapper<'_> {
             a.end > a.start && (a.start, a.end, a.open, &a.alt) == (b.start, b.end, b.open, &b.alt)
         });
         let reaches = |e: &ProteinEdit| if e.open { protein.len() } else { e.end };
-        let empty = |e: &ProteinEdit| e.start == e.end;
+        // A change as the residues it alters, trimmed of those it writes back:
+        // a duplication inserts its copy beside what it copies.
+        let core = |e: &ProteinEdit| match e.open {
+            true => (e.start, protein.len()),
+            false => {
+                let (at, r, _) = crate::structs::strip_common_prefix_suffix(
+                    e.start as i32,
+                    &protein[e.start..e.end],
+                    &e.alt,
+                );
+                (at as usize, at as usize + r.len())
+            }
+        };
+        let inserts_at = |e: &ProteinEdit| Some(core(e)).filter(|(s, t)| s == t).map(|(s, _)| s);
         for pair in changes.windows(2) {
             let (a, b) = (&pair[0], &pair[1]);
             // An insertion meets a change at either flank without sharing a
-            // residue; two at one point leave their order unsaid.
-            if b.start < reaches(a) || (empty(a) && empty(b) && a.start == b.start) {
+            // residue; two at one point, a duplication's copy among them,
+            // leave their order unsaid.
+            let one_point = inserts_at(a).is_some() && inserts_at(a) == inserts_at(b);
+            if b.start < reaches(a) || one_point {
                 let why = match reaches(a) == protein.len() {
                     true => "a member after a frameshift, a stop or an open end",
                     false => "two members that reach for one residue",
@@ -229,11 +244,20 @@ impl VariantMapper<'_> {
                 )));
             }
         }
+        // A change is set against a statement by the residues it alters, as on
+        // a nucleotide. An insertion clashes only between two residues the
+        // statement names, except at either end of the protein, where it
+        // extends the protein past the residue there.
+        let clashes = |e: &ProteinEdit, span: &std::ops::Range<usize>| {
+            let (s, t) = core(e);
+            match s == t {
+                true if s == 0 || s == protein.len() => span.start <= s && s < span.end,
+                true => span.start < s && s < span.end,
+                false => span.start < t && s < span.end,
+            }
+        };
         for span in &stated {
-            if changes
-                .iter()
-                .any(|e| span.start < reaches(e).max(e.start + 1) && e.start < span.end)
-            {
+            if changes.iter().any(|e| clashes(e, span)) {
                 return Err(HgvsError::ValidationError(format!(
                     "{var} states a residue unchanged that another member changes, so it has no reading"
                 )));

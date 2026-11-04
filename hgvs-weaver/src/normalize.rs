@@ -134,7 +134,7 @@ impl ExonBounds {
         index > 0 && !self.same_exon(index - 1, index)
     }
 
-    fn same_exon(&self, a: usize, b: usize) -> bool {
+    pub(crate) fn same_exon(&self, a: usize, b: usize) -> bool {
         self.exon(a) == self.exon(b)
     }
 
