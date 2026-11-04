@@ -310,6 +310,8 @@ anything. Regenerate it after changing the Rust surface:
 stubloom generate --module weaver._weaver --package hgvs-weaver-py --out weaver/_weaver.pyi --line-width 120 \
     --allow-any HGVSError.__new__.args \
     --allow-any ParseError.__new__.args \
+    --allow-any UnsupportedOperationError.__new__.args \
+    --allow-any ValidationError.__new__.args \
     --allow-any Variant.from_dict.d \
     --allow-any "Variant.to_dict return" \
     --allow-any Variant.validate.provider \

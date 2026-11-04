@@ -287,7 +287,7 @@ pyo3::create_exception!(weaver._weaver, DataProviderError, HGVSError);
 pyo3::create_exception!(weaver._weaver, CigarError, HGVSError);
 
 #[doc = "A base or residue a description states is not what its reference holds.\n\nThe reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for an intronic one, the genome for g. and m., the protein for p. expected is the stated bases, found the reference's over the 0-based half-open [start, end) of accession, read on the strand the description is written on. Raised by every operation that reads the stated bases; Variant.validate answers False instead."]
-#[pyclass(extends = HGVSError, weakref, module = "weaver._weaver")]
+#[pyclass(extends = HGVSError, subclass, weakref, module = "weaver._weaver")]
 pub struct ReferenceMismatchError {
     message: String,
     #[pyo3(get)]
@@ -1580,7 +1580,7 @@ impl PyVariantMapper {
     }
 
     #[pyo3(signature = (var_r, reference_ac = None))]
-    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nAn allele in cis of r. members projects member by member, as c_to_g\nprojects one of c. members: a member spanning a splice junction fails the\nallele.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    UnsupportedOperationError: If the transcript is placed on no genome.\n    HGVSError: If mapping fails."]
+    #[doc = "Maps an RNA variant (r.) to a genomic variant (g.).\n\nOnly a change within one exon has a genomic form; one spanning a splice\njunction describes the spliced RNA and raises UnsupportedOperationError.\n\nAn allele in cis of r. members projects member by member, as c_to_g\nprojects one of c. members: a member spanning a splice junction fails the\nallele, with a CisMemberError whose source is that UnsupportedOperationError.\n\nArgs:\n    var_r: The RNA Variant to map.\n    reference_ac: Optional chromosomal accession.\n\nReturns:\n    A new Variant object in 'g.' coordinates.\n\nRaises:\n    ValueError: If var_r is not an RNA variant or an allele in cis of them.\n    UnsupportedOperationError: If the transcript is placed on no genome.\n    HGVSError: If mapping fails."]
     fn r_to_g(
         &self,
         _py: Python,

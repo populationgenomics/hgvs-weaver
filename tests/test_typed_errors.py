@@ -8,7 +8,7 @@ import pytest
 
 import weaver
 
-TRANSCRIPT = "ATGAAGGCCTAA"  # Met Lys Ala Ter; c.1 to c.5 in exon 1, c.6 to c.*0 in exon 2
+TRANSCRIPT = "ATGAAGGCCTAA"  # Met Lys Ala Ter; c.1 to c.5 in exon 1, c.6 to c.12 in exon 2
 INTRON = "GTCAG"
 GENOME = "C" * 10 + TRANSCRIPT[:5] + INTRON + TRANSCRIPT[5:] + "C" * 10
 

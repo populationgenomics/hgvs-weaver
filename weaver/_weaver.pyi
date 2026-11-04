@@ -234,7 +234,6 @@ class PositionPastEndError(PositionOutsideSequenceError):
     @property
     def start(self) -> int: ...
 
-@final
 class ReferenceMismatchError(HGVSError):
     """
     A base or residue a description states is not what its reference holds.
@@ -244,15 +243,7 @@ class ReferenceMismatchError(HGVSError):
     over the 0-based half-open [start, end) of accession, read on the strand the description is written on. Raised by
     every operation that reads the stated bases; Variant.validate answers False instead.
     """
-    def __new__(
-        cls,
-        message: str,
-        accession: str,
-        expected: str,
-        found: str,
-        start: int,
-        end: int,
-    ) -> ReferenceMismatchError: ...
+    def __new__(cls, message: str, accession: str, expected: str, found: str, start: int, end: int) -> Self: ...
     @property
     def accession(self) -> str: ...
     @property
@@ -664,7 +655,7 @@ class VariantMapper:
 
         An allele in cis of r. members projects member by member, as c_to_g
         projects one of c. members: a member spanning a splice junction fails the
-        allele.
+        allele, with a CisMemberError whose source is that UnsupportedOperationError.
 
         Args:
             var_r: The RNA Variant to map.
