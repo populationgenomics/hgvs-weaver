@@ -307,14 +307,15 @@ Transcripts absent from the RefSeq annotation (LRG, superseded versions): 1,126 
 anything. Regenerate it after changing the Rust surface:
 
 ```bash
-stubloom generate --module weaver._weaver --package hgvs-weaver-py --out weaver/_weaver.pyi \
+stubloom generate --module weaver._weaver --package hgvs-weaver-py --out weaver/_weaver.pyi --line-width 120 \
+    --allow-any HGVSError.__new__.args \
+    --allow-any ParseError.__new__.args \
     --allow-any Variant.from_dict.d \
     --allow-any "Variant.to_dict return" \
     --allow-any Variant.validate.provider \
     --allow-any VariantMapper.__new__.provider \
     --allow-any VariantMapper.__new__.refget \
     --allow-any VariantMapper.consistent_variants.catalogue \
-    --allow-any VariantMapper.from_vrs.allele \
     --allow-any VariantMapper.equivalent.searcher \
     --allow-any VariantMapper.equivalent_level.searcher \
     --allow-any VariantMapper.g_to_c_all.searcher

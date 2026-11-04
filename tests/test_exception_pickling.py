@@ -17,6 +17,9 @@ EXCEPTION_CLASSES = sorted(
     (value for value in vars(_weaver).values() if isinstance(value, type) and issubclass(value, BaseException)),
     key=lambda cls: cls.__name__,
 )
+# These carry attributes, so a message alone does not make one.
+WITH_ATTRIBUTES = {"AmbiguousDescriptionError", "AmbiguousResidueError", "MixedResidueCodesError"}
+MESSAGE_ONLY = [cls for cls in EXCEPTION_CLASSES if cls.__name__ not in WITH_ATTRIBUTES]
 
 
 def _raised(call: Callable[[], object]) -> weaver.HGVSError:
@@ -94,12 +97,18 @@ def test_the_extension_declares_exception_classes() -> None:
     assert {cls.__name__ for cls in EXCEPTION_CLASSES} >= {"HGVSError", "ParseError", "AmbiguousDescriptionError"}
 
 
-@pytest.mark.parametrize("cls", EXCEPTION_CLASSES, ids=lambda cls: cls.__name__)
+@pytest.mark.parametrize("cls", MESSAGE_ONLY, ids=lambda cls: cls.__name__)
 def test_every_exception_class_round_trips_through_pickle(cls: type[BaseException]) -> None:
     restored = _through_pickle(cls("the message"))
 
     assert type(restored) is cls
     assert str(restored) == "the message"
+
+
+@pytest.mark.parametrize("name", sorted(WITH_ATTRIBUTES))
+def test_an_error_with_attributes_is_not_made_from_a_message_alone(name: str) -> None:
+    with pytest.raises(TypeError, match="missing"):
+        getattr(_weaver, name)("the message")
 
 
 @pytest.mark.parametrize(
@@ -122,14 +131,13 @@ def test_an_error_keeps_its_attributes_through_a_copy(
     duplicate: Callable[[BaseException], BaseException],
 ) -> None:
     original = make()
-    assert set(vars(original)) == attributes, "the error does not carry the attributes the binding sets"
 
     restored = duplicate(original)
 
     assert type(restored) is type(original)
     assert str(restored) == str(original)
-    assert {name: _comparable(value) for name, value in vars(restored).items()} == {
-        name: _comparable(value) for name, value in vars(original).items()
+    assert {name: _comparable(getattr(restored, name)) for name in attributes} == {
+        name: _comparable(getattr(original, name)) for name in attributes
     }
 
 
