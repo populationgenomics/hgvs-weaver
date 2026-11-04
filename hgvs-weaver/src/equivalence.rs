@@ -88,35 +88,73 @@ impl<'a> VariantEquivalence<'a> {
         // n. letters below as an allele's members are not.
         let var1 = rna_alone(var1);
         let var2 = rna_alone(var2);
-        let (rna1, rna2) = (var1.clone(), var2.clone());
-        // An r. variant is its c. or n. spelling in RNA letters; compare it as that.
-        let var1 = self.rna_as_transcript(var1)?;
-        let var2 = self.rna_as_transcript(var2)?;
-        // Expand gene symbols if present
-        let vars1 = self.held(self.expand_if_gene_symbol(&var1)?)?;
-        let vars2 = self.held(self.expand_if_gene_symbol(&var2)?)?;
-        // An r. change across a splice junction has no genomic form, so it is
-        // compared only with its own spelling or by the protein it leaves.
-        if spelling(&rna1) != spelling(&rna2) {
-            let mut sides = [(&*rna1, &*rna2), (&*rna2, &*rna1)];
-            // The refusal names one description whichever order they come in.
-            sides.sort_by_cached_key(|(rna, _)| spelling(rna));
-            for (rna, other) in sides {
-                if other.coordinate_type() != "p" {
-                    self.rna_on_the_genome(rna)?;
+        // A gene symbol is read on each of the gene's accessions of its kind,
+        // before an r. description is converted on its transcript.
+        let read1 = self.held(self.readings(&var1)?)?;
+        let read2 = self.held(self.readings(&var2)?)?;
+        // An r. change across a splice junction has no genomic form, so a
+        // reading of one is compared only with its own spelling or by the
+        // protein it leaves. A pair it is refused in takes no part, and the
+        // refusal is the error only when no other pair makes the two the same.
+        let mut refused1 = self.refusals(&read1, &var2)?;
+        let mut refused2 = self.refusals(&read2, &var1)?;
+        let spelled1: Vec<String> = read1.iter().map(|(w, _)| spelling(w)).collect();
+        let spelled2: Vec<String> = read2.iter().map(|(w, _)| spelling(w)).collect();
+        let mut skipped: Vec<(&str, bool, usize)> = Vec::new();
+        let mut best = EquivalenceLevel::Different;
+        for (i, (_, compared1)) in read1.iter().enumerate() {
+            for (j, (_, compared2)) in read2.iter().enumerate() {
+                if spelled1[i] != spelled2[j] && (refused1[i].is_some() || refused2[j].is_some()) {
+                    if refused1[i].is_some() {
+                        skipped.push((&spelled1[i], true, i));
+                    }
+                    if refused2[j].is_some() {
+                        skipped.push((&spelled2[j], false, j));
+                    }
+                    continue;
+                }
+                // The strongest level any pair gives, whatever order the
+                // gene's accessions come in.
+                match self.equivalent_level_single(compared1, compared2)? {
+                    EquivalenceLevel::Identity => return Ok(EquivalenceLevel::Identity),
+                    EquivalenceLevel::Analogous => best = EquivalenceLevel::Analogous,
+                    _ => {}
                 }
             }
         }
-
-        for v1 in &vars1 {
-            for v2 in &vars2 {
-                let lvl = self.equivalent_level_single(v1, v2)?;
-                if lvl.is_equivalent() {
-                    return Ok(lvl);
-                }
+        if best.is_equivalent() {
+            return Ok(best);
+        }
+        // The refusal names one reading whichever order the two come in.
+        if let Some((_, first, k)) = skipped.into_iter().min_by(|a, b| a.0.cmp(b.0)) {
+            let refused = if first { &mut refused1 } else { &mut refused2 };
+            if let Some(e) = refused[k].take() {
+                return Err(e);
             }
         }
         Ok(EquivalenceLevel::Different)
+    }
+
+    /// For each reading, its refusal as an r. change across a splice
+    /// junction, `None` where it is not one or `other` is a protein
+    /// description, which is compared by the protein each leaves.
+    fn refusals(
+        &self,
+        read: &[(SequenceVariant, SequenceVariant)],
+        other: &SequenceVariant,
+    ) -> Result<Vec<Option<HgvsError>>, HgvsError> {
+        read.iter()
+            .map(|(written, _)| {
+                if other.coordinate_type() == "p" {
+                    return Ok(None);
+                }
+                match self.rna_on_the_genome(written) {
+                    Ok(()) => Ok(None),
+                    Err(e) if is_a_refusal(&e) => Ok(Some(e)),
+                    Err(e) => Err(e),
+                }
+            })
+            .collect()
     }
 
     /// Refuses an r. change, alone or a member of an allele, that spans a
@@ -143,30 +181,60 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
-    fn rna_as_transcript<'v>(
-        &self,
-        var: std::borrow::Cow<'v, SequenceVariant>,
-    ) -> Result<std::borrow::Cow<'v, SequenceVariant>, HgvsError> {
-        match &*var {
+    /// An r. variant as the c. or n. variant it is spelled from; any other
+    /// variant as it is.
+    fn rna_as_transcript(&self, var: &SequenceVariant) -> Result<SequenceVariant, HgvsError> {
+        match var {
             SequenceVariant::Rna(r) if !r.posedit.edit.is_whole_transcript() => {
-                Ok(std::borrow::Cow::Owned(self.mapper.r_as_transcript(r)?))
+                self.mapper.r_as_transcript(r)
             }
-            _ => Ok(var),
+            var => Ok(var.clone()),
+        }
+    }
+
+    /// `var` on each of a gene's accessions of its kind where it names a
+    /// gene symbol, else `var` alone.
+    fn on_each_gene_accession(
+        &self,
+        var: &SequenceVariant,
+    ) -> Result<Vec<SequenceVariant>, HgvsError> {
+        if self.mapper.refs.identifier_type(var.ac())? == crate::data::IdentifierType::GeneSymbol {
+            self.mapper.on_each_of_the_genes_accessions(var)
+        } else {
+            Ok(vec![var.clone()])
         }
     }
 
     /// The readings of a description, one per accession a gene symbol expands
-    /// to, whose references hold what they state ([`check_stated`]). Each
-    /// accession of a gene numbers its own sequence, so a reading the
+    /// to, each as written and as compared: an r. reading in its c. or n.
+    /// spelling.
+    fn readings(
+        &self,
+        var: &SequenceVariant,
+    ) -> Result<Vec<(SequenceVariant, SequenceVariant)>, HgvsError> {
+        self.on_each_gene_accession(var)?
+            .into_iter()
+            .map(|written| {
+                let converted = self.rna_as_transcript(&written)?;
+                Ok((written, converted))
+            })
+            .collect()
+    }
+
+    /// The readings whose references hold what they state ([`check_stated`]).
+    /// Each accession of a gene numbers its own sequence, so a reading the
     /// reference contradicts is set aside; when every reading is contradicted,
     /// the first contradiction is the error.
     ///
     /// [`check_stated`]: Self::check_stated
-    fn held(&self, readings: Vec<SequenceVariant>) -> Result<Vec<SequenceVariant>, HgvsError> {
+    fn held(
+        &self,
+        readings: Vec<(SequenceVariant, SequenceVariant)>,
+    ) -> Result<Vec<(SequenceVariant, SequenceVariant)>, HgvsError> {
         let mut held = Vec::with_capacity(readings.len());
         let mut contradiction = None;
         for reading in readings {
-            match self.check_stated(&reading) {
+            match self.check_stated(&reading.1) {
                 Ok(()) => held.push(reading),
                 Err(
                     e @ (HgvsError::ReferenceMismatch { .. }
@@ -448,7 +516,7 @@ impl<'a> VariantEquivalence<'a> {
         let mut keys = Vec::with_capacity(cis.members.len());
         for m in &cis.members {
             if !m.has_exact_position() {
-                let m = self.rna_as_transcript(mito_as_genomic(m))?;
+                let m = self.rna_as_transcript(&mito_as_genomic(m))?;
                 keys.push(MemberKey::Spelling(spelling(&m)));
                 continue;
             }
@@ -809,51 +877,6 @@ impl<'a> VariantEquivalence<'a> {
             ProteinRead::Edit(edit) => Ok(Some(edit.outcome(&self.mapper.reference_protein(ac)?))),
         }
     }
-
-    fn expand_if_gene_symbol(
-        &self,
-        var: &SequenceVariant,
-    ) -> Result<Vec<SequenceVariant>, HgvsError> {
-        let ac = var.ac();
-
-        // Use DataProvider to determine if this is a symbol or an accession.
-        let id_type = self.mapper.refs.identifier_type(ac)?;
-
-        if id_type == crate::data::IdentifierType::GeneSymbol {
-            // An allele on a gene symbol is expanded as its members would be.
-            use crate::data::IdentifierType as T;
-            let (target_kind, compatible): (IdentifierKind, &[T]) = match var.coordinate_type() {
-                "p" => (IdentifierKind::Protein, &[T::ProteinAccession]),
-                "c" | "n" | "r" => (IdentifierKind::Transcript, &[T::TranscriptAccession]),
-                "g" => (
-                    IdentifierKind::Genomic,
-                    &[T::GenomicAccession, T::TranscriptAccession],
-                ),
-                _ => (IdentifierKind::Genomic, &[T::GenomicAccession]),
-            };
-
-            let accessions = self.mapper.provider().get_symbol_accessions(
-                ac,
-                IdentifierKind::Gene,
-                target_kind,
-            )?;
-            let expanded: Vec<SequenceVariant> = accessions
-                .into_iter()
-                .filter(|(ac_type, _)| compatible.contains(ac_type))
-                .map(|(_, new_ac)| {
-                    let mut v = var.clone();
-                    v.set_ac(new_ac);
-                    v
-                })
-                .collect();
-            if !expanded.is_empty() {
-                return Ok(expanded);
-            }
-        }
-
-        // Default: return as-is.
-        Ok(vec![var.clone()])
-    }
 }
 
 /// The text two descriptions are one spelling by: as printed, without the
@@ -904,6 +927,16 @@ fn rna_alone(var: std::borrow::Cow<'_, SequenceVariant>) -> std::borrow::Cow<'_,
             std::borrow::Cow::Owned(cis.members[0].clone())
         }
         _ => var,
+    }
+}
+
+/// Whether `e` refuses a description outright, alone or as a member of an
+/// allele, rather than failing to find what it names.
+fn is_a_refusal(e: &HgvsError) -> bool {
+    match e {
+        HgvsError::UnsupportedOperation(_) => true,
+        HgvsError::CisMember { source, .. } => is_a_refusal(source),
+        _ => false,
     }
 }
 

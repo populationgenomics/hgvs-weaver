@@ -4774,7 +4774,7 @@ impl<'a> VariantMapper<'a> {
     // operation is therefore a conversion to the c. or n. spelling and back.
 
     /// Whether `ac` has a CDS, which decides whether r. is numbered like c. or n.
-    fn has_cds(&self, ac: &str, read_as: ReadAs<'_>) -> Result<bool, HgvsError> {
+    pub(crate) fn has_cds(&self, ac: &str, read_as: ReadAs<'_>) -> Result<bool, HgvsError> {
         let t = self.transcript((ac, read_as), None)?;
         Ok(t.cds_start_index.is_some() && t.cds_end_index.is_some())
     }

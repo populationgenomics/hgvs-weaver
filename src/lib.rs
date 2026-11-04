@@ -684,6 +684,218 @@ impl TranscriptSearch for PyTranscriptSearchBridge {
     }
 }
 
+#[pyclass(name = "AccessionStatus", module = "weaver._weaver", from_py_object)]
+#[doc = "Whether an accession is the version its publisher's current release names."]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PyAccessionStatus {
+    Current,
+    Superseded,
+    Suppressed,
+}
+
+impl From<PyAccessionStatus> for ::hgvs_weaver::data::AccessionStatus {
+    fn from(s: PyAccessionStatus) -> Self {
+        match s {
+            PyAccessionStatus::Current => Self::Current,
+            PyAccessionStatus::Superseded => Self::Superseded,
+            PyAccessionStatus::Suppressed => Self::Suppressed,
+        }
+    }
+}
+
+impl From<::hgvs_weaver::data::AccessionStatus> for PyAccessionStatus {
+    fn from(s: ::hgvs_weaver::data::AccessionStatus) -> Self {
+        match s {
+            ::hgvs_weaver::data::AccessionStatus::Current => Self::Current,
+            ::hgvs_weaver::data::AccessionStatus::Superseded => Self::Superseded,
+            ::hgvs_weaver::data::AccessionStatus::Suppressed => Self::Suppressed,
+            _ => unreachable!("every AccessionStatus has a Python member"),
+        }
+    }
+}
+
+#[pymethods]
+impl PyAccessionStatus {
+    fn __repr__(&self) -> String {
+        format!("AccessionStatus.{:?}", self)
+    }
+    fn __eq__(&self, other: &Self) -> bool {
+        self == other
+    }
+    fn __hash__(&self) -> u64 {
+        let mut s = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(self, &mut s);
+        std::hash::Hasher::finish(&s)
+    }
+}
+
+#[pyclass(name = "AccessionTag", module = "weaver._weaver", from_py_object)]
+#[doc = "A designation a curated set gives an accession: MANE Select, MANE Plus Clinical,\nRefSeq Select or Ensembl canonical."]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PyAccessionTag {
+    ManeSelect,
+    ManePlusClinical,
+    RefSeqSelect,
+    EnsemblCanonical,
+}
+
+impl From<PyAccessionTag> for ::hgvs_weaver::data::AccessionTag {
+    fn from(t: PyAccessionTag) -> Self {
+        match t {
+            PyAccessionTag::ManeSelect => Self::ManeSelect,
+            PyAccessionTag::ManePlusClinical => Self::ManePlusClinical,
+            PyAccessionTag::RefSeqSelect => Self::RefSeqSelect,
+            PyAccessionTag::EnsemblCanonical => Self::EnsemblCanonical,
+        }
+    }
+}
+
+impl From<::hgvs_weaver::data::AccessionTag> for PyAccessionTag {
+    fn from(t: ::hgvs_weaver::data::AccessionTag) -> Self {
+        match t {
+            ::hgvs_weaver::data::AccessionTag::ManeSelect => Self::ManeSelect,
+            ::hgvs_weaver::data::AccessionTag::ManePlusClinical => Self::ManePlusClinical,
+            ::hgvs_weaver::data::AccessionTag::RefSeqSelect => Self::RefSeqSelect,
+            ::hgvs_weaver::data::AccessionTag::EnsemblCanonical => Self::EnsemblCanonical,
+            _ => unreachable!("every AccessionTag has a Python member"),
+        }
+    }
+}
+
+#[pymethods]
+impl PyAccessionTag {
+    fn __repr__(&self) -> String {
+        format!("AccessionTag.{:?}", self)
+    }
+    fn __eq__(&self, other: &Self) -> bool {
+        self == other
+    }
+    fn __hash__(&self) -> u64 {
+        let mut s = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(self, &mut s);
+        std::hash::Hasher::finish(&s)
+    }
+}
+
+#[pyclass(
+    name = "ConsistentVariant",
+    module = "weaver._weaver",
+    skip_from_py_object
+)]
+#[doc = "A description on an accession the store holds as one sequence, consistent with that\nsequence."]
+pub struct PyConsistentVariant {
+    /// The description on one accession.
+    #[pyo3(get)]
+    variant: PyVariant,
+    /// Whether the description states bases or residues the sequence was found
+    /// to hold. Without any, it is consistent with every sequence its positions
+    /// lie on, which is no evidence for this one.
+    #[pyo3(get)]
+    states_bases: bool,
+    /// The accession's status as the catalogue records it; None without a
+    /// catalogue, or where it records nothing.
+    #[pyo3(get)]
+    status: Option<PyAccessionStatus>,
+    /// The accession's tags as the catalogue records them; empty where it
+    /// records none.
+    #[pyo3(get)]
+    tags: Vec<PyAccessionTag>,
+}
+
+#[pymethods]
+impl PyConsistentVariant {
+    fn __repr__(&self) -> String {
+        format!(
+            "ConsistentVariant({}, states_bases={}, status={:?}, tags={:?})",
+            self.variant.inner, self.states_bases, self.status, self.tags
+        )
+    }
+}
+
+/// A Python object with `get_accession_versions(ac)` and
+/// `get_accession_info(ac)`, as an [`AccessionCatalogue`](::hgvs_weaver::data::AccessionCatalogue).
+pub struct PyAccessionCatalogueBridge {
+    catalogue: Py<PyAny>,
+}
+
+impl ::hgvs_weaver::data::AccessionCatalogue for PyAccessionCatalogueBridge {
+    fn get_accession_versions(&self, ac: &str) -> Result<Vec<String>, HgvsError> {
+        Python::attach(|py| {
+            self.catalogue
+                .bind(py)
+                .call_method1("get_accession_versions", (ac,))
+                .and_then(|r| r.extract::<Vec<String>>())
+                .map_err(|e: PyErr| HgvsError::DataProviderError(e.to_string()))
+        })
+    }
+
+    fn get_accession_info(
+        &self,
+        ac: &str,
+    ) -> Result<Option<::hgvs_weaver::data::AccessionInfo>, HgvsError> {
+        let provider_error = |e: PyErr| HgvsError::DataProviderError(e.to_string());
+        Python::attach(|py| {
+            let info = self
+                .catalogue
+                .bind(py)
+                .call_method1("get_accession_info", (ac,))
+                .map_err(provider_error)?;
+            if info.is_none() {
+                return Ok(None);
+            }
+            let (status, tags): (Bound<'_, PyAny>, Vec<Bound<'_, PyAny>>) =
+                info.extract().map_err(provider_error)?;
+            Ok(Some(::hgvs_weaver::data::AccessionInfo {
+                status: accession_status(ac, &status)?,
+                tags: tags
+                    .iter()
+                    .map(|tag| accession_tag(ac, tag))
+                    .collect::<Result<_, _>>()?,
+            }))
+        })
+    }
+}
+
+/// A status a catalogue answered, as an `AccessionStatus` or its name.
+fn accession_status(
+    ac: &str,
+    status: &Bound<'_, PyAny>,
+) -> Result<::hgvs_weaver::data::AccessionStatus, HgvsError> {
+    use ::hgvs_weaver::data::AccessionStatus as S;
+    if let Ok(s) = status.extract::<PyAccessionStatus>() {
+        return Ok(s.into());
+    }
+    match status.extract::<String>().as_deref() {
+        Ok("current") => Ok(S::Current),
+        Ok("superseded") => Ok(S::Superseded),
+        Ok("suppressed") => Ok(S::Suppressed),
+        _ => Err(HgvsError::DataProviderError(format!(
+            "the catalogue gave {ac} the status {status}, which is not 'current', 'superseded' or 'suppressed'"
+        ))),
+    }
+}
+
+/// A tag a catalogue answered, as an `AccessionTag` or its name.
+fn accession_tag(
+    ac: &str,
+    tag: &Bound<'_, PyAny>,
+) -> Result<::hgvs_weaver::data::AccessionTag, HgvsError> {
+    use ::hgvs_weaver::data::AccessionTag as T;
+    if let Ok(t) = tag.extract::<PyAccessionTag>() {
+        return Ok(t.into());
+    }
+    match tag.extract::<String>().as_deref() {
+        Ok("mane_select") => Ok(T::ManeSelect),
+        Ok("mane_plus_clinical") => Ok(T::ManePlusClinical),
+        Ok("refseq_select") => Ok(T::RefSeqSelect),
+        Ok("ensembl_canonical") => Ok(T::EnsemblCanonical),
+        _ => Err(HgvsError::DataProviderError(format!(
+            "the catalogue gave {ac} the tag {tag}, which is not 'mane_select', \
+             'mane_plus_clinical', 'refseq_select' or 'ensembl_canonical'"
+        ))),
+    }
+}
+
 #[pyclass(name = "VariantMapper", module = "weaver._weaver")]
 #[doc = "High-level variant mapping engine.\n\nCoordinates mapping between different reference sequences (e.g., g. to c.)\nand projects cDNA variants onto protein sequences (c. to p.).\nRequires a DataProvider to retrieve transcript and sequence information."]
 pub struct PyVariantMapper {
@@ -756,6 +968,37 @@ impl PyVariantMapper {
         }
         .map_err(map_hgvs_error)?;
         Ok(res.into_iter().map(|inner| PyVariant { inner }).collect())
+    }
+
+    #[pyo3(signature = (var, catalogue = None))]
+    #[doc = "Every variant a description can be on an accession the store holds as one\nsequence, consistent with that sequence as validate finds it.\n\nA gene symbol gives the description on each of the gene's accessions that can carry\nit: coding transcripts for c., any transcript for n., and for r. unless it counts\na position from the CDS, proteins for p., genomic sequences for g. An\nunversioned accession gives it on each version the catalogue lists, newest first,\nor on the accession itself where the catalogue lists that alone, for a record with\nno version of its own. A versioned accession gives the description itself.\nEach variant returned gives itself alone. Choosing among them, such as the MANE\nSelect transcript where it is consistent, is the caller's.\n\nArgs:\n    var: The Variant, on a gene symbol, an unversioned accession or a versioned one.\n    catalogue: Optional AccessionCatalogue: lists the versions of an unversioned\n        accession, and gives each result its status and tags. Without it, an\n        unversioned accession is an error, and status is None.\n\nReturns:\n    A list of ConsistentVariant, empty when the store holds sequences under the\n    name and none is consistent with the description.\n\nRaises:\n    DataProviderError: If the store holds nothing under the name of the\n        description's kind, or the name is an unversioned accession and there is no\n        catalogue, or the catalogue lists something other than the name's versions, or the\n        provider or catalogue fails.\n    HGVSError: If validate raises rather than answering for a candidate."]
+    fn consistent_variants(
+        &self,
+        var: &PyVariant,
+        catalogue: Option<Py<PyAny>>,
+    ) -> PyResult<Vec<PyConsistentVariant>> {
+        let mapper = self.mapper();
+        let bridge = catalogue.map(|catalogue| PyAccessionCatalogueBridge { catalogue });
+        let found = mapper
+            .consistent_variants(
+                &var.inner,
+                bridge
+                    .as_ref()
+                    .map(|b| b as &dyn ::hgvs_weaver::data::AccessionCatalogue),
+            )
+            .map_err(map_hgvs_error)?;
+        Ok(found
+            .into_iter()
+            .map(|c| PyConsistentVariant {
+                variant: PyVariant { inner: c.variant },
+                states_bases: c.states_bases,
+                status: c.info.as_ref().map(|i| i.status.into()),
+                tags: c
+                    .info
+                    .map(|i| i.tags.into_iter().map(Into::into).collect())
+                    .unwrap_or_default(),
+            })
+            .collect())
     }
 
     #[pyo3(signature = (var_c, reference_ac = None))]
@@ -1072,6 +1315,9 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVariantMapper>()?;
     m.add_class::<PyIdentifierType>()?;
     m.add_class::<PyEquivalenceLevel>()?;
+    m.add_class::<PyAccessionStatus>()?;
+    m.add_class::<PyAccessionTag>()?;
+    m.add_class::<PyConsistentVariant>()?;
     m.add("HGVSError", m.py().get_type::<HGVSError>())?;
     m.add("ParseError", m.py().get_type::<ParseError>())?;
     m.add(

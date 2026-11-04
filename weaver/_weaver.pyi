@@ -2,6 +2,30 @@
 
 from typing import Any, ClassVar, final
 
+@final
+class AccessionStatus:
+    """Whether an accession is the version its publisher's current release names."""
+
+    Current: ClassVar[AccessionStatus]
+    Superseded: ClassVar[AccessionStatus]
+    Suppressed: ClassVar[AccessionStatus]
+    def __eq__(self, value: object) -> bool: ...
+    def __hash__(self) -> int: ...
+
+@final
+class AccessionTag:
+    """
+    A designation a curated set gives an accession: MANE Select, MANE Plus Clinical,
+    RefSeq Select or Ensembl canonical.
+    """
+
+    EnsemblCanonical: ClassVar[AccessionTag]
+    ManePlusClinical: ClassVar[AccessionTag]
+    ManeSelect: ClassVar[AccessionTag]
+    RefSeqSelect: ClassVar[AccessionTag]
+    def __eq__(self, value: object) -> bool: ...
+    def __hash__(self) -> int: ...
+
 class AmbiguousDescriptionError(HGVSError):
     """A description with several readings that make different sequences or state different bases.
 
@@ -23,6 +47,33 @@ class AmbiguousResidueError(ParseError):
     ambiguous: list[tuple[str, int, int]]
 
 class CigarError(HGVSError): ...
+
+@final
+class ConsistentVariant:
+    """
+    A description on an accession the store holds as one sequence, consistent with that
+    sequence.
+    """
+    @property
+    def states_bases(self) -> bool:
+        """Whether the description states bases or residues the sequence was found
+        to hold. Without any, it is consistent with every sequence its positions
+        lie on, which is no evidence for this one.
+        """
+    @property
+    def status(self) -> AccessionStatus | None:
+        """The accession's status as the catalogue records it; None without a
+        catalogue, or where it records nothing.
+        """
+    @property
+    def tags(self) -> list[AccessionTag]:
+        """The accession's tags as the catalogue records them; empty where it
+        records none.
+        """
+    @property
+    def variant(self) -> Variant:
+        """The description on one accession."""
+
 class DataProviderError(HGVSError): ...
 
 @final
@@ -193,6 +244,37 @@ class VariantMapper:
                 weaver.refget.RefgetProvider is one). Without it refget accessions
                 are computed from the whole sequence and from_vrs needs the
                 accession passed.
+        """
+    def consistent_variants(self, var: Variant, catalogue: Any | None = ...) -> list[ConsistentVariant]:
+        """
+        Every variant a description can be on an accession the store holds as one
+        sequence, consistent with that sequence as validate finds it.
+
+        A gene symbol gives the description on each of the gene's accessions that can carry
+        it: coding transcripts for c., any transcript for n., and for r. unless it counts
+        a position from the CDS, proteins for p., genomic sequences for g. An
+        unversioned accession gives it on each version the catalogue lists, newest first,
+        or on the accession itself where the catalogue lists that alone, for a record with
+        no version of its own. A versioned accession gives the description itself.
+        Each variant returned gives itself alone. Choosing among them, such as the MANE
+        Select transcript where it is consistent, is the caller's.
+
+        Args:
+            var: The Variant, on a gene symbol, an unversioned accession or a versioned one.
+            catalogue: Optional AccessionCatalogue: lists the versions of an unversioned
+                accession, and gives each result its status and tags. Without it, an
+                unversioned accession is an error, and status is None.
+
+        Returns:
+            A list of ConsistentVariant, empty when the store holds sequences under the
+            name and none is consistent with the description.
+
+        Raises:
+            DataProviderError: If the store holds nothing under the name of the
+                description's kind, or the name is an unversioned accession and there is no
+                catalogue, or the catalogue lists something other than the name's versions, or the
+                provider or catalogue fails.
+            HGVSError: If validate raises rather than answering for a candidate.
         """
     def c_to_g(self, var_c: Variant, reference_ac: str | None = ...) -> Variant:
         """
