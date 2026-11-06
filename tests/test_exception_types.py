@@ -12,7 +12,7 @@ import weaver
 
 def _mixed_residue_codes() -> weaver.MixedResidueCodesError:
     with pytest.raises(weaver.MixedResidueCodesError) as raised:
-        weaver.parse("NP_000021.1:p.Arg111X")
+        weaver.parse("NP_W.1:p.Arg2K")
     return raised.value
 
 
@@ -37,7 +37,7 @@ def test_an_error_with_attributes_says_its_message_alone() -> None:
     error = _mixed_residue_codes()
 
     assert str(error) == error.args[0]
-    assert "NP_000021.1:p.Arg111X" in str(error)
+    assert "NP_W.1:p.Arg2K" in str(error)
 
 
 def test_an_errors_attributes_are_read_only() -> None:

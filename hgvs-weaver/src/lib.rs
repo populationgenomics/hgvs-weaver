@@ -6,13 +6,51 @@ use pest_derive::Parser as PestParser;
 #[grammar = "grammar.pest"]
 pub struct HgvsParser;
 
+/// How [`parse_hgvs_variant_with`] reads a one-letter `X` where a stop and
+/// any residue could both stand, in a `p.` description of either code. An
+/// `X` with one possible reading is read as it, whatever the treatment.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum XTreatment {
+    /// Refuse the description as [`HgvsError::AmbiguousResidue`].
+    #[default]
+    Error,
+    /// Read the `X` as a stop, `*`: the convention before `X` meant any residue.
+    Stop,
+    /// Read the `X` as any residue, `Xaa`.
+    Unknown,
+}
+
+/// How [`parse_hgvs_variant_with`] reads what a description leaves open.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct ParseOptions {
+    pub x_treatment: XTreatment,
+}
+
+impl ParseOptions {
+    pub fn with_x_treatment(self, x_treatment: XTreatment) -> Self {
+        Self { x_treatment }
+    }
+}
+
+/// Parses an HGVS string into a `SequenceVariant`, refusing an ambiguous `X`;
+/// [`parse_hgvs_variant_with`] with the default options.
+pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> {
+    parse_hgvs_variant_with(hgvs_str, ParseOptions::default())
+}
+
 /// Parses an HGVS string into a `SequenceVariant`.
 ///
-/// A `p.` description writes every residue in one amino acid code, `*` and
-/// `Xaa` in either; one that mixes them is [`HgvsError::MixedResidueCodes`].
-/// A one-letter `X` where a stop and any residue could both stand is
-/// [`HgvsError::AmbiguousResidue`].
-pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> {
+/// A `p.` description writes every residue in one amino acid code; `*`,
+/// `Xaa` and `X` stand in either. One that mixes the codes is
+/// [`HgvsError::MixedResidueCodes`]. An `X` where a stop and any residue
+/// could both stand is read as `options.x_treatment` says: the description
+/// with `*` or `Xaa` written in its place, or [`HgvsError::AmbiguousResidue`].
+pub fn parse_hgvs_variant_with(
+    hgvs_str: &str,
+    options: ParseOptions,
+) -> Result<SequenceVariant, HgvsError> {
     let mut pairs = HgvsParser::parse(Rule::hgvs_variant, hgvs_str)
         .map_err(|e| HgvsError::PestError(e.to_string()))?;
 
@@ -20,7 +58,28 @@ pub fn parse_hgvs_variant(hgvs_str: &str) -> Result<SequenceVariant, HgvsError> 
         .next()
         .ok_or_else(|| HgvsError::PestError("Empty input".into()))?;
     parser::one_residue_code(&pair)?;
-    parser::no_ambiguous_x(&pair)?;
+    let ambiguous = parser::ambiguous_x(&pair);
+    if !ambiguous.is_empty() {
+        let written = match options.x_treatment {
+            XTreatment::Error => {
+                return Err(HgvsError::AmbiguousResidue {
+                    description: hgvs_str.to_string(),
+                    ambiguous,
+                });
+            }
+            XTreatment::Stop => "*",
+            XTreatment::Unknown => "Xaa",
+        };
+        let mut resolved = String::with_capacity(hgvs_str.len() + 2 * ambiguous.len());
+        let mut at = 0;
+        for x in &ambiguous {
+            resolved.push_str(&hgvs_str[at..x.start]);
+            resolved.push_str(written);
+            at = x.end;
+        }
+        resolved.push_str(&hgvs_str[at..]);
+        return parse_hgvs_variant(&resolved);
+    }
     let inner = pair
         .into_inner()
         .next()

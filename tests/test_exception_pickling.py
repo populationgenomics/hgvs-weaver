@@ -30,7 +30,7 @@ WITH_ATTRIBUTES: dict[str, tuple[tuple[object, ...], set[str]]] = {
         {"allele", "index", "member", "source"},
     ),
     "MixedResidueCodesError": (
-        ("m", "NP_000021.1:p.Arg111X", [("X", 20, 21)], [("Arg", 14, 17)]),
+        ("m", "NP_W.1:p.Arg2K", [("K", 13, 14)], [("Arg", 9, 12)]),
         {"description", "one_letter", "three_letter"},
     ),
     "NotAnExonBorderError": (("m", "NM_X.1", "c.4+1"), {"accession", "position"}),
@@ -120,14 +120,14 @@ def test_an_error_keeps_its_attributes_through_a_copy(
 
 def test_an_error_raised_in_a_worker_process_reaches_the_parent() -> None:
     with concurrent.futures.ProcessPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_parse_in_worker, "NP_000021.1:p.Arg111X")
+        future = pool.submit(_parse_in_worker, "NP_W.1:p.Arg2K")
         with pytest.raises(weaver.MixedResidueCodesError) as raised:
             future.result()
 
     assert isinstance(raised.value, weaver.ParseError)
-    assert raised.value.description == "NP_000021.1:p.Arg111X"
-    assert raised.value.three_letter == [("Arg", 14, 17)]
-    assert raised.value.one_letter == [("X", 20, 21)]
+    assert raised.value.description == "NP_W.1:p.Arg2K"
+    assert raised.value.three_letter == [("Arg", 9, 12)]
+    assert raised.value.one_letter == [("K", 13, 14)]
 
 
 def test_an_error_holding_a_members_error_reaches_the_parent_with_it() -> None:

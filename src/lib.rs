@@ -45,7 +45,7 @@ impl ParseError {
 /// A residue token as Python sees it: `(text, start, end)`.
 type Token = (String, usize, usize);
 
-#[doc = "A p. description that writes residues in both the one- and three-letter amino acid codes.\n\none_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."]
+#[doc = "A p. description that writes residues in both the one- and three-letter amino acid codes.\n\none_letter and three_letter hold every residue or run written in each, as (text, start, end) with text == description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one token, and *, Xaa and X, which stand in either code, are in neither, as is a run of nothing else; one inside a run is part of that run's token."]
 #[pyclass(extends = ParseError, weakref, module = "weaver._weaver")]
 pub struct MixedResidueCodesError {
     message: String,
@@ -81,7 +81,7 @@ impl MixedResidueCodesError {
     }
 }
 
-#[doc = "A one-letter X in a p. description where a stop and any residue could both stand.\n\nThe new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written."]
+#[doc = "An X in a p. description, in either amino acid code, where a stop and any residue could both stand.\n\nThe new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names. ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order written. Writing * or Xaa at each, or parsing with x_treatment set to XTreatment.Stop or XTreatment.Unknown, reads the description."]
 #[pyclass(extends = ParseError, weakref, module = "weaver._weaver")]
 pub struct AmbiguousResidueError {
     message: String,
@@ -770,6 +770,40 @@ impl PyEquivalenceLevel {
     }
 }
 
+#[pyclass(name = "XTreatment", module = "weaver._weaver", from_py_object)]
+#[doc = "How parse reads an X in a p. description where a stop and any residue could both stand.\n\nError refuses the description as an AmbiguousResidueError; Stop reads the X as a\nstop, the convention before X meant any residue; Unknown reads it as any residue,\nXaa. An X with one possible reading is read as it whatever the treatment."]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PyXTreatment {
+    Error,
+    Stop,
+    Unknown,
+}
+
+impl From<PyXTreatment> for ::hgvs_weaver::XTreatment {
+    fn from(t: PyXTreatment) -> Self {
+        match t {
+            PyXTreatment::Error => ::hgvs_weaver::XTreatment::Error,
+            PyXTreatment::Stop => ::hgvs_weaver::XTreatment::Stop,
+            PyXTreatment::Unknown => ::hgvs_weaver::XTreatment::Unknown,
+        }
+    }
+}
+
+#[pymethods]
+impl PyXTreatment {
+    fn __repr__(&self) -> String {
+        format!("XTreatment.{:?}", self)
+    }
+    fn __eq__(&self, other: &Self) -> bool {
+        self == other
+    }
+    fn __hash__(&self) -> u64 {
+        let mut s = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(self, &mut s);
+        std::hash::Hasher::finish(&s)
+    }
+}
+
 #[pyclass(name = "Variant", module = "weaver._weaver", skip_from_py_object)]
 #[doc = "Represents a parsed HGVS variant.\n\nProvides access to the variant's accession, gene symbol, and coordinate type.\nVariants can be formatted back to HGVS strings or converted to JSON/dict representations.\n\nAn allele in cis, NM_004006.2:c.[145C>T;147C>G], is one Variant whose\nmembers are the plain variants written between the brackets."]
 #[derive(Clone)]
@@ -868,9 +902,11 @@ impl PyVariant {
 }
 
 #[pyfunction]
-#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n\nReturns:\n    A Variant object.\n\nRaises:\n    MixedResidueCodesError: If a p. description writes residues in both the\n        one- and three-letter amino acid codes, p.Arg111X; * and Xaa are in\n        either. A ParseError, carrying every residue written in each code.\n    AmbiguousResidueError: If a one-letter p. description writes X where a\n        stop and any residue could both stand, p.R210X. A ParseError, carrying\n        each such X.\n    ParseError: If the HGVS string is malformed or unsupported.\n    UnsupportedOperationError: If the string describes alleles in trans."]
-fn parse(input: &str) -> PyResult<PyVariant> {
-    match ::hgvs_weaver::parse_hgvs_variant(input) {
+#[doc = "Parses an HGVS string into a Variant object.\n\nSupported types include genomic (g.), coding cDNA (c.), non-coding (n.),\nmitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis\nin any of them, c.[145C>T;147C>G]: several changes on one molecule, one\nVariant whose members are the changes. The trans form c.[145C>T];[147C>G]\ndescribes two molecules and is refused.\n\nArgs:\n    input: The HGVS string to parse.\n    x_treatment: How an X in a p. description is read where a stop and any\n        residue could both stand, p.R210X or p.Arg210X: refused (the default),\n        read as a stop, or read as Xaa. The result is that of the description\n        with * or Xaa written in the X's place.\n\nReturns:\n    A Variant object.\n\nRaises:\n    MixedResidueCodesError: If a p. description writes residues in both the\n        one- and three-letter amino acid codes, p.Ala2_Gly3insDPA; *, Xaa and X\n        are in either. A ParseError, carrying every residue written in each code.\n    AmbiguousResidueError: If a p. description writes X where a stop and any\n        residue could both stand and x_treatment is XTreatment.Error. A\n        ParseError, carrying each such X; writing * or Xaa at its offsets, or\n        parsing with another treatment, reads it.\n    ParseError: If the HGVS string is malformed or unsupported.\n    UnsupportedOperationError: If the string describes alleles in trans."]
+#[pyo3(signature = (input, x_treatment = PyXTreatment::Error))]
+fn parse(input: &str, x_treatment: PyXTreatment) -> PyResult<PyVariant> {
+    let options = ::hgvs_weaver::ParseOptions::default().with_x_treatment(x_treatment.into());
+    match ::hgvs_weaver::parse_hgvs_variant_with(input, options) {
         Ok(inner) => Ok(PyVariant { inner }),
         Err(e) => Err(map_hgvs_error(e)),
     }
@@ -1792,6 +1828,7 @@ fn _weaver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVariantMapper>()?;
     m.add_class::<PyIdentifierType>()?;
     m.add_class::<PyEquivalenceLevel>()?;
+    m.add_class::<PyXTreatment>()?;
     m.add_class::<PyAccessionStatus>()?;
     m.add_class::<PyAccessionTag>()?;
     m.add_class::<PyConsistentVariant>()?;

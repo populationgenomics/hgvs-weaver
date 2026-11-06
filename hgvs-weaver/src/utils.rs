@@ -127,16 +127,28 @@ pub fn residue_3(aa: &str) -> &str {
     }
 }
 
-/// A run of residues as weaver stores and prints it: a run in one-letter code
-/// becomes its three-letter code (`*` is `Ter`, `X` is `Xaa`); anything else
-/// is kept.
+/// A run of residues as weaver stores and prints it, each residue in its
+/// three-letter code (`*` is `Ter`, `X` is `Xaa`). A three-letter code is the
+/// one with lower case after its first letter, as the grammar reads a run.
 pub fn residues_3(seq: &str) -> String {
-    const AA1: &str = "ACDEFGHIKLMNPQRSTVWYBZXU*";
-    if !seq.is_empty() && seq.chars().all(|c| AA1.contains(c)) {
-        seq1_to_aa3(seq)
-    } else {
-        seq.to_string()
+    let mut out = String::with_capacity(seq.len() * 3);
+    let mut rest = seq;
+    while let Some(first) = rest.chars().next() {
+        let three = rest
+            .get(..3)
+            .filter(|t| t[1..].chars().all(|c| c.is_ascii_lowercase()));
+        match three {
+            Some(t) => {
+                out.push_str(t);
+                rest = &rest[3..];
+            }
+            None => {
+                out.push_str(aa1_to_aa3(first));
+                rest = &rest[first.len_utf8()..];
+            }
+        }
     }
+    out
 }
 
 /// [`residue_3`] where the grammar reads `X` as a stop: after `fs` or `ext`.

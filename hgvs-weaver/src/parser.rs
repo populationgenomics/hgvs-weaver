@@ -81,18 +81,24 @@ pub fn parse_tx_posedit(
 /// spans the whole input, so a pair's span is its offset in the description.
 pub(crate) fn one_residue_code(variant: &Pair<Rule>) -> Result<(), HgvsError> {
     let (mut one_letter, mut three_letter) = (Vec::new(), Vec::new());
+    let mut run_end = 0;
     for p in variant.clone().into_inner().flatten() {
-        let tokens = match residue_code(&p) {
-            Some(ResidueCode::One) => &mut one_letter,
-            Some(ResidueCode::Three) => &mut three_letter,
-            None => continue,
-        };
         let span = p.as_span();
-        tokens.push(ResidueToken {
-            text: span.as_str().to_string(),
-            start: span.start(),
-            end: span.end(),
-        });
+        if span.start() < run_end {
+            continue;
+        }
+        if p.as_rule() == Rule::aat13_seq {
+            run_end = span.end();
+            run_tokens(&p, &mut one_letter, &mut three_letter);
+            continue;
+        }
+        if let Some(code) = residue_code(&p) {
+            let tokens = match code {
+                ResidueCode::One => &mut one_letter,
+                ResidueCode::Three => &mut three_letter,
+            };
+            tokens.push(token(span));
+        }
     }
     if one_letter.is_empty() || three_letter.is_empty() {
         return Ok(());
@@ -104,40 +110,56 @@ pub(crate) fn one_residue_code(variant: &Pair<Rule>) -> Result<(), HgvsError> {
     })
 }
 
+fn token(span: pest::Span) -> ResidueToken {
+    ResidueToken {
+        text: span.as_str().to_string(),
+        start: span.start(),
+        end: span.end(),
+    }
+}
+
+/// A run is one token, of the code its residues are written in; the grammar
+/// keeps a run to one code.
+fn run_tokens(
+    run: &Pair<Rule>,
+    one_letter: &mut Vec<ResidueToken>,
+    three_letter: &mut Vec<ResidueToken>,
+) {
+    let code = run
+        .clone()
+        .into_inner()
+        .flatten()
+        .find_map(|p| residue_code(&p));
+    match code {
+        Some(ResidueCode::One) => one_letter.push(token(run.as_span())),
+        Some(ResidueCode::Three) => three_letter.push(token(run.as_span())),
+        None => {}
+    }
+}
+
 enum ResidueCode {
     One,
     Three,
 }
 
-/// The code a residue rule is written in; `None` for `*` and `Xaa`, the
-/// spellings of a stop and of an unknown residue in either code, and for any
-/// rule that is not a residue.
+/// The code a residue is written in; `None` for `*`, `Xaa` and `X`, which
+/// stand in either code (`X` is read by [`ambiguous_x`]), and for any rule
+/// that is not a residue.
 fn residue_code(p: &Pair<Rule>) -> Option<ResidueCode> {
-    match p.as_rule() {
-        Rule::aa1 => Some(ResidueCode::One),
-        // aat13_seq is atomic, so its residues are not pairs of their own:
-        // a three-letter code has a lower-case letter, a one-letter one none.
-        Rule::aa3 | Rule::term3 | Rule::term1 | Rule::aat13_seq => {
-            let text = p.as_str().replace("Xaa", "");
-            if text.chars().any(|c| c.is_ascii_lowercase()) {
-                Some(ResidueCode::Three)
-            } else if text.chars().any(|c| c != '*') {
-                Some(ResidueCode::One)
-            } else {
-                None
-            }
-        }
+    match (p.as_rule(), p.as_str()) {
+        (Rule::aa1 | Rule::term1, "X" | "*") | (Rule::aa3, "Xaa") => None,
+        (Rule::aa1 | Rule::term1, _) => Some(ResidueCode::One),
+        (Rule::aa3 | Rule::term3, _) => Some(ResidueCode::Three),
         _ => None,
     }
 }
 
-/// Refuses a one-letter `X` where a stop and any residue could both stand:
-/// the new residue of a substitution at a residue that is not a stop, and a
-/// residue an insertion or deletion-insertion names. `X` was the stop before
-/// it was `Xaa`, and nothing in such a description says which it means. Each
-/// refused `X` is a token of its own. Run after [`one_residue_code`], so an
-/// `X` beside three-letter residues is refused as a mix of codes instead.
-pub(crate) fn no_ambiguous_x(variant: &Pair<Rule>) -> Result<(), HgvsError> {
+/// Every `X` where a stop and any residue could both stand: the new residue
+/// of a substitution at a residue that is not a stop, and a residue an
+/// insertion or deletion-insertion names, in either code. `X` was the stop
+/// before it was `Xaa`, and nothing in such a description says which it
+/// means. Each `X` is a token of its own.
+pub(crate) fn ambiguous_x(variant: &Pair<Rule>) -> Vec<ResidueToken> {
     let mut ambiguous = Vec::new();
     for p in variant.clone().into_inner().flatten() {
         if !matches!(p.as_rule(), Rule::p_posedit | Rule::p_member) {
@@ -156,33 +178,22 @@ pub(crate) fn no_ambiguous_x(variant: &Pair<Rule>) -> Result<(), HgvsError> {
         let residues = match change.as_rule() {
             // A stop replaced by a stop would be no change, so only Xaa can
             // stand there.
-            Rule::pro_subst if !starts_at_a_stop(interval) => change.as_span(),
+            Rule::pro_subst if !starts_at_a_stop(interval) => change,
             Rule::pro_ins | Rule::pro_delins => match change.into_inner().next() {
-                Some(run) => run.as_span(),
+                Some(run) => run,
                 None => continue,
             },
             _ => continue,
         };
-        // A one-letter run holds no lower case, so its X is never Xaa's.
-        let text = residues.as_str();
-        if text.chars().any(|c| c.is_ascii_lowercase()) {
-            continue;
-        }
-        for (i, _) in text.match_indices('X') {
-            ambiguous.push(ResidueToken {
-                text: "X".to_string(),
-                start: residues.start() + i,
-                end: residues.start() + i + 1,
-            });
-        }
+        ambiguous.extend(
+            residues
+                .into_inner()
+                .flatten()
+                .filter(|r| matches!(r.as_rule(), Rule::aa1 | Rule::term1) && r.as_str() == "X")
+                .map(|r| token(r.as_span())),
+        );
     }
-    if ambiguous.is_empty() {
-        return Ok(());
-    }
-    Err(HgvsError::AmbiguousResidue {
-        description: variant.as_str().to_string(),
-        ambiguous,
-    })
+    ambiguous
 }
 
 /// Whether the first residue `interval` names is written as a stop.
