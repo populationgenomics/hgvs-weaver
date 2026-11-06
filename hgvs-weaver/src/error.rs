@@ -79,8 +79,7 @@ pub enum HgvsError {
     /// each, in the order they appear in `description`, so a caller can
     /// rewrite one code into the other and parse again. `*`, `Xaa` and `X`,
     /// which stand in either code, are in neither, as is a run of nothing
-    /// else; one inside a run is part of that run's token. A run that itself
-    /// mixes the codes gives a token per residue.
+    /// else; one inside a run is part of that run's token.
     MixedResidueCodes {
         description: String,
         one_letter: Vec<ResidueToken>,

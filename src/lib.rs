@@ -791,6 +791,11 @@ impl From<PyXTreatment> for ::hgvs_weaver::XTreatment {
 
 #[pymethods]
 impl PyXTreatment {
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, pyo3::types::PyTuple>> {
+        let getattr = slf.py().import("builtins")?.getattr("getattr")?;
+        let name = format!("{:?}", *slf.borrow());
+        (getattr, (slf.as_any().get_type(), name)).into_pyobject(slf.py())
+    }
     fn __repr__(&self) -> String {
         format!("XTreatment.{:?}", self)
     }

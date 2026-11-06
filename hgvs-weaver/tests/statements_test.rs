@@ -1059,6 +1059,45 @@ fn a_dict_for_an_insertion_in_one_letter_code_loads_in_three_letter_code() {
     );
 }
 
+/// A dict for `NP_W.1:p.Ala356_Gly357ins` with `alt` as its inserted residues.
+fn insertion_json(alt: &str) -> String {
+    p_json_at(
+        r#"{"start": {"base": 356, "aa": "Ala"}, "end": {"base": 357, "aa": "Gly"}, "uncertain": false}"#,
+        &format!(r#"{{"type": "Ins", "alt": {alt:?}, "uncertain": false}}"#),
+        false,
+        false,
+    )
+}
+
+#[test]
+fn a_dict_for_an_insertion_of_a_one_letter_run_holding_xaa_loads_in_three_letter_code() {
+    assert_eq!(
+        from_json(&insertion_json("KXaa")).unwrap(),
+        parse("NP_W.1:p.Ala356_Gly357insLysXaa")
+    );
+}
+
+/// One test per case: a dict inserting `$alt`, which is not a run in one
+/// code, loads with `$alt` as written, neither refused nor read as residues.
+macro_rules! a_dict_insertion_not_in_one_code_loads_as_written {
+    ($($name:ident: $alt:literal;)*) => {$(
+        #[test]
+        fn $name() {
+            let variant = from_json(&insertion_json($alt)).unwrap();
+            assert_eq!(variant.to_string(), concat!("NP_W.1:p.Ala356_Gly357ins", $alt));
+        }
+    )*};
+}
+
+a_dict_insertion_not_in_one_code_loads_as_written! {
+    a_dict_insertion_of_a_non_ascii_letter_before_a_lower_case_one: "éa";
+    a_dict_insertion_of_a_cjk_character: "中";
+    a_dict_insertion_of_a_digit: "1";
+    a_dict_insertion_of_a_partial_three_letter_code: "Le";
+    a_dict_insertion_of_a_lower_case_one_letter_code: "k";
+    a_dict_insertion_mixing_the_codes: "LeuG";
+}
+
 #[test]
 fn a_dict_for_an_n_terminal_extension_from_x_loads_from_an_unknown_residue() {
     let json = p_json_at(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import pytest
 
 import weaver
@@ -55,3 +57,9 @@ def test_parse_reads_an_ambiguous_x_as_a_stop_when_asked() -> None:
 def test_parse_reads_an_ambiguous_x_as_any_residue_when_asked() -> None:
     variant = weaver.parse("NP_000026.2:p.R60X", x_treatment=weaver.XTreatment.Unknown)
     assert str(variant) == "NP_000026.2:p.Arg60Xaa"
+
+
+def test_an_x_treatment_round_trips_through_pickle() -> None:
+    # A worker process receives the treatment it parses with pickled.
+    restored = pickle.loads(pickle.dumps(weaver.XTreatment.Stop))  # noqa: S301 -- the bytes are our own
+    assert restored == weaver.XTreatment.Stop

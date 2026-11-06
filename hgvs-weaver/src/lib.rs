@@ -6,8 +6,8 @@ use pest_derive::Parser as PestParser;
 #[grammar = "grammar.pest"]
 pub struct HgvsParser;
 
-/// How [`parse_hgvs_variant_with`] reads a one-letter `X` where a stop and
-/// any residue could both stand, in a `p.` description of either code. An
+/// How [`parse_hgvs_variant_with`] reads an `X` where a stop and any residue
+/// could both stand, in a `p.` description of either code. An
 /// `X` with one possible reading is read as it, whatever the treatment.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]

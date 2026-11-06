@@ -274,6 +274,7 @@ an_x_is_ambiguous! {
     every_x_of_a_one_letter_allele: "NP_W.1:p.[R2X;A4_G5insKXX]" => [(12, 13), (23, 24), (24, 25)];
     an_x_in_a_predicted_one_letter_allele: "NP_W.1:p.[(R2X;L3P)]" => [(13, 14)];
     a_substitution_to_x_at_a_residue_written_xaa: "NP_W.1:p.Xaa5X" => [(13, 14)];
+    a_substitution_to_x_at_a_residue_written_x: "NP_W.1:p.X110X" => [(13, 14)];
     a_three_letter_nonsense_change_written_x_as_clinvar_has_it: "NP_000021.1:p.Arg111X" => [(20, 21)];
     a_three_letter_substitution_to_x: "NP_060360.3:p.Leu2781X" => [(21, 22)];
     a_predicted_three_letter_substitution_to_x: "NP_W.1:p.(Arg2X)" => [(14, 15)];

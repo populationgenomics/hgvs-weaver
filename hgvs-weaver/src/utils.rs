@@ -128,25 +128,35 @@ pub fn residue_3(aa: &str) -> &str {
 }
 
 /// A run of residues as weaver stores and prints it, each residue in its
-/// three-letter code (`*` is `Ter`, `X` is `Xaa`). A three-letter code is the
-/// one with lower case after its first letter, as the grammar reads a run.
+/// three-letter code (`*` is `Ter`, `X` is `Xaa`), where the run reads as the
+/// grammar reads one: every residue a known code, all in one code, with `X`,
+/// `*` and `Xaa` in either. Anything else is kept as written.
 pub fn residues_3(seq: &str) -> String {
-    let mut out = String::with_capacity(seq.len() * 3);
-    let mut rest = seq;
-    while let Some(first) = rest.chars().next() {
-        let three = rest
-            .get(..3)
-            .filter(|t| t[1..].chars().all(|c| c.is_ascii_lowercase()));
-        match three {
-            Some(t) => {
-                out.push_str(t);
-                rest = &rest[3..];
-            }
-            None => {
-                out.push_str(aa1_to_aa3(first));
-                rest = &rest[first.len_utf8()..];
-            }
+    const AA1: &[u8] = b"ACDEFGHIKLMNPQRSTVWYBZXU*";
+    const AA3: [&str; 25] = [
+        "Ala", "Cys", "Asp", "Glu", "Phe", "Gly", "His", "Ile", "Lys", "Leu", "Met", "Asn", "Pro",
+        "Gln", "Arg", "Ser", "Thr", "Val", "Trp", "Tyr", "Asx", "Glx", "Xaa", "Sec", "Ter",
+    ];
+    if seq.is_empty() || !seq.is_ascii() {
+        return seq.to_string();
+    }
+    let (mut out, mut rest) = (String::with_capacity(seq.len() * 3), seq);
+    let (mut one_letter, mut three_letter) = (false, false);
+    while let Some(&first) = rest.as_bytes().first() {
+        if let Some(code) = rest.get(..3).filter(|t| AA3.contains(t)) {
+            three_letter |= code != "Xaa";
+            out.push_str(code);
+            rest = &rest[3..];
+        } else if AA1.contains(&first) {
+            one_letter |= !matches!(first, b'X' | b'*');
+            out.push_str(aa1_to_aa3(first as char));
+            rest = &rest[1..];
+        } else {
+            return seq.to_string();
         }
+    }
+    if one_letter && three_letter {
+        return seq.to_string();
     }
     out
 }

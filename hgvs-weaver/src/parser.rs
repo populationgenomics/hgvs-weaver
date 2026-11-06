@@ -196,7 +196,8 @@ pub(crate) fn ambiguous_x(variant: &Pair<Rule>) -> Vec<ResidueToken> {
     ambiguous
 }
 
-/// Whether the first residue `interval` names is written as a stop.
+/// Whether the first residue `interval` names is written as a stop, `*` or
+/// `Ter`; an `X` at a position names a residue the reference holds, `Xaa`.
 fn starts_at_a_stop(interval: &Pair<Rule>) -> bool {
     interval
         .clone()
@@ -204,7 +205,7 @@ fn starts_at_a_stop(interval: &Pair<Rule>) -> bool {
         .flatten()
         .find(|p| p.as_rule() == Rule::p_pos)
         .and_then(|pos| pos.into_inner().next())
-        .is_some_and(|first| first.as_rule() == Rule::term13)
+        .is_some_and(|first| first.as_rule() == Rule::term13 && first.as_str() != "X")
 }
 
 pub fn parse_p_posedit(pair: Pair<Rule>) -> Result<PosEdit<AaInterval, AaEdit>, HgvsError> {

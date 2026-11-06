@@ -5320,7 +5320,8 @@ let `p.[Arg2Lys;L3P]` through, which is the same mix split across a semicolon. A
 `p.?`, `p.0` or `p.=`, writes neither code.
 
 The rule is about the text, so it is checked on the text as parsed, before the residues are stored in the three-letter
-code weaver prints. A dict is not text: it stores residues one field at a time, and loads as before.
+code weaver prints. A dict is not text, so it is not refused for a mix: a run of residues it states is stored in
+three-letter code where it reads as a run in one code does in text, and kept as written otherwise.
 
 Which code a mixed description meant depends on where it came from, which a caller may know and weaver does not. So the
 error is typed, `MixedResidueCodesError` in Python and `HgvsError::MixedResidueCodes` in Rust, and carries the
