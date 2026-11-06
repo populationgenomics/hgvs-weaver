@@ -179,7 +179,12 @@ aat13 = { aat3 | aat1 }
 
 // Deliberately lenient: a terminator may appear mid-sequence because ClinVar
 // writes insertions such as p.Glu26_Glu27insTerGlu (biocommons rejects these).
-aat13_seq = @{ aat3+ | aat1+ }
+// A run is in one code, and Xaa, X and * stand in a run of either. A one-letter
+// run is tried first and must not stop at lower case, which only a three-letter
+// code holds: LeuX is a three-letter run, not L followed by eu.
+aat13_seq = ${ aat1_seq | aat3_seq }
+aat1_seq = ${ ((&"Xaa" ~ aa3) | aat1)+ ~ !ASCII_ALPHA_LOWER }
+aat3_seq = ${ (aat3 | term1)+ }
 
 fs = { "fs" ~ (aa13_fs | "") }
 ext = { "ext" ~ aa13_ext? }

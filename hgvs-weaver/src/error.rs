@@ -77,21 +77,20 @@ pub enum HgvsError {
     /// A protein description that writes residues in both amino acid codes:
     /// `one_letter` and `three_letter` are every residue or run written in
     /// each, in the order they appear in `description`, so a caller can
-    /// rewrite one code into the other and parse again. `*` and `Xaa`, a
-    /// stop and an unknown residue in either code, are in neither, as is a
-    /// run of nothing else; one inside a run is part of that run's token.
-    /// `Xaa` is in either code only outside a one-letter run, which cannot
-    /// hold it.
+    /// rewrite one code into the other and parse again. `*`, `Xaa` and `X`,
+    /// which stand in either code, are in neither, as is a run of nothing
+    /// else; one inside a run is part of that run's token.
     MixedResidueCodes {
         description: String,
         one_letter: Vec<ResidueToken>,
         three_letter: Vec<ResidueToken>,
     },
-    /// A one-letter `X` in a protein description where a stop and any
+    /// An `X` in a protein description, in either code, where a stop and any
     /// residue could both stand: the new residue of a substitution at a
     /// residue that is not a stop, or one an insertion or deletion-insertion
-    /// names. `ambiguous` is each such
-    /// `X` as written in `description`, one token per `X`, in order.
+    /// names. `ambiguous` is each such `X` as written in `description`, one
+    /// token per `X`, in order. Writing `*` or `Xaa` at each, or parsing with
+    /// [`crate::ParseOptions`], reads the description.
     AmbiguousResidue {
         description: String,
         ambiguous: Vec<ResidueToken>,
@@ -190,9 +189,11 @@ impl fmt::Display for HgvsError {
                 one_letter,
                 three_letter,
             } => {
-                // The one-letter token named is the first holding an X, the
-                // residue whose meaning the mix leaves open, else the first.
-                let x = one_letter.iter().find(|t| t.text.contains('X'));
+                // The one-letter token named is the first holding an X that
+                // is not Xaa's, which the hint is about, else the first.
+                let x = one_letter
+                    .iter()
+                    .find(|t| t.text.replace("Xaa", "").contains('X'));
                 let one = x.or(one_letter.first()).map_or("", |t| t.text.as_str());
                 let three = three_letter.first().map_or("", |t| t.text.as_str());
                 write!(

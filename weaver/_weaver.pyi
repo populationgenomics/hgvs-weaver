@@ -46,11 +46,12 @@ class AmbiguousDescriptionError(HGVSError):
 @final
 class AmbiguousResidueError(ParseError):
     """
-    A one-letter X in a p. description where a stop and any residue could both stand.
+    An X in a p. description, in either amino acid code, where a stop and any residue could both stand.
 
     The new residue of a substitution at a residue that is not a stop, or one an insertion or deletion-insertion names.
     ambiguous holds each such X as (text, start, end) with text == description[start:end], one per X, in the order
-    written.
+    written. Writing * or Xaa at each, or parsing with x_treatment set to XTreatment.Stop or XTreatment.Unknown, reads
+    the description.
     """
     def __new__(
         cls,
@@ -149,8 +150,8 @@ class MixedResidueCodesError(ParseError):
 
     one_letter and three_letter hold every residue or run written in each, as (text, start, end) with text ==
     description[start:end], in the order written: a run the grammar reads as one sequence, the DPA of insDPA, is one
-    token, and * and Xaa, a stop and an unknown residue in either code, are in neither, as is a run of nothing else; one
-    inside a run is part of that run's token.
+    token, and *, Xaa and X, which stand in either code, are in neither, as is a run of nothing else; one inside a run
+    is part of that run's token.
     """
     def __new__(
         cls,
@@ -1022,7 +1023,25 @@ class WrongReferenceKindError(ValidationError):
     @property
     def read_as(self) -> ReferenceUse: ...
 
-def parse(input: str) -> Variant:
+@final
+class XTreatment:
+    """
+    How parse reads an X in a p. description where a stop and any residue could both stand.
+
+    Error refuses the description as an AmbiguousResidueError; Stop reads the X as a
+    stop, the convention before X meant any residue; Unknown reads it as any residue,
+    Xaa. An X with one possible reading is read as it whatever the treatment.
+    """
+    def __hash__(self) -> int: ...
+    def __eq__(self, value: object, /) -> bool: ...
+    def __ne__(self, value: object, /) -> bool: ...
+    def __int__(self) -> int: ...
+    def __reduce__(self) -> tuple: ...
+    Error: ClassVar[XTreatment]
+    Stop: ClassVar[XTreatment]
+    Unknown: ClassVar[XTreatment]
+
+def parse(input: str, x_treatment: XTreatment = ...) -> Variant:
     """
     Parses an HGVS string into a Variant object.
 
@@ -1034,17 +1053,22 @@ def parse(input: str) -> Variant:
 
     Args:
         input: The HGVS string to parse.
+        x_treatment: How an X in a p. description is read where a stop and any
+            residue could both stand, p.R210X or p.Arg210X: refused (the default),
+            read as a stop, or read as Xaa. The result is that of the description
+            with * or Xaa written in the X's place.
 
     Returns:
         A Variant object.
 
     Raises:
         MixedResidueCodesError: If a p. description writes residues in both the
-            one- and three-letter amino acid codes, p.Arg111X; * and Xaa are in
-            either. A ParseError, carrying every residue written in each code.
-        AmbiguousResidueError: If a one-letter p. description writes X where a
-            stop and any residue could both stand, p.R210X. A ParseError, carrying
-            each such X.
+            one- and three-letter amino acid codes, p.Ala2_Gly3insDPA; *, Xaa and X
+            are in either. A ParseError, carrying every residue written in each code.
+        AmbiguousResidueError: If a p. description writes X where a stop and any
+            residue could both stand and x_treatment is XTreatment.Error. A
+            ParseError, carrying each such X; writing * or Xaa at its offsets, or
+            parsing with another treatment, reads it.
         ParseError: If the HGVS string is malformed or unsupported.
         UnsupportedOperationError: If the string describes alleles in trans.
     """

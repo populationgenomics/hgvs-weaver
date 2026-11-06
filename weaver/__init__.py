@@ -30,6 +30,7 @@ from weaver._weaver import (  # type: ignore[attr-defined]
     Variant,
     VariantMapper,
     WrongReferenceKindError,
+    XTreatment,
     parse,
 )
 
@@ -66,6 +67,7 @@ __all__ = [
     "Variant",
     "VariantMapper",
     "WrongReferenceKindError",
+    "XTreatment",
     "parse",
 ]
 
