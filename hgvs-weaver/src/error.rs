@@ -89,7 +89,8 @@ pub enum HgvsError {
     /// residue could both stand: the new residue of a substitution at a
     /// residue that is not a stop, or one an insertion or deletion-insertion
     /// names. `ambiguous` is each such `X` as written in `description`, one
-    /// token per `X`, in order.
+    /// token per `X`, in order. Writing `*` or `Xaa` at each, or parsing with
+    /// [`crate::ParseOptions`], reads the description.
     AmbiguousResidue {
         description: String,
         ambiguous: Vec<ResidueToken>,
@@ -188,9 +189,11 @@ impl fmt::Display for HgvsError {
                 one_letter,
                 three_letter,
             } => {
-                // The one-letter token named is the first holding an X, the
-                // residue whose meaning the mix leaves open, else the first.
-                let x = one_letter.iter().find(|t| t.text.contains('X'));
+                // The one-letter token named is the first holding an X that
+                // is not Xaa's, which the hint is about, else the first.
+                let x = one_letter
+                    .iter()
+                    .find(|t| t.text.replace("Xaa", "").contains('X'));
                 let one = x.or(one_letter.first()).map_or("", |t| t.text.as_str());
                 let three = three_letter.first().map_or("", |t| t.text.as_str());
                 write!(

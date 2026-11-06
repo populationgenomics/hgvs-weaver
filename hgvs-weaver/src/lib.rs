@@ -29,6 +29,7 @@ pub struct ParseOptions {
 }
 
 impl ParseOptions {
+    /// These options, reading an ambiguous `X` as `x_treatment` says.
     pub fn with_x_treatment(self, x_treatment: XTreatment) -> Self {
         Self { x_treatment }
     }

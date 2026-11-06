@@ -5367,7 +5367,7 @@ malformed for other reasons too.
 - *Not checked:* VariantValidator.
 
 <details>
-<summary><strong>Tests asserting this choice (22)</strong></summary>
+<summary><strong>Tests asserting this choice (24)</strong></summary>
 
 `residue_code_test::a_one_letter_insertion_between_three_letter_residues`,
 `::an_allele_whose_members_use_different_codes` and the other refused descriptions;
@@ -5381,7 +5381,8 @@ malformed for other reasons too.
 `::the_message_names_a_run_holding_x_before_an_earlier_one_letter_residue`,
 `::a_three_letter_frameshift_to_a_stop_written_star` and the other stops written `*`,
 `::a_substitution_to_xaa_at_a_one_letter_residue`, `::a_one_letter_run_holding_xaa`,
-`::a_one_letter_run_holding_xaa_and_a_stop`, `::a_mixed_allele_does_not_count_xaa_in_either_code`,
+`::a_one_letter_run_holding_xaa_and_a_stop`, `::a_three_letter_run_ending_in_a_stop_written_star`,
+`::a_three_letter_repeat_unit_holding_x`, `::a_mixed_allele_does_not_count_xaa_in_either_code`,
 `::a_three_letter_frameshift_written_fsx_as_clinvar_has_it`, `::an_unknown_effect` and the other descriptions without
 residues; `tests/test_mixed_residue_codes.py::test_a_description_mixing_the_codes_is_a_mixed_residue_codes_error`,
 `::test_a_mixed_residue_codes_error_is_a_parse_error`, `::test_the_error_carries_each_one_letter_token_where_written`,
@@ -5400,7 +5401,7 @@ ______________________________________________________________________
 > in each such place. Where only one of the two can stand, `X` is that one whatever the treatment: a stop after `fs`,
 > after `ext` with a count and at the start of an extension past the stop; any residue as the first residue of a
 > frameshift, the residue that replaces a stop, and the new start of an N-terminal extension. An `X` naming residues the
-> reference holds, at a position or in a repeat unit, is `Xaa`.**
+> reference holds, at any other position or in a repeat unit, is `Xaa`.**
 
 `X` has had two meanings: a stop in older recommendations and papers (`p.R210X`, `p.Arg210X`), and any residue today. A
 description such as `p.R210X` names a nonsense change in one reading and a change to an unknown residue in the other;
@@ -5416,10 +5417,10 @@ stop can follow `fs`, reads as `p.I223MfsX45` does.
 
 Where only one reading makes sense, the `X` is read as it. A frameshift whose first residue were a stop would be a
 nonsense change, not a frameshift; a stop replaced by a stop, `p.*30X` or `p.*30Xext*5`, would be no change; a stop
-cannot start a protein. Read as the other, these descriptions have no meaning, so they have one reading. An `X` at a
-position or in a repeat unit names residues the reference holds, which validation checks against the sequence, so a
-wrong reading is reported there rather than stored as another allele; it is read as `Xaa`. A dict states each residue in
-its own field and is not text in either code; its `X` loads as `Xaa`.
+cannot start a protein. Read as the other, these descriptions have no meaning, so they have one reading. An `X` at any
+other position or in a repeat unit names residues the reference holds, which validation checks against the sequence, so
+a wrong reading is reported there rather than stored as another allele; it is read as `Xaa`. A dict states each residue
+in its own field and is not text in either code; its `X` loads as `Xaa`.
 
 Which reading a source meant is often known to the caller and never to weaver: literature from before 2011 writes stops
 with `X`, a modern variant-class list writes any residue. The error carries the description and each ambiguous `X` as

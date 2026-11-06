@@ -256,7 +256,7 @@ fn ambiguous(hgvs: &str) -> Vec<Token> {
     }
 }
 
-/// One test per case: `$hgvs`, a one-letter description, is refused for the
+/// One test per case: `$hgvs`, in either code, is refused for the
 /// `X`s at `$spans`, each of which could be a stop or any residue.
 macro_rules! an_x_is_ambiguous {
     ($($name:ident: $hgvs:literal => [$(($start:literal, $end:literal)),*];)*) => {$(
@@ -293,7 +293,7 @@ fn the_ambiguity_message_offers_a_stop_and_any_residue() {
     );
 }
 
-/// One test per case: `$hgvs` reads its one-letter `X` the one way it can,
+/// One test per case: `$hgvs` reads its `X` the one way it can,
 /// as the description `$read` does.
 macro_rules! an_x_with_one_reading {
     ($($name:ident: $hgvs:literal => $read:literal;)*) => {$(
@@ -360,6 +360,8 @@ prints_in_three_letter_code! {
     an_insertion_of_xaa_between_one_letter_residues: "NP_W.1:p.A2_L3insXaa" => "NP_W.1:p.Ala2_Leu3insXaa";
     a_one_letter_run_holding_xaa: "NP_W.1:p.A2_G3insKXaaXaa" => "NP_W.1:p.Ala2_Gly3insLysXaaXaa";
     a_one_letter_run_holding_xaa_and_a_stop: "NP_W.1:p.R2delinsXaaL*" => "NP_W.1:p.Arg2delinsXaaLeuTer";
+    a_three_letter_run_ending_in_a_stop_written_star: "NP_W.1:p.Ala2_Gly3insLys*" => "NP_W.1:p.Ala2_Gly3insLysTer";
+    a_three_letter_repeat_unit_holding_x: "NP_W.1:p.Gln4GlnX[3]" => "NP_W.1:p.Gln4GlnXaa[3]";
     a_one_letter_repeat_unit: "NP_W.1:p.490PRS[1]" => "NP_W.1:p.490ProArgSer[1]";
     a_one_letter_repeat_unit_over_a_range: "NP_W.1:p.Q18_A20QA[3]" => "NP_W.1:p.Gln18_Ala20GlnAla[3]";
     a_one_letter_insertion_that_spells_a_three_letter_code: "NP_W.1:p.A2_G3insHIS" => "NP_W.1:p.Ala2_Gly3insHisIleSer";
@@ -413,4 +415,12 @@ fn a_treatment_of_x_leaves_a_mix_of_codes_refused() {
         matches!(result, Err(HgvsError::MixedResidueCodes { .. })),
         "{result:?}"
     );
+}
+
+#[test]
+fn a_mix_whose_one_letter_run_holds_only_xaa_offers_no_stop_hint() {
+    let message = parse_hgvs_variant("NP_W.1:p.Ala2delinsXaaK")
+        .unwrap_err()
+        .to_string();
+    assert!(!message.contains("a stop is Ter"), "{message}");
 }

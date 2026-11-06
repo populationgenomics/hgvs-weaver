@@ -1070,6 +1070,14 @@ fn insertion_json(alt: &str) -> String {
 }
 
 #[test]
+fn a_dict_for_an_insertion_of_a_three_letter_run_holding_x_loads_it_as_xaa() {
+    assert_eq!(
+        from_json(&insertion_json("LysX")).unwrap(),
+        parse("NP_W.1:p.Ala356_Gly357insLysXaa")
+    );
+}
+
+#[test]
 fn a_dict_for_an_insertion_of_a_one_letter_run_holding_xaa_loads_in_three_letter_code() {
     assert_eq!(
         from_json(&insertion_json("KXaa")).unwrap(),
