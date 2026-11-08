@@ -82,8 +82,8 @@ print(level)                                              # EquivalenceLevel.Ana
 
 Projection needs an object implementing the `DataProvider` protocol, which supplies transcript models and sequences.
 [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider) implements it over a store built from
-NCBI's published transcript alignments, with every placement NCBI publishes and NCBI's historical set of superseded
-transcript versions; `weaver.refseq.RefSeqDataProvider` implements it directly over a RefSeq GFF3 and FASTA (install
+NCBI's published transcript alignments, with every placement NCBI publishes and NCBI's historical set of transcript
+versions; `weaver.refseq.RefSeqDataProvider` implements it directly over a RefSeq GFF3 and FASTA (install
 `hgvs-weaver[refseq]` for its `pysam` dependency); `weaver.refget.RefgetProvider` implements it over a GA4GH refget
 server (for sequences) plus another provider for transcript models.
 
@@ -200,12 +200,12 @@ print(var.format())  # NM_000051.3:c.123A>G
 
 The validation run reads a GRCh38 store and genome built by `weaver-data-build` from
 [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider): the current annotation release's shard
-with NCBI's historical set of superseded transcript versions stacked under it, so the variants ClinVar names on
-superseded versions project too. The gate, `weaver.cli.gate`, does the whole thing: it fetches NCBI's files, asks Entrez
-for each superseded version's status, cuts the shards, the store and the genome, runs the validation and compares the
-output with a baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a
-few gigabytes of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone,
-about half a minute for the 100k set. The `gate` dependency group provides what it needs:
+with NCBI's historical set of transcript versions stacked under it, so the variants ClinVar names on historical versions
+project too. The gate, `weaver.cli.gate`, does the whole thing: it fetches NCBI's files, asks Entrez for each historical
+version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a baseline
+run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes of
+downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
+minute for the 100k set. The `gate` dependency group provides what it needs:
 
 ```sh
 uv run --group gate python -m weaver.cli.gate --data data/gate \

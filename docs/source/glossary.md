@@ -4,8 +4,8 @@
 every choice weaver makes where another tool could answer otherwise; [`equivalence_logic.md`](equivalence_logic.md), how
 two descriptions are judged.
 
-weaver reads HGVS descriptions of sequence variants, checks them against the sequences they cite, moves them between a
-transcript, its protein and the genome, and decides whether two of them name the same change. HGVS, VRS and the tools
+weaver reads HGVS descriptions of changes to a sequence, checks them against the sequences they cite, moves them between
+a transcript, its protein and the genome, and decides whether two of them name the same change. HGVS, VRS and the tools
 that read them each have their own words, and several everyday words — reference, identity, statement, normalisation —
 mean different things in different places. This page fixes one word for each concept weaver's code, docs and errors talk
 about. Where another word is in common use for the same thing, it is listed under _Avoid_: not because it is wrong
@@ -34,7 +34,7 @@ placed, by a base or by a gap. _Avoid_: transcript (when the sequence specifical
 its coding sequence, and its placement where it has one. _Avoid_: transcript data, annotation
 
 **Placement**: Where a transcript lies on a genome: the genome's accession, the strand, and how each exon aligns to it.
-Placement is only ever this; where an edit sits is its position. _Avoid_: alignment (for the whole), mapping
+Where an edit sits is its position, not its placement. _Avoid_: alignment (for the whole), mapping
 
 **Placed record**, **unplaced record**: A transcript record with a placement, or one no assembly places, such as a
 GenBank mRNA. An unplaced record is read on its own sequence alone, and anything that needs the genome is refused.
@@ -62,8 +62,10 @@ exon boundary
 **Exon junction**: The junction on a transcript record between the last base of one exon and the first of the next, with
 an intron between them on the genome. _Avoid_: splice junction, exon/exon boundary
 
+**Transcript**: An RNA a gene gives, as a transcript model and a transcript record describe it.
+
 **Coding sequence**, **CDS**: The stretch of a transcript record that is translated, from the first base of its first
-codon to the last base of its stop codon. _Avoid_: coding region, ORF
+codon to the last base of its stop codon, or to the end of the record where it runs off. _Avoid_: coding region, ORF
 
 **Start codon**, **initiator**: The first codon of a coding sequence when translation starts there. Its residue is Met
 whatever its bases.
@@ -94,13 +96,14 @@ or a protein record read the same way. A coding sequence open at its 5' end has 
 coding transcript, `n.` a non-coding transcript, `r.` a transcript's RNA, `p.` a protein. _Avoid_: coordinate type
 (except as the API's name for it), transcript space
 
-**Coding** (`c.`): The coordinate system of a transcript with a coding sequence, numbered from the start codon, with `-`
-before it and `*` after the stop. _Avoid_: cDNA
+**Coding** (`c.`): The coordinate system of a transcript with a coding sequence, numbered from the CDS's first base,
+with `-` before it and `*` after its last. _Avoid_: cDNA
 
 **Position**: A place on a sequence, in a coordinate system. A position in one coordinate system is never a position in
 another without a projection.
 
-**Anchor**: What a transcript position counts from: the transcript's first base, the start codon, or the stop codon.
+**Anchor**: What a transcript position counts from: the transcript's first base, the CDS's first base, or the CDS's last
+base.
 
 **Intronic offset**: The signed distance from an exon border into an intron: `c.88+2` is two bases into the intron after
 `c.88`.
@@ -112,13 +115,14 @@ half-open (as a name for the convention)
 **Uncertain**: Not known exactly: a position given as a range of possible positions, `g.(3_4)`, or a breakpoint given as
 `?`. An uncertain position names no single change. _Avoid_: imprecise, inexact, fuzzy
 
-**Footprint**: What a position occupies on the other sequence of a projection: one base, or an empty point beside a gap.
+**Footprint**: What a position occupies on the other sequence of a projection: one base; or, at a gap, an empty point
+together with the run of bases the other sequence lacks there.
 
 ## Descriptions and edits
 
-**Description**: An HGVS variant as written: an accession, a coordinate system, a position and an edit, as text or as
-the value parsed from it. _Avoid_: variant (in prose; the API's type is `Variant`), expression (except for the HGVS a
-VRS Allele carries)
+**Description**: What an HGVS string says: an accession, a coordinate system, a position and an edit, as text or as the
+value parsed from it. _Avoid_: variant (in prose; the API's type is `Variant`), expression (except for the HGVS a VRS
+Allele carries)
 
 **Change**: What a description does to its reference. One change has many spellings. _Avoid_: event, mutation, variant
 
@@ -133,32 +137,41 @@ inversion, conversion, repeat, copy number or identity. _Avoid_: mutation type
 **Repeat**, **repeat unit**, **run**: A repeat, `CAG[12]`, says the whole tandem run of its unit at that position
 becomes the given number of copies.
 
-**Identity**: The `=` edit: the bases at the position are as the reference has them. _Avoid_: no change
+**Identity**: The `=` edit: the bases at the position are as the reference has them, `c.10_12=`. An identity states the
+bases it names. _Avoid_: no change
 
 **Silent change**: A coding change that leaves its protein as it was; its protein consequence is an identity at the
 residues it spans, `p.(Ala4=)`. _Avoid_: synonymous change (except when quoting)
 
 **Whole identity**: `c.=`, `r.=`, `p.=`: the whole sequence was analysed and found unchanged.
 
-**Statement**: A description that says what the sequence is, or how it is affected, without changing its bases:
-identities, `p.?`, `p.0?`, `p.(=)`, `p.(Met1?)`, `r.spl`, `r.0`. Its opposite is a change.
+**Statement**: A description that says what the sequence is, or how it is affected, without changing its bases. Its
+opposite is a change. A statement either names bases, as an identity does and cancelling members do, or names none:
+`c.=`, `p.(=)`, `p.?`, `p.0?`, `p.(Met1?)`, `r.spl`, `r.0`, `r.(?)`. A statement that names no bases has no sequence to
+compare, so within an allele it is compared by its spelling.
 
-**Written bases**: The reference bases a description writes, such as the `C` of `c.306delC`. They are checked against
-the reference. _Avoid_: stated bases (for these)
+**Written bases**: The reference bases, repeat unit or residues a description writes, such as the `C` of `c.306delC`.
+They are checked against the reference. _Avoid_: stated bases (for these)
 
-**Written bare**: Written without the reference bases an edit could state: `c.306del`, not `c.306delC`.
+**Written bare**: Written without the reference bases an edit could carry: `c.306del`, not `c.306delC`.
 
-**Stated bases**: The bases a statement asserts are unchanged, through an identity or through members of an allele that
-cancel.
+**Stated bases**: The bases a description asserts are unchanged, through an identity or through members of an allele
+that cancel.
 
-**Located edit**: An edit placed on a transcript record: either in an intron, or over a range of the record with its new
-bases, spelled out or known only by their count, and the exon junctions the range spans.
+**Located edit**: An edit positioned on a transcript record for prediction: either in an intron, or over a range of the
+record with its new bases, spelled out or known only by their count, and the exon junctions the range spans.
 
-**Prediction**: A consequence weaver infers rather than one that was observed, written in parentheses: the `p.`
-description it derives from a coding change is a prediction.
+**Prediction**: A consequence weaver infers rather than one that was observed: the `p.` description it derives from a
+coding change is a prediction, in parentheses where HGVS brackets one (`p.?` and `p.0?` stay bare).
 
 **Protein consequence**: The `p.` description a coding change predicts, read from the codons of the edited transcript.
 _Avoid_: outcome, effect
+
+**Frameshift**: A change after which translation reads another frame, written `fs` with the distance to the first new
+stop.
+
+**Extension**: A change that lengthens a protein, written `ext`: past a lost stop at its C-terminus, or before Met1 at
+its N-terminus. _Avoid_: stop loss (for the description)
 
 **Amino acid code**: The one-letter or three-letter names of residues. A `p.` description writes one code throughout.
 
@@ -167,9 +180,12 @@ _Avoid_: outcome, effect
 **Ambiguous residue**: An `X` that could be read as a stop or as any residue. It is refused unless the caller says how
 to read it.
 
-**Trans**: Changes on two different molecules, `[..];[..]`. weaver refuses them as not one variant.
+**Trans**: Changes on two different molecules, `[..];[..]`. weaver refuses them as not one description.
 
 ## Alleles
+
+**Allele**: What one molecule carries, a single change or several in cis, judged by the sequence it makes and the bases
+it states.
 
 **Cis allele**: Several changes on one molecule, written `c.[a;b]`. _Avoid_: allele in cis (in running prose), phased
 allele, haplotype
@@ -179,7 +195,10 @@ allele, haplotype
 **Member that cannot be applied**: A member no sequence can be built from: a copy number, an uncertain position, a
 conversion, an insertion of unwritten bases, a statement about the whole sequence. _Avoid_: unapplied member
 
-**Members that meet**: Members whose ranges touch or overlap.
+**Extent**: The stretch of the reference a member's edit touches; an insertion's extent is the empty point at its
+junction.
+
+**Members that meet**: Members whose extents touch or overlap.
 
 **Cancelling members**: Members that together leave the reference as it was. They state the bases they span.
 
@@ -191,9 +210,9 @@ a sequence is to apply it there. _Avoid_: interpretation; "reading" for the read
 **Ambiguous description**: A description with several readings that make different sequences or state different bases.
 It is refused, listing the readings; weaver never picks.
 
-**Canonical allele**: A change trimmed to what it alters on the genome, then widened over its region of ambiguity, so
-that every spelling of one change has one canonical allele. VRS and VOCA call this fully justified. _Avoid_: fully
-justified normalisation, normalised allele
+**Canonical allele**: A change trimmed to what it alters on its genome, or for a `p.` description its protein, then
+widened over its region of ambiguity, so that every spelling of one change has one canonical allele. VRS and VOCA call
+this fully justified. _Avoid_: fully justified normalisation, normalised allele
 
 **Region of ambiguity**: The span over which an insertion or deletion could equally be written.
 
@@ -209,9 +228,11 @@ it is that change's VRS Allele.
 **Validate**: Check a description against its reference: its positions exist and its written bases are there. _Avoid_:
 verify
 
-**Project**, **projection**: Rewrite a description in another coordinate system that numbers the same bases: transcript
-to genome, genome to transcript, or a coding change to its protein consequence. _Avoid_: map, mapping, transform,
-convert, lift over
+**Project**, **projection**: Rewrite a description onto another sequence that numbers the same bases: a transcript onto
+the genome it is placed on, or the genome onto a transcript. A coding change's protein consequence is predicted, not
+projected. _Avoid_: map, mapping, transform, convert, lift over
+
+**Respell**: Write an `r.` description as the `c.` or `n.` description of the same positions in DNA letters, or back.
 
 **Correction**: What a statement becomes when it is projected onto a sequence that differs from its own there: the edit
 that turns the target's bases into the ones the statement asserts.
@@ -225,18 +246,22 @@ justify
 
 **Reduce**: Drop the bases a delins replaces with themselves at either end, then write what is left as the edit it is.
 
-**Consistent variants**: The readings of a description whose accession is a gene symbol or carries no version, one on
-each record the store holds that has the description's written bases.
+**Consistent variants**: For a description on a gene symbol or an unversioned accession, the description on each record
+the store holds under that name that validation finds it consistent with; a versioned accession gives the description
+itself.
 
 **Translation**: Reading a coding sequence codon by codon into residues.
 
 ## Equivalence
 
-**Equivalence**: Whether two descriptions name the same change.
+**Equivalence**: Whether two descriptions say the same thing about a sequence: they make the same sequence and state the
+same bases, or leave the same protein.
 
-**Verdict**: An equivalence answer: an **Identity**, **Analogous**, **Different** or **Unknown** verdict. Identity is
-the same spelling; Analogous is a different spelling of the same change; Different is two understood descriptions naming
-different changes; Unknown is a pair weaver could not judge. _Avoid_: level, "identity" (lower case, for the verdict)
+**Verdict**: An equivalence answer. **Identity**: the two are the same after spelling comparison, or one projects
+exactly onto the other, or one is a coding change and the other its prediction. **Analogous**: written differently, but
+equivalent. **Different**: both understood, and not equivalent. **Unknown**: weaver does not return it, refusing a pair
+it cannot judge with an error; the validation run records such a pair as Unknown. _Avoid_: level, "identity" (lower
+case, for the verdict)
 
 **Spelling comparison**: The first equivalence step: comparing two descriptions as text, ignoring what is only spelling
 — a prediction's parentheses, the amino acid code, a one-member allele's brackets, the order of members. _Avoid_: basic
@@ -276,12 +301,14 @@ transcript.
 version's status and tags.
 
 **Accession status**: Whether a version is **current**, **superseded** by a later one, or **suppressed**, withdrawn by
-its publisher. _Avoid_: retired
+its publisher.
+
+**Historical version**: A version that is not current: superseded or suppressed. _Avoid_: retired, old
 
 **Accession tag**: A curated label on a transcript, such as MANE Select or RefSeq Select. A protein carries the tags of
 the transcripts that encode it.
 
-**Shard**, **historical shard**: One release's records in a built store; the historical shard holds NCBI's superseded
+**Shard**, **historical shard**: One release's records in a built store; the historical shard holds NCBI's historical
 versions beneath the current release's.
 
 ## VRS and identifiers
@@ -314,15 +341,15 @@ its example, the specification it rests on, its tests, and which tools agree.
 **biocommons hgvs**: The Python `hgvs` package weaver descends from, used as a comparison. _Avoid_: ref-hgvs, the
 reference implementation, the standard implementation
 
-**Validation run**: The run that compares weaver's answers with ClinVar's and biocommons hgvs's over a sample of ClinVar
-variants. _Avoid_: harness
+**Validation run**: The run that compares weaver's answers with ClinVar's and biocommons hgvs's over a sample of
+ClinVar's descriptions. _Avoid_: harness
 
-**Gate**: The 100,000-variant validation run every change to the core passes before it merges, compared row by row with
-a baseline.
+**Gate**: The 100,000-description validation run every change to the core is checked with before it merges: its rows are
+compared with a baseline's, and each moved row is checked against the truth columns.
 
 **Baseline**: A validation run's output on the code a change starts from.
 
-**Moved row**: A variant whose answer differs between a baseline and a validation run.
+**Moved row**: A ClinVar description whose answer differs between a baseline and a validation run.
 
 **Truth columns**: The answers in a validation run that come from outside weaver, ClinVar's protein and SPDI, against
 which a moved row is checked.

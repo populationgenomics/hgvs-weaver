@@ -3,9 +3,9 @@
 ## What it is
 
 weaver is an HGVS engine. It parses a variant description, checks it against the reference it cites, projects it between
-transcript, protein and genome, normalises it, renders it as SPDI and GA4GH VRS, and decides whether two descriptions
-name the same change. The core is Rust; the Python package wraps it with typed exceptions and a protocol for data
-access, so it needs no database.
+transcript and genome, predicts its protein consequence, normalises it, renders it as SPDI and GA4GH VRS, and decides
+whether two descriptions name the same change. The core is Rust; the Python package wraps it with typed exceptions and a
+protocol for data access, so it needs no database.
 
 ```text
 "NM_000051.3:c.123A>G" ──parse──▶ Variant ──project / normalise / judge──▶ Variant, SPDI, VRS, verdict

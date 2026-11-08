@@ -130,7 +130,7 @@ and a literal out that fails on its own; a loop inside one test is neither.
 - **Values that could expose the bug.** Never a type's default — a missing int reads as zero, so `0` cannot tell stored
   from absent. A distinct value for every argument, so a swapped or reused argument is caught. Then the empty case, the
   boundaries — an exon's first and last base, a CDS end, a minus-strand transcript, an intronic offset of one — and the
-  input that takes the complex path: a gapped alignment, a repeat that runs from an exon into its intron.
+  input that takes the complex path: a gapped alignment, a repeat beside an exon junction or running into an intron.
 - **Parametrise over inputs to one behaviour, never over behaviours.** A table that grows a dimension per behaviour
   hides which case failed and can carry a bug in its own indexing that the code under test shares.
 - **Brittleness is a missing assertion.** A test that depends on an irrelevant detail — set iteration order, an error's

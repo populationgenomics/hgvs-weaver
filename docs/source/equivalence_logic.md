@@ -75,8 +75,9 @@ applied. An allele that is a
 compared: the judgement is that error. A one-member allele is its member, and its brackets are spelling, as a
 prediction's parentheses are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too:
 `c.[13T>G;7C>T]` and `c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members
-project to exactly. An allele with a member at an uncertain position, or a statement among several members, makes no one
-sequence; it is compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+project to exactly. An allele with a member at an uncertain position, or a statement that names no bases among several
+members, makes no one sequence; it is compared member by member
+([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
 
 A protein allele `p.[a;b]` is compared the same way, by what it leaves and what it states: the protein its changes
 leave, read as [single descriptions are](#the-protein-a-description-leaves), and the residues its statements name. So
@@ -138,10 +139,10 @@ read against the reference protein:
 - a frameshift `p.Arg97ProfsTer4` leaves the reference up to 96, then `P`, then two residues it does not name (written
   `X`, which matches any residue), then ends;
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
-  substitution (`p.Ter599Trp`, ClinVar's form) leave an outcome **of unknown length**: what is known, then more residues
-  in unknown number. An outcome of unknown length matches any outcome it is a prefix of. One that writes nothing past
-  the reference's own residues, `p.Ter7del`, has at least one more, so that it never leaves the protein as it is
-  ([the choice](choices.md#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none));
+  substitution (`p.Ter599Trp`, ClinVar's form) leave a protein **of unknown length**: what is known, then more residues
+  in unknown number. A protein of unknown length matches any protein left that it is a prefix of. One that writes
+  nothing past the reference's own residues, `p.Ter7del`, has at least one more, so that it never leaves the protein as
+  it is ([the choice](choices.md#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none));
 - an N-terminal extension `p.Met1ext-5` leaves the reference with five residues added before Met1, a Met and four it
   does not name ([the choice](choices.md#an-n-terminal-extension-adds-residues-before-met1));
 - `p.0` and `p.0?` leave no protein;
@@ -151,7 +152,7 @@ read against the reference protein:
   statements that overlap without naming the same residues are Different
   ([the choice](choices.md#judged-by-allele-and-by-the-protein-left-behind));
 - `p.?` (and `p.(?)`) says nothing and matches nothing; `p.Met1?` and its like are **anchored**: they say only where the
-  change starts, and match an outcome whose change starts at that residue.
+  change starts, and match any protein left whose change starts at that residue.
 
 Parentheses that mark a prediction are spelling, since a prediction is taken as its confirmation: `p.(Val600Glu)` is
 `p.Val600Glu`, and `r.(=)` is `r.=`. No other parentheses are. Those of `r.(?)` mark no prediction but a statement of
