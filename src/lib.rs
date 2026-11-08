@@ -917,17 +917,17 @@ fn parse(input: &str, x_treatment: PyXTreatment) -> PyResult<PyVariant> {
     }
 }
 
-/// The typed variants a mapper method accepts, or the ValueError Python callers expect.
+/// The typed descriptions a mapper method accepts, or the ValueError Python callers expect.
 macro_rules! expect_variant {
     ($name:ident, $variant:ident, $ty:ty, $what:literal) => {
         fn $name(var: &SequenceVariant) -> PyResult<&$ty> {
             match var {
                 SequenceVariant::$variant(v) => Ok(v),
                 SequenceVariant::CisPhased(_) => Err(pyo3::exceptions::PyValueError::new_err(
-                    concat!("Expected a ", $what, ", not an allele in cis"),
+                    concat!("Expected ", $what, ", not a cis allele"),
                 )),
                 _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
-                    "Expected a ",
+                    "Expected ",
                     $what
                 ))),
             }
@@ -935,14 +935,14 @@ macro_rules! expect_variant {
     };
 }
 
-/// What a projection takes: a plain variant, or an allele in cis of members
-/// in the same system, which projects member by member.
+/// What a projection takes: a plain description, or a cis allele of members
+/// in the same coordinate system, which projects member by member.
 enum OneOrCis<'v, T> {
     One(&'v T),
     Cis(&'v ::hgvs_weaver::CisPhasedVariant),
 }
 
-/// The plain variant or allele in cis a projection accepts, or the ValueError
+/// The plain description or cis allele a projection accepts, or the ValueError
 /// Python callers expect.
 macro_rules! expect_one_or_cis {
     ($name:ident, $variant:ident, $ty:ty, $system:literal, $what:literal) => {
@@ -953,9 +953,9 @@ macro_rules! expect_one_or_cis {
                     Ok(OneOrCis::Cis(c))
                 }
                 _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
-                    "Expected a ",
+                    "Expected ",
                     $what,
-                    " or an allele in cis of them"
+                    " or a cis allele of them"
                 ))),
             }
         }
@@ -966,40 +966,40 @@ expect_one_or_cis!(
     Genomic,
     ::hgvs_weaver::GVariant,
     "g",
-    "genomic variant (g.)"
+    "a genomic description (g.)"
 );
 expect_variant!(
     expect_coding,
     Coding,
     ::hgvs_weaver::CVariant,
-    "coding variant (c.)"
+    "a coding description (c.)"
 );
 expect_one_or_cis!(
     expect_noncoding,
     NonCoding,
     ::hgvs_weaver::structs::NVariant,
     "n",
-    "non-coding variant (n.)"
+    "a non-coding description (n.)"
 );
 expect_variant!(
     expect_protein,
     Protein,
     ::hgvs_weaver::PVariant,
-    "protein variant (p.)"
+    "a protein description (p.)"
 );
 expect_one_or_cis!(
     expect_rna,
     Rna,
     ::hgvs_weaver::RVariant,
     "r",
-    "RNA variant (r.)"
+    "an RNA description (r.)"
 );
 expect_one_or_cis!(
     expect_coding_or_cis,
     Coding,
     ::hgvs_weaver::CVariant,
     "c",
-    "coding variant (c.)"
+    "coding description (c.)"
 );
 
 // --- Mapper and DataProvider Bridge ---
@@ -1579,7 +1579,7 @@ impl PyVariantMapper {
             }
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Expected a coding variant (c.), an RNA variant (r.) or an allele in cis of c. members",
+                    "Expected a coding description (c.), an RNA description (r.) or a cis allele of c. members",
                 ))
             }
         }

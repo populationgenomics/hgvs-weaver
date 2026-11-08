@@ -1,5 +1,5 @@
 """
-Categorization of mapping failures.
+Categorization of projection failures.
 
 """
 
@@ -19,7 +19,7 @@ def is_p_match(pred: str, truth: str) -> bool:
 
 
 def categorize_rs_failure(row: dict[str, str]) -> str:
-    """Categorizes the reason for a weaver mapping failure."""
+    """Categorizes the reason for a weaver projection failure."""
     rs_p = row["rs_p"]
     rs_spdi = row["rs_spdi"]
     cv_p = row["variant_prot"]
@@ -41,8 +41,8 @@ def categorize_rs_failure(row: dict[str, str]) -> str:
         if "fs" in cv_p and "fs" not in rs_p:
             return "Protein: Frameshift Logic"
         if "del" in cv_spdi and "ins" in cv_spdi:
-            return "Complex Indel"
-        return "General Mapping Failure"
+            return "Complex Delins"
+        return "General Projection Failure"
 
     if not p_match:
         if "Ter?" in rs_p:
@@ -52,14 +52,14 @@ def categorize_rs_failure(row: dict[str, str]) -> str:
     if not spdi_match:
         if "dup" in cv_spdi or "dup" in row["variant_nuc"]:
             return "Genomic: Duplication Shifting"
-        return "Genomic: Normalization/Projection"
+        return "Genomic: Normalisation/Projection"
 
     return "Unknown"
 
 
 def main() -> None:
     """Main entry point for categorization."""
-    parser = argparse.ArgumentParser(description="Categorize weaver mapping failures.")
+    parser = argparse.ArgumentParser(description="Categorize weaver projection failures.")
     parser.add_argument("input_file", help="Input disagreements TSV file.")
     args = parser.parse_args()
 

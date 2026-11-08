@@ -98,16 +98,16 @@ INVALID_VARIANTS = [
 
 @pytest.mark.parametrize("variant_string", VALID_VARIANTS)
 def test_valid_mavehgvs_parsing(variant_string: str) -> None:
-    """Ensure weaver can parse variants considered valid by mavehgvs."""
-    # Some mavehgvs variants might depend on specific features not yet in weaver.
+    """Ensure weaver can parse descriptions considered valid by mavehgvs."""
+    # Some mavehgvs descriptions might depend on specific features not yet in weaver.
     # We allow failures for now but document them.
     try:
         v = weaver.parse(variant_string)
         assert v is not None
         assert str(v)  # Should verify formatting too
     except (ValueError, weaver.HGVSError) as e:
-        # weaver strictly requires Accession:Variant. Try prepending a dummy accession
-        # if one is missing, to verify the variant syntax itself.
+        # weaver strictly requires Accession:Description. Try prepending a dummy accession
+        # if one is missing, to verify the description syntax itself.
         if ":" not in variant_string:
             prefix = "NP_000000.0" if variant_string.startswith("p.") else "NM_000000.0"
             retry_string = f"{prefix}:{variant_string}"
@@ -117,15 +117,17 @@ def test_valid_mavehgvs_parsing(variant_string: str) -> None:
                 # Passing with modification is acceptable for compatibility checking
                 return
             except (ValueError, weaver.HGVSError) as e2:
-                pytest.fail(f"Failed to parse valid variant {variant_string} (even with prefix {retry_string}): {e2}")
+                pytest.fail(
+                    f"Failed to parse valid description {variant_string} (even with prefix {retry_string}): {e2}",
+                )
 
         # If it had a colon or failed even with prefix
-        pytest.fail(f"Failed to parse valid variant {variant_string}: {e}")
+        pytest.fail(f"Failed to parse valid description {variant_string}: {e}")
 
 
 @pytest.mark.parametrize("variant_string", INVALID_VARIANTS)
 def test_invalid_mavehgvs_parsing(variant_string: str) -> None:
-    """Ensure weaver rejects variants considered invalid by mavehgvs."""
+    """Ensure weaver rejects descriptions considered invalid by mavehgvs."""
     # Note: weaver might be permissive for some (e.g. casing?)
     # But usually it should raise ParseError
     with pytest.raises((ValueError, weaver.HGVSError)):

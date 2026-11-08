@@ -69,7 +69,7 @@ class Provider:
 
 
 def n_to_g(mapper: weaver.VariantMapper, name: str) -> str:
-    """Projects an n. variant to the genome."""
+    """Projects an n. description to the genome."""
     return mapper.n_to_g(weaver.parse(name), CHROM).format()
 
 

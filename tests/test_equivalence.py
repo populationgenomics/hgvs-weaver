@@ -1,4 +1,4 @@
-"""Tests for the variant equivalence functionality."""
+"""Tests for the description equivalence functionality."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class MockProvider:
         return full_seq[start:end]
 
     def get_symbol_accessions(self, symbol: str, _s: str, t: str) -> list[tuple[typing.Any, str]]:
-        """Maps mock symbols."""
+        """Looks up mock symbols."""
         if symbol == "BRAF":
             if t == "p":
                 # Returns as string
@@ -73,7 +73,7 @@ class MockProvider:
 
 
 def test_equivalence_g_vs_g() -> None:
-    """Tests g. vs g. equivalence (with normalization)."""
+    """Tests g. vs g. equivalence (with normalisation)."""
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
@@ -91,7 +91,7 @@ def test_equivalence_g_vs_c() -> None:
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
-    # c.1A>G maps to g.1011A>G
+    # c.1A>G projects to g.1011A>G
     vg = weaver.parse("NC_TEST.1:g.1011A>G")
     vc = weaver.parse("NM_TEST:c.1A>G")
 

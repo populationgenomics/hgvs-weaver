@@ -33,7 +33,7 @@ def _check_range(ac: str, start: int, end: int | None) -> None:
 
 
 class IdentifierKind:
-    """Enum for sequence identifier types."""
+    """Enum for sequence identifier kinds."""
 
     Genomic = "g"
     Transcript = "c"
@@ -266,7 +266,7 @@ class RefSeqDataProvider:
                     if prot_id:
                         tx_data[(tx_ac, chrom)]["info"]["protein_id"] = prot_id
 
-        logger.info("Finalizing %d transcript-reference pairs...", len(tx_data))
+        logger.info("Finalizing %d transcript-genome pairs...", len(tx_data))
         for (tx_id, chrom), data in tx_data.items():
             info = data["info"]
             if not info or "strand" not in info:
@@ -341,7 +341,7 @@ class RefSeqDataProvider:
         logger.info("GFF loading complete.")
 
     def _genomic_to_tx(self, g_pos: int, exons: list[dict[str, typing.Any]], strand: str) -> int | None:
-        """Maps genomic position to transcript index.
+        """Projects a genomic position to a transcript index.
 
         Args:
           g_pos: 1-based genomic coordinate.
@@ -418,7 +418,7 @@ class RefSeqDataProvider:
             return self._transcript_cache[(tx_ac, ref_ac)]
 
     def _get_tx_seq(self, tx_ac: str, ref_ac: str, start: int, end: int | None, force_plus: bool = False) -> str:
-        """Builds a transcript sequence from genomic exons with optional transformations."""
+        """Builds a transcript sequence from genomic exons, optionally in genomic-plus orientation."""
         tx = self.transcripts[(tx_ac, ref_ac)]
         full_seq = self._get_full_tx_seq_cached(tx_ac, ref_ac)
 
@@ -439,7 +439,7 @@ class RefSeqDataProvider:
         return self.transcripts[(transcript_ac, self._default_reference(transcript_ac))]
 
     def _default_reference(self, tx_ac: str) -> str:
-        """The reference a transcript is read on when none is named: a primary chromosome in the FASTA if any.
+        """The genome a transcript is placed on when none is named: a primary chromosome in the FASTA if any.
 
         Raises:
             weaver.DataProviderError: If the GFF3 places no transcript under exactly ``tx_ac``, version included.
@@ -468,7 +468,7 @@ class RefSeqDataProvider:
         source_kind: str,
         target_kind: str,
     ) -> list[tuple[weaver.IdentifierType, str]]:
-        """The accessions ``symbol`` maps to, by the kinds weaver asks for; any other pair is empty.
+        """The accessions ``symbol`` leads to, by the kinds weaver asks for; any other pair is empty.
 
         ``gene -> c``: a gene's transcripts; ``gene -> p``: a gene's proteins; ``c -> p``: a transcript's protein;
         ``p -> c``: a protein's transcript.

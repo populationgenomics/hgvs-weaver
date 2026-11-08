@@ -1,4 +1,4 @@
-"""Protein variants have canonical alleles, SPDI and VRS on their protein sequence."""
+"""Protein changes have canonical alleles, SPDI and VRS on their protein sequence."""
 
 from __future__ import annotations
 

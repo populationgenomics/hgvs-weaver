@@ -107,26 +107,26 @@ def generate_svg(data_points: list[dict], mode: str = "light") -> str:
     results_df["Analogous %"] = (results_df["analogous"] / results_df["total"]) * 100
 
     versions = results_df["version"].unique()
-    tools = ["Weaver", "Ref-HGVS"]
+    tools = ["Weaver", "biocommons hgvs"]
 
     x = range(len(versions))
     width = 0.35  # width of bars
 
     # Colors
-    # Blue for Weaver, Green for Ref
+    # Blue for Weaver, Green for biocommons hgvs
     if mode == "dark":
         colors = {
             ("Weaver", "Identity"): "#2980b9",
             ("Weaver", "Analogous"): "#5dade2",
-            ("Ref-HGVS", "Identity"): "#27ae60",
-            ("Ref-HGVS", "Analogous"): "#52be80",
+            ("biocommons hgvs", "Identity"): "#27ae60",
+            ("biocommons hgvs", "Analogous"): "#52be80",
         }
     else:
         colors = {
             ("Weaver", "Identity"): "#3498db",
             ("Weaver", "Analogous"): "#85c1e9",
-            ("Ref-HGVS", "Identity"): "#27ae60",
-            ("Ref-HGVS", "Analogous"): "#7dcea0",
+            ("biocommons hgvs", "Identity"): "#27ae60",
+            ("biocommons hgvs", "Analogous"): "#7dcea0",
         }
 
     for i, tool in enumerate(tools):
@@ -217,7 +217,7 @@ def update_performance_graphs(repo_root: pathlib.Path) -> None:
             data_points.append(
                 {
                     "version": version,
-                    "tool": "Ref-HGVS",
+                    "tool": "biocommons hgvs",
                     "identity": entry.get("ref_identity", 0),
                     "analogous": entry.get("ref_analogous", 0),
                     "total": entry["total"],

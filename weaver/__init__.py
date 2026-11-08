@@ -230,7 +230,7 @@ class DataProvider(Protocol):
         ...
 
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
-        """Identify what type of identifier a string is.
+        """Identify what kind of identifier a string is.
 
         Should return one of:
         - 'genomic_accession'

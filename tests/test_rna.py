@@ -1,4 +1,4 @@
-"""r. variants through the bindings: respelling, projection and protein prediction."""
+"""r. descriptions through the bindings: respelling, projection and protein prediction."""
 
 from __future__ import annotations
 
@@ -63,5 +63,5 @@ def test_r_is_c_in_rna_letters() -> None:
     assert str(mapper.c_to_p(weaver.parse("NM_TEST.1:r.0"))) == "NP_TEST.1:p.0?"
     with pytest.raises(weaver.UnsupportedOperationError):
         mapper.r_to_n(r)  # the transcript has a CDS
-    with pytest.raises(ValueError, match="RNA variant"):
+    with pytest.raises(ValueError, match="RNA description"):
         mapper.r_to_c(c)

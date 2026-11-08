@@ -80,7 +80,10 @@ def test_rows_whose_two_verdicts_disagree_are_grouped_by_pattern(
     report = out[out.index("rs_equiv against rs_nuc_equiv") :]
     assert re.search(r"1 rows with no ClinVar protein, 1 judged by neither", report)
     assert re.search(r"1 rows contradict\n +1  rs_equiv Analogous, rs_nuc_equiv Different", report)
-    assert re.search(r"2 rows differ in level\n +2  rs_equiv Identity, rs_nuc_equiv Analogous", report)
+    assert re.search(
+        r"2 rows differ in verdict, equivalent both ways\n +2  rs_equiv Identity, rs_nuc_equiv Analogous",
+        report,
+    )
     assert re.search(r"1 rows judged by one column only\n +1  rs_equiv Unknown, rs_nuc_equiv Identity", report)
     assert "NM_TEST.1:c.7G>C" in report
     assert "NM_TEST.1:c.4G>A" not in report

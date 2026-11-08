@@ -28,7 +28,7 @@ def _placement(tx: weaver.TranscriptData) -> tuple[str, int, list[weaver.ExonDat
 
 
 class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
-    """Bridge between weaver DataProvider and hgvs library Interface.
+    """Bridge between a weaver DataProvider and the biocommons hgvs Interface.
 
     The biocommons ``Interface`` declares its abstract methods without annotations, so every typed override reads
     as incompatible to a checker; the overrides follow the library's documented signatures, and the file-level
@@ -139,7 +139,7 @@ class ReferenceHgvsDataProvider(hgvs.dataproviders.interface.Interface):
         return []
 
     def get_tx_mapping_options(self, tx_ac: str) -> list[dict[str, typing.Any]]:
-        """Every reference the transcript is placed on where the provider lists them, else its default placement."""
+        """Every genome the transcript is placed on where the provider lists them, else its default placement."""
         try:
             listed = getattr(self.rp, "tx_to_refs", None)
             refs = listed.get(tx_ac, []) if listed is not None else [_placement(self.rp.get_transcript(tx_ac, None))[0]]
