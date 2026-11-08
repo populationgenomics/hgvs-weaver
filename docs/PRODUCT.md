@@ -14,6 +14,9 @@ access, so it needs no database.
                                (hgvs-weaver-data, a GFF3 and FASTA, a refget server, …)
 ```
 
+The words this page and the rest of the docs use — record, reference, statement, projection — each name one concept,
+defined in [`source/glossary.md`](source/glossary.md).
+
 ## Why these principles
 
 1. **Positions are types, not integers.** A transcript position, a genomic position and a protein position are different
