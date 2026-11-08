@@ -33,7 +33,7 @@ The unit under test is the surface a caller uses, not the functions behind it. H
 public API — `parse` and `format`, `TranscriptMapper`, `VariantMapper` over a `DataProvider`; the Python package, the
 same operations through the extension and a provider implementing the protocol; and the commands, the validation and the
 gate. The common failure is to decompose the mapper into helpers and write a test per helper: many tests and no evidence
-a variant projects correctly, for two reasons.
+a description projects correctly, for two reasons.
 
 The first is that a helper's test has no ground truth but the author's reading of the helper. The expected value is
 derived by re-running the helper's logic in the author's head, so the test and the code are one belief written twice. At
@@ -98,7 +98,7 @@ def test_mismatch_message(provider: weaver.DataProvider) -> None:
 A test covers one behaviour, not one method. A method that answers a lookup and also caches the answer has two
 behaviours, and each gets a test; a test named after the method is the warning sign. The other tell is a second call to
 the system under test after an assertion — a second scenario, whose failure the first now hides. The exception is when
-the sequence *is* the behaviour: a cache's eviction order, a variant normalised and then projected.
+the sequence *is* the behaviour: a cache's eviction order, a description normalised and then projected.
 
 The name states the scenario and the expected outcome, so the name alone says what broke and the list of names
 enumerates what the unit does. A name that has to say two outcomes is two tests.
@@ -130,7 +130,7 @@ and a literal out that fails on its own; a loop inside one test is neither.
 - **Values that could expose the bug.** Never a type's default — a missing int reads as zero, so `0` cannot tell stored
   from absent. A distinct value for every argument, so a swapped or reused argument is caught. Then the empty case, the
   boundaries — an exon's first and last base, a CDS end, a minus-strand transcript, an intronic offset of one — and the
-  input that takes the complex path: a gapped alignment, a repeat that crosses an exon boundary.
+  input that takes the complex path: a gapped alignment, a repeat that runs from an exon into its intron.
 - **Parametrise over inputs to one behaviour, never over behaviours.** A table that grows a dimension per behaviour
   hides which case failed and can carry a bug in its own indexing that the code under test shares.
 - **Brittleness is a missing assertion.** A test that depends on an irrelevant detail — set iteration order, an error's
@@ -184,8 +184,8 @@ dependency.
 
 CI has no credentials and no reference data, so a test that needs a bucket, a live service or the GRCh38 files does not
 run there — which, for a required check, reads as a pass. Tests are hermetic by construction: a synthetic provider for
-the mapper, recorded answers for the biocommons comparison, and the ClinVar gate kept out of CI as the regression check
-it is ([`../../CLAUDE.md`](../../CLAUDE.md) says when it runs).
+the mapper, recorded answers for the biocommons hgvs comparison, and the ClinVar gate kept out of CI as the regression
+check it is ([`../../CLAUDE.md`](../../CLAUDE.md) says when it runs).
 
 Where a test does need real reference data, the gate is visible: it skips, naming the files it wanted, on a machine
 without them. It never fails for their absence, and never passes vacuously by asserting nothing when they are absent.

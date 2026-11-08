@@ -11,7 +11,7 @@ Raise on missing or malformed data; don't paper over it with `x or []`, `x or {}
 case — that turns a missing input into a silent wrong answer. Validate and fail early.
 
 An error is a valid *answer* — a position outside every exon, a reference base the record does not carry, a change
-across a splice junction asked for a genomic form ([`../PRODUCT.md`](../PRODUCT.md)) — not a license for code to swallow
+across an exon junction asked for a genomic form ([`../PRODUCT.md`](../PRODUCT.md)) — not a license for code to swallow
 a missing input: a lookup that finds nothing says so; a transcript model whose exons do not tile its record, or a data
 provider's answer that breaks an expectation the mapper relies on, raises.
 
@@ -26,8 +26,8 @@ Rust, not an off-by-one at run time; a transcript position that carried its anch
 with its value, so the anchor is part of the position.
 
 Fail loud ([above](#fail-loud-never-silently-degrade)) is the rule for the invalid input that can still arrive — from a
-variant string, a data provider, a caller outside the type system. Between the two, prefer the shape that cannot hold
-the error; validate what remains, and test that validation ([`writing-tests.md`](writing-tests.md)).
+variant string, a provider, a caller outside the type system. Between the two, prefer the shape that cannot hold the
+error; validate what remains, and test that validation ([`writing-tests.md`](writing-tests.md)).
 
 ## Comments
 

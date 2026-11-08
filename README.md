@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/populationgenomics/hgvs-weaver/main/docs/source/_static/weaver.svg" alt="weaver" width=200>
 
-High-performance HGVS variant mapping and validation engine.
+High-performance HGVS projection and validation engine.
 
 Registered on PyPI as `hgvs-weaver`. Registered on Crates.io as `hgvs-weaver`.
 
@@ -20,25 +20,25 @@ the Python package wraps it with typed exceptions and protocol-based data access
   `p.Met1?`, `r.0`, `r.spl`, `r.=`, `r.(?)`, `c.=`. The grammar is checked rule by rule against the biocommons `hgvs`
   grammar table.
 - **Projection** between systems through transcript models: `g.` to and from `c.`/`n.`, intronic positions included;
-  `r.` to and from `c.`/`n.` (the same positions in RNA letters, with a change across a splice junction refused a
-  genomic form); `c.` and `r.` to `p.`; `p.` back to `c.` for substitutions.
+  `r.` to and from `c.`/`n.` (the same positions in RNA letters, with a change across an exon junction refused a genomic
+  form); `c.` and `r.` to `p.`; `p.` back to `c.` for substitutions.
 - **Protein consequences read from codons**, not from a protein-string diff: silent, missense, nonsense, in-frame
   changes written 3'-most, frameshifts with the distance to the new stop, stop losses as extensions, a stop formed
   inside inserted bases, selenocysteine `TGA` not read as a stop, the declared CDS end as the reference stop; a change
   to the start codon gives `p.(Met1?)`, a deleted CDS `p.0?`.
 - **Normalisation** by the 3' rule, cyclic over repeats, with insertions that repeat their neighbours written as
   duplications and a delins reduced to the edit it is first; on a transcript nothing moves across an exon junction; the
-  bases an edit states are written bare; intronic edits and uncertain positions are left as written. **Stated bases and
+  bases an edit states are written bare; intronic edits and uncertain positions are left as written. **Written bases and
   residues** are checked against the sequence by every operation that reads them; one the reference lacks is an error.
-- **Canonical alleles, SPDI and GA4GH VRS 2.0.** A canonical allele is a change on a sequence, fully justified over its
-  region of ambiguity, so every spelling of one change is one allele with one computed identifier (`ga4gh:VA.…`).
-  `to_spdi_unambiguous`, `to_vrs` and `vrs_id` render it for nucleotide variants (on the genome) and protein variants
-  (on the protein); `protein_vrs` gives the protein allele of a coding variant, frameshifts and extensions included;
-  deletions with uncertain breakpoints carry VRS `Range` bounds. `from_vrs` and `from_spdi` read alleles back into
-  normalised HGVS. Refget accessions come from a `Refget` lookup (a refget server, or any table) or are computed from
-  the sequence.
-- **Equivalence** at four levels, `Identity`, `Analogous`, `Different`, `Unknown`, judged by canonical alleles for
-  nucleotide variants and by the protein each description leaves for protein ones, so `p.Tyr165Ter`,
+- **Canonical alleles, SPDI and GA4GH VRS 2.0.** A canonical allele is a change on a sequence, trimmed and widened over
+  its region of ambiguity, so every spelling of one change is one allele with one computed identifier (`ga4gh:VA.…`).
+  `to_spdi_unambiguous`, `to_vrs` and `vrs_id` render it for nucleotide descriptions (on the genome) and protein
+  descriptions (on the protein); `protein_vrs` gives the VRS Allele of a coding change's protein consequence,
+  frameshifts and extensions included; deletions with uncertain breakpoints carry VRS `Range` bounds. `from_vrs` and
+  `from_spdi` read VRS Alleles and SPDI back into normalised HGVS. Refget accessions come from a `Refget` lookup (a
+  refget server, or any table) or are computed from the sequence.
+- **Equivalence** with four verdicts, `Identity`, `Analogous`, `Different`, `Unknown`, judged by canonical alleles for
+  nucleotide descriptions and by the protein each description leaves for protein ones, so `p.Tyr165Ter`,
   `p.Ala164_Tyr165insTer` and the `c.` deletion that causes them agree.
   [How it decides](docs/source/equivalence_logic.md).
 
@@ -80,14 +80,14 @@ print(level)                                              # EquivalenceLevel.Ana
 
 ## Data Provider Implementation
 
-Mapping needs an object implementing the `DataProvider` protocol, which supplies transcript models and reference
-sequences. [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider) implements it over a store
-built from NCBI's published transcript alignments, with every placement NCBI publishes and NCBI's historical set of
-retired transcript versions; `weaver.refseq.RefSeqDataProvider` implements it directly over a RefSeq GFF3 and FASTA
-(install `hgvs-weaver[refseq]` for its `pysam` dependency); `weaver.refget.RefgetProvider` implements it over a GA4GH
-refget server (for sequences) plus another provider for transcript models.
+Projection needs an object implementing the `DataProvider` protocol, which supplies transcript models and sequences.
+[hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider) implements it over a store built from
+NCBI's published transcript alignments, with every placement NCBI publishes and NCBI's historical set of superseded
+transcript versions; `weaver.refseq.RefSeqDataProvider` implements it directly over a RefSeq GFF3 and FASTA (install
+`hgvs-weaver[refseq]` for its `pysam` dependency); `weaver.refget.RefgetProvider` implements it over a GA4GH refget
+server (for sequences) plus another provider for transcript models.
 
-A `VariantMapper` caches the sequence blocks, refget accessions and identifier types it fetches for as long as it lives.
+A `VariantMapper` caches the sequence blocks, refget accessions and identifier kinds it fetches for as long as it lives.
 Build one and reuse it.
 
 ### Coordinate Expectations
@@ -109,8 +109,8 @@ When implementing a `DataProvider`, you must provide coordinates in the followin
   - **Exons**:
     - `transcript_start`: 0-based inclusive start index in the transcript.
     - `transcript_end`: 0-based **exclusive** end index in the transcript.
-    - `reference_start`: 0-based inclusive start index on the genomic reference.
-    - `reference_end`: 0-based inclusive end index on the genomic reference.
+    - `reference_start`: 0-based inclusive start index on the genome.
+    - `reference_end`: 0-based inclusive end index on the genome.
 
 - **Sequence Retrieval**:
 
@@ -194,19 +194,18 @@ print(var.format())  # NM_000051.3:c.123A>G
 
 ## Validation
 
-`weaver` has been extensively validated against ClinVar data to ensure accuracy and parity with the standard Python HGVS
-implementation.
+`weaver` has been extensively validated against ClinVar data to ensure accuracy and parity with biocommons hgvs.
 
 ### Running Validation
 
-The validation reads a GRCh38 store and genome built by `weaver-data-build` from
+The validation run reads a GRCh38 store and genome built by `weaver-data-build` from
 [hgvs-weaver-data](https://github.com/populationgenomics/weaver-data-provider): the current annotation release's shard
-with NCBI's historical set of retired transcript versions stacked under it, so the variants ClinVar names on retired
-versions project too. The gate, `weaver.cli.gate`, does the whole thing: it fetches NCBI's files, asks Entrez for each
-retired version's status, cuts the shards, the store and the genome, runs the validation and compares the output with a
-baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a few gigabytes
-of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone, about half a
-minute for the 100k set. The `gate` dependency group provides what it needs:
+with NCBI's historical set of superseded transcript versions stacked under it, so the variants ClinVar names on
+superseded versions project too. The gate, `weaver.cli.gate`, does the whole thing: it fetches NCBI's files, asks Entrez
+for each superseded version's status, cuts the shards, the store and the genome, runs the validation and compares the
+output with a baseline run, row by row. Each step is skipped when its output is already there, so after the first run (a
+few gigabytes of downloads, about twenty minutes of Entrez and fifteen of building) a rerun costs the validation alone,
+about half a minute for the 100k set. The `gate` dependency group provides what it needs:
 
 ```sh
 uv run --group gate python -m weaver.cli.gate --data data/gate \
@@ -219,14 +218,14 @@ The comparison lists, for the SPDI, protein and equivalence columns, how many ro
 to mismatch, mismatch to match), with examples; the percentages alone hide a single moved row. The protein column is
 weaver's text against its own in the baseline, and a moved protein is counted by the kind of edit each run writes it as
 (`del -> Ter`, `delins -> fs`), so a change to how weaver writes a protein shows as rows moved by kind. The equivalence
-columns include the verdict on biocommons' protein, since it is weaver's equivalence that judges it: a change to
+columns include the verdict on biocommons hgvs's protein, since it is weaver's equivalence that judges it: a change to
 equivalence can move that column alone. A column the baseline predates is reported absent rather than compared.
 
 The validation judges ClinVar's protein description twice: against the protein weaver predicts from the nucleotide
-variant, and against the nucleotide variant itself, which is the comparison a search across coordinate systems makes. If
-equivalence carried through the prediction the two verdicts would agree; the comparison ends with the rows on which they
-do not, with examples: contradictions (equivalent one way, `Different` the other) apart from differences of level
-(`Identity` one way, `Analogous` the other), and both apart from rows only one of the two could judge.
+description, and against the nucleotide description itself, which is the comparison a search across coordinate systems
+makes. If equivalence carried through the prediction the two verdicts would agree; the comparison ends with the rows on
+which they do not, with examples: contradictions (equivalent one way, `Different` the other) apart from differences of
+verdict (`Identity` one way, `Analogous` the other), and both apart from rows only one of the two could judge.
 
 The 100k sample is mostly substitutions, whose protein weaver writes one way; the deletions, duplications, insertions
 and delins whose protein spelling weaver chooses are few in it. `--clinvar-proteins report.tsv` adds every coding indel
@@ -251,15 +250,14 @@ uv run --group gate python -m weaver.cli.validate data/clinvar_variants_100k.tsv
 Parsing is checked three ways, all in the test suite:
 
 - **The biocommons `hgvs` grammar table**: 580 inputs over the 92 grammar rules the two grammars share, each required to
-  be accepted or rejected as the table says. One difference is recorded on purpose: weaver accepts a terminator inside
-  an amino acid sequence (`insTerGlu`), which ClinVar writes.
+  be accepted or rejected as the table says. One difference is recorded on purpose: weaver accepts a stop inside an
+  amino acid sequence (`insTerGlu`), which ClinVar writes.
 - **Real-world strings**: a gauntlet of 31 descriptions collected from the wild, the HGVS specification's examples, and
-  every description in the 100,000-variant ClinVar set, of which weaver parses all (the reference implementation rejects
-  394).
+  every description in the 100,000-variant ClinVar set, of which weaver parses all (biocommons hgvs rejects 394).
 - **Properties**: a random canonical description round-trips through the parser and formatter, and arbitrary text never
   panics the parser. Fifteen such properties cover parsing, coordinates, normalisation, alleles and protein prediction.
 
-The `r.` conversions were cross-checked against VariantValidator on fourteen queries: every exonic case agreed on the
+The `r.` projections were cross-checked against VariantValidator on fourteen queries: every exonic case agreed on the
 `r.`, `c.`, `g.` and `p.` descriptions.
 
 <!-- markdownlint-disable MD033 -->

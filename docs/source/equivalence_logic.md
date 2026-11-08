@@ -1,14 +1,14 @@
 # How Equivalence Is Decided
 
-`VariantMapper.equivalent_level(a, b, searcher)` says whether two HGVS descriptions name the same change. It answers at
-one of four levels:
+`VariantMapper.equivalent_level(a, b, searcher)` says whether two HGVS descriptions name the same change. It answers
+with one of four verdicts:
 
-| Level       | Meaning                                                                                                                                                                                                                |
-| :---------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Identity`  | The same text after spelling normalisation; a coding change is so with its prediction. A prediction's parentheses, one-letter codes, a one-member allele's brackets and the order of an allele's members are spelling. |
-| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                                                                                 |
-| `Different` | Both descriptions are understood and they name different changes.                                                                                                                                                      |
-| `Unknown`   | A description could not be judged (an error from the data provider, a missing sequence).                                                                                                                               |
+| Verdict     | Meaning                                                                                                                                                                                                             |
+| :---------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Identity`  | The same text after spelling comparison; a coding change is so with its prediction. A prediction's parentheses, one-letter codes, a one-member allele's brackets and the order of an allele's members are spelling. |
+| `Analogous` | Different text, the same change: the same allele and the same bases stated unchanged, or the same protein left behind.                                                                                              |
+| `Different` | Both descriptions are understood and they name different changes.                                                                                                                                                   |
+| `Unknown`   | A description could not be judged (an error from the provider, a missing sequence).                                                                                                                                 |
 
 `equivalent(a, b, searcher)` is `Identity` or `Analogous`.
 
@@ -18,21 +18,21 @@ one of four levels:
   coordinate system needs; the pair is equivalent if any expansion is. Each accession numbers its own sequence, so an
   expansion whose reference contradicts the description is set aside, and the description is refused only when every
   expansion contradicts it.
-- An `m.` variant is compared as the `g.` variant it is on the mitochondrial reference.
-- An `r.` variant is compared as its `c.` or `n.` spelling (`r_to_c`, `r_to_n`); `r.0`, `r.spl` and the other statements
-  about a transcript are compared as text.
+- An `m.` description is compared as the `g.` description it is on the mitochondrial genome.
+- An `r.` description is compared as its `c.` or `n.` spelling (`r_to_c`, `r_to_n`); `r.0`, `r.spl` and the other
+  statements about a transcript are compared as text.
 - Each description is checked against its reference, as `validate` checks it: a position past the end, or a base or
   residue the reference does not hold, is an error, even when the two are spelled the same
   ([the choice](choices.md#a-stated-base-the-reference-lacks-is-an-error)). An allele's exact members are read together,
-  so a contradictory or ambiguous allele is refused here.
+  so a contradictory or ambiguous description is refused here.
 
 ## The rules
 
 ```mermaid
 flowchart TD
-    Start(["a, b"]) --> Check{"positions and stated<br/>bases on the reference?"}
+    Start(["a, b"]) --> Check{"positions and written<br/>bases on the reference?"}
     Check -- "contradicted" --> Error([error])
-    Check -- held --> Text{"same text after<br/>spelling normalisation?"}
+    Check -- held --> Text{"same text after<br/>spelling comparison?"}
     Text -- yes --> Identity([Identity])
     Text -- no --> Kind{kinds}
     Kind -- "nucleotide, nucleotide" --> Proj{"one projects exactly<br/>onto the other's text?"}
@@ -54,28 +54,29 @@ flowchart TD
 ### Nucleotide against nucleotide
 
 Two `g.`, `c.` or `n.` descriptions are the same change when they make the same sequence on the genome and state the
-same bases unchanged there. For two single variants that change the sequence that is exactly when their **canonical
+same bases unchanged there. For two single descriptions that change the sequence that is exactly when their **canonical
 alleles** are equal. Bases are stated by identity members and by members that cancel each other, beside a change or
 alone, so `c.[7C>T;10_12=]` is not `c.7C>T`, and `c.10=` is not `c.20=`. A canonical allele is the change projected onto
-the genomic reference, trimmed to what it alters, then widened over the whole region in which it could equally be
-written (VRS/VOCA "fully justified" normalisation). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide,
-`g.10_11insA` and `g.10dup` after an `A`, and a `c.` variant against its own `g.` projection all have one allele. A copy
-number has no allele, and written alone is compared by its projection to the genome; as members of a cis allele, copy
-numbers and conversions are compared by their projections too, beside the sequence the other members make
+the genome, trimmed to what it alters, then widened over the whole region in which it could equally be written (what VRS
+and VOCA call fully justified). So `c.4_6del` and `c.10_12del` in a run of the same trinucleotide, `g.10_11insA` and
+`g.10dup` after an `A`, and a `c.` description against its own `g.` projection all have one allele. A copy number has no
+allele, and written alone is compared by its projection to the genome; as members of a cis allele, copy numbers and
+conversions are compared by their projections too, beside the sequence the other members make
 ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)). A conversion alone is `Different` unless the
 text matches.
 
 A cis allele `c.[a;b]` is compared by the sequence its members make, each member projected to the genome and applied
 there, so `c.[7C>T;8T>G]` is `c.7_8delinsTG`, whatever the order of the members and however the change is split between
 them. Where the provider has no genome sequence, the comparison is the provider's error (`Unknown` or `ERR:` in the
-harness), even when every member is in an exon. [The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)
-has the reasoning and the members that cannot be applied. An allele whose members are
-[contradictory or ambiguous](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not compared: the
-judgement is that error. A one-member allele is its member, and its brackets are spelling, as a prediction's parentheses
-are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too: `c.[13T>G;7C>T]` and
-`c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members project to exactly.
-An allele with a member at an uncertain position, or a statement among several members, makes no one sequence; it is
-compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+validation run), even when every member is in an exon.
+[The choice](choices.md#a-cis-allele-is-the-sequence-its-members-make) has the reasoning and the members that cannot be
+applied. An allele that is a
+[contradictory or ambiguous description](choices.md#overlapping-members-of-a-cis-allele-need-one-reading) is not
+compared: the judgement is that error. A one-member allele is its member, and its brackets are spelling, as a
+prediction's parentheses are: `c.[7C>T]` and `c.7C>T` are `Identity`. The order of the members is spelling too:
+`c.[13T>G;7C>T]` and `c.[7C>T;13T>G]` are `Identity`, and so is a transcript allele with the genomic allele its members
+project to exactly. An allele with a member at an uncertain position, or a statement among several members, makes no one
+sequence; it is compared member by member ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
 
 A protein allele `p.[a;b]` is compared the same way, by what it leaves and what it states: the protein its changes
 leave, read as [single descriptions are](#the-protein-a-description-leaves), and the residues its statements name. So
@@ -85,21 +86,21 @@ names no stretch of residues to replace (an uncertain range, `p.Met1?`, `p.?`) i
 
 ### Nucleotide against protein
 
-The nucleotide variant is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or `n.` is projected
-and the `searcher` names the transcripts). Of those, only the transcripts that encode the description's protein take
-part, those the provider pairs with it and those whose CDS translates to its sequence and whose gene the provider names
-the protein among, so that a paralogue's identical copy takes no part
+The nucleotide description is taken to every coding transcript it lies on (a `c.` is its own; a `g.` or `n.` is
+projected and the `searcher` names the transcripts). Of those, only the transcripts that encode the description's
+protein take part, those the provider pairs with it and those whose CDS translates to its sequence and whose gene the
+provider names the protein among, so that a paralogue's identical copy takes no part
 ([the choice](choices.md#a-protein-description-is-predicted-only-on-its-own-transcripts)), and on each its predicted
 `p.` description is compared with the given one by the rule for two protein descriptions
-([below](#protein-against-protein)). So a coding change is Identity with its prediction in any spelling (`c.1799T>A`
-against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise Analogous when the two can leave the same protein.
-The pair is as equivalent as the best transcript makes it; a transcript whose prediction fails makes the pair an error
-only when no transcript makes it equivalent, and a description that does not read on its protein is an error whatever
-the transcripts predict.
+([below](#protein-against-protein)). So a coding change has an Identity verdict with its prediction in any spelling
+(`c.1799T>A` against `p.(Val600Glu)`, `p.Val600Glu` or `p.V600E`), and otherwise an Analogous one when the two can leave
+the same protein. The pair is as equivalent as the best transcript makes it; a transcript whose prediction fails makes
+the pair an error only when no transcript makes it equivalent, and a description that does not read on its protein is an
+error whatever the transcripts predict.
 
-A nucleotide allele in cis (`c.`, or `g.`, `n.` or `r.` taken to its coding transcripts) is compared the same way, by
-the prediction read from the sequence its members make together; where that prediction is a protein allele, it is
-compared as protein alleles are ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
+A nucleotide cis allele (`c.`, or `g.`, `n.` or `r.` taken to its coding transcripts) is compared the same way, by the
+prediction read from the sequence its members make together; where that prediction is a protein allele, it is compared
+as protein alleles are ([the choice](choices.md#a-cis-allele-is-the-sequence-its-members-make)).
 
 The prediction stands for the change, with one difference: the protein it leaves is the one the edited transcript
 encodes (`predicted_protein`), not the one its description leaves. A description leaves residues unnamed — a
@@ -137,9 +138,9 @@ read against the reference protein:
 - a frameshift `p.Arg97ProfsTer4` leaves the reference up to 96, then `P`, then two residues it does not name (written
   `X`, which matches any residue), then ends;
 - a frameshift or extension **without a length** (`p.Arg97fs`, `p.Ter599TrpextTer?`) and a stop loss written as a
-  substitution (`p.Ter599Trp`, ClinVar's form) leave an **open** outcome: what is known, then more residues in unknown
-  number. An open outcome matches any outcome it is a prefix of. One that writes nothing past the reference's own
-  residues, `p.Ter7del`, has at least one more, so that it never leaves the protein as it is
+  substitution (`p.Ter599Trp`, ClinVar's form) leave an outcome **of unknown length**: what is known, then more residues
+  in unknown number. An outcome of unknown length matches any outcome it is a prefix of. One that writes nothing past
+  the reference's own residues, `p.Ter7del`, has at least one more, so that it never leaves the protein as it is
   ([the choice](choices.md#a-protein-allele-sees-the-stop-and-a-lost-stop-has-none));
 - an N-terminal extension `p.Met1ext-5` leaves the reference with five residues added before Met1, a Met and four it
   does not name ([the choice](choices.md#an-n-terminal-extension-adds-residues-before-met1));
@@ -162,11 +163,11 @@ spelled as it is, and the exact members beside it are compared by their alleles,
 `g.[(3_4)del;10dup]` where g.10 is an A.
 
 Judging needs the protein sequence. With no sequence to read the description against the result is an error (`Unknown`
-or `ERR:` in the harness), not a guess from the residues the descriptions happen to name.
+or `ERR:` in the validation run), not a guess from the residues the descriptions happen to name.
 
 ## Examples
 
-| Level       | A                                 | B                                    | Why                                                       |
+| Verdict     | A                                 | B                                    | Why                                                       |
 | :---------- | :-------------------------------- | :----------------------------------- | :-------------------------------------------------------- |
 | `Identity`  | `c.123A>G`                        | `c.123A>G`                           | Same text.                                                |
 | `Identity`  | `NC_…:g.5000A>G`                  | `NM_…:c.123A>G`                      | The `c.` projects to exactly that `g.`.                   |
