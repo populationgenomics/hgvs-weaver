@@ -57,8 +57,10 @@ counterpart and is not projected.
 **Exon border**: The exon base an intronic offset counts from: an exon's last base for `+`, its first for `-`. _Avoid_:
 exon boundary
 
-**Exon junction**: The point on a transcript record between the last base of one exon and the first of the next, with an
-intron between them on the genome. _Avoid_: splice junction, junction (bare), exon/exon boundary
+**Junction**: The point between two neighbouring bases, where an insertion goes.
+
+**Exon junction**: The junction on a transcript record between the last base of one exon and the first of the next, with
+an intron between them on the genome. _Avoid_: splice junction, exon/exon boundary
 
 **Coding sequence**, **CDS**: The stretch of a transcript record that is translated, from the first base of its first
 codon to the last base of its stop codon. _Avoid_: coding region, ORF
@@ -131,7 +133,10 @@ inversion, conversion, repeat, copy number or identity. _Avoid_: mutation type
 **Repeat**, **repeat unit**, **run**: A repeat, `CAG[12]`, says the whole tandem run of its unit at that position
 becomes the given number of copies.
 
-**Identity**: The `=` edit: the bases at the position are as the reference has them. _Avoid_: silent change, no change
+**Identity**: The `=` edit: the bases at the position are as the reference has them. _Avoid_: no change
+
+**Silent change**: A coding change that leaves its protein as it was; its protein consequence is an identity at the
+residues it spans, `p.(Ala4=)`. _Avoid_: synonymous change (except when quoting)
 
 **Whole identity**: `c.=`, `r.=`, `p.=`: the whole sequence was analysed and found unchanged.
 

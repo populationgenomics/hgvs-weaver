@@ -23,8 +23,8 @@ with one of four verdicts:
   statements about a transcript are compared as text.
 - Each description is checked against its reference, as `validate` checks it: a position past the end, or a base or
   residue the reference does not hold, is an error, even when the two are spelled the same
-  ([the choice](choices.md#a-stated-base-the-reference-lacks-is-an-error)). An allele's exact members are read together,
-  so a contradictory or ambiguous description is refused here.
+  ([the choice](choices.md#a-written-base-the-reference-lacks-is-an-error)). An allele's exact members are read
+  together, so a contradictory or ambiguous description is refused here.
 
 ## The rules
 
