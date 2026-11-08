@@ -195,7 +195,7 @@ fn validate_checks_stated_reference_through_transcript_coordinates() {
     assert!(!ok("NM_PLUS10.1:c.1_2delAAinsTT"));
     // A count is not a statement of bases.
     assert!(ok("NM_PLUS10.1:c.1_3del3insAA"));
-    // On the minus strand the stated bases are the transcript's.
+    // On the minus strand the written bases are the transcript's.
     assert!(ok("NM_MINUS10.1:c.1delG"));
     assert!(!ok("NM_MINUS10.1:c.1delC"));
     assert!(ok("NC_TEST.1:g.1011delG"));
@@ -204,7 +204,7 @@ fn validate_checks_stated_reference_through_transcript_coordinates() {
 
 #[test]
 fn normalize_leaves_intronic_coding_variants_as_written() {
-    // An insertion straddling an exon boundary has no transcript-space
+    // An insertion straddling an exon junction has no transcript
     // normalisation. It must come back unchanged, not as an error, so that
     // c_to_p (p.?) and to_spdi (via g.) still run on it.
     let hdp = provider();

@@ -1,4 +1,4 @@
-//! Alleles in cis, `c.[145C>T;147C>G]`: parsed, formatted, normalised and
+//! Cis alleles, `c.[145C>T;147C>G]`: parsed, formatted, normalised and
 //! validated member by member, rendered as VRS `CisPhasedBlock` objects and
 //! read back; and read into the one sequence their members make.
 

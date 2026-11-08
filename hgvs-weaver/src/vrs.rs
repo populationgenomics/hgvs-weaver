@@ -743,9 +743,9 @@ impl VrsCisPhasedBlock {
     }
 }
 
-/// The VRS object a variant renders as: an `Allele` for a sequence change, a
+/// The VRS object a description renders as: an `Allele` for a sequence change, a
 /// `CopyNumberCount` for a copy-number edit, a `CopyNumberChange` for a gain
-/// or loss without a count, a `CisPhasedBlock` for alleles in cis. The JSON
+/// or loss without a count, a `CisPhasedBlock` for cis alleles. The JSON
 /// `type` tells them apart.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

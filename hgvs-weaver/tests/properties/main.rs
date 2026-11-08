@@ -567,8 +567,8 @@ fn complement(b: u8) -> u8 {
 }
 
 proptest! {
-    /// Every transcript base maps to a genomic base holding the same residue
-    /// (complemented on the minus strand), maps back to itself with no
+    /// Every transcript base projects to a genomic base holding the same residue
+    /// (complemented on the minus strand), projects back to itself with no
     /// offset, and survives the trip through c. numbering.
     #[test]
     fn transcript_coordinates_round_trip(g in gene()) {
@@ -609,13 +609,13 @@ proptest! {
                 pos.offset = Some(IntronicOffset(i as i32));
                 prop_assert_eq!(am.position_to_g(&pos).unwrap(), from_left);
                 // And back from the genome: the base is counted from the nearer
-                // exon boundary, from the earlier exon on a tie, on either strand.
+                // exon border, from the earlier exon on a tie, on either strand.
                 let expected = if i <= len + 1 - i {
                     (TranscriptPos(last as i32), IntronicOffset(i as i32))
                 } else {
                     (TranscriptPos(first as i32), IntronicOffset(-((len + 1 - i) as i32)))
                 };
-                prop_assert_eq!(am.g_to_n(from_left).unwrap(), expected, "intron {} base {} maps back wrongly", k, i);
+                prop_assert_eq!(am.g_to_n(from_left).unwrap(), expected, "intron {} base {} projects back wrongly", k, i);
             }
         }
     }
@@ -1245,7 +1245,7 @@ proptest! {
         prop_assert_eq!(applied, expected, "{} ({})", vc, mapper.c_to_p(&vc, Some("NP_PROP.1")).map(|p| p.to_string()).unwrap_or_else(|e| e.to_string()));
     }
 
-    /// r. is the c. (or n.) spelling in RNA letters: converting there and back
+    /// r. is the c. (or n.) spelling in RNA letters: respelling there and back
     /// is the identity, the letters are lowercase with u, and a change inside
     /// one exon has the same allele and the same protein either way.
     #[test]
@@ -1282,7 +1282,7 @@ proptest! {
         prop_assert_eq!(nr.to_string(), mapper.tx_to_r(&nc).unwrap().to_string(), "normalising r. differs from normalising c.");
     }
 
-    /// A deletion spanning a splice junction is an RNA finding: it has a
+    /// A deletion spanning an exon junction is an RNA finding: it has a
     /// protein prediction but no genomic projection, while its c. spelling
     /// projects to a deletion that includes the intron.
     #[test]
@@ -1341,7 +1341,7 @@ proptest! {
     /// Normalising a transcript variant moves where it is written, never what
     /// it does to the genome: where the transcript and the genome agree, the
     /// canonical allele of its projection is the same before and after,
-    /// identical bases either side of an exon/exon junction included.
+    /// identical bases either side of an exon junction included.
     #[test]
     fn normalising_on_the_transcript_keeps_the_genomic_allele((g, e) in gene_and_edit()) {
         if !g.genome_agrees_with_transcript() {
@@ -1381,7 +1381,7 @@ proptest! {
     }
 
     /// The same, for a deletion, duplication or insertion written just before
-    /// an exon/exon junction, where a slide on the transcript could carry it
+    /// an exon junction, where a slide on the transcript could carry it
     /// into the next exon, and for a delins there, up to or across the
     /// junction, that inserts or deletes inside the bases it keeps, which
     /// trimming could carry off the exon.
@@ -1934,7 +1934,7 @@ proptest! {
 }
 
 proptest! {
-    /// An allele in cis projected to the genome and back is the allele it
+    /// A cis allele projected to the genome and back is the allele it
     /// was, member for member and in the order written, where no member meets
     /// another and every one projects.
     #[test]
@@ -2197,7 +2197,7 @@ fn the_generated_cis_alleles_project() {
     );
 }
 
-// Reading an allele in cis into one sequence.
+// Reading a cis allele into one sequence.
 
 /// A member of an allele on a sequence of `len` bases: any of the edits the
 /// single-variant properties use, or a substitution, an inversion or a
@@ -2484,7 +2484,7 @@ proptest! {
     }
 }
 
-// Normalising an allele in cis: the members that meet written as one change.
+// Normalising a cis allele: the members that meet written as one change.
 
 /// A gene and a `c.` allele of up to four members packed into twelve bases
 /// of its transcript, so that members meet, share codons and sit either side

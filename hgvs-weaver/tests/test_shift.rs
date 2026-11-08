@@ -54,7 +54,7 @@ fn test_multi_base_ins_3_prime_shifting() -> Result<(), HgvsError> {
     // If it doesn't shift, nv1.to_string() will be "...g.1002_1003insCAG"
     // If it shifts 1 block, it might be "...g.1005_1006insCAG"
     // Since we have many repeats, it should shift far.
-    println!("Normalized: {}", nv1);
+    println!("Normalised: {}", nv1);
     assert!(
         !nv1.to_string().contains("1002_1003"),
         "Should have shifted from original position 1002_1003. Got: {}",

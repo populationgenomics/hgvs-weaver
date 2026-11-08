@@ -15,7 +15,7 @@ use crate::error::HgvsError;
 use crate::refget::Refget;
 
 /// Bases fetched per provider call when paging. A provider call may cross into
-/// Python, so this is deliberately far larger than any variant.
+/// Python, so this is deliberately far larger than any change.
 pub const BLOCK_SIZE: usize = 4096;
 
 #[derive(Default)]
@@ -205,7 +205,7 @@ impl<'a> ReferenceStore<'a> {
     }
 }
 
-/// One reference sequence, addressed by accession and kind.
+/// One sequence read as a reference, addressed by accession and kind.
 pub struct Reference<'s, 'a> {
     store: &'s ReferenceStore<'a>,
     ac: String,

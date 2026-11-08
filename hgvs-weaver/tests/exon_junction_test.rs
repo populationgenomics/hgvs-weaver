@@ -1,4 +1,4 @@
-//! Normalisation on a transcript, beside an exon/exon junction whose
+//! Normalisation on a transcript, beside an exon junction whose
 //! flanking bases are identical, and at the CDS bounds within one exon.
 
 mod support;

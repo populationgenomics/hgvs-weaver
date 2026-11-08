@@ -1,4 +1,4 @@
-//! Equivalence of alleles in cis, `c.[a;b]`: two alleles, or an allele and a
+//! Equivalence of cis alleles, `c.[a;b]`: two alleles, or an allele and a
 //! plain variant, are the same change when the members make the same sequence
 //! on the genome and state the same bases unchanged; choices.md, "A cis allele
 //! is the sequence its members make".

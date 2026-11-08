@@ -6,7 +6,7 @@
 //!
 //! The fixture serves named sequences over any `[start, end)` range, clamped to
 //! the sequence as the [`DataProvider::get_seq`] contract requires; serves the
-//! transcripts it was given; maps transcripts to proteins and back through
+//! transcripts it was given; pairs transcripts with proteins and back through
 //! [`DataProvider::get_symbol_accessions`]; classifies accessions by prefix
 //! unless told otherwise; finds transcripts by reference for
 //! [`TranscriptSearch`]; looks sequences up by refget digest for
@@ -82,7 +82,7 @@ impl Provider {
         self
     }
 
-    /// Maps `tx_ac` to `np_ac` (Transcript -> Protein) and back.
+    /// Pairs `tx_ac` with `np_ac` (transcript and protein), both ways.
     pub fn protein_for(mut self, tx_ac: &str, np_ac: &str) -> Self {
         self.proteins.push((tx_ac.to_string(), np_ac.to_string()));
         self

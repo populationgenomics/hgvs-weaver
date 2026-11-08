@@ -143,7 +143,7 @@ fn statements_have_no_allele_and_a_wrong_protein_is_an_error() {
         .unwrap_err();
     assert!(matches!(err, HgvsError::UnsupportedOperation(_)), "{err}");
 
-    // The annotation pairs the transcript with a protein its CDS does not encode.
+    // The transcript model pairs the transcript with a protein its CDS does not encode.
     let wrong = provider("MKLAYQ");
     let mapper = VariantMapper::new(&wrong);
     let err = mapper

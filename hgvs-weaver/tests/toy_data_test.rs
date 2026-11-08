@@ -14,7 +14,7 @@ fn test_toy_plus_strand_mapping() {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);
 
-    // Genomic variant NC_TOY.1:g.25A>T → c.1A>T (g-to-c positional mapping)
+    // Genomic variant NC_TOY.1:g.25A>T → c.1A>T (g-to-c positional projection)
     let var_g = parse_hgvs_variant("NC_TOY.1:g.25A>T").unwrap();
     if let SequenceVariant::Genomic(v) = var_g {
         let var_c = mapper.g_to_c(&v, "NM_PLUS.1").unwrap();

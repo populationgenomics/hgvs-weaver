@@ -32,8 +32,8 @@ pub enum NaEdit {
         max: usize,
         uncertain: bool,
     },
-    /// Deletion-insertion whose inserted bases are known only by number,
-    /// `delinsN[20]`; `ref_` is the deleted bases or their count, if stated.
+    /// Delins whose inserted bases are known only by number,
+    /// `delinsN[20]`; `ref_` is the deleted bases or their count, if written.
     DelInsLength {
         ref_: Option<String>,
         min: usize,
@@ -50,7 +50,7 @@ pub enum NaEdit {
         ref_: Option<String>,
         uncertain: bool,
     },
-    /// Conversion to another variant sequence.
+    /// Conversion to another sequence.
     Con {
         con: Box<SequenceVariant>,
         uncertain: bool,
@@ -70,7 +70,8 @@ pub enum NaEdit {
     /// The whole transcript analysed and found unchanged, with no position:
     /// `c.=` (its DNA) or `r.=` (its RNA).
     WholeIdentity,
-    /// No change (identity).
+    /// An edit the parser does not model, such as a conversion. Not an
+    /// identity, though it prints as one.
     None,
 }
 
@@ -121,7 +122,7 @@ pub enum AaEdit {
     Del { ref_: String, uncertain: bool },
     /// Insertion of amino acids.
     Ins { alt: String, uncertain: bool },
-    /// Deletion-insertion.
+    /// Delins.
     DelIns {
         ref_: String,
         alt: String,
@@ -156,7 +157,7 @@ pub enum AaEdit {
         ref_: Option<String>,
         uncertain: bool,
     },
-    /// Silent variant (no change).
+    /// Identity (`=`): the bases are as the reference has them.
     Identity { uncertain: bool },
     /// A statement about the whole protein: `p.0`, `p.?`, `p.=`. At a
     /// residue, `Unknown` is `p.Met1?`, an unknown change from that residue on.
@@ -349,7 +350,7 @@ pub(crate) fn is_length(s: &str) -> bool {
     s.is_empty() || s.chars().all(|c| c.is_ascii_digit())
 }
 
-/// The unit a repeat over `[start, end)` counts: the bases it states, or else
+/// The unit a repeat over `[start, end)` counts: the bases it writes, or else
 /// the bases of its range, read through `fetch`.
 pub(crate) fn repeat_unit(
     stated: &Option<String>,
@@ -389,7 +390,7 @@ impl ResolvedEdit {
         self.alt.len() as i64 - self.ref_.len() as i64
     }
 
-    /// Whether the edit shifts the reading frame.
+    /// Whether the edit shifts the frame.
     pub fn is_frameshift(&self) -> bool {
         self.length_change() % 3 != 0
     }
@@ -415,7 +416,7 @@ impl NaEdit {
         }
     }
 
-    /// The unit a repeat states (`CAG` of `CAG[12]`), which the sequence must
+    /// The unit a repeat writes (`CAG` of `CAG[12]`), which the sequence must
     /// carry where the repeat starts, and repeat over the range it is written
     /// over.
     pub fn stated_unit(&self) -> Option<&str> {
@@ -425,14 +426,14 @@ impl NaEdit {
         }
     }
 
-    /// Whether the edit states bases the reference must hold: reference bases
+    /// Whether the edit writes bases the reference must hold: reference bases
     /// or a repeat's unit.
     pub fn states_bases(&self) -> bool {
         self.stated_ref().is_some() || self.stated_unit().is_some()
     }
 
     /// Refuses the edit written over `[start, end)` of `reference` where the
-    /// range runs past the end of the sequence, or where the bases it states
+    /// range runs past the end of the sequence, or where the bases it writes
     /// are not there: the bases over the range, or copies of a repeat's unit
     /// from `start`, read on `strand`. On the minus strand the range is read as
     /// its reverse complement, so offsets from `start` count down from `end`.
@@ -443,7 +444,7 @@ impl NaEdit {
     /// # Errors
     ///
     /// [`HgvsError::PositionOutsideSequence`] for a range past the end, then
-    /// [`HgvsError::ReferenceMismatch`] naming the stated and the held bases.
+    /// [`HgvsError::ReferenceMismatch`] naming the written and the held bases.
     pub fn check_against(
         &self,
         reference: &Reference<'_, '_>,
@@ -460,15 +461,15 @@ impl NaEdit {
         })
     }
 
-    /// Refuses the edit when the bases it states are not what `accession`
+    /// Refuses the edit when the bases it writes are not what `accession`
     /// holds, read through `fetch`: the bases over `[start, end)`, or for a
     /// repeat, copies of its unit from `start` over the range, or over one
     /// unit where the range is shorter. `fetch` is called only for an edit
-    /// that states bases.
+    /// that writes bases.
     ///
     /// # Errors
     ///
-    /// [`HgvsError::ReferenceMismatch`] naming the stated and the held bases.
+    /// [`HgvsError::ReferenceMismatch`] naming the written and the held bases.
     fn check_stated(
         &self,
         accession: &str,
@@ -501,14 +502,14 @@ impl NaEdit {
     ///
     /// `[start, end)` is the range HGVS writes: the two flanking bases for an
     /// insertion, the edited bases for everything else. The reference bases
-    /// are read from the reference, once, and any the edit states are
+    /// are read from the reference, once, and any the edit writes are
     /// checked against them.
     ///
     /// # Errors
     ///
     /// [`HgvsError::PositionOutsideSequence`] when the range runs past the
     /// end of the reference; [`HgvsError::ReferenceMismatch`] when the edit
-    /// states bases the reference does not hold over the range.
+    /// writes bases the reference does not hold over the range.
     pub fn resolve(
         &self,
         reference: &Reference<'_, '_>,
@@ -689,7 +690,7 @@ impl AaEdit {
     /// Edits that describe a consequence rather than a sequence (frameshift,
     /// extension, `p.?`, `p.0`, `p.Xxx1?`) cannot be resolved and are
     /// unsupported. The reference is what the sequence holds; a repeat unit
-    /// stated where the sequence does not carry it is a
+    /// written where the sequence does not carry it is a
     /// [`HgvsError::ReferenceMismatch`].
     pub fn resolve_with(
         &self,
@@ -810,13 +811,13 @@ pub(crate) fn within_the_repeat_cap(unit: &str, count: i32) -> Result<usize, Hgv
     )))
 }
 
-/// Refuses a protein repeat whose stated `unit`, in 1-letter code, is not
+/// Refuses a protein repeat whose written `unit`, in 1-letter code, is not
 /// what `accession` holds from `start`, repeated over `[start, end)`, or over
 /// one unit where the range is shorter.
 ///
 /// # Errors
 ///
-/// [`HgvsError::ReferenceMismatch`] naming the stated and the held residues.
+/// [`HgvsError::ReferenceMismatch`] naming the written and the held residues.
 pub(crate) fn repeat_units_over_range(
     accession: &str,
     unit: &str,

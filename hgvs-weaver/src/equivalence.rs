@@ -12,13 +12,13 @@ use crate::structs::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquivalenceLevel {
-    /// Identical notation after basic normalization.
+    /// The same spelling: identical text after spelling comparison.
     Identity,
-    /// Biologically identical but different notation (e.g., ins vs dup).
+    /// A different spelling of the same change (e.g., ins vs dup).
     Analogous,
-    /// Definitively different edits/outcomes.
+    /// Two understood descriptions that name different changes.
     Different,
-    /// Missing data or unsupported variant type for comparison.
+    /// A pair weaver could not judge: missing data or an unsupported kind of description.
     Unknown,
 }
 
@@ -35,7 +35,7 @@ pub struct VariantEquivalence<'a> {
     pub searcher: &'a dyn TranscriptSearch,
 }
 
-/// A coding variant, or an allele in cis of coding members, whose prediction
+/// A coding description, or a cis allele of coding members, whose prediction
 /// is compared with a protein description.
 enum Coding {
     One(CVariant),
@@ -80,7 +80,7 @@ impl<'a> VariantEquivalence<'a> {
         var1: &SequenceVariant,
         var2: &SequenceVariant,
     ) -> Result<EquivalenceLevel, HgvsError> {
-        // A mitochondrial variant is a genomic variant on the mitochondrial
+        // A mitochondrial description is a genomic description on the mitochondrial
         // reference; compare it as one.
         let var1 = mito_as_genomic(var1);
         let var2 = mito_as_genomic(var2);
@@ -89,10 +89,10 @@ impl<'a> VariantEquivalence<'a> {
         let var1 = rna_alone(var1);
         let var2 = rna_alone(var2);
         // A gene symbol is read on each of the gene's accessions of its kind,
-        // before an r. description is converted on its transcript.
+        // before an r. description is respelled on its transcript.
         let read1 = self.held(self.readings(&var1)?)?;
         let read2 = self.held(self.readings(&var2)?)?;
-        // An r. change across a splice junction has no genomic form, so a
+        // An r. change across an exon junction has no genomic form, so a
         // reading of one is compared only with its own spelling or by the
         // protein it leaves. A pair it is refused in takes no part, and the
         // refusal is the error only when no other pair makes the two the same.
@@ -115,7 +115,7 @@ impl<'a> VariantEquivalence<'a> {
                     }
                     continue;
                 }
-                // The strongest level any pair gives, whatever order the
+                // The strongest verdict any pair gives, whatever order the
                 // gene's accessions come in.
                 match self.equivalent_level_single(compared1, compared2) {
                     Ok(EquivalenceLevel::Identity) => return Ok(EquivalenceLevel::Identity),
@@ -142,7 +142,7 @@ impl<'a> VariantEquivalence<'a> {
         Ok(EquivalenceLevel::Different)
     }
 
-    /// For each reading, its refusal as an r. change across a splice
+    /// For each reading, its refusal as an r. change across an exon
     /// junction, `None` where it is not one or `other` is a protein
     /// description, which is compared by the protein each leaves.
     fn refusals(
@@ -165,7 +165,7 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// Refuses an r. change, alone or a member of an allele, that spans a
-    /// splice junction.
+    /// exon junction.
     fn rna_on_the_genome(&self, var: &SequenceVariant) -> Result<(), HgvsError> {
         let on_the_genome = |r: &crate::structs::RVariant| {
             if r.posedit.edit.is_whole_transcript() {
@@ -188,8 +188,8 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
-    /// An r. variant as the c. or n. variant it is spelled from; any other
-    /// variant as it is.
+    /// An r. description as the c. or n. description it is spelled from; any other
+    /// description as it is.
     fn rna_as_transcript(&self, var: &SequenceVariant) -> Result<SequenceVariant, HgvsError> {
         match var {
             SequenceVariant::Rna(r) if !r.posedit.edit.is_whole_transcript() => {
@@ -228,7 +228,7 @@ impl<'a> VariantEquivalence<'a> {
             .collect()
     }
 
-    /// The readings whose references hold what they state ([`check_stated`]).
+    /// The readings whose references hold what they write ([`check_stated`]).
     /// Each accession of a gene numbers its own sequence, so a reading the
     /// reference contradicts is set aside, as is one that needs the genome of
     /// a record placed on none; when every reading is set aside, the first
@@ -267,7 +267,7 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
-    /// Every position `var` names and every base and residue it states, checked
+    /// Every position `var` names and every base and residue it writes, checked
     /// against its reference as [`validate`](VariantMapper::validate) checks
     /// them, so a description the reference contradicts is refused even
     /// against its own spelling. An allele is read whole, an uncertain member
@@ -284,8 +284,8 @@ impl<'a> VariantEquivalence<'a> {
         }
     }
 
-    /// Two variants are `Identity` when they are the same text after spelling
-    /// normalisation, `Analogous` when they name the same change (the same
+    /// Two descriptions are `Identity` when they are the same text after spelling
+    /// comparison, `Analogous` when they name the same change (the same
     /// [`Comparand`] on the genome, or the same protein left behind) and
     /// `Different` otherwise.
     fn equivalent_level_single(
@@ -313,7 +313,7 @@ impl<'a> VariantEquivalence<'a> {
                 return self.nucleotide_vs_protein(nucleotide, protein);
             }
             _ => {
-                // A transcript variant that projects to exactly the genomic text.
+                // A transcript description that projects to exactly the genomic text.
                 if self.exact_projection(var1, var2)? || self.exact_projection(var2, var1)? {
                     return Ok(EquivalenceLevel::Identity);
                 }
@@ -330,17 +330,17 @@ impl<'a> VariantEquivalence<'a> {
         })
     }
 
-    /// The level when either side is an allele in cis, `None` when neither
+    /// The verdict when either side is a cis allele, `None` when neither
     /// is. A cis allele of one member is that member. Otherwise the two are
     /// compared by the [`AlleleComparand`] each makes on the genome, a plain
-    /// variant read as an allele of one member: `Identity` when a transcript
+    /// description read as an allele of one member: `Identity` when a transcript
     /// allele projects to the genomic one's text, `Analogous` when the
     /// comparands are equal, `Different` otherwise. An allele that cannot be
     /// read into a sequence, of protein members or with a member that is
     /// uncertain or a statement, is compared by the set of its members'
-    /// [`MemberKey`]s, and against a plain variant is `Different`. An allele
+    /// [`MemberKey`]s, and against a plain description is `Different`. An allele
     /// of nucleotide members against a protein description is compared by
-    /// its prediction, as a single variant is.
+    /// its prediction, as a single description is.
     ///
     /// # Errors
     ///
@@ -544,7 +544,7 @@ impl<'a> VariantEquivalence<'a> {
         Ok(Some(keys))
     }
 
-    /// Whether `tx` is a c. or n. variant whose projection onto `g`'s
+    /// Whether `tx` is a c. or n. description whose projection onto `g`'s
     /// reference is `g` to the letter.
     fn exact_projection(
         &self,
@@ -562,9 +562,9 @@ impl<'a> VariantEquivalence<'a> {
         Ok(projected.is_ok_and(|p| p.to_string() == g.to_string()))
     }
 
-    /// What a single nucleotide variant is compared by, read on the genome:
+    /// What a single nucleotide description is compared by, read on the genome:
     /// the change it makes, the bases it states when it makes the reference,
-    /// or, for a copy number, its projection. `None` for a variant with none
+    /// or, for a copy number, its projection. `None` for a description with none
     /// of these (a conversion, an insertion of bases known only by number).
     fn comparand(&self, var: &SequenceVariant) -> Result<Option<Comparand>, HgvsError> {
         let g = match self.mapper.as_genomic(var) {
@@ -594,8 +594,8 @@ impl<'a> VariantEquivalence<'a> {
             }))
     }
 
-    /// The canonical allele of a variant, or `None` for one that has none (a
-    /// conversion, a copy number, an allele in cis).
+    /// The canonical allele of a description, or `None` for one that has none (a
+    /// conversion, a copy number, a cis allele).
     fn nucleotide_allele(
         &self,
         var: &SequenceVariant,
@@ -637,13 +637,13 @@ impl<'a> VariantEquivalence<'a> {
         })
     }
 
-    /// A nucleotide variant against a protein description: through every
-    /// coding transcript the variant lies on that encodes the description's
+    /// A nucleotide description against a protein description: through every
+    /// coding transcript the description lies on that encodes the description's
     /// protein (see `encodes`), its prediction compared with the description
     /// as two protein descriptions are, the prediction leaving the protein the
     /// edited transcript encodes. A transcript of another protein takes no
-    /// part. The level through the best transcript; a transcript on which the
-    /// variant does not read, whose protein cannot be told, or whose
+    /// part. The verdict through the best transcript; a transcript on which the
+    /// description does not read, whose protein cannot be told, or whose
     /// prediction fails, is the error only when no transcript makes the two
     /// equivalent. A nucleotide allele predicts
     /// one description or a protein allele, `p.[(Ala4=;Tyr5Asp)]`; a protein
@@ -666,7 +666,7 @@ impl<'a> VariantEquivalence<'a> {
                 Coding::One(one) => &one.ac,
                 Coding::Cis(cis) => &cis.ac,
             };
-            // The variant is checked on its transcript before the transcript
+            // The description is checked on its transcript before the transcript
             // is set aside; a transcript of another protein says nothing of
             // this one.
             let on_transcript = match c {
@@ -788,8 +788,8 @@ impl<'a> VariantEquivalence<'a> {
         Ok(named(&of_gene))
     }
 
-    /// The coding forms of a nucleotide variant, a single one or an allele in
-    /// cis: its own for a `c.` variant, its projection onto every coding
+    /// The coding forms of a nucleotide description, a single one or a cis
+    /// allele: its own for a `c.` description, its projection onto every coding
     /// transcript it lies on for a `g.` or `n.` one, its `c.` spelling for an
     /// `r.` one on a coding transcript.
     fn coding_forms(&self, var: &SequenceVariant) -> Result<Vec<Coding>, HgvsError> {
@@ -853,7 +853,7 @@ impl<'a> VariantEquivalence<'a> {
             .collect())
     }
 
-    /// The protein the coding variant `c` leaves, whose prediction is
+    /// The protein the coding description `c` leaves, whose prediction is
     /// `predicted`: the residues the edited transcript encodes, exactly; for a
     /// prediction that leaves the protein as it is, the residues it states;
     /// and, where the prediction names no sequence (`p.(Met1?)`, `p.?`), what
@@ -919,7 +919,7 @@ fn spelling(var: &SequenceVariant) -> String {
 }
 
 /// A description's reading on `ac`, `None` where `ac` is another version
-/// of its accession that contradicts what it states or lacks a residue it
+/// of its accession that contradicts what it writes or lacks a residue it
 /// names: checked on its own version, it names a change `ac` does not have.
 fn read_across_versions<T>(
     read: Result<T, HgvsError>,
@@ -1031,15 +1031,15 @@ fn one_letter(text: &str) -> String {
         .fold(text.to_string(), |s, (from, to)| s.replace(from, to))
 }
 
-/// The value two single nucleotide variants are the same change by, on the
-/// genome. A variant that changes the sequence states no base unchanged, and
+/// The value two single nucleotide descriptions are the same change by, on the
+/// genome. A description that changes the sequence states no base unchanged, and
 /// one that makes the reference changes nothing, so neither is ever the other.
 #[derive(Debug, PartialEq, Eq)]
 enum Comparand {
     /// The change, fully justified: one value for every place it could be
     /// written.
     Change(CanonicalAllele),
-    /// The bases a variant that makes the reference names, as written: no
+    /// The bases a description that makes the reference names, as written: no
     /// widening over a run, so `c.10=` and `c.20=` differ.
     Statement(StatedBases),
     /// A copy number, which has no bases to apply: its accession and edit as

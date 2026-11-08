@@ -67,9 +67,9 @@ fn resolves_over_range(edit: &crate::edits::NaEdit) -> bool {
 /// `g.…T>C`. This is biocommons hgvs's replace_reference, extended to the
 /// edits whose alternate is derived from the source's bases.
 ///
-/// The bases the edit states are checked on the source. With no source, an
+/// The bases the edit writes are checked on the source. With no source, an
 /// intronic position, the edit is carried as given, and the caller checks
-/// what it states on the target. `shared` tells a repeat which of the
+/// what it writes on the target. `shared` tells a repeat which of the
 /// target's bases past the range the source holds too.
 fn project_edit(
     edit: &crate::edits::NaEdit,
@@ -342,7 +342,7 @@ fn at_each_end_of_the_intron(
     let pos = posedit
         .pos
         .as_ref()
-        .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
+        .ok_or_else(|| HgvsError::ValidationError("Missing transcript position".into()))?;
     let end = pos.end.ok_or_else(|| {
         HgvsError::ValidationError(format!("{posedit} names one base, not an insertion's two"))
     })?;
@@ -376,7 +376,7 @@ fn ends_in_a_run_across_a_junction(variant: &str) -> HgvsError {
 }
 
 /// `edit`, over `named` on `source`, as it is written over the range the
-/// other sequence numbers across an exon junction: the bases it states are
+/// other sequence numbers across an exon junction: the bases it writes are
 /// checked on `source` and dropped, since the two sequences hold different
 /// bases over the range.
 fn bare_across_a_junction(
@@ -1192,17 +1192,17 @@ pub(crate) fn transcript_model(
         .get_transcript(ac.0, reference_ac.map(|(r, _)| r))
 }
 
-/// The 0-based half-open residue range a p. variant names on `reference`,
-/// once the range is found on the protein and the residues it states there:
+/// The 0-based half-open residue range a p. description names on `reference`,
+/// once the range is found on the protein and the residues it writes there:
 /// the residue named at each end of its interval (`p.Arg2Leu`'s Arg), and any
-/// the edit states as its reference or as the unit a repeat starts with. The
+/// the edit writes as its reference or as the unit a repeat starts with. The
 /// protein ends at its stop, which for one served without it is the position
 /// after its last residue.
 ///
 /// # Errors
 ///
 /// [`HgvsError::PositionOutsideSequence`] for an interval past the stop;
-/// [`HgvsError::ReferenceMismatch`] for a stated residue the protein does not
+/// [`HgvsError::ReferenceMismatch`] for a written residue the protein does not
 /// hold; a `ValidationError` for an interval that runs backwards or names no
 /// position, or for a reference the provider says is not a protein.
 pub(crate) fn residue_range(
@@ -1321,7 +1321,7 @@ fn in_written_order(pos: &SimpleInterval) -> Result<(), HgvsError> {
     }
 }
 
-/// Refuses reference bases stated at a position known only to lie in a
+/// Refuses reference bases written at a position known only to lie in a
 /// range: the bases would have to be somewhere in it, which names no one
 /// allele.
 fn no_bases_at_an_uncertain_position(
@@ -1330,8 +1330,8 @@ fn no_bases_at_an_uncertain_position(
 ) -> Result<(), HgvsError> {
     if edit.states_bases() {
         return Err(HgvsError::ValidationError(format!(
-            "{var} states reference bases at an uncertain position, which names no one base \
-             to state them at"
+            "{var} writes reference bases at an uncertain position, which names no one base \
+             to write them at"
         )));
     }
     Ok(())
@@ -1424,7 +1424,7 @@ fn bounded_interval(start: VrsBound, end: VrsBound) -> Result<SimpleInterval, Hg
     })
 }
 
-/// The `g.` variant with edit `edit` at `pos` on `ac`.
+/// The `g.` description with edit `edit` at `pos` on `ac`.
 pub(crate) fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdit) -> GVariant {
     GVariant::from_parts(
         ac.to_string(),
@@ -1438,7 +1438,7 @@ pub(crate) fn g_variant(ac: &str, pos: SimpleInterval, edit: crate::edits::NaEdi
     )
 }
 
-/// The nucleotide edit of `var`; `None` for a protein variant.
+/// The nucleotide edit of `var`; `None` for a protein description.
 fn na_edit(var: &crate::SequenceVariant) -> Option<&crate::edits::NaEdit> {
     use crate::SequenceVariant as SV;
     Some(match var {
@@ -1488,7 +1488,7 @@ fn inserted_length(edit: &crate::edits::NaEdit) -> Option<VrsBound> {
     }
 }
 
-/// The p. variant for a normalised edit over residues `[s, e)` of a protein.
+/// The p. description for a normalised edit over residues `[s, e)` of a protein.
 fn protein_variant(
     ac: &str,
     reference: &crate::reference::Reference<'_, '_>,
@@ -1665,7 +1665,7 @@ impl<'s> CdsResidues<'s> {
     }
 }
 
-/// The protein a coding variant leaves, as
+/// The protein a coding description leaves, as
 /// [`VariantMapper::predicted_protein`] reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -1678,14 +1678,14 @@ pub struct PredictedProtein {
     pub stops: bool,
 }
 
-/// What a coding variant does to its protein.
+/// What a coding description does to its protein.
 pub(crate) enum CodingOutcome {
     /// A statement rather than a change: `p.?`, `p.(Met1?)`, `p.0?`, `p.(=)`.
     Statement(PVariant),
     Change(crate::protein::Reading),
 }
 
-/// The protein statement `statement` predicted from a variant of `gene`,
+/// The protein statement `statement` predicted from a change in `gene`,
 /// bracketed as HGVS writes each prediction: `p.(=)` and `p.(Met1?)`, but
 /// `p.?` and `p.0?` bare.
 pub(crate) fn predicted_statement(
@@ -1938,7 +1938,7 @@ pub(crate) fn cds_bounds(
 }
 
 /// The change `var_c` names on the transcript `record`, over 0-based indices:
-/// the range checked against the sequence, and the stated bases against what
+/// the range checked against the sequence, and the written bases against what
 /// is there.
 fn resolve_in_transcript(
     var_c: &CVariant,
@@ -2249,7 +2249,7 @@ fn checked_usize(val: i32, context: &str) -> Result<usize, HgvsError> {
     }
 }
 
-/// High-level mapper for transforming variants between coordinate systems.
+/// High-level mapper for projecting descriptions between coordinate systems.
 #[non_exhaustive]
 pub struct VariantMapper<'a> {
     /// Cached, random-access view of every sequence the provider serves; the
@@ -2290,7 +2290,7 @@ impl<'a> VariantMapper<'a> {
         transcript_model(&self.refs, ac, reference_ac)
     }
 
-    /// Transforms a genomic variant (`g.`) to a coding cDNA variant (`c.`).
+    /// Projects a genomic description (`g.`) to a coding description (`c.`).
     ///
     /// A genomic range whose ends lie in two exons is written over the
     /// transcript range, which HGVS numbers over the same bases, intron
@@ -2341,7 +2341,7 @@ impl<'a> VariantMapper<'a> {
                 }
             }
         }
-        // A g. variant names positions and states bases on the genome,
+        // A g. description names positions and writes bases on the genome,
         // intronic or not.
         let (s, e) = simple_interval_range(pos)?;
         if var_g.posedit.edit.states_bases() || !within_alignment(&am, s, e)? {
@@ -2362,7 +2362,7 @@ impl<'a> VariantMapper<'a> {
         };
         let (mut n_lo, mut off_lo) = (fp_start.range.0, fp_start.offset);
         let (mut n_hi, mut off_hi) = (fp_end.range.0, fp_end.offset);
-        // Two intronic ends anchored on one exon boundary share n and differ
+        // Two intronic ends anchored on one exon border share n and differ
         // only in offset, so the order is by (base, offset).
         if (n_lo.0, off_lo.0) > (n_hi.0, off_hi.0) {
             std::mem::swap(&mut n_lo, &mut n_hi);
@@ -2676,7 +2676,7 @@ impl<'a> VariantMapper<'a> {
         Ok((extended, repeat.grown(unit, more)?))
     }
 
-    /// Transforms a coding cDNA variant (`c.`) to a genomic variant (`g.`).
+    /// Projects a coding description (`c.`) to a genomic description (`g.`).
     pub fn c_to_g(
         &self,
         var_c: &CVariant,
@@ -2685,7 +2685,7 @@ impl<'a> VariantMapper<'a> {
         self.tx_to_g(var_c, reference_ac)
     }
 
-    /// Transforms a non-coding cDNA variant (`n.`) to a genomic variant (`g.`).
+    /// Projects a non-coding description (`n.`) to a genomic description (`g.`).
     pub fn n_to_g(
         &self,
         var_n: &NVariant,
@@ -2694,7 +2694,7 @@ impl<'a> VariantMapper<'a> {
         self.tx_to_g(var_n, reference_ac)
     }
 
-    /// Transforms any transcript-space variant (`c.` or `n.`) to a genomic variant (`g.`).
+    /// Projects any transcript description (`c.` or `n.`) to a genomic description (`g.`).
     ///
     /// A range across an exon junction is the genomic range it numbers, the
     /// intron included: `c.4_6dup` over the junction after c.5 duplicates
@@ -2719,7 +2719,7 @@ impl<'a> VariantMapper<'a> {
             reference_ac.map(|r| {
                 (
                     r,
-                    ReadAs::Nucleotide("the genome a transcript variant is projected onto"),
+                    ReadAs::Nucleotide("the genome a transcript description is projected onto"),
                 )
             }),
         )?;
@@ -2732,7 +2732,7 @@ impl<'a> VariantMapper<'a> {
             .posedit()
             .pos
             .as_ref()
-            .ok_or_else(|| HgvsError::ValidationError("Missing cDNA position".into()))?;
+            .ok_or_else(|| HgvsError::ValidationError("Missing transcript position".into()))?;
         if !pos.is_exact() {
             return Err(HgvsError::UnsupportedOperation(format!(
                 "{}:{}.{} has an uncertain position, which a genomic interval cannot carry",
@@ -2777,7 +2777,7 @@ impl<'a> VariantMapper<'a> {
         }
 
         // An exonic edit is read on the record and written for the genome. An
-        // intronic one has no record bases: what it states is checked on the
+        // intronic one has no record bases: what it writes is checked on the
         // genome, read on the transcript's strand, and it is carried as given.
         let exonic = pos.start.offset.unwrap_or(zero).0 == 0
             && pos
@@ -2911,7 +2911,7 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// Discovers all possible cDNA consequences for a genomic variant.
+    /// Projects a genomic description (`g.`) to `c.` on every transcript placed over it.
     pub fn g_to_c_all(
         &self,
         var_g: &GVariant,
@@ -2961,7 +2961,7 @@ impl<'a> VariantMapper<'a> {
 
         if results.is_empty() && !errors.is_empty() {
             return Err(HgvsError::ValidationError(format!(
-                "All mapping attempts failed: {}",
+                "All projection attempts failed: {}",
                 errors.join("; ")
             )));
         }
@@ -2969,7 +2969,7 @@ impl<'a> VariantMapper<'a> {
         Ok(results)
     }
 
-    /// `protein_ac` if given, else the protein the provider maps `transcript_ac` to;
+    /// `protein_ac` if given, else the protein the provider pairs `transcript_ac` with;
     /// a `transcript_ac` the provider classifies as a protein is refused, as is
     /// a `protein_ac` it classifies as a nucleotide sequence.
     pub(crate) fn protein_accession(
@@ -3004,7 +3004,7 @@ impl<'a> VariantMapper<'a> {
             .clone())
     }
 
-    /// The protein consequence of an r. variant: a statement about the
+    /// The protein consequence of an r. description: a statement about the
     /// transcript (`r.0`, `r.spl`, `r.?`, `r.=`) becomes the matching statement
     /// about the protein (`p.0?`, `p.?`, `p.?`, `p.(=)`); `r.(?)`,
     /// which names no change of its own, is refused; anything else is
@@ -3050,7 +3050,7 @@ impl<'a> VariantMapper<'a> {
         as_rna_error(r, self.c_to_p(&self.r_to_c(r)?, protein_ac))
     }
 
-    /// Transforms a coding cDNA variant (`c.`) to a protein variant (`p.`).
+    /// Projects a coding description (`c.`) to its protein consequence (`p.`).
     pub fn c_to_p(
         &self,
         var_c: &CVariant,
@@ -3066,13 +3066,13 @@ impl<'a> VariantMapper<'a> {
         }
     }
 
-    /// The protein allele of a coding variant: on the protein the transcript
+    /// The protein allele of a coding description: on the protein the transcript
     /// is paired with, the residues from the first change to the end become
     /// the residues the edited transcript encodes, up to its new stop. Unlike
-    /// the allele of a p. variant this covers frameshifts, extensions and
+    /// the allele of a p. description this covers frameshifts, extensions and
     /// stop losses, which are computed rather than described. The translated
     /// CDS must be the protein the provider serves; a difference is an
-    /// annotation error and is reported as one.
+    /// error in the transcript model and is reported as one.
     pub fn protein_allele(
         &self,
         var_c: &CVariant,
@@ -3141,7 +3141,7 @@ impl<'a> VariantMapper<'a> {
                 .position(|(x, y)| x != y)
                 .unwrap_or(actual.len().min(reference.len()));
             return Err(HgvsError::ValidationError(format!(
-                "The CDS of {} does not translate to {protein_ac}: they differ from residue {} ({} vs {}); the annotation pairs them wrongly",
+                "The CDS of {} does not translate to {protein_ac}: they differ from residue {} ({} vs {}); the transcript model pairs them wrongly",
                 var_c.ac,
                 at + 1,
                 &actual[at.min(actual.len())..(at + 10).min(actual.len())],
@@ -3203,7 +3203,7 @@ impl<'a> VariantMapper<'a> {
         Ok(crate::protein::proteins(&unchanged)?.0)
     }
 
-    /// The protein a coding variant leaves: no residues when the CDS is
+    /// The protein a coding description leaves: no residues when the CDS is
     /// deleted, `None` when nothing can be said (an intronic position, a
     /// disrupted start codon) or the prediction is a statement about residues
     /// (`p.(=)`, `p.(Leu3=)`).
@@ -3229,7 +3229,7 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// The GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on
+    /// The GA4GH VRS 2.0 Allele of a coding description's protein consequence, on
     /// the protein sequence, with the predicted p. description as its
     /// expression when there is one.
     pub fn protein_vrs(
@@ -3251,7 +3251,7 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
-    /// What a coding variant does to the protein: a statement (`p.?`,
+    /// What a coding description does to the protein: a statement (`p.?`,
     /// `p.(Met1?)`, `p.0?`, `p.(=)`) when the edit lies outside or across the CDS
     /// boundary, leaves no codon where the protein first changes, or changes
     /// the first codon, else the resolved change to describe or read.
@@ -3311,7 +3311,7 @@ impl<'a> VariantMapper<'a> {
         if let Some(statement) = statement_about_transcript(var_c, transcript, &protein_ac, first)?
         {
             // A statement reads no codon, but the positions the edit names
-            // and the bases it states must still be there.
+            // and the bases it writes must still be there.
             self.check_transcript_stated_on(var_c, &am)?;
             return Ok(CodingOutcome::Statement(statement));
         }
@@ -3465,9 +3465,9 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// Back-converts a single amino acid substitution (p.Xxx###Yyy) to a coding variant (c.).
+    /// Projects a single amino acid substitution (p.Xxx###Yyy) back to a coding description (c.).
     ///
-    /// Only handles `AaEdit::Subst` currently. For ambiguous back-conversions (multiple
+    /// Only handles `AaEdit::Subst` currently. For an ambiguous back-projection (multiple
     /// codons with the same minimum nucleotide distance), the first alphabetically is chosen
     /// and `is_unique` is set to false. The residue it names is read on the
     /// protein, so the provider must serve the protein's sequence.
@@ -3496,7 +3496,7 @@ impl<'a> VariantMapper<'a> {
         Ok((c_variant, is_unique))
     }
 
-    /// `transcript_ac` if given, else the transcript the provider maps `protein_ac` to.
+    /// `transcript_ac` if given, else the transcript the provider pairs `protein_ac` with.
     fn transcript_for_protein(
         &self,
         protein_ac: &str,
@@ -3553,18 +3553,18 @@ impl<'a> VariantMapper<'a> {
         Ok(tx_seq[codon_start..codon_end].to_uppercase())
     }
 
-    /// Whether the bases and residues a variant states are what its reference
+    /// Whether the bases and residues a description writes are what its reference
     /// holds: a `g.` or `m.` base on the genome, an exonic `c.` or `n.` base
     /// on the transcript record, an intronic one on the genome read on the
     /// transcript's strand, a `p.` residue on the protein. Every member of a
     /// cis allele must hold, and an allele of nucleotide members must have
     /// one reading ([`read_cis`](Self::read_cis)).
     ///
-    /// Returns `Ok(true)` when they hold, or when the edit states none (or
-    /// only a length); `Ok(false)` where an operation reading the variant
+    /// Returns `Ok(true)` when they hold, or when the edit writes none (or
+    /// only a length); `Ok(false)` where an operation reading the description
     /// refuses it with [`HgvsError::ReferenceMismatch`],
     /// [`HgvsError::PositionOutsideSequence`], [`HgvsError::NotAnExonBorder`]
-    /// or [`HgvsError::OffsetPastIntron`]: a stated base the reference lacks,
+    /// or [`HgvsError::OffsetPastIntron`]: a written base the reference lacks,
     /// a position past its end, an intronic offset from a base that is not an
     /// exon border and one past the end of its intron are each the reference
     /// contradicting the description.
@@ -3597,7 +3597,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// [`validate`](Self::validate) as an error: `Ok` when every position the
-    /// variant names, and every base and residue it states, is there.
+    /// description names, and every base and residue it writes, is there.
     pub(crate) fn check_stated(&self, var: &crate::SequenceVariant) -> Result<(), HgvsError> {
         match var {
             crate::SequenceVariant::Genomic(v) => self.check_linear_stated(v),
@@ -3667,7 +3667,7 @@ impl<'a> VariantMapper<'a> {
         edit.check_against(&reference, start, end, crate::data::Strand::Plus)
     }
 
-    /// The positions a c. or n. variant names and the bases it states, on the
+    /// The positions a c. or n. description names and the bases it writes, on the
     /// record where it is exonic and on the genome, through the projection,
     /// where it is not.
     fn check_transcript_stated<V: TranscriptVariant>(&self, v: &V) -> Result<(), HgvsError> {
@@ -3740,7 +3740,7 @@ impl<'a> VariantMapper<'a> {
             SV::Mitochondrial(v) => SV::Mitochondrial(self.normalize_linear(v)?),
             SV::Coding(v) => SV::Coding(self.normalize_transcript(v)?),
             SV::NonCoding(v) => SV::NonCoding(self.normalize_transcript(v)?),
-            // r. normalises as the c. or n. variant it is spelled from, and
+            // r. normalises as the c. or n. description it is spelled from, and
             // comes back in RNA letters. A statement about the transcript
             // (r.0, r.spl, r.=) has nothing to normalise.
             SV::Rna(r) if r.posedit.edit.is_whole_transcript() => SV::Rna(r),
@@ -3782,7 +3782,7 @@ impl<'a> VariantMapper<'a> {
         };
         if !pos.is_exact() {
             // A bound known only to lie in a range names no one placement to
-            // shift or reduce from. Leave the variant as written.
+            // shift or reduce from. Leave the description as written.
             self.check_linear_stated(&v)?;
             return Ok(v);
         }
@@ -3814,8 +3814,8 @@ impl<'a> VariantMapper<'a> {
         }
         if has_intronic_offset(pos) {
             // An intronic base has no transcript index; there is nothing to
-            // normalise against in transcript space. Leave the variant as
-            // written, once what it states is found on the genome.
+            // normalise against on the transcript. Leave the description as
+            // written, once what it writes is found on the genome.
             self.check_transcript_stated_on(&v, &am)?;
             return Ok(v);
         }
@@ -3884,8 +3884,8 @@ impl<'a> VariantMapper<'a> {
         let (n_start, n_end) = am.interval_to_n(pos)?;
         if n_start.0 < 0 {
             return Err(HgvsError::ValidationError(format!(
-                "Transcript start position {:?} maps to a negative index; \
-                 normalization of 5'UTR-spanning variants is not yet supported",
+                "Transcript start position {:?} falls at a negative index; \
+                 normalisation of descriptions spanning the 5' UTR is not yet supported",
                 pos.start.base
             )));
         }
@@ -3895,9 +3895,9 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
-    /// The canonical allele of a nucleotide variant on its genomic reference:
+    /// The canonical allele of a nucleotide description on the genome:
     /// the one unambiguous statement of the change that SPDI, VRS and
-    /// equivalence all derive from. See [`CanonicalAllele`]. A variant whose
+    /// equivalence all derive from. See [`CanonicalAllele`]. A description whose
     /// position is uncertain names no one change, so it has none.
     pub fn canonical_allele(
         &self,
@@ -3907,7 +3907,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// [`canonical_allele`](Self::canonical_allele) with the region of
-    /// ambiguity of a nucleotide variant kept inside the genomic `bounds`.
+    /// ambiguity of a nucleotide description kept inside the genomic `bounds`.
     pub(crate) fn canonical_allele_within(
         &self,
         var: &crate::SequenceVariant,
@@ -3937,7 +3937,7 @@ impl<'a> VariantMapper<'a> {
         }
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
-                "Canonical alleles exist for genomic, mitochondrial, coding, non-coding, RNA and protein variants only".into(),
+                "Canonical alleles exist for genomic, mitochondrial, coding, non-coding, RNA and protein descriptions only".into(),
             )
         })??;
         let pos = g
@@ -3966,18 +3966,18 @@ impl<'a> VariantMapper<'a> {
         CanonicalAllele::canonicalize_within(&reference, &g.ac, &resolved, bounds)
     }
 
-    /// The unambiguous SPDI of a variant: its canonical allele, rendered.
+    /// The unambiguous SPDI of a description: its canonical allele, rendered.
     pub fn to_spdi_unambiguous(&self, var: &crate::SequenceVariant) -> Result<String, HgvsError> {
         Ok(self.canonical_allele(var)?.spdi())
     }
 
-    /// The GA4GH VRS 2.0 Allele of a variant, with computed identifiers. The
+    /// The GA4GH VRS 2.0 Allele of a description, with computed identifiers. The
     /// input HGVS is carried as an expression.
     ///
     /// An insertion of bases known only by number, `insN[20]` or
     /// `delinsN[20]`, has a `LengthExpression` state over the insertion point
     /// or the deleted range, unnormalised; a deletion with uncertain
-    /// breakpoints has Range bounds. A copy-number edit or an imprecise
+    /// breakpoints has Range bounds. A copy-number edit or an uncertain
     /// duplication has no Allele: see [`to_vrs_variation`](Self::to_vrs_variation).
     pub fn to_vrs(&self, var: &crate::SequenceVariant) -> Result<VrsAllele, HgvsError> {
         self.to_vrs_within(var, (0, usize::MAX))
@@ -3991,7 +3991,7 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<VrsAllele, HgvsError> {
         if let crate::SequenceVariant::CisPhased(_) = var {
             return Err(HgvsError::UnsupportedOperation(format!(
-                "{var} is an allele in cis, which is a VRS CisPhasedBlock, not an Allele; \
+                "{var} is a cis allele, which is a VRS CisPhasedBlock, not an Allele; \
                  use to_vrs_variation"
             )));
         }
@@ -4071,7 +4071,7 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<VrsAllele, HgvsError> {
         let g = self.as_genomic(var).ok_or_else(|| {
             HgvsError::UnsupportedOperation(
-                "An insertion of a stated length is a nucleotide variant".into(),
+                "An insertion known only by its length is a nucleotide edit".into(),
             )
         })??;
         let pos = g
@@ -4101,7 +4101,7 @@ impl<'a> VariantMapper<'a> {
     }
 
     /// The GA4GH VRS 2.0 `CopyNumberCount` of a `g.` or `m.` copy-number
-    /// variant, `g.1000_2000copy3`: the location over the range, as interbase
+    /// description, `g.1000_2000copy3`: the location over the range, as interbase
     /// `[start-1, end)` or as Range bounds when the breakpoints are uncertain,
     /// and the count. Nothing is normalised: a count has no placement to
     /// shift. The input HGVS is carried as an expression.
@@ -4114,7 +4114,8 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::Mitochondrial(v) => v.to_genomic(),
             _ => {
                 return Err(HgvsError::UnsupportedOperation(
-                    "Copy number counts exist for genomic and mitochondrial variants only".into(),
+                    "Copy number counts exist for genomic and mitochondrial descriptions only"
+                        .into(),
                 ))
             }
         };
@@ -4141,8 +4142,8 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
-    /// The VRS bounds of the range a copy-number variant on the genome names,
-    /// once an exact range is found on the genome with any bases it states.
+    /// The VRS bounds of the range a copy-number description on the genome names,
+    /// once an exact range is found on the genome with any bases it writes.
     fn copy_number_bounds(&self, g: &GVariant) -> Result<(VrsBound, VrsBound), HgvsError> {
         let pos = g
             .posedit
@@ -4169,7 +4170,8 @@ impl<'a> VariantMapper<'a> {
             crate::SequenceVariant::Mitochondrial(v) => v.to_genomic(),
             _ => {
                 return Err(HgvsError::UnsupportedOperation(
-                    "Copy number changes exist for genomic and mitochondrial variants only".into(),
+                    "Copy number changes exist for genomic and mitochondrial descriptions only"
+                        .into(),
                 ))
             }
         };
@@ -4216,7 +4218,7 @@ impl<'a> VariantMapper<'a> {
     ) -> Result<VrsCisPhasedBlock, HgvsError> {
         if !matches!(var, crate::SequenceVariant::CisPhased(_)) {
             return Err(HgvsError::UnsupportedOperation(format!(
-                "Only an allele in cis, ac:c.[a;b], renders as a CisPhasedBlock, not {var}"
+                "Only a cis allele, ac:c.[a;b], renders as a CisPhasedBlock, not {var}"
             )));
         }
         match self.to_vrs_variation(var)? {
@@ -4271,10 +4273,10 @@ impl<'a> VariantMapper<'a> {
         ))
     }
 
-    /// The VRS 2.0 object of a variant: the `CisPhasedBlock` of a cis allele,
+    /// The VRS 2.0 object of a description: the `CisPhasedBlock` of a cis allele,
     /// the `CopyNumberCount` of a copy-number edit, the `CopyNumberChange` of a
     /// duplication with uncertain breakpoints (which has no Allele), else the
-    /// `Allele` of `to_vrs` (an imprecise deletion included).
+    /// `Allele` of `to_vrs` (a deletion with uncertain breakpoints included).
     ///
     /// An allele of nucleotide members is read where it is written, refused
     /// if contradictory or ambiguous, projected to the genome and normalised
@@ -4340,7 +4342,7 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// The variant an SPDI string names (`accession:position:deletion:insertion`,
+    /// The description an SPDI string names (`accession:position:deletion:insertion`,
     /// interbase position, the deletion as bases or as a length), written in
     /// HGVS on its own sequence and 3'-normalised: `g.` for a nucleotide
     /// accession, `p.` for a protein.
@@ -4377,7 +4379,7 @@ impl<'a> VariantMapper<'a> {
         self.allele_to_variant(ac, kind, start, end, ins.to_string(), None)
     }
 
-    /// The variant a GA4GH VRS 2.0 object (as JSON) names, written in HGVS on
+    /// The description a GA4GH VRS 2.0 object (as JSON) names, written in HGVS on
     /// its own sequence. An `Allele` comes back 3'-normalised, with Range
     /// bounds accepted for a deletion, `g.(a_b)_(c_d)del`, and a
     /// `LengthExpression` state as `g.<a>_<a+1>insN[n]` or
@@ -4409,7 +4411,7 @@ impl<'a> VariantMapper<'a> {
         self.allele_from_vrs(&VrsAllele::from_json(json)?, accession, false)
     }
 
-    /// The variant the VRS `allele` names on its sequence, 3'-normalised, or
+    /// The description the VRS `allele` names on its sequence, 3'-normalised, or
     /// only as far as its location reaches when `within_location`: a member
     /// of a block justified short of an identity beside it.
     pub(crate) fn allele_from_vrs(
@@ -4472,7 +4474,7 @@ impl<'a> VariantMapper<'a> {
         }
     }
 
-    /// The HGVS variant for "`length` unspecified bases replace interbase
+    /// The HGVS description for "`length` unspecified bases replace interbase
     /// `[start, end)` of `ac`": `g.<start>_<start+1>insN[n]` when the range
     /// is empty, `g.<start+1>_<end>delinsN[n]` otherwise, as written (unknown
     /// bases cannot be normalised).
@@ -4655,7 +4657,7 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// The HGVS variant for "the bases over `[start, end)` of `ac` become
+    /// The HGVS description for "the bases over `[start, end)` of `ac` become
     /// `alt`": trimmed to the change, 3'-normalised, written as `g.` or `p.`.
     fn allele_to_variant(
         &self,
@@ -4689,11 +4691,11 @@ impl<'a> VariantMapper<'a> {
         )))
     }
 
-    /// The `p.` variant for "`alt` replaces `[start, end)` of the protein
+    /// The `p.` description for "`alt` replaces `[start, end)` of the protein
     /// `reference`", which holds `ref_` there, read with the stop after the
     /// last residue whether or not the provider serves it, as
     /// [`canonical_allele`](Self::canonical_allele) reads a description: so
-    /// both servings give one variant, and it gives back the allele read.
+    /// both servings give one description, and it gives back the allele read.
     /// A change the stop leaves as no change is the stop unchanged.
     pub(crate) fn protein_from_allele(
         &self,
@@ -4803,7 +4805,7 @@ impl<'a> VariantMapper<'a> {
                 HgvsError::UnsupportedOperation("SPDI only for genomic/coding/non-coding".into())
             })??;
 
-            // 2. Normalize (3' shift, minimal delins)
+            // 2. Normalise (3' shift, minimal delins)
             let g_norm_var = self.normalize_variant(crate::SequenceVariant::Genomic(g_var_obj))?;
             let g_norm = match g_norm_var {
                 crate::SequenceVariant::Genomic(v) => v,
@@ -4813,10 +4815,10 @@ impl<'a> VariantMapper<'a> {
         }
     }
 
-    /// The variant as a `g.` variant on its reference: genomic and mitochondrial
-    /// as written, transcript-space variants mapped through their transcript.
-    /// Either way the bases it states are checked, so a mismatch is a
-    /// [`HgvsError::ReferenceMismatch`]. `None` for protein variants and
+    /// The description as a `g.` description on its reference: genomic and mitochondrial
+    /// as written, transcript descriptions projected through their transcript.
+    /// Either way the bases it writes are checked, so a mismatch is a
+    /// [`HgvsError::ReferenceMismatch`]. `None` for protein descriptions and
     /// cis alleles.
     pub fn as_genomic(&self, var: &crate::SequenceVariant) -> Option<Result<GVariant, HgvsError>> {
         use crate::SequenceVariant as SV;
@@ -4842,7 +4844,7 @@ impl<'a> VariantMapper<'a> {
         Ok(t.cds_start_index.is_some() && t.cds_end_index.is_some())
     }
 
-    /// An r. variant as the c. or n. variant it is spelled from.
+    /// An r. description as the c. or n. description it is spelled from.
     pub fn r_as_transcript(&self, r: &RVariant) -> Result<crate::SequenceVariant, HgvsError> {
         Ok(if self.has_cds(&r.ac, ReadAs::Description("r"))? {
             crate::SequenceVariant::Coding(self.r_to_c(r)?)
@@ -4851,13 +4853,13 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// A c. or n. variant in its r. spelling.
+    /// A c. or n. description in its r. spelling.
     pub fn tx_to_r(&self, var: &crate::SequenceVariant) -> Result<RVariant, HgvsError> {
         match var {
             crate::SequenceVariant::Coding(c) => self.c_to_r(c),
             crate::SequenceVariant::NonCoding(n) => self.n_to_r(n),
             other => Err(HgvsError::UnsupportedOperation(format!(
-                "Only c. and n. variants have an r. spelling, not {other}"
+                "Only c. and n. descriptions have an r. spelling, not {other}"
             ))),
         }
     }
@@ -4920,8 +4922,8 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// An r. variant as the c. or n. variant it is spelled from, refused
-    /// when it spans a splice junction: the spliced RNA has no single genomic
+    /// An r. description as the c. or n. description it is spelled from, refused
+    /// when it spans an exon junction: the spliced RNA has no single genomic
     /// equivalent, so nothing that reads it on the genome can take it.
     pub(crate) fn r_on_the_genome(
         &self,
@@ -4941,7 +4943,7 @@ impl<'a> VariantMapper<'a> {
             if let Ok((start, end)) = am.interval_to_n(pos) {
                 if !within_one_exon(&am, start.0, end.0)? {
                     return Err(HgvsError::UnsupportedOperation(format!(
-                        "{r} spans a splice junction: the spliced RNA has no single genomic equivalent"
+                        "{r} spans an exon junction: the spliced RNA has no single genomic equivalent"
                     )));
                 }
             }

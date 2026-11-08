@@ -25,7 +25,7 @@ fn test_equivalence_levels() -> Result<(), HgvsError> {
     let v2 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1001A>C")?;
     assert_eq!(eq.equivalent_level(&v1, &v2)?, EquivalenceLevel::Identity);
 
-    // 2. Analogous (Normalization) - ins vs dup. The reference is ACGT repeated,
+    // 2. Analogous (normalisation) - ins vs dup. The reference is ACGT repeated,
     // so g.1006 is a C; duplicating it and inserting a C after it are one change.
     let v3 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1006dupC")?;
     let v4 = hgvs_weaver::parse_hgvs_variant("NC_TEST.1:g.1006_1007insC")?;
@@ -716,7 +716,7 @@ fn a_cis_allele_with_a_member_between_parenthesised_single_bases_normalises_as_t
     );
 }
 
-// --- Alleles in cis with an uncertain member ---
+// --- Cis alleles with an uncertain member ---
 //
 // The members of an allele are unordered: an uncertain member compares by its
 // spelling, an exact one by its canonical allele, and a member written twice
@@ -814,7 +814,7 @@ fn record_provider(cds: &str, protein: &str) -> Provider {
         .protein_for("NM_C.1", "NP_C.1")
 }
 
-/// The level at which `a` and `b` are judged the same over `hdp`.
+/// The verdict at which `a` and `b` are judged the same over `hdp`.
 fn level_over(hdp: &Provider, a: &str, b: &str) -> EquivalenceLevel {
     let mapper = VariantMapper::new(hdp);
     let parse = |s: &str| parse_hgvs_variant(s).unwrap_or_else(|e| panic!("{s}: {e}"));

@@ -1,4 +1,4 @@
-//! Reading an allele in cis, `c.[a;b]`, into the one sequence its members
+//! Reading a cis allele, `c.[a;b]`, into the one sequence its members
 //! make, and what it states unchanged.
 //!
 //! Every member is numbered against the reference, so the allele is the
@@ -148,7 +148,7 @@ impl Replacement {
     }
 }
 
-/// An allele in cis read into one sequence: the reference with
+/// A cis allele read into one sequence: the reference with
 /// [`replacements`](Self::replacements) applied, the reference bases it
 /// [states](Self::stated) unchanged, and the members that
 /// [cannot be applied](Self::unapplied) to a sequence.
@@ -1801,7 +1801,7 @@ enum On {
 }
 
 impl VariantMapper<'_> {
-    /// Reads an allele in cis of nucleotide members into the one sequence
+    /// Reads a cis allele of nucleotide members into the one sequence
     /// they make, and the bases it states unchanged.
     ///
     /// The members are read on the sequence they are written on; a
@@ -2010,7 +2010,7 @@ impl VariantMapper<'_> {
             )),
         }
     }
-    /// A placed edit as a variant of the frame's system.
+    /// A placed edit as a description in the frame's system.
     fn member_variant(&self, frame: &Frame, placed: &PlacedEdit) -> Result<SV, HgvsError> {
         let (s, e) = crate::mapper::hgvs_positions(placed);
         fn posedit<I>(pos: I, edit: &NaEdit) -> PosEdit<I, NaEdit> {
@@ -2083,7 +2083,7 @@ impl VariantMapper<'_> {
         })
     }
 
-    /// A placed edit as a variant of the frame's system, an `r.` one in the
+    /// A placed edit as a description in the frame's system, an `r.` one in the
     /// `c.` or `n.` it is spelled from.
     fn transcript_spelling(&self, frame: &Frame, placed: &PlacedEdit) -> Result<SV, HgvsError> {
         match self.member_variant(frame, placed)? {
@@ -2124,7 +2124,7 @@ impl VariantMapper<'_> {
                 SV::Coding(c) => Ok(&c.posedit),
                 SV::NonCoding(n) => Ok(&n.posedit),
                 other => Err(HgvsError::UnsupportedOperation(format!(
-                    "{other} is not a transcript variant"
+                    "{other} is not a transcript description"
                 ))),
             })
             .collect::<Result<_, _>>()?;
@@ -2202,7 +2202,7 @@ impl VariantMapper<'_> {
                 SV::Mitochondrial(v) => &v.posedit,
                 other => {
                     return Err(HgvsError::UnsupportedOperation(format!(
-                        "{other} is not a g. or m. variant"
+                        "{other} is not a g. or m. description"
                     )))
                 }
             };
@@ -2276,7 +2276,7 @@ impl VariantMapper<'_> {
                 SV::Coding(c) => self.c_to_g(c, None),
                 SV::NonCoding(n) => self.n_to_g(n, None),
                 other => Err(HgvsError::UnsupportedOperation(format!(
-                    "{other} is not a transcript variant"
+                    "{other} is not a transcript description"
                 ))),
             }
             .map_err(|e| HgvsError::CisMember {
