@@ -64,7 +64,7 @@ fn run_regression_test(
     let variant = parse_hgvs_variant(variant_str).unwrap();
     if let SequenceVariant::Coding(cv) = variant {
         // We use the variant as-is to match ClinVar representation exactly.
-        // Normalization can sometimes shift complex variants in ways that change the translation representation.
+        // Normalisation can sometimes shift complex variants in ways that change the translation representation.
         let p = mapper.c_to_p(&cv, Some(protein_ac)).expect("c_to_p failed");
         let expected = format!("{}:{}", protein_ac, expected_p);
         assert_eq!(p.to_string(), expected, "Variant: {}", variant_str);

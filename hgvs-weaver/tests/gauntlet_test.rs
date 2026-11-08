@@ -36,7 +36,7 @@ fn test_gauntlet_variants() {
         match parse_hgvs_variant(trimmed) {
             Ok(v) => {
                 let rt = v.to_string();
-                // Some variants might normalize, so we check if the round-tripped string parses to the same variant.
+                // Some descriptions might normalise, so we check if the round-tripped string parses to the same variant.
                 let v2 = parse_hgvs_variant(&rt)
                     .unwrap_or_else(|_| panic!("Round-tripped string failed to parse: {}", rt));
                 assert_eq!(v, v2, "Round trip structure mismatch for {}", trimmed);

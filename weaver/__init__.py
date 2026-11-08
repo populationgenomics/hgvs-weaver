@@ -78,8 +78,8 @@ class ExonData(TypedDict):
     Coordinates are 0-based:
     - transcript_start: inclusive start index in transcript.
     - transcript_end: exclusive end index in transcript.
-    - reference_start: inclusive start index on genomic reference.
-    - reference_end: inclusive end index on genomic reference.
+    - reference_start: inclusive start index on the genome.
+    - reference_end: inclusive end index on the genome.
     """
 
     transcript_start: int
@@ -131,7 +131,7 @@ class TranscriptData(_TranscriptRecord, total=False):
     cds_end_open: bool
     cds_start_initiates: bool
     strand: int  # 1 or -1
-    reference_accession: str  # Genomic accession (e.g., NC_000001.11)
+    reference_accession: str  # The genome's accession (e.g., NC_000001.11)
     exons: list[ExonData]
 
 
@@ -197,7 +197,7 @@ class DataProvider(Protocol):
     def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> TranscriptData:
         """Retrieve transcript model for the given accession.
 
-        If reference_ac is provided, returns the alignment for that specific reference.
+        If reference_ac is provided, returns the placement on that genome.
         A record placed on no genome is returned unplaced whatever reference_ac is, so
         weaver can say the placement is missing rather than report the lookup failing.
         """
@@ -219,7 +219,7 @@ class DataProvider(Protocol):
         source_kind: str,
         target_kind: str,
     ) -> list[tuple[str, str]] | list[tuple[IdentifierType, str]]:
-        """Map identifiers between different namespaces.
+        """Look up an identifier's counterparts in another namespace.
 
         ``source_kind`` and ``target_kind`` are ``'g'``, ``'c'``, ``'p'`` or ``'gene'``:
         ``(transcript, 'c', 'p')`` asks for a transcript's protein and ``(symbol, 'gene', 'p')``
@@ -230,7 +230,7 @@ class DataProvider(Protocol):
         ...
 
     def get_identifier_type(self, identifier: str) -> str | IdentifierType:
-        """Identify what type of identifier a string is.
+        """Identify what kind of identifier a string is.
 
         Should return one of:
         - 'genomic_accession'

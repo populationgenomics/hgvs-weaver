@@ -177,12 +177,12 @@ def test_a_member_that_fails_is_named_and_its_own_error_held(mapper: weaver.Vari
 
 
 def test_an_allele_of_another_system_is_refused(mapper: weaver.VariantMapper) -> None:
-    with pytest.raises(ValueError, match="allele in cis"):
+    with pytest.raises(ValueError, match="cis allele"):
         mapper.c_to_g(weaver.parse("NC_X.1:g.[22C>T;28T>G]"))
 
 
 def test_protein_vrs_refuses_an_allele(mapper: weaver.VariantMapper) -> None:
-    with pytest.raises(ValueError, match="allele in cis"):
+    with pytest.raises(ValueError, match="cis allele"):
         mapper.protein_vrs(weaver.parse("NM_X.1:c.[7C>T;13T>G]"))
 
 
@@ -207,7 +207,7 @@ def test_c_to_p_of_an_allele_stating_no_whole_codon_raises_no_protein_statement(
 
 
 def test_c_to_p_refuses_an_allele_of_genomic_members(mapper: weaver.VariantMapper) -> None:
-    with pytest.raises(ValueError, match=r"allele in cis of c\. members"):
+    with pytest.raises(ValueError, match=r"cis allele of c\. members"):
         mapper.c_to_p(weaver.parse("NC_X.1:g.[22C>T;28T>G]"))
 
 

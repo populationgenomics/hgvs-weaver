@@ -69,7 +69,7 @@ class CigarError(HGVSError): ...
 @final
 class CisMemberError(HGVSError):
     """
-    A member of an allele in cis failed, so the allele did.
+    A member of a cis allele failed, so the allele did.
 
     source is the member's own error, for the member written member, the index-th (from 0) of allele. The message names
     the member and ends with source's.
@@ -93,7 +93,7 @@ class ConsistentVariant:
     @property
     def states_bases(self) -> bool:
         """
-        Whether the description states bases or residues the sequence was found
+        Whether the description writes bases or residues the sequence was found
         to hold. Without any, it is consistent with every sequence its positions
         lie on, which is no evidence for this one.
         """
@@ -237,12 +237,12 @@ class PositionPastEndError(PositionOutsideSequenceError):
 
 class ReferenceMismatchError(HGVSError):
     """
-    A base or residue a description states is not what its reference holds.
+    A base or residue a description writes is not what its reference holds.
 
     The reference is the transcript record for an exonic c., n. or r. base, the genome (on the transcript's strand) for
-    an intronic one, the genome for g. and m., the protein for p. expected is the stated bases, found the reference's
+    an intronic one, the genome for g. and m., the protein for p. expected is the written bases, found the reference's
     over the 0-based half-open [start, end) of accession, read on the strand the description is written on. Raised by
-    every operation that reads the stated bases; Variant.validate answers False instead.
+    every operation that reads the written bases; Variant.validate answers False instead.
     """
     def __new__(cls, message: str, accession: str, expected: str, found: str, start: int, end: int) -> Self: ...
     @property
@@ -311,20 +311,20 @@ class ValidationError(HGVSError):
 @final
 class Variant:
     """
-    Represents a parsed HGVS variant.
+    Represents a parsed HGVS description.
 
-    Provides access to the variant's accession, gene symbol, and coordinate type.
+    Provides access to the description's accession, gene symbol, and coordinate type.
     Variants can be formatted back to HGVS strings or converted to JSON/dict representations.
 
-    An allele in cis, NM_004006.2:c.[145C>T;147C>G], is one Variant whose
-    members are the plain variants written between the brackets.
+    A cis allele, NM_004006.2:c.[145C>T;147C>G], is one Variant whose
+    members are the plain descriptions written between the brackets.
     """
     def format(self) -> str:
-        """Formats the variant back into a standard HGVS string."""
+        """Formats the description back into a standard HGVS string."""
     def to_json(self) -> str:
-        """Returns a JSON string representation of the internal variant structure."""
+        """Returns a JSON string representation of the internal description structure."""
     def to_dict(self) -> Any:
-        """Returns a dictionary representation of the internal variant structure."""
+        """Returns a dictionary representation of the internal description structure."""
     @staticmethod
     def from_dict(d: Any) -> Variant:
         """
@@ -337,55 +337,55 @@ class Variant:
             A Variant object.
 
         Raises:
-            ValueError: If the dict cannot be deserialised into a valid variant.
+            ValueError: If the dict cannot be deserialised into a valid description.
         """
     def __reduce__(self) -> str | tuple[Any, ...]: ...
     def validate(self, provider: Any) -> bool:
         """
-        Validates the positions the variant names, and the bases and residues it states, against a DataProvider.
+        Validates the positions the description names, and the bases and residues it writes, against a DataProvider.
 
         An exonic c., n. or r. base is read on the transcript record, an intronic one
         on the genome (on the transcript's strand), a g. or m. base on the genome and a
-        p. residue on the protein. An allele in cis of nucleotide members must also have
+        p. residue on the protein. A cis allele of nucleotide members must also have
         one reading: members that reach for the same base are read every way the
         description allows.
 
         Args:
-            provider: The data provider instance for sequence retrieval.
+            provider: The provider for sequence retrieval.
 
         Returns:
-            True if every position the variant names and every stated base is there,
-            False where an operation reading the variant would raise
+            True if every position the description names and every written base is there,
+            False where an operation reading the description would raise
             ReferenceMismatchError or PositionOutsideSequenceError. c.= names no bases
             and is True once its transcript is found to have a CDS.
 
         Raises:
-            ValidationError: If the variant names no position or a range that runs
-                backwards, or c.= is on a transcript without a CDS. An intronic c. or n. variant
+            ValidationError: If the description names no position or a range that runs
+                backwards, or c.= is on a transcript without a CDS. An intronic c. or n. description
                 is projected to the genome to be read, so a projection's error is raised too.
-                An allele in cis whose members leave it no reading is a ValidationError naming two.
+                A cis allele whose members leave it no reading is a ValidationError naming two.
                 So is a p. description on an accession the provider classifies as a transcript or
                 genomic sequence, or a g., m., c., n. or r. one on a protein.
-            AmbiguousDescriptionError: If an allele in cis has several readings; its readings
+            AmbiguousDescriptionError: If a cis allele has several readings; its readings
                 are each of them.
-            UnsupportedOperationError: If an allele in cis has readings weaver does not list.
+            UnsupportedOperationError: If a cis allele has readings weaver does not list.
                 Also if an intronic position is on a transcript placed on no genome.
             DataProviderError: If sequence data cannot be retrieved.
         """
     @property
     def ac(self) -> str:
-        """The primary accession of the variant (e.g., 'NM_000051.3')."""
+        """The primary accession of the description (e.g., 'NM_000051.3')."""
     @property
     def coordinate_type(self) -> str:
-        """The coordinate type of the variant ('g', 'c', 'p', etc.); for an allele in cis, its members'."""
+        """The coordinate type of the description ('g', 'c', 'p', etc.); for a cis allele, its members'."""
     @property
     def gene(self) -> str | None:
-        """The gene symbol associated with the variant, if available."""
+        """The gene symbol associated with the description, if available."""
     @property
     def members(self) -> list[Variant] | None:
         """
-        The members of an allele in cis, c.[145C>T;147C>G], as plain Variants in the
-        order written; None for a plain variant.
+        The members of a cis allele, c.[145C>T;147C>G], as plain Variants in the
+        order written; None for a plain description.
 
         The projections between g., c., n. and r. take the whole allele and
         project it member by member.
@@ -394,11 +394,11 @@ class Variant:
 @final
 class VariantMapper:
     """
-    High-level variant mapping engine.
+    High-level projection engine.
 
-    Coordinates mapping between different reference sequences (e.g., g. to c.)
-    and projects cDNA variants onto protein sequences (c. to p.).
-    Requires a DataProvider to retrieve transcript and sequence information.
+    Projects descriptions between coordinate systems (e.g., g. to c.)
+    and predicts the protein consequence of coding descriptions (c. to p.).
+    Requires a DataProvider to retrieve transcript models and sequences.
     """
     def __new__(cls, provider: Any, refget: Any | None = None) -> VariantMapper:
         """
@@ -417,9 +417,9 @@ class VariantMapper:
         """
     def g_to_c(self, var_g: Variant, transcript_ac: str) -> Variant:
         """
-        Maps a genomic variant (g.) to a coding cDNA variant (c.) for a specific transcript.
+        Projects a genomic description (g.) onto a specific transcript as a coding description (c.).
 
-        The edit is re-read against the transcript: a stated reference the genome has
+        The edit is re-read against the transcript: a written base the genome has
         but the record does not becomes the record's base, and a change the record
         already carries is written =; no change on the genome (g.123=) is the record's
         base becoming the genome's where the two differ, and a duplication or
@@ -430,51 +430,51 @@ class VariantMapper:
         there differ from the genome's, only a statement projects, as the
         record's correction.
 
-        An allele in cis of g. members, g.[a;b], projects member by member to an
-        allele in cis on the transcript, its members written in reverse on a
+        A cis allele of g. members, g.[a;b], projects member by member to a
+        cis allele on the transcript, its members written in reverse on a
         minus-strand transcript. A member that fails raises CisMemberError,
         naming the member and holding its own error as source.
 
         Args:
-            var_g: The genomic Variant to map.
+            var_g: The genomic Variant to project.
             transcript_ac: The accession of the target transcript.
 
         Returns:
             A new Variant object in 'c.' coordinates.
 
         Raises:
-            ValueError: If var_g is not a genomic variant or an allele in cis of them.
+            ValueError: If var_g is not a genomic description or a cis allele of them.
             UnsupportedOperationError: If a range whose ends lie in two exons
                 changes bases where the record differs from the genome, or ends
                 on bases only one of them holds.
                 Also if the transcript is placed on no genome.
             ValidationError: If var_g is on an accession the provider classifies as a protein, or
                 transcript_ac names a protein.
-            HGVSError: If mapping fails due to data or alignment issues.
+            HGVSError: If projection fails due to data or alignment issues.
         """
     def g_to_c_all(self, var_g: Variant, searcher: Any) -> list[Variant]:
         """
-        Maps a genomic variant (g.) to all overlapping transcripts discovered via the searcher.
+        Projects a genomic description (g.) onto every overlapping transcript the searcher finds.
 
-        An allele in cis of g. members gives an allele in cis on each transcript
+        A cis allele of g. members gives a cis allele on each transcript
         every member projects to, as g_to_c does.
 
         Args:
-            var_g: The genomic Variant to map.
+            var_g: The genomic Variant to project.
             searcher: An object implementing the TranscriptSearch protocol.
 
         Returns:
             A list of Variant objects in 'c.' coordinates.
 
         Raises:
-            ValueError: If var_g is not a genomic variant or an allele in cis of them.
+            ValueError: If var_g is not a genomic description or a cis allele of them.
             UnsupportedOperationError: If the search names a transcript placed on no genome.
-            HGVSError: If mapping fails due to data or alignment issues.
+            HGVSError: If projection fails due to data or alignment issues.
         """
     def consistent_variants(self, var: Variant, catalogue: Any | None = None) -> list[ConsistentVariant]:
         """
-        Every variant a description can be on an accession the store holds as one
-        sequence, consistent with that sequence as validate finds it.
+        The consistent variants of a description: the description on each accession the
+        store holds as one sequence, consistent with that sequence as validate finds it.
 
         A gene symbol gives the description on each of the gene's accessions that can carry
         it: coding transcripts for c., any transcript for n., and for r. unless it counts
@@ -482,7 +482,7 @@ class VariantMapper:
         unversioned accession gives it on each version the catalogue lists, newest first,
         or on the accession itself where the catalogue lists that alone, for a record with
         no version of its own. A versioned accession gives the description itself.
-        Each variant returned gives itself alone. Choosing among them, such as the MANE
+        Each description returned gives itself alone. Choosing among them, such as the MANE
         Select transcript where it is consistent, is the caller's.
 
         Args:
@@ -506,40 +506,40 @@ class VariantMapper:
         """
     def c_to_g(self, var_c: Variant, reference_ac: str | None = None) -> Variant:
         """
-        Maps a coding cDNA variant (c.) to a genomic variant (g.).
+        Projects a coding description (c.) onto the genome (g.).
 
         A range across an exon junction is the genomic range it numbers, the
         intron included: c.4_6dup across the junction after c.5 duplicates
         c.4, c.5, the intron and c.6.
 
-        The edit is re-read against the genome: a stated reference the record has
+        The edit is re-read against the genome: a written base the record has
         but the genome does not becomes the genome's base, and a change the genome
         already carries is written =; no change on the record (c.123=) is the genome's
         base becoming the record's where the two differ, and a duplication or
         inversion carries the record's bases (c.123dup over a differing genomic base
         is g.…delinsCC, as VariantValidator writes it).
 
-        An allele in cis of c. members, c.[a;b], projects member by member to an
-        allele in cis on the genome, its members written in reverse from a
+        A cis allele of c. members, c.[a;b], projects member by member to a
+        cis allele on the genome, its members written in reverse from a
         minus-strand transcript. A member that fails raises CisMemberError,
         naming the member and holding its own error as source.
 
         Args:
-            var_c: The coding Variant to map.
-            reference_ac: Optional chromosomal accession. If not provided, the primary chromosome for the transcript
-                will be used.
+            var_c: The coding Variant to project.
+            reference_ac: Optional accession of the genome. If not provided, the genome the provider places the
+                transcript on is used.
 
         Returns:
             A new Variant object in 'g.' coordinates.
 
         Raises:
-            ValueError: If var_c is not a coding variant or an allele in cis of them.
-            ReferenceMismatchError: If a base the variant states is not the record's
+            ValueError: If var_c is not a coding description or a cis allele of them.
+            ReferenceMismatchError: If a base the description writes is not the record's
                 (exonic) or the genome's on the transcript's strand (intronic).
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
                 one lies past the end of the genome, counts its offset from a base that is not an exon
                 border, or lies past the end of its intron.
-            UnsupportedOperationError: If the variant inserts at an exon
+            UnsupportedOperationError: If the description inserts at an exon
                 junction (c.5_6insT where c.5 and c.6 lie in different
                 exons), which is before or after the intron on the genome.
                 The message names the spelling at each end of the intron,
@@ -547,34 +547,34 @@ class VariantMapper:
                 Also if the transcript is placed on no genome.
             ValidationError: If var_c is on an accession the provider classifies as a protein, or
                 reference_ac names a protein.
-            HGVSError: If mapping fails due to data or alignment issues.
+            HGVSError: If projection fails due to data or alignment issues.
         """
     def n_to_g(self, var_n: Variant, reference_ac: str | None = None) -> Variant:
         """
-        Maps a non-coding cDNA variant (n.) to a genomic variant (g.).
+        Projects a non-coding description (n.) onto the genome (g.).
 
-        An allele in cis of n. members projects member by member, as c_to_g
+        A cis allele of n. members projects member by member, as c_to_g
         projects one of c. members.
 
         Args:
-            var_n: The non-coding Variant to map.
-            reference_ac: Optional chromosomal accession.
+            var_n: The non-coding Variant to project.
+            reference_ac: Optional accession of the genome.
 
         Returns:
             A new Variant object in 'g.' coordinates.
 
         Raises:
-            ValueError: If var_n is not a non-coding variant or an allele in cis of them.
-            UnsupportedOperationError: If the variant inserts at an exon
+            ValueError: If var_n is not a non-coding description or a cis allele of them.
+            UnsupportedOperationError: If the description inserts at an exon
                 junction, as c_to_g refuses.
                 Also if the transcript is placed on no genome.
-            HGVSError: If mapping fails due to data or alignment issues.
+            HGVSError: If projection fails due to data or alignment issues.
         """
     def c_to_p(self, var_c: Variant, protein_ac: str | None = None) -> Variant:
         """
-        Projects a coding cDNA variant (c.) or an RNA variant (r.) to its protein consequence (p.).
+        Projects a coding description (c.) or an RNA description (r.) to its protein consequence (p.).
 
-        An r. variant is predicted from its c. spelling; a statement about the
+        An r. description is predicted from its c. spelling; a statement about the
         transcript (r.0, r.spl, r.?, r.=) becomes the matching statement about the
         protein (p.0?, p.?, p.(=)). c.=, the whole transcript unchanged, predicts
         p.(=) on the protein the transcript encodes; a protein_ac naming another
@@ -582,7 +582,7 @@ class VariantMapper:
         says the RNA follows a DNA change it does not carry, so it has no
         protein consequence of its own and raises UnsupportedOperationError.
 
-        An allele in cis of c. members, c.[a;b], is predicted from the sequence
+        A cis allele of c. members, c.[a;b], is predicted from the sequence
         its members make together, as one change: c.[4A>T;6A>T] predicts what
         c.4_6delinsTAT does. Changes apart are written as the members of a
         predicted protein allele, c.[4A>C;13T>G] as p.[(Lys2Gln;Tyr5Asp)], and
@@ -590,27 +590,27 @@ class VariantMapper:
         changes leave as they were, as members beside them, p.[(Ala4=;Tyr5Asp)].
 
         Args:
-            var_c: The coding or RNA Variant to project, or an allele in cis of
+            var_c: The coding or RNA Variant to project, or a cis allele of
                 c. members.
             protein_ac: Optional protein accession. If not provided, it will be retrieved from the DataProvider.
 
         Returns:
-            A new Variant object in 'p.' coordinates: a single variant, or an
-            allele in cis of p. members.
+            A new Variant object in 'p.' coordinates: a single description, or a
+            cis allele of p. members.
 
         Raises:
-            ValueError: If var_c is none of a coding variant, an RNA variant or an
-                allele in cis of c. members.
+            ValueError: If var_c is none of a coding description, an RNA description or a
+                cis allele of c. members.
             UnsupportedOperationError: If var_c is r.(?), which has no protein consequence of its own,
                 or an allele with a member at an uncertain position or whose bases
-                are not stated, or a member past the stop that shifts the frame of
+                are not written, or a member past the stop that shifts the frame of
                 the read-through.
                 Also if an intronic position is on a transcript placed on no genome.
             NoProteinStatementError: If var_c is an identity that covers no whole codon,
                 which states bases and no residue, or an allele that changes
                 nothing and states no whole codon.
-            AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading, or the transcript's CDS is open at the
+            AmbiguousDescriptionError: If a cis allele has several readings.
+            ValidationError: If a cis allele has no reading, or the transcript's CDS is open at the
                 5' end. It is raised too where var_c is on an accession the provider classifies as a
                 protein, or protein_ac names a transcript or genomic sequence.
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
@@ -620,102 +620,103 @@ class VariantMapper:
         """
     def protein_vrs(self, var_c: Variant, protein_ac: str | None = None) -> dict:
         """
-        Returns the GA4GH VRS 2.0 Allele of a coding variant's protein consequence, on the protein sequence.
+        Returns the GA4GH VRS 2.0 Allele of a coding description's protein consequence, on the protein sequence.
 
         The residues from the first change to the end of the protein become the
         residues the edited transcript encodes, up to its new stop, then the allele
-        is canonicalised. Unlike to_vrs on a p. variant this covers frameshifts,
+        is canonicalised. Unlike to_vrs on a p. description this covers frameshifts,
         extensions and stop losses. The predicted p. description is carried as an
         hgvs.p expression.
 
         Args:
             var_c: The coding Variant.
-            protein_ac: Optional protein accession; else the provider's mapping for the transcript.
+            protein_ac: Optional protein accession; else the protein the provider names for the transcript.
 
         Raises:
-            ValueError: If var_c is not a coding variant.
+            ValueError: If var_c is not a coding description.
             HGVSError: If the consequence is a statement (p.?, p.(Met1?)), or the translated CDS is not the protein the
                 provider serves.
         """
     def protein_spdi(self, var_c: Variant, protein_ac: str | None = None) -> str:
         """
-        Returns the SPDI of a coding variant's protein consequence, on the protein sequence.
+        Returns the SPDI of a coding description's protein consequence, on the protein sequence.
 
         See protein_vrs for what the allele is.
 
         Args:
             var_c: The coding Variant.
-            protein_ac: Optional protein accession; else the provider's mapping for the transcript.
+            protein_ac: Optional protein accession; else the protein the provider names for the transcript.
         """
     def r_to_g(self, var_r: Variant, reference_ac: str | None = None) -> Variant:
         """
-        Maps an RNA variant (r.) to a genomic variant (g.).
+        Projects an RNA description (r.) onto the genome (g.).
 
-        Only a change within one exon has a genomic form; one spanning a splice
+        Only a change within one exon has a genomic form; one spanning an exon
         junction describes the spliced RNA and raises UnsupportedOperationError.
 
-        An allele in cis of r. members projects member by member, as c_to_g
-        projects one of c. members: a member spanning a splice junction fails the
+        A cis allele of r. members projects member by member, as c_to_g
+        projects one of c. members: a member spanning an exon junction fails the
         allele, with a CisMemberError whose source is that UnsupportedOperationError.
 
         Args:
-            var_r: The RNA Variant to map.
-            reference_ac: Optional chromosomal accession.
+            var_r: The RNA Variant to project.
+            reference_ac: Optional accession of the genome.
 
         Returns:
             A new Variant object in 'g.' coordinates.
 
         Raises:
-            ValueError: If var_r is not an RNA variant or an allele in cis of them.
+            ValueError: If var_r is not an RNA description or a cis allele of them.
             UnsupportedOperationError: If the transcript is placed on no genome.
-            HGVSError: If mapping fails.
+            HGVSError: If projection fails.
         """
     def r_to_c(self, var_r: Variant) -> Variant:
         """
-        Respells an RNA variant (r.) as the coding variant (c.) it is numbered from.
+        Respells an RNA description (r.) as the coding description (c.) it is numbered from.
 
         r. positions on a coding transcript are c. positions; the bases become
         uppercase DNA letters (u to T).
 
-        An allele in cis of r. members is respelled member by member.
+        A cis allele of r. members is respelled member by member.
 
         Raises:
-            ValueError: If var_r is not an RNA variant or an allele in cis of them.
-            HGVSError: If the transcript has no CDS, or the variant is a statement about the transcript (r.0, r.spl).
+            ValueError: If var_r is not an RNA description or a cis allele of them.
+            HGVSError: If the transcript has no CDS, or the description is a statement about the transcript (r.0,
+                r.spl).
         """
     def r_to_n(self, var_r: Variant) -> Variant:
         """
-        Respells an RNA variant (r.) on a non-coding transcript as the n. variant it is numbered from.
+        Respells an RNA description (r.) on a non-coding transcript as the n. description it is numbered from.
 
-        An allele in cis of r. members is respelled member by member.
+        A cis allele of r. members is respelled member by member.
 
         Raises:
-            ValueError: If var_r is not an RNA variant or an allele in cis of them.
-            HGVSError: If the transcript has a CDS (use r_to_c), or the variant is a statement about the transcript.
+            ValueError: If var_r is not an RNA description or a cis allele of them.
+            HGVSError: If the transcript has a CDS (use r_to_c), or the description is a statement about the transcript.
         """
     def c_to_r(self, var_c: Variant) -> Variant:
         """
-        Respells a coding variant (c.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T to
-        u).
+        Respells a coding description (c.) as an RNA description (r.): the same positions, bases in lowercase RNA
+        letters (T to u).
 
-        An allele in cis of c. members is respelled member by member.
+        A cis allele of c. members is respelled member by member.
 
         Raises:
-            ValueError: If var_c is not a coding variant or an allele in cis of them.
+            ValueError: If var_c is not a coding description or a cis allele of them.
         """
     def n_to_r(self, var_n: Variant) -> Variant:
         """
-        Respells a non-coding variant (n.) as an RNA variant (r.): the same positions, bases in lowercase RNA letters (T
-        to u).
+        Respells a non-coding description (n.) as an RNA description (r.): the same positions, bases in lowercase RNA
+        letters (T to u).
 
-        An allele in cis of n. members is respelled member by member.
+        A cis allele of n. members is respelled member by member.
 
         Raises:
-            ValueError: If var_n is not a non-coding variant or an allele in cis of them.
+            ValueError: If var_n is not a non-coding description or a cis allele of them.
         """
     def p_to_c(self, var_p: Variant, transcript_ac: str | None = None) -> tuple[Variant, bool]:
         """
-        Back-converts a protein substitution (p.) to a coding variant (c.).
+        Back-translates a protein substitution (p.) to a coding description (c.).
 
         Currently handles single amino acid substitutions only. When multiple codons
         could produce the target amino acid, the one requiring the fewest nucleotide
@@ -723,30 +724,30 @@ class VariantMapper:
         provider must serve the protein's sequence.
 
         Args:
-            var_p: The protein Variant to back-convert.
+            var_p: The protein Variant to back-translate.
             transcript_ac: Optional transcript accession (NM_). Required if the DataProvider cannot resolve NP to NM.
 
         Returns:
             A tuple of (Variant in 'c.' coordinates, is_unique: bool).
-            is_unique is True if the back-conversion is unambiguous.
+            is_unique is True if the back-translation is unambiguous.
 
         Raises:
-            ValueError: If var_p is not a protein variant.
+            ValueError: If var_p is not a protein description.
             ReferenceMismatchError: If the residue var_p names is not the protein's.
             PositionOutsideSequenceError: If var_p names a position past the protein's stop.
             ValidationError: If var_p is on an accession the provider classifies as a transcript or
                 genomic sequence, or transcript_ac names a protein.
-            HGVSError: If back-conversion fails due to unsupported consequence or missing transcript.
+            HGVSError: If back-translation fails due to unsupported consequence or missing transcript.
         """
     def to_vrs(self, var: Variant) -> dict:
         """
-        Returns the GA4GH VRS 2.0 object for a variant as a dict: an Allele, a
+        Returns the GA4GH VRS 2.0 object for a description as a dict: an Allele, a
         CopyNumberCount for a copy-number edit, a CopyNumberChange for a
-        duplication with uncertain breakpoints, or a CisPhasedBlock for an allele
-        in cis.
+        duplication with uncertain breakpoints, or a CisPhasedBlock for a cis
+        allele.
 
-        A nucleotide variant is projected to its genomic reference; a protein
-        variant stays on its protein. Either is canonicalised (fully justified
+        A nucleotide description is projected to the genome; a protein
+        description stays on its protein. Either is canonicalised (fully justified
         over its region of ambiguity) and rendered with computed identifiers. The
         sequence is identified by its refget accession, from the Refget given at
         construction or computed from the whole sequence.
@@ -767,7 +768,7 @@ class VariantMapper:
         same over the deleted range. Unknown bases cannot slide, so neither is
         normalised.
 
-        An allele in cis of nucleotide members is projected to the genome, where the
+        A cis allele of nucleotide members is projected to the genome, where the
         members that overlap, touch or would shift into each other become one Allele,
         a change justified only up to a positional identity beside it in the allele;
         no codon groups them there, so a c. allele and its g. projection get one
@@ -783,8 +784,8 @@ class VariantMapper:
         The dict's ``type`` says which object was returned.
 
         Args:
-            var: A g., m., c., n., r. or p. Variant, or an allele in cis of any of
-                them. Protein variants must describe a sequence: frameshifts,
+            var: A g., m., c., n., r. or p. Variant, or a cis allele of any of
+                them. Protein descriptions must describe a sequence: frameshifts,
                 extensions and p.? have no allele. A g. or m. deletion with
                 uncertain breakpoints, g.(?_100)_(200_?)del, is rendered as given,
                 with Range bounds ([min, max], null when unbounded) and an empty
@@ -798,30 +799,30 @@ class VariantMapper:
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
                 one counts its offset from a base that is not an exon border, or lies past the end of its
                 intron.
-            HGVSError: If the variant cannot be resolved against the reference.
-            AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading. It is raised too where a p. description
+            HGVSError: If the description cannot be resolved against the reference.
+            AmbiguousDescriptionError: If a cis allele has several readings.
+            ValidationError: If a cis allele has no reading. It is raised too where a p. description
                 is on an accession the provider classifies as a transcript or genomic sequence, or a g., m.,
                 c., n. or r. one on a protein.
-            UnsupportedOperationError: If an allele in cis cannot be written on the
+            UnsupportedOperationError: If a cis allele cannot be written on the
                 genome as the Alleles it makes, or a member has no Allele.
-                Also if a transcript variant is on a transcript placed on no genome.
+                Also if a transcript description is on a transcript placed on no genome.
         """
     def vrs_id(self, var: Variant) -> str:
         """
-        Returns the GA4GH VRS computed identifier of a variant: ga4gh:VA.<digest>
+        Returns the GA4GH VRS computed identifier of a description: ga4gh:VA.<digest>
         for an Allele, ga4gh:CN.<digest> for a copy-number edit, ga4gh:CX.<digest>
-        for a duplication with uncertain breakpoints, ga4gh:CPB.<digest> for an
-        allele in cis.
+        for a duplication with uncertain breakpoints, ga4gh:CPB.<digest> for a
+        cis allele.
 
-        Two variants describing the same change on the same sequence have the same
+        Two descriptions of the same change on the same sequence have the same
         identifier; so do two cis alleles of the same members in either order.
 
         Args:
-            var: A g., m., c., n., r. or p. Variant or allele in cis, as for to_vrs.
+            var: A g., m., c., n., r. or p. Variant or cis allele, as for to_vrs.
 
         Raises:
-            HGVSError: If the variant cannot be resolved against the reference.
+            HGVSError: If the description cannot be resolved against the reference.
         """
     def from_vrs(self, allele: str | dict, accession: str | None = None) -> Variant:
         """
@@ -842,7 +843,7 @@ class VariantMapper:
         EFO:0030070-72) and del for a loss (loss, low-level loss, high-level loss
         or complete genomic loss, or EFO:0030067-69 and EFO:0020073), Range
         bounds as g.(a_b)_(c_d); other terms have no HGVS form. A
-        CisPhasedBlock comes back as the allele in cis of its members, g.[a;b] (or
+        CisPhasedBlock comes back as the cis allele of its members, g.[a;b] (or
         p.[a;b]); the members must all lie on one sequence, which may be stated
         once on the block as the spec allows. Nucleotide members whose locations
         meet are placed together, every placement of each member's edit within
@@ -871,7 +872,7 @@ class VariantMapper:
         Returns the Variant an SPDI string names.
 
         ``accession:position:deletion:insertion`` with an interbase position and the
-        deletion given as bases or as a length. The variant is written in HGVS on
+        deletion given as bases or as a length. The description is written in HGVS on
         the accession's own sequence, trimmed to the change and normalised
         (3'-shifted): g. for a nucleotide sequence, p. for a protein.
 
@@ -884,28 +885,28 @@ class VariantMapper:
         """
     def normalize_variant(self, var: Variant) -> Variant:
         """
-        Normalizes a variant by shifting it to its 3'-most position.
+        Normalises a description by shifting it to its 3'-most position.
 
-        Normalization is performed in the coordinate space of the input variant.
+        Normalisation is performed in the coordinate system of the input description.
 
-        An allele in cis of nucleotide members, c.[a;b], has its members that meet
+        A cis allele of nucleotide members, c.[a;b], has its members that meet
         written as the one change they make, statements as identities, and each
-        member that meets no other normalised as a single variant is, in order of
-        position; when one member is left, the result is that plain variant.
+        member that meets no other normalised as a single description is, in order of
+        position; when one member is left, the result is that plain description.
 
         Args:
-            var: The Variant object to normalize.
+            var: The Variant object to normalise.
 
         Returns:
-            A new normalized Variant object.
+            A new normalised Variant object.
 
         Raises:
-            HGVSError: If normalization fails due to reference sequence boundaries.
-            AmbiguousDescriptionError: If an allele in cis has several readings.
-            ValidationError: If an allele in cis has no reading, or the variant is on an
+            HGVSError: If normalisation fails at an end of the reference.
+            AmbiguousDescriptionError: If a cis allele has several readings.
+            ValidationError: If a cis allele has no reading, or the description is on an
                 accession the provider classifies as the other kind of sequence (p. on a
                 nucleotide sequence, or a nucleotide description on a protein).
-            UnsupportedOperationError: If an allele in cis has readings weaver does not
+            UnsupportedOperationError: If a cis allele has readings weaver does not
                 list, members that share bases across an exon junction, a form it
                 would be written in that does not read as it does, or members that
                 all project to the genome but have no reading there.
@@ -913,9 +914,9 @@ class VariantMapper:
         """
     def equivalent(self, var1: Variant, var2: Variant, searcher: Any) -> bool:
         """
-        Determines if two variants are biologically equivalent.
+        Determines if two descriptions name the same change.
 
-        Handles normalization, cross-coordinate mapping (g. vs c.), and gene symbol expansion.
+        Handles normalisation, projection between coordinate systems (g. vs c.), and gene symbol expansion.
 
         Args:
             var1: The first Variant object.
@@ -923,21 +924,21 @@ class VariantMapper:
             searcher: An object implementing the TranscriptSearch protocol.
 
         Returns:
-            True if the variants are equivalent, False otherwise.
+            True if the descriptions are equivalent, False otherwise.
 
         Raises:
-            ValidationError: If either variant is a p. description on an accession the provider
+            ValidationError: If either description is a p. description on an accession the provider
                 classifies as a transcript or genomic sequence, or a g., m., c., n. or r. one on a protein.
-            PositionOutsideSequenceError: If either variant has a position past its transcript's last base,
+            PositionOutsideSequenceError: If either description has a position past its transcript's last base,
                 or an intronic position whose offset counts from a base that is not an exon border, or lies
                 past the end of its intron.
-            UnsupportedOperationError: If a variant is on a transcript placed on no genome, which
+            UnsupportedOperationError: If a description is on a transcript placed on no genome, which
                 equivalence reads on the genome, and no other reading of a gene symbol answers.
-            HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
+            HGVSError: If projection, normalisation, or data retrieval fails during equivalence checks.
         """
     def equivalent_level(self, var1: Variant, var2: Variant, searcher: Any) -> EquivalenceLevel:
         """
-        Determines the granular equivalence level of two variants.
+        Determines the equivalence verdict on two descriptions.
 
         Args:
             var1: The first Variant object.
@@ -945,29 +946,29 @@ class VariantMapper:
             searcher: An object implementing the TranscriptSearch protocol.
 
         Returns:
-            An EquivalenceLevel enum value.
+            The verdict, an EquivalenceLevel enum value.
 
         Raises:
-            ValidationError: If either variant is a p. description on an accession the provider
+            ValidationError: If either description is a p. description on an accession the provider
                 classifies as a transcript or genomic sequence, or a g., m., c., n. or r. one on a protein.
-            PositionOutsideSequenceError: If either variant has a position past its transcript's last base,
+            PositionOutsideSequenceError: If either description has a position past its transcript's last base,
                 or an intronic position whose offset counts from a base that is not an exon border, or lies
                 past the end of its intron.
-            UnsupportedOperationError: If a variant is on a transcript placed on no genome, which
+            UnsupportedOperationError: If a description is on a transcript placed on no genome, which
                 equivalence reads on the genome, and no other reading of a gene symbol answers.
-            HGVSError: If mapping, normalization, or data retrieval fails during equivalence checks.
+            HGVSError: If projection, normalisation, or data retrieval fails during equivalence checks.
         """
     def to_spdi(self, var: Variant, unambiguous: bool = False) -> str:
         """
-        Converts a variant to a SPDI string format.
+        Writes a description in SPDI string format.
 
         Args:
-            var: The Variant object to convert.
-            unambiguous: If True, expands the variant range to cover the entire ambiguous region of a repeat or
+            var: The Variant object to write.
+            unambiguous: If True, expands the description's range to cover the entire ambiguous region of a repeat or
                 homopolymer. Default is False.
 
         Returns:
-            A string representing the variant in SPDI format.
+            A string representing the description in SPDI format.
 
         Raises:
             ValidationError: If a p. description is on an accession the provider classifies as a
@@ -975,21 +976,21 @@ class VariantMapper:
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
                 one counts its offset from a base that is not an exon border, or lies past the end of its
                 intron.
-            UnsupportedOperationError: If a transcript variant is on a transcript placed on no genome.
-            HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
+            UnsupportedOperationError: If a transcript description is on a transcript placed on no genome.
+            HGVSError: If the description's edit cannot be written in SPDI or sequence data is unavailable.
         """
     def to_spdi_unambiguous(self, var: Variant) -> str:
         """
-        Converts a variant to an unambiguous SPDI string format.
+        Writes a description in unambiguous SPDI string format.
 
         This format is independent of specific shifting conventions (like 3' or 5' shifting)
-        by expanding the variant range to cover the entire ambiguous region of a repeat or homopolymer.
+        by expanding the description's range to cover the entire ambiguous region of a repeat or homopolymer.
 
         Args:
-            var: The Variant object to convert.
+            var: The Variant object to write.
 
         Returns:
-            A string representing the variant in unambiguous SPDI format.
+            A string representing the description in unambiguous SPDI format.
 
         Raises:
             ValidationError: If a p. description is on an accession the provider classifies as a
@@ -997,8 +998,8 @@ class VariantMapper:
             PositionOutsideSequenceError: If a position lies past the transcript's last base, or an intronic
                 one counts its offset from a base that is not an exon border, or lies past the end of its
                 intron.
-            UnsupportedOperationError: If a transcript variant is on a transcript placed on no genome.
-            HGVSError: If the variant type cannot be converted to SPDI or sequence data is unavailable.
+            UnsupportedOperationError: If a transcript description is on a transcript placed on no genome.
+            HGVSError: If the description's edit cannot be written in SPDI or sequence data is unavailable.
         """
 
 @final
@@ -1045,8 +1046,8 @@ def parse(input: str, x_treatment: XTreatment = ...) -> Variant:
     """
     Parses an HGVS string into a Variant object.
 
-    Supported types include genomic (g.), coding cDNA (c.), non-coding (n.),
-    mitochondrial (m.), RNA (r.) and protein (p.) variants, and alleles in cis
+    Supported descriptions include genomic (g.), coding (c.), non-coding (n.),
+    mitochondrial (m.), RNA (r.) and protein (p.) ones, and cis alleles
     in any of them, c.[145C>T;147C>G]: several changes on one molecule, one
     Variant whose members are the changes. The trans form c.[145C>T];[147C>G]
     describes two molecules and is refused.
@@ -1070,5 +1071,5 @@ def parse(input: str, x_treatment: XTreatment = ...) -> Variant:
             ParseError, carrying each such X; writing * or Xaa at its offsets, or
             parsing with another treatment, reads it.
         ParseError: If the HGVS string is malformed or unsupported.
-        UnsupportedOperationError: If the string describes alleles in trans.
+        UnsupportedOperationError: If the string describes changes in trans.
     """

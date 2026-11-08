@@ -84,7 +84,7 @@ pub fn parse_hgvs_variant_with(
     let inner = pair
         .into_inner()
         .next()
-        .ok_or_else(|| HgvsError::PestError("Missing inner variant".into()))?;
+        .ok_or_else(|| HgvsError::PestError("Missing inner description".into()))?;
 
     let system = inner.as_rule();
     let (ac, gene, posedit, posedits) = variant_parts(inner)?;
@@ -147,7 +147,7 @@ pub fn parse_hgvs_variant_with(
     })
 }
 
-/// A member of a cis allele: the posedit `p` as a plain variant of the system
+/// A member of a cis allele: the posedit `p` as a plain description of the system
 /// the `<x>_cis_variant` rule `cis` names, on `ac`.
 fn cis_member(
     cis: Rule,

@@ -1,8 +1,8 @@
-//! Projecting an allele in cis, `c.[a;b]`, between coordinate systems.
+//! Projecting a cis allele, `c.[a;b]`, between coordinate systems.
 //!
 //! Every member is numbered against the reference, so an allele projects
-//! member by member, by the same rules as a single variant, and the result is
-//! an allele in cis of the projections: one member stays an allele of one
+//! member by member, by the same rules as a single description, and the result is
+//! a cis allele of the projections: one member stays an allele of one
 //! member. If any member fails, the projection fails with
 //! [`HgvsError::CisMember`], naming the member. Across strands the members
 //! are written in reverse, so an allele written in transcript order is in
@@ -142,7 +142,7 @@ fn edit_uncertain(edit: &NaEdit) -> bool {
 }
 
 impl VariantMapper<'_> {
-    /// Projects an allele in cis of `c.` members to the genome, member by
+    /// Projects a cis allele of `c.` members to the genome, member by
     /// member as [`c_to_g`](Self::c_to_g) projects one.
     pub fn c_to_g_cis(
         &self,
@@ -156,7 +156,7 @@ impl VariantMapper<'_> {
         })
     }
 
-    /// Projects an allele in cis of `n.` members to the genome, member by
+    /// Projects a cis allele of `n.` members to the genome, member by
     /// member as [`n_to_g`](Self::n_to_g) projects one.
     pub fn n_to_g_cis(
         &self,
@@ -170,9 +170,9 @@ impl VariantMapper<'_> {
         })
     }
 
-    /// Projects an allele in cis of `r.` members to the genome, member by
+    /// Projects a cis allele of `r.` members to the genome, member by
     /// member as [`r_to_g`](Self::r_to_g) projects one: a member spanning a
-    /// splice junction has no genomic form, so neither has the allele.
+    /// exon junction has no genomic form, so neither has the allele.
     pub fn r_to_g_cis(
         &self,
         cis: &CisPhasedVariant,
@@ -185,7 +185,7 @@ impl VariantMapper<'_> {
         })
     }
 
-    /// Projects an allele in cis of `g.` members to `transcript_ac`, member
+    /// Projects a cis allele of `g.` members to `transcript_ac`, member
     /// by member as [`g_to_c`](Self::g_to_c) projects one.
     pub fn g_to_c_cis(
         &self,
@@ -228,9 +228,9 @@ impl VariantMapper<'_> {
         allele(cis, projected.into_iter().map(SV::Coding).collect())
     }
 
-    /// Projects an allele in cis of `g.` members to every transcript the
+    /// Projects a cis allele of `g.` members to every transcript the
     /// searcher finds over the span of its members, as
-    /// [`g_to_c_all`](Self::g_to_c_all) does for one variant: the alleles of
+    /// [`g_to_c_all`](Self::g_to_c_all) does for one description: the alleles of
     /// the transcripts every member projects to, an error if there are none.
     pub fn g_to_c_all_cis(
         &self,
@@ -284,14 +284,14 @@ impl VariantMapper<'_> {
         }
         if results.is_empty() && !errors.is_empty() {
             return Err(HgvsError::ValidationError(format!(
-                "All mapping attempts failed: {}",
+                "All projection attempts failed: {}",
                 errors.join("; ")
             )));
         }
         Ok(results)
     }
 
-    /// Respells an allele in cis of `c.` members in `r.`, member by member.
+    /// Respells a cis allele of `c.` members in `r.`, member by member.
     pub fn c_to_r_cis(&self, cis: &CisPhasedVariant) -> Result<CisPhasedVariant, HgvsError> {
         expect_system(cis, "c", "c_to_r")?;
         let members = project_members(cis, |m| match m {
@@ -301,7 +301,7 @@ impl VariantMapper<'_> {
         allele(cis, members)
     }
 
-    /// Respells an allele in cis of `n.` members in `r.`, member by member.
+    /// Respells a cis allele of `n.` members in `r.`, member by member.
     pub fn n_to_r_cis(&self, cis: &CisPhasedVariant) -> Result<CisPhasedVariant, HgvsError> {
         expect_system(cis, "n", "n_to_r")?;
         let members = project_members(cis, |m| match m {
@@ -311,7 +311,7 @@ impl VariantMapper<'_> {
         allele(cis, members)
     }
 
-    /// Respells an allele in cis of `r.` members in `c.`, member by member.
+    /// Respells a cis allele of `r.` members in `c.`, member by member.
     pub fn r_to_c_cis(&self, cis: &CisPhasedVariant) -> Result<CisPhasedVariant, HgvsError> {
         expect_system(cis, "r", "r_to_c")?;
         let members = project_members(cis, |m| match m {
@@ -321,7 +321,7 @@ impl VariantMapper<'_> {
         allele(cis, members)
     }
 
-    /// Respells an allele in cis of `r.` members on a non-coding transcript
+    /// Respells a cis allele of `r.` members on a non-coding transcript
     /// in `n.`, member by member.
     pub fn r_to_n_cis(&self, cis: &CisPhasedVariant) -> Result<CisPhasedVariant, HgvsError> {
         expect_system(cis, "r", "r_to_n")?;
@@ -351,7 +351,7 @@ impl VariantMapper<'_> {
                     (
                         r,
                         crate::mapper::ReadAs::Nucleotide(
-                            "the genome a transcript variant is projected onto",
+                            "the genome a transcript description is projected onto",
                         ),
                     )
                 }),
@@ -474,7 +474,7 @@ pub(crate) fn expect_system(
 }
 
 fn wrong_member(member: &SV, system: &str) -> HgvsError {
-    HgvsError::UnsupportedOperation(format!("{member} is not a {system}. variant"))
+    HgvsError::UnsupportedOperation(format!("{member} is not a {system}. description"))
 }
 
 pub(crate) fn member_error(cis: &CisPhasedVariant, index: usize, source: HgvsError) -> HgvsError {
@@ -498,7 +498,7 @@ fn project_members<'c, T>(
         .collect()
 }
 
-/// The allele in cis of `members`, on their accession, with `like`'s gene.
+/// The cis allele of `members`, on their accession, with `like`'s gene.
 fn allele(like: &CisPhasedVariant, members: Vec<SV>) -> Result<CisPhasedVariant, HgvsError> {
     let ac = members.first().map(|m| m.ac().to_string()).ok_or_else(|| {
         HgvsError::ValidationError("A cis allele needs at least one member".into())

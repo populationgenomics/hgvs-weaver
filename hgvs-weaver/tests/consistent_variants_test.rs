@@ -184,7 +184,7 @@ fn a_description_stating_no_bases_is_marked_as_stating_none() {
     assert_eq!(
         found.len(),
         2,
-        "every version holds a deletion of no stated base"
+        "every version holds a deletion of no written base"
     );
     assert!(!found[0].states_bases);
     assert!(!found[1].states_bases);
@@ -527,7 +527,7 @@ fn an_r_description_on_a_gene_symbol_crossing_a_junction_is_refused_where_no_oth
         .equivalent_level(&parse("LG:r.4_6del"), &parse("NM_S.1:c.10del"))
         .unwrap_err();
     assert!(
-        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("NM_J.1") && m.contains("splice junction")),
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("NM_J.1") && m.contains("exon junction")),
         "{err}"
     );
 }

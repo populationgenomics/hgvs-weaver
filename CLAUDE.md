@@ -6,7 +6,11 @@ See [`docs/PRODUCT.md`](docs/PRODUCT.md) for the product north star — what the
 (positions are types; consequences are read from the sequence; every choice is written down with who agrees; an answer
 or an error, never a guess), and what is out of scope. Read it before proposing designs or plans. The choices weaver
 makes, each with its example, specification, tests and the tools that agree, are in
-[`docs/source/choices.md`](docs/source/choices.md).
+[`docs/source/choices.md`](docs/source/choices.md). Name things — in prose, docstrings, errors and new identifiers —
+with the terms in [`docs/source/glossary.md`](docs/source/glossary.md), never a word it lists under _Avoid_; a new
+domain concept gets its entry there in the same change. An existing identifier that uses an avoided word
+(`EquivalenceLevel`, `ReferenceStore`, `states_bases`) keeps its name until it is renamed for its own sake, a public one
+only in a breaking release.
 
 ## Working norms
 

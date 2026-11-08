@@ -107,26 +107,26 @@ def generate_svg(data_points: list[dict], mode: str = "light") -> str:
     results_df["Analogous %"] = (results_df["analogous"] / results_df["total"]) * 100
 
     versions = results_df["version"].unique()
-    tools = ["Weaver", "Ref-HGVS"]
+    tools = ["Weaver", "biocommons hgvs"]
 
     x = range(len(versions))
     width = 0.35  # width of bars
 
     # Colors
-    # Blue for Weaver, Green for Ref
+    # Blue for Weaver, Green for biocommons hgvs
     if mode == "dark":
         colors = {
             ("Weaver", "Identity"): "#2980b9",
             ("Weaver", "Analogous"): "#5dade2",
-            ("Ref-HGVS", "Identity"): "#27ae60",
-            ("Ref-HGVS", "Analogous"): "#52be80",
+            ("biocommons hgvs", "Identity"): "#27ae60",
+            ("biocommons hgvs", "Analogous"): "#52be80",
         }
     else:
         colors = {
             ("Weaver", "Identity"): "#3498db",
             ("Weaver", "Analogous"): "#85c1e9",
-            ("Ref-HGVS", "Identity"): "#27ae60",
-            ("Ref-HGVS", "Analogous"): "#7dcea0",
+            ("biocommons hgvs", "Identity"): "#27ae60",
+            ("biocommons hgvs", "Analogous"): "#7dcea0",
         }
 
     for i, tool in enumerate(tools):
@@ -217,7 +217,7 @@ def update_performance_graphs(repo_root: pathlib.Path) -> None:
             data_points.append(
                 {
                     "version": version,
-                    "tool": "Ref-HGVS",
+                    "tool": "biocommons hgvs",
                     "identity": entry.get("ref_identity", 0),
                     "analogous": entry.get("ref_analogous", 0),
                     "total": entry["total"],
@@ -392,7 +392,9 @@ def main() -> None:
             fh_err_str = f"**{fh_err_str}**"
         fh_rows = [f"| ferro-hgvs     |  N/A  | N/A | N/A | N/A | {fh_err_str} |"]
 
-    impl_description = "`weaver`, `ref-hgvs`, and `ferro-hgvs`" if fh_total > 0 else "`weaver` and `ref-hgvs`"
+    impl_description = (
+        "`weaver`, `biocommons hgvs`, and `ferro-hgvs`" if fh_total > 0 else "`weaver` and `biocommons hgvs`"
+    )
     report = [
         f"### Validation Results ({total:,} variants)",
         "",
@@ -401,22 +403,22 @@ def main() -> None:
         "| Implementation | Protein Identity | Protein Analogous | SPDI (Genomic) | Total Success | Parse Errors |",
         "| :------------- | :--------------: | :---------------: | :------------: | :-----------: | :----------: |",
         f"| weaver         |  {rs_p_str}  | {rs_ana_str} | {rs_spdi_str} | **{(rs_p_pct + rs_ana_pct):.3f}%** | {rs_err_str} |",
-        f"| ref-hgvs       |  {ref_p_str}  | {ref_ana_str} | {ref_spdi_str} | **{(ref_p_pct + ref_ana_pct):.3f}%** | {ref_err_str} |",
+        f"| biocommons hgvs |  {ref_p_str}  | {ref_ana_str} | {ref_spdi_str} | **{(ref_p_pct + ref_ana_pct):.3f}%** | {ref_err_str} |",
         *fh_rows,
         "",
         "",
         f"Transcripts absent from the RefSeq annotation (LRG, superseded versions): {rs_ref_mismatch:,} ({rs_ref_mismatch / total * 100:.1f}%)",
         "",
-        "#### Protein Translation Agreement",
+        "#### Protein Consequence Agreement",
         "",
-        "|                     | ref-hgvs Match | ref-hgvs Mismatch |",
+        "|                     | biocommons hgvs Match | biocommons hgvs Mismatch |",
         "| :------------------ | :------------: | :---------------: |",
         f"| **weaver Match**    |     {p_stats['both']:,}     |     {p_stats['rs_only']:,}     |",
         f"| **weaver Mismatch** |     {p_stats['ref_only']:,}     |     {p_stats['neither']:,}     |",
         "",
-        "#### SPDI Mapping Agreement",
+        "#### SPDI Agreement",
         "",
-        "|                     | ref-hgvs Match | ref-hgvs Mismatch |",
+        "|                     | biocommons hgvs Match | biocommons hgvs Mismatch |",
         "| :------------------ | :------------: | :---------------: |",
         f"| **weaver Match**    |     {spdi_stats['both']:,}     |     {spdi_stats['rs_only']:,}     |",
         f"| **weaver Mismatch** |     {spdi_stats['ref_only']:,}     |     {spdi_stats['neither']:,}     |",

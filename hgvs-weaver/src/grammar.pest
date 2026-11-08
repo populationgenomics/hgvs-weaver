@@ -137,8 +137,8 @@ g_pos = { num | "?" }
 m_pos = { num | "?" }
 n_pos = { base ~ offset }
 // Residues are numbered from 1, so `p.0?` is never a change at residue 0.
-// A residue is tried as a terminator and then as an amino acid, each with its
-// number: the X of Xaa12 is not the terminator X.
+// A residue is tried as a stop and then as an amino acid, each with its
+// number: the X of Xaa12 is not the stop X.
 p_pos = { (term13 ~ residue_num) | (aa13 ~ residue_num) | residue_num }
 residue_num = ${ !("0"+ ~ !ASCII_DIGIT) ~ num }
 // r. is numbered like c. on a coding transcript, so it takes * positions too.
@@ -177,7 +177,7 @@ aat3 = { term3 | aa3 }
 aat13 = { aat3 | aat1 }
 
 
-// Deliberately lenient: a terminator may appear mid-sequence because ClinVar
+// Deliberately lenient: a stop may appear mid-sequence because ClinVar
 // writes insertions such as p.Glu26_Glu27insTerGlu (biocommons rejects these).
 // A run is in one code, and Xaa, X and * stand in a run of either. A one-letter
 // run is tried first and must not stop at lower case, which only a three-letter
@@ -189,7 +189,7 @@ aat3_seq = ${ (aat3 | term1)+ }
 fs = { "fs" ~ (aa13_fs | "") }
 ext = { "ext" ~ aa13_ext? }
 aa13_fs = { term13 ~ fsext_offset }
-// ext* / extTer8 / ext*? / extLeu-5 / ext-12: a terminator takes an optional
+// ext* / extTer8 / ext*? / extLeu-5 / ext-12: a stop takes an optional
 // count, a residue (or nothing) needs a signed offset. The residue is tried
 // first, so that the X of extXaa-5 is not read as a stop.
 aa13_ext = { aa13? ~ snum | term13 ~ fsext_offset }

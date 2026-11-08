@@ -87,7 +87,7 @@ pub enum HgvsError {
     },
     /// An `X` in a protein description, in either code, where a stop and any
     /// residue could both stand: the new residue of a substitution at a
-    /// residue that is not a stop, or one an insertion or deletion-insertion
+    /// residue that is not a stop, or one an insertion or delins
     /// names. `ambiguous` is each such `X` as written in `description`, one
     /// token per `X`, in order. Writing `*` or `Xaa` at each, or parsing with
     /// [`crate::ParseOptions`], reads the description.
@@ -101,10 +101,10 @@ pub enum HgvsError {
     DataProviderError(String),
     /// Attempted an operation that is not yet supported.
     UnsupportedOperation(String),
-    /// Error specifically related to CIGAR string mapping.
+    /// Error in a CIGAR string, or in projecting through one.
     CigarError(String),
-    /// A base or residue the description states is not what the reference
-    /// holds: `expected` is the stated bases, `found` the reference's over
+    /// A base or residue the description writes is not what the reference
+    /// holds: `expected` is the written bases, `found` the reference's over
     /// the 0-based half-open `[start, end)` of `accession`, read on the strand
     /// the description is written on.
     ReferenceMismatch {
@@ -160,7 +160,7 @@ pub enum HgvsError {
     NoProteinStatement(String),
     /// Catch-all for other error types.
     Other(String),
-    /// A member of an allele in cis failed, so the allele did: `source` is
+    /// A member of a cis allele failed, so the allele did: `source` is
     /// why, for the member written `member`, the `index`th (from 0) of
     /// `allele`.
     CisMember {
@@ -234,7 +234,7 @@ impl fmt::Display for HgvsError {
                 end,
             } => write!(
                 f,
-                "Reference sequence mismatch: expected {expected}, found {found} on {accession} at indices {start}..{end}"
+                "Reference mismatch: expected {expected}, found {found} on {accession} at indices {start}..{end}"
             ),
             HgvsError::PositionOutsideSequence {
                 accession,

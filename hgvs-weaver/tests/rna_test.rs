@@ -1,6 +1,6 @@
 //! r. variants: the transcript in RNA letters. Every operation is a
 //! conversion to the c. or n. spelling and back, except that a change
-//! spanning a splice junction describes the spliced RNA and cannot be
+//! spanning an exon junction describes the spliced RNA and cannot be
 //! projected to the genome.
 
 mod support;
@@ -183,7 +183,7 @@ fn r_projects_to_the_genome_within_one_exon_only() {
     ] {
         let err = g(s).unwrap_err();
         assert!(
-            matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("splice junction")),
+            matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
             "{s}: {err}"
         );
     }
@@ -314,7 +314,7 @@ fn an_r_change_across_the_junction_is_not_compared_with_its_c_spelling() {
         .equivalent_level(&parse("NM_R.1:r.44_47del"), &parse("NM_R.1:c.44_47del"))
         .unwrap_err();
     assert!(
-        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("splice junction")),
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
         "{err}"
     );
 }
@@ -327,7 +327,7 @@ fn an_r_change_across_the_junction_is_not_compared_with_the_genome_it_spans() {
         .equivalent_level(&parse("NC_R.1:g.59_102del"), &parse("NM_R.1:r.44_47del"))
         .unwrap_err();
     assert!(
-        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("splice junction")),
+        matches!(&err, HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
         "{err}"
     );
 }
@@ -344,7 +344,7 @@ fn an_r_allele_with_a_member_across_the_junction_is_refused_naming_it() {
         .unwrap_err();
     assert!(
         matches!(&err, HgvsError::CisMember { index: 1, source, .. }
-            if matches!(&**source, HgvsError::UnsupportedOperation(m) if m.contains("splice junction"))),
+            if matches!(&**source, HgvsError::UnsupportedOperation(m) if m.contains("exon junction"))),
         "{err:?}"
     );
 }

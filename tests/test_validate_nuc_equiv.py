@@ -20,7 +20,7 @@ PROTEIN = "MAGSKFLHDEVINPRYWST"
 
 
 class Provider:
-    """NM_TEST.1, one exon at NC_TEST.1 indices 1000..1089 on the forward strand, encoding NP_TEST.1."""
+    """NM_TEST.1, one exon at NC_TEST.1 indices 1000..1089 on the plus strand, encoding NP_TEST.1."""
 
     def get_transcript(self, transcript_ac: str, reference_ac: str | None) -> weaver.TranscriptData:  # noqa: ARG002
         return {
@@ -108,7 +108,7 @@ def test_the_column_is_weavers_verdict_on_the_two_descriptions(variant_prot: str
 @pytest.mark.usefixtures("worker")
 def test_a_row_without_a_predicted_protein_is_still_judged() -> None:
     result = validate.process_variant(row("NC_TEST.1:g.1014G>A", "NP_TEST.1:p.(Ala2Thr)"))
-    assert result["rs_equiv"] == "Unknown", "the case needs a row the harness predicts no protein for"
+    assert result["rs_equiv"] == "Unknown", "the case needs a row the validation run predicts no protein for"
     assert result["rs_nuc_equiv"] == "Identity"
 
 

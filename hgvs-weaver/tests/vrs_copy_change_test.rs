@@ -98,7 +98,7 @@ fn to_vrs_variation_gives_a_change_for_an_imprecise_dup_only() {
             other => panic!("{var}: expected a CopyNumberChange, got {other:?}"),
         }
     }
-    // An imprecise deletion keeps its Allele form, an exact dup its own.
+    // A deletion with uncertain breakpoints keeps its Allele form, an exact dup its own.
     for var in [&imprecise_del, &exact_dup] {
         match mapper.to_vrs_variation(var).unwrap() {
             VrsVariation::Allele(a) => assert_eq!(a.id, mapper.to_vrs(var).unwrap().id),
@@ -250,7 +250,7 @@ fn only_genomic_duplications_and_deletions_have_changes() {
             "{hgvs}: {err}"
         );
     }
-    // Imprecise breakpoints on anything but a dup or del are still refused
+    // Uncertain breakpoints on anything but a dup or del are still refused
     // everywhere.
     let inv = parse_hgvs_variant("NC_TEST.1:g.(3_5)_(10_12)inv").unwrap();
     assert!(matches!(

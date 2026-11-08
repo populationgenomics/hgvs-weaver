@@ -395,7 +395,7 @@ fn c_to_g_writes_the_genomes_base_where_the_record_differs() {
 fn cis(s: &str) -> hgvs_weaver::CisPhasedVariant {
     match parse(s) {
         SequenceVariant::CisPhased(c) => c,
-        other => panic!("{other} is not an allele in cis"),
+        other => panic!("{other} is not a cis allele"),
     }
 }
 

@@ -1,4 +1,4 @@
-//! Reading a VRS `CisPhasedBlock` back as an allele in cis, `g.[a;b]`.
+//! Reading a VRS `CisPhasedBlock` back as a cis allele, `g.[a;b]`.
 //!
 //! A producer that justifies each member Allele alone can give two members
 //! overlapping locations where their edits do not overlap: the deletion of
@@ -28,8 +28,8 @@ use crate::SequenceVariant as SV;
 /// The most placements of one set of meeting members tried together.
 const MAX_PLACEMENTS: usize = 16384;
 
-/// A member read back: the variant its Allele normalises to alone, every
-/// placement of its minimal edit within its location (the variant alone
+/// A member read back: the description its Allele normalises to alone, every
+/// placement of its minimal edit within its location (the description alone
 /// when it has only one), and the location, for an exact one.
 struct Member {
     alone: SV,

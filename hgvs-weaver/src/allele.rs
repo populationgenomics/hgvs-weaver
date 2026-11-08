@@ -1,5 +1,5 @@
 //! The canonical allele: one unambiguous statement of a nucleotide change on a
-//! reference sequence.
+//! reference.
 //!
 //! HGVS admits many spellings of the same change (`g.5del`, `g.6del` and
 //! `g.5_6delinsA` can all be one event in a run of As). SPDI and GA4GH VRS
@@ -17,7 +17,7 @@ use crate::reference::Reference;
 use crate::structs::strip_common_prefix_suffix;
 
 /// A change to `[start, end)` of the sequence `accession`, widened over its
-/// whole region of ambiguity. Coordinates are 0-based inter-residue, as in
+/// whole region of ambiguity. Coordinates are 0-based interbase, as in
 /// SPDI and VRS.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -69,7 +69,7 @@ impl CanonicalAllele {
 
     /// [`canonicalize`](Self::canonicalize), with the region of ambiguity
     /// kept inside the 0-based half-open `bounds`, which hold the edit: an
-    /// allele in cis whose other members state the bases outside them
+    /// cis allele whose other members state the bases outside them
     /// unchanged has no ambiguity there.
     pub(crate) fn canonicalize_within(
         reference: &Reference<'_, '_>,
@@ -79,8 +79,8 @@ impl CanonicalAllele {
     ) -> Result<Self, HgvsError> {
         let accession = accession.to_string();
         // The allele describes the sequence, so its reference is what the
-        // sequence holds at the range, whatever bases the variant stated. A
-        // transcript-derived variant whose stated base differs from the genome
+        // sequence holds at the range, whatever bases the description wrote. A
+        // transcript-derived description whose written base differs from the genome
         // canonicalises to what the genome actually changes, possibly nothing.
         let actual = reference.slice(resolved.start, resolved.end)?;
         let (at, r, a) = strip_common_prefix_suffix(resolved.start as i32, &actual, &resolved.alt);

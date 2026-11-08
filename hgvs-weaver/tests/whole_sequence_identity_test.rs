@@ -130,7 +130,7 @@ fn a_predicted_c_identity_does_not_parse() {
     assert!(is_parse_error(parse_hgvs_variant("NM_W.1:c.(=)")));
 }
 
-// --- Alleles in cis ---
+// --- Cis alleles ---
 
 #[test]
 fn c_identity_beside_a_change_is_refused() {

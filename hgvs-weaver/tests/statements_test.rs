@@ -344,7 +344,7 @@ fn r_follows_the_dna_is_itself() {
     );
 }
 
-/// The level `a` and `b` are judged at over the provider.
+/// The verdict `a` and `b` are judged at over the provider.
 fn level(a: &str, b: &str) -> EquivalenceLevel {
     let hdp = provider();
     let mapper = VariantMapper::new(&hdp);

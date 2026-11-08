@@ -23,7 +23,7 @@ pub fn parse_g_posedit(pair: Pair<Rule>) -> Result<PosEdit<SimpleInterval, NaEdi
     })
 }
 
-/// Parses a transcript-space posedit (`c.`, `n.` or `r.`); positions without
+/// Parses a transcript posedit (`c.`, `n.` or `r.`); positions without
 /// an explicit anchor get `default_anchor`. Only the r. grammar has a
 /// predicted form, `r.(123a>g)`, its own rule. A statement about the whole
 /// transcript, `c.=` or `r.spl`, has no position.
@@ -156,7 +156,7 @@ fn residue_code(p: &Pair<Rule>) -> Option<ResidueCode> {
 
 /// Every `X` where a stop and any residue could both stand: the new residue
 /// of a substitution at a residue that is not a stop, and a residue an
-/// insertion or deletion-insertion names, in either code. `X` was the stop
+/// insertion or delins names, in either code. `X` was the stop
 /// before it was `Xaa`, and nothing in such a description says which it
 /// means. Each `X` is a token of its own.
 pub(crate) fn ambiguous_x(variant: &Pair<Rule>) -> Vec<ResidueToken> {

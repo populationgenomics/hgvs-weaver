@@ -1,8 +1,8 @@
 """The ClinVar gate: the validation from NCBI's published files to a row-by-row comparison, in one command.
 
 The validation needs a GRCh38 store and genome built by hgvs-weaver-data's `weaver-data-build`: the current
-annotation release's shard with NCBI's historical set of retired transcript versions stacked under it, so
-that the variants ClinVar names on retired versions project too. This fetches the inputs, builds what is
+annotation release's shard with NCBI's historical set of transcript versions stacked under it, so
+that the descriptions ClinVar names on historical versions project too. This fetches the inputs, builds what is
 missing, runs the validation (`weaver.cli.validate`) over the result and compares the output with a baseline
 run, row by row. Every step is skipped when its output is already there, so a rerun after a weaver change
 costs only the validation itself.
@@ -45,7 +45,7 @@ from weaver.cli import validate
 
 NCBI = "https://ftp.ncbi.nlm.nih.gov"
 HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
-# ClinVar's every HGVS expression, nucleotide beside protein; republished weekly.
+# ClinVar's every HGVS description, nucleotide beside protein; republished weekly.
 CLINVAR_HGVS_URL = f"{NCBI}/pub/clinvar/tab_delimited/hgvs4variation.txt.gz"
 PROTEIN_FIELDS = ("variant_nuc", "variant_prot", "rs_p")
 # A frameshift's new residue and stop, which its short form p.Arg97fs leaves out.
@@ -226,7 +226,7 @@ def _load(path: pathlib.Path) -> tuple[list[str], dict[str, dict[str, str]]]:
 def _protein_kind(description: str) -> str:
     """The kind of edit a protein description writes, by which a moved protein is counted.
 
-    One of del, dup, ins, delins, fs, ext, Ter (a nonsense change), = (no change), sub (another residue),
+    One of del, dup, ins, delins, fs, ext, Ter (a nonsense change), = (an identity), sub (another residue),
     ? (unknown), 0 (no protein) or allele; error and blank for a cell that holds no description. Read from the
     text, with or without an accession or parentheses, so that a description weaver cannot parse has a kind too.
     """
@@ -348,12 +348,12 @@ def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
     """The rows whose verdict through c_to_p (rs_equiv) differs from the direct one (rs_nuc_equiv), by pattern.
 
     Rows both columns judge come first, a contradiction (equivalent one way, Different the other) apart from a
-    difference of level; then rows only one column judges. A row with no ClinVar protein, or that neither judges,
-    says nothing about transitivity and is only counted.
+    difference of verdict (Identity one way, Analogous the other); then rows only one column judges. A row with no
+    ClinVar protein, or that neither judges, says nothing about transitivity and is only counted.
     """
     groups: dict[str, collections.Counter[tuple[str, str]]] = {
         "contradict": collections.Counter(),
-        "differ in level": collections.Counter(),
+        "differ in verdict, equivalent both ways": collections.Counter(),
         "judged by one column only": collections.Counter(),
     }
     examples: dict[tuple[str, str], list[dict[str, str]]] = collections.defaultdict(list)
@@ -375,7 +375,7 @@ def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
         elif "Different" in pattern:
             group = "contradict"
         else:
-            group = "differ in level"
+            group = "differ in verdict, equivalent both ways"
         groups[group][pattern] += 1
         if len(examples[pattern]) < 3:
             examples[pattern].append(row)

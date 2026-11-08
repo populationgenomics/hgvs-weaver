@@ -9,7 +9,7 @@ pub use crate::edits::{
 use crate::error::HgvsError;
 use serde::{Deserialize, Serialize};
 
-/// Common trait for all HGVS variants.
+/// Common trait for all HGVS descriptions.
 pub trait Variant {
     /// Returns the primary accession (e.g., "NM_000051.3").
     fn ac(&self) -> &str;
@@ -40,9 +40,9 @@ macro_rules! impl_variant {
     };
 }
 
-/// A variant on a linear reference (`g.`, `m.`): positions are plain indices
-/// on the accession itself. Everything that maps, normalises or renders a
-/// genomic variant works on any implementor.
+/// A description on a linear reference (`g.`, `m.`): positions are plain indices
+/// on the accession itself. Everything that projects, normalises or renders a
+/// genomic description works on any implementor.
 pub trait LinearVariant: Variant + Clone {
     fn posedit(&self) -> &PosEdit<SimpleInterval, NaEdit>;
     fn posedit_mut(&mut self) -> &mut PosEdit<SimpleInterval, NaEdit>;
@@ -52,7 +52,7 @@ pub trait LinearVariant: Variant + Clone {
         posedit: PosEdit<SimpleInterval, NaEdit>,
     ) -> Self;
 
-    /// The same variant as a `g.` variant. Mitochondrial and genomic variants
+    /// The same description as a `g.` description. Mitochondrial and genomic descriptions
     /// differ only in the letter they are written with.
     fn to_genomic(&self) -> GVariant {
         GVariant {
@@ -83,7 +83,7 @@ macro_rules! impl_linear_variant {
     };
 }
 
-/// A variant in transcript space (`c.`, `n.`): positions carry an anchor and
+/// A description on a transcript (`c.`, `n.`): positions carry an anchor and
 /// may carry an intronic offset, and resolve through a `TranscriptMapper`.
 /// The two systems differ only in how an index is written back as a position.
 pub trait TranscriptVariant: Variant + Clone {
@@ -163,8 +163,8 @@ fn noncoding_position_from_index(
     })
 }
 
-/// The fields of a nucleotide variant as deserialised, before
-/// [`check_na_posedit`] admits them as a variant of one system.
+/// The fields of a nucleotide description as deserialised, before
+/// [`check_na_posedit`] admits them as a description of one system.
 #[derive(Deserialize)]
 pub(crate) struct NaVariantFields<I> {
     ac: String,
@@ -212,7 +212,7 @@ impl EditDict {
 }
 
 /// A nucleotide edit as a dict gives it: an edit, or the `Special` "=",
-/// which is `r.=` on an r. variant and nothing elsewhere.
+/// which is `r.=` on an r. description and nothing elsewhere.
 pub(crate) enum StoredNaEdit {
     Edit(NaEdit),
     SpecialIdentity,
@@ -246,7 +246,7 @@ impl<'de> Deserialize<'de> for StoredNaEdit {
     }
 }
 
-/// The posedit of a `kind` variant (`g`, `m`, `c`, `n` or `r`), with a
+/// The posedit of a `kind` description (`g`, `m`, `c`, `n` or `r`), with a
 /// `Special` "=" read as `r.=`. Refuses what `kind` cannot write: the whole
 /// transcript unchanged anywhere but `c.=`, `r.=` and `r.(=)`; another
 /// statement about the transcript anywhere but `r.`; a statement with a
@@ -315,7 +315,7 @@ macro_rules! checked_na_variant {
     };
 }
 
-/// The fields of a protein variant as deserialised.
+/// The fields of a protein description as deserialised.
 #[derive(Deserialize)]
 pub(crate) struct PVariantFields {
     ac: String,
@@ -360,7 +360,7 @@ impl<'de> Deserialize<'de> for StoredAaEdit {
     }
 }
 
-/// The posedit of a p. variant, with a substitution to `?` read as the text
+/// The posedit of a p. description, with a substitution to `?` read as the text
 /// it stands for: `p.0?` at residue 0, the unknown change from a residue
 /// anywhere else, and a predicted identity at no residue read as `p.(=)`.
 /// Refuses these shapes p. cannot write: a statement about the whole protein
@@ -458,7 +458,7 @@ checked_na_variant!(CVariant, BaseOffsetInterval, "c");
 checked_na_variant!(NVariant, BaseOffsetInterval, "n");
 checked_na_variant!(RVariant, BaseOffsetInterval, "r");
 
-/// Represents a genomic variant (g.).
+/// Represents a genomic description (g.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<SimpleInterval>")]
 #[non_exhaustive]
@@ -470,7 +470,7 @@ pub struct GVariant {
 impl_variant!(GVariant, "g");
 impl_linear_variant!(GVariant);
 
-/// Represents a coding cDNA variant (c.).
+/// Represents a coding description (c.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 #[non_exhaustive]
@@ -482,7 +482,7 @@ pub struct CVariant {
 impl_variant!(CVariant, "c");
 impl_transcript_variant!(CVariant, Anchor::CdsStart, coding_position_from_index);
 
-/// Represents a protein variant (p.).
+/// Represents a protein description (p.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "PVariantFields")]
 #[non_exhaustive]
@@ -493,7 +493,7 @@ pub struct PVariant {
 }
 impl_variant!(PVariant, "p");
 
-/// Represents a mitochondrial variant (m.).
+/// Represents a mitochondrial description (m.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<SimpleInterval>")]
 #[non_exhaustive]
@@ -505,7 +505,7 @@ pub struct MVariant {
 impl_variant!(MVariant, "m");
 impl_linear_variant!(MVariant);
 
-/// Represents a non-coding transcript variant (n.).
+/// Represents a non-coding transcript description (n.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 #[non_exhaustive]
@@ -521,7 +521,7 @@ impl_transcript_variant!(
     noncoding_position_from_index
 );
 
-/// Represents an RNA variant (r.).
+/// Represents an RNA description (r.).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "NaVariantFields<BaseOffsetInterval>")]
 #[non_exhaustive]
@@ -533,7 +533,7 @@ pub struct RVariant {
 impl_variant!(RVariant, "r");
 
 /// Changes in cis, on one molecule: HGVS `NM_004006.2:c.[145C>T;147C>G]`.
-/// Every member is a plain variant in the same coordinate system on the same
+/// Every member is a plain description in the same coordinate system on the same
 /// accession; the members are kept in the order written. The trans form,
 /// `c.[145C>T];[147C>G]`, describes two molecules and is not a variant.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -546,7 +546,7 @@ pub struct CisPhasedVariant {
 }
 
 impl CisPhasedVariant {
-    /// A cis allele of `members`, which must be one or more plain variants of
+    /// A cis allele of `members`, which must be one or more plain descriptions of
     /// one coordinate system on the accession `ac`.
     pub fn new(
         ac: String,
@@ -561,7 +561,7 @@ impl CisPhasedVariant {
         for m in &members {
             if matches!(m, SequenceVariant::CisPhased(_)) {
                 return Err(HgvsError::ValidationError(
-                    "A cis allele's members are plain variants, not cis alleles".into(),
+                    "A cis allele's members are plain descriptions, not cis alleles".into(),
                 ));
             }
             if m.coordinate_type() != first.coordinate_type() {
@@ -627,13 +627,13 @@ impl Variant for CisPhasedVariant {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PosEdit<I, E> {
-    /// The location of the variant.
+    /// The position of the description.
     pub pos: Option<I>,
     /// The type of change (substitution, deletion, etc.).
     pub edit: E,
-    /// Whether the variant is uncertain (indicated by `?`).
+    /// Whether the description is uncertain (indicated by `?`).
     pub uncertain: bool,
-    /// Whether the variant is predicted (indicated by `()`).
+    /// Whether the description is predicted (indicated by `()`).
     pub predicted: bool,
 }
 
@@ -852,7 +852,7 @@ impl SimplePosition {
     }
 }
 
-/// An interval spanning cDNA, n. or r. coordinates.
+/// An interval spanning c., n. or r. coordinates.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct BaseOffsetInterval {
@@ -885,7 +885,7 @@ impl BaseOffsetInterval {
     }
 }
 
-/// A position in cDNA, n. or r. coordinates.
+/// A position in c., n. or r. coordinates.
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct BaseOffsetPosition {

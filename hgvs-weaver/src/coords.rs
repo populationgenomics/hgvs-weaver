@@ -239,7 +239,7 @@ impl TryFrom<i32> for HgvsTranscriptPos {
 }
 impl HgvsTranscriptPos {
     /// Converts a 1-based HGVS transcript coordinate to a 0-based internal sequence index.
-    /// Correctly handles the non-existent position 0 in HGVS cDNA coordinates.
+    /// Correctly handles the non-existent position 0 in HGVS c. coordinates.
     pub fn to_index(&self) -> TranscriptPos {
         if self.0 > 0 {
             TranscriptPos(self.0 - 1)
@@ -275,7 +275,7 @@ use crate::structs::{
     CVariant, CisPhasedVariant, GVariant, MVariant, NVariant, PVariant, RVariant, Variant,
 };
 
-/// A complete HGVS variant spanning any coordinate system.
+/// A complete HGVS description in any coordinate system.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(tag = "variant_type")]
 #[non_exhaustive]
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_transcript_conversions_jump() {
-        // HGVS cDNA coordinates skip 0.
+        // HGVS c. coordinates skip 0.
         // ..., c.-2, c.-1, c.1, c.2, ...
 
         // 0-based -> 1-based HGVS

@@ -1,4 +1,4 @@
-//! Normalising an allele in cis: the members that meet written as one change.
+//! Normalising a cis allele: the members that meet written as one change.
 //!
 //! The rule is choices.md's "Members of a cis allele that meet are written as
 //! one change". Statements are set aside first, by reading the allele; the
@@ -1168,10 +1168,10 @@ fn transcript_key(member: &SV) -> Option<(OrderKey, OrderKey)> {
 }
 
 impl VariantMapper<'_> {
-    /// An allele in cis of nucleotide members, normalised: the members that
+    /// A cis allele of nucleotide members, normalised: the members that
     /// meet written as the one change they make, statements as identities,
-    /// each member that meets no other normalised as a single variant is,
-    /// in order of position; the plain variant when one member is left.
+    /// each member that meets no other normalised as a single description is,
+    /// in order of position; the plain description when one member is left.
     ///
     /// # Errors
     ///
@@ -1197,7 +1197,7 @@ impl VariantMapper<'_> {
         self.read_as(cis, &settled, &reference, normalised)
     }
 
-    /// An allele in cis of nucleotide members read on the genome, each
+    /// A cis allele of nucleotide members read on the genome, each
     /// transcript member placed as [`read_cis_on_genome`](Self::read_cis_on_genome)
     /// places it, normalised there and written in `g.`: no codon groups
     /// members on the genome. For VRS, which renders the genome.
@@ -1282,7 +1282,7 @@ impl VariantMapper<'_> {
     /// A transcript allele with intronic members, read on the genome in
     /// `frame`. An intronic member and the members it meets on the genome are
     /// written as the one change they make there, in transcript coordinates
-    /// with intronic offsets and not shifted, as a single intronic variant is
+    /// with intronic offsets and not shifted, as a single intronic description is
     /// not; an intronic member that meets nothing is carried as given; the
     /// other exonic members are normalised as an allele on the transcript.
     /// What that writes can reach an intronic member none of its members
@@ -1836,7 +1836,7 @@ impl VariantMapper<'_> {
         })
     }
 
-    /// A member that meets no other, normalised as a single variant is,
+    /// A member that meets no other, normalised as a single description is,
     /// stopping at a barrier.
     fn alone(
         &self,
@@ -1877,7 +1877,7 @@ impl VariantMapper<'_> {
             SV::NonCoding(n) => self.n_to_g(&n, None)?,
             other => {
                 return Err(HgvsError::Other(format!(
-                    "{other} is not a transcript variant"
+                    "{other} is not a transcript description"
                 )))
             }
         };
@@ -1892,7 +1892,7 @@ impl VariantMapper<'_> {
     /// The description of a reading: `stated` as identities, cut where
     /// something is inserted between their bases, `changes`,
     /// and the members no sequence is built from as written, in order of
-    /// position. The plain variant when there is one member.
+    /// position. The plain description when there is one member.
     fn written(
         &self,
         frame: &Frame,

@@ -38,7 +38,7 @@ pub struct GenomicFootprint {
     pub offset: IntronicOffset,
 }
 
-/// Handles coordinate transformations within a single transcript.
+/// Projects positions between a single transcript and the genome.
 #[non_exhaustive]
 pub struct TranscriptMapper {
     /// The transcript model providing exon and CDS information.
@@ -137,7 +137,7 @@ impl TranscriptMapper {
         Ok(ExonBounds::from_lengths(lengths))
     }
 
-    /// Maps a 0-based genomic position to a 0-based transcript position and intronic offset.
+    /// Projects a 0-based genomic position to a 0-based transcript position and intronic offset.
     /// An exonic base the transcript lacks has no index and is an error; see
     /// [`Self::g_to_n_footprint`].
     pub fn g_to_n(&self, g_pos: GenomicPos) -> Result<(TranscriptPos, IntronicOffset), HgvsError> {
@@ -381,7 +381,7 @@ impl TranscriptMapper {
         )))
     }
 
-    /// Maps a 0-based transcript position to a 0-based cDNA position and anchor.
+    /// Numbers a 0-based transcript position as a 0-based coding position and anchor.
     /// A position that would be numbered from an open CDS end is an error.
     pub fn n_to_c(
         &self,
@@ -404,7 +404,7 @@ impl TranscriptMapper {
         Ok((c, IntronicOffset(0), anchor))
     }
 
-    /// Maps a cDNA position and anchor to a 0-based transcript position.
+    /// Projects a coding position and anchor to a 0-based transcript position.
     /// An anchor on an open CDS end is an error.
     pub fn c_to_n(&self, c_pos: TranscriptPos, anchor: Anchor) -> Result<TranscriptPos, HgvsError> {
         self.check_anchor(anchor)?;
@@ -428,7 +428,7 @@ impl TranscriptMapper {
     }
 
     /// The half-open 0-based genomic range a transcript index occupies on the
-    /// reference: one base for a base aligned to the genome, none for a base
+    /// genome: one base for a base aligned to the genome, none for a base
     /// the genome lacks (an `I` in its exon's cigar), whose range `[at, at)`
     /// sits between genome bases `at - 1` and `at`.
     ///
@@ -450,7 +450,7 @@ impl TranscriptMapper {
         Ok(footprint)
     }
 
-    /// Maps a 0-based transcript position and offset to a 0-based genomic position.
+    /// Projects a 0-based transcript position and offset to a 0-based genomic position.
     /// An exonic base the genome lacks has none and is an error, as is a
     /// nonzero offset from a base that is not the exon border its sign
     /// needs ([`HgvsError::NotAnExonBorder`]).
@@ -578,7 +578,7 @@ impl TranscriptMapper {
     }
 
     /// The index (transcript order) of the exon holding a transcript index,
-    /// the exon, and what the index occupies on the reference.
+    /// the exon, and what the index occupies on the genome.
     fn place(&self, n_pos: TranscriptPos) -> Result<(usize, &ExonData, Footprint), HgvsError> {
         let aligned = self.aligned()?;
         let mut curr_n = 0;

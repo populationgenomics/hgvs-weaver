@@ -23,7 +23,7 @@ pub struct CodingChange {
     /// of the transcript, so that read-through past the stop can be translated.
     pub coding: String,
 
-    /// Length of the CDS in bases, stop codon included, as the data source
+    /// Length of the CDS in bases, stop codon included, as the provider
     /// declares it. This, not the first stop codon in the translation, says
     /// where the protein ends: a selenoprotein has an in-frame TGA that codes
     /// selenocysteine and translates here as `*`.
@@ -144,7 +144,7 @@ impl Reading {
             }
         }
         let net = alt.len() as i64 - (end - start) as i64;
-        // An open CDS has no declared stop: a TGA in frame is selenocysteine,
+        // An open CDS names no stop codon: a TGA in frame is selenocysteine,
         // and any other stop codon ends the protein.
         let stop = match change.end_open {
             true => (0..ref_aa.len())
@@ -372,7 +372,7 @@ impl Reading {
     }
 
     /// Where translation of the edited sequence ends, as an index into the
-    /// reference coding sequence: one past the alternate stop codon, mapped
+    /// reference coding sequence: one past the alternate stop codon, carried
     /// back over the bases the edit adds or removes; `None` when translation
     /// runs off the end of the edited transcript.
     pub(crate) fn translation_end(&self) -> Option<i64> {

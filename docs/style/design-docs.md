@@ -106,6 +106,8 @@ stated beside the decision that accepts it.
   [`equivalence_logic.md`](../source/equivalence_logic.md). A new area gets a doc beside them in the default shape
   above; a new choice is an entry in `choices.md`. No ADRs: rationale lives in the doc's `Alternatives considered`,
   chronology in git.
+- **One word per concept.** [`glossary.md`](../source/glossary.md) names each concept the docs talk about, and lists the
+  words to avoid for it. A doc uses its terms; a new concept gets an entry there in the same PR.
 - **Rewrite in place.** A design change edits the doc — never appends a supersession layer, never spawns a "v2". A
   superseded doc is deleted and its live content folded into its successor, in the same PR.
 - **State each decision once** within the doc; restating one three sections later creates a second copy, and the next

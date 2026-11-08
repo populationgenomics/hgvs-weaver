@@ -1,4 +1,4 @@
-"""Extraction of weaver mapping failures."""
+"""Extraction of weaver validation failures."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def main() -> None:
     input_file = "clinvar_full_validation_100k.tsv"
     count = 0
     max_count = 20
-    print(f"{'Variant':30} | {'ClinVar':30} | {'weaver':30} | {'ref-hgvs':30}")
+    print(f"{'Variant':30} | {'ClinVar':30} | {'weaver':30} | {'biocommons hgvs':30}")
     print("-" * 130)
 
     try:

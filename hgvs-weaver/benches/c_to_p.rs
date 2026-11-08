@@ -1,6 +1,6 @@
 //! `c_to_p` on a synthetic three-exon transcript of typical size: a 1,500-base
 //! CDS between a 100-base 5' UTR and a 1,400-base 3' UTR. Each case is one kind
-//! of edit, since the protein reading differs by kind.
+//! of edit, since the protein consequence is read differently for each.
 
 #[path = "../tests/support/mod.rs"]
 mod support;

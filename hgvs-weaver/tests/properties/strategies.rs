@@ -170,7 +170,7 @@ pub struct Gene {
     pub cds_start: usize,
     /// Index of the last base of the stop codon.
     pub cds_end: usize,
-    /// Exon boundaries in transcript indices, `[start, end)`, transcript order.
+    /// Exon ranges in transcript indices, `[start, end)`, transcript order.
     pub tx_exons: Vec<(usize, usize)>,
     /// Intron lengths between consecutive exons, transcript order.
     pub introns: Vec<usize>,
@@ -543,7 +543,7 @@ fn discordant_at(g: &Gene, p: TxPoint, shift: usize) -> String {
 }
 
 /// A gene and an edit anywhere on it: substitution, identity (bare or with
-/// its bases stated), deletion, duplication, insertion, deletion-insertion,
+/// its bases stated), deletion, duplication, insertion, delins,
 /// inversion or repeat, over exonic, intronic, UTR and flanking bases, the
 /// start and stop codons included, on either strand. Bases an edit states are
 /// the transcript's; sometimes one exonic genome base under the edit then
@@ -674,7 +674,7 @@ fn edit_on(g: Gene) -> impl Strategy<Value = (Gene, TxEdit)> {
 
 /// A gene and an allele of one to four edits on it, in transcript order, over
 /// exonic and intronic bases (not the flanks) on either strand: substitution,
-/// deletion, duplication, insertion, deletion-insertion or inversion, none
+/// deletion, duplication, insertion, delins or inversion, none
 /// over two exons. At least one unchanged base lies between two members, so
 /// no member's change meets another's.
 pub fn gene_and_cis_edits() -> impl Strategy<Value = (Gene, Vec<TxEdit>)> {

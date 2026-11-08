@@ -20,7 +20,7 @@ BASE = "http://refget.test/seqrepo/1"
 
 
 class Server:
-    """A SeqRepo-like server: knows the sequence as refseq:NC_000099.1 and by digest."""
+    """A SeqRepo-like server: knows the sequence as refseq:NC_000099.1 and by refget accession."""
 
     def __init__(self) -> None:
         self.requests: list[str] = []

@@ -1,5 +1,5 @@
 """
-Extraction of mapping disagreements."""
+Extraction of validation disagreements."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def is_protein_match(p_raw: str, cv_p_raw: str) -> bool:
 
 def main() -> None:
     """Main extraction entry point."""
-    parser = argparse.ArgumentParser(description="Extract mapping disagreements between implementations and truth.")
+    parser = argparse.ArgumentParser(description="Extract validation disagreements between implementations and truth.")
     parser.add_argument("input_file", help="Input full validation TSV.")
     parser.add_argument("--output-file", default="disagreements.tsv", help="Output TSV file.")
     args = parser.parse_args()

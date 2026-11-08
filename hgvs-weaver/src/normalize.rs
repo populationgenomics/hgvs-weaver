@@ -1,10 +1,10 @@
-//! Normalisation of a nucleotide edit against one reference sequence.
+//! Normalisation of a nucleotide edit against one reference.
 //!
 //! HGVS wants an edit at its 3'-most equivalent position, with the bases it
 //! deletes, duplicates or inverts left unstated, and an insertion that copies
 //! the bases just before it written as a duplication. All of that is decided
 //! here, on a 0-based half-open range over a [`Reference`]. The coordinate
-//! systems (g., c., n.) only convert their positions in and out; see
+//! systems (g., c., n.) only translate their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
 
 use crate::data::IdentifierType;
@@ -167,7 +167,7 @@ impl ExonBounds {
 /// nor rewritten as a duplication of bases in two exons. One written on a
 /// junction is left as written.
 ///
-/// The bases an edit states as its reference are checked against the
+/// The bases an edit writes as its reference are checked against the
 /// reference and then not written: a deletion, duplication or inversion, the
 /// deleted part of a delins and an identity come out bare, whether or not
 /// they moved. HGVS writes them bare; a substitution keeps its base, which is
@@ -177,7 +177,7 @@ impl ExonBounds {
 ///
 /// [`HgvsError::PositionOutsideSequence`] when the edit's range runs past the
 /// end of the reference, an insertion's included when it goes after the last
-/// base; [`HgvsError::ReferenceMismatch`] when the edit states bases the
+/// base; [`HgvsError::ReferenceMismatch`] when the edit writes bases the
 /// reference does not hold, whether or not the edit would move.
 pub fn normalize(
     reference: &Reference<'_, '_>,
@@ -292,7 +292,7 @@ fn may_be_its_own_reverse_complement(
     })
 }
 
-/// `edit` with the reference bases it states, or their number, dropped,
+/// `edit` with the reference bases it writes, or their number, dropped,
 /// where they are not part of how the edit is written.
 fn without_stated_bases(edit: NaEdit) -> NaEdit {
     match edit {

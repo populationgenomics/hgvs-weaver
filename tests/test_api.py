@@ -51,7 +51,7 @@ class MockProvider:
         return seq[start:end]
 
     def get_symbol_accessions(self, symbol: str, _s: str, t: str) -> list[tuple[weaver.IdentifierType, str]]:
-        """Maps mock symbols."""
+        """Looks up mock symbols."""
         if t == "p":
             return [(weaver.IdentifierType.ProteinAccession, "NP_TEST.1")]
         return [(weaver.IdentifierType.GeneSymbol, symbol)]
@@ -66,7 +66,7 @@ class MockProvider:
 
 
 def test_parsing() -> None:
-    """Tests variant parsing."""
+    """Tests description parsing."""
     v = weaver.parse("NM_0001.1:c.123A>G")
     assert v.ac == "NM_0001.1"
     assert v.coordinate_type == "c"
@@ -74,7 +74,7 @@ def test_parsing() -> None:
 
 
 def test_normalization() -> None:
-    """Tests variant normalization (3' shifting)."""
+    """Tests description normalisation (3' shift)."""
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
@@ -109,7 +109,7 @@ def test_c_to_p_missense() -> None:
 
 
 def test_c_to_g() -> None:
-    """Tests c. to g. mapping."""
+    """Tests c. to g. projection."""
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 
@@ -151,7 +151,7 @@ class MockMinusProvider:
         return (("T" if ac.startswith("NC_") else "A") * 1200)[start:end]
 
     def get_symbol_accessions(self, symbol: str, _s: str, _t: str) -> list[tuple[weaver.IdentifierType, str]]:
-        """Maps mock symbols."""
+        """Looks up mock symbols."""
         return [(weaver.IdentifierType.GeneSymbol, symbol)]
 
     def get_identifier_type(self, identifier: str) -> weaver.IdentifierType:
@@ -162,7 +162,7 @@ class MockMinusProvider:
 
 
 def test_minus_strand() -> None:
-    """Tests mapping on the minus strand."""
+    """Tests projection on the minus strand."""
     provider = MockMinusProvider()
     mapper = weaver.VariantMapper(provider)
 
@@ -173,7 +173,7 @@ def test_minus_strand() -> None:
 
 
 def test_intronic() -> None:
-    """Tests mapping of intronic variants."""
+    """Tests projection of intronic descriptions."""
     provider = MockProvider()
     mapper = weaver.VariantMapper(provider)
 

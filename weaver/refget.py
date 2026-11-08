@@ -105,7 +105,7 @@ class RefgetProvider:
         base_url: The server's refget root, the part before ``/sequence/``.
         transcripts: A provider answering ``get_transcript`` and
             ``get_symbol_accessions`` (and ``get_identifier_type``, if it has one).
-            Without it those calls raise ``weaver.DataProviderError`` and identifier types
+            Without it those calls raise ``weaver.DataProviderError`` and identifier kinds
             come from the accession prefix.
         timeout: Seconds per request.
         transport: Replaces the HTTP layer; see :data:`Transport`.
@@ -177,7 +177,7 @@ class RefgetProvider:
         return sq_digest(metadata)
 
     def get_accession_for_refget(self, refget: str) -> str | None:
-        """An accession the server lists for a ``SQ.`` digest: RefSeq if it has one, else INSDC."""
+        """An accession the server lists for a refget accession: RefSeq if it has one, else INSDC."""
         digest = refget.removeprefix("ga4gh:")
         metadata = self._metadata(f"ga4gh:{digest}")
         if metadata is None:
@@ -297,10 +297,10 @@ class DigestTable:
         return self._digest.get(ac)
 
     def get_accession_for_refget(self, refget: str) -> str | None:
-        """The first name recorded for the digest; identical sequences share one."""
+        """The first name recorded for the refget accession; identical sequences share one."""
         names = self._names.get(refget.removeprefix("ga4gh:"))
         return names[0] if names else None
 
     def accessions_for_refget(self, refget: str) -> list[str]:
-        """Every name recorded for the digest, in table order."""
+        """Every name recorded for the refget accession, in table order."""
         return list(self._names.get(refget.removeprefix("ga4gh:"), ()))

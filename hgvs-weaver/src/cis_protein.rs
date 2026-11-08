@@ -1,7 +1,7 @@
-//! The protein an allele in cis of coding members predicts, `c.[a;b]`.
+//! The protein a cis allele of coding members predicts, `c.[a;b]`.
 //!
 //! The members are applied to the transcript together and the protein is
-//! read from the sequence they make, as a single variant's is from its own,
+//! read from the sequence they make, as a single description's is from its own,
 //! so `c.[4A>T;6A>T]` predicts what `c.4_6delinsTAT` predicts, not what each
 //! member predicts alone. The change is then written as HGVS writes changes
 //! in cis, those apart as separate members of a protein allele,
@@ -108,7 +108,7 @@ fn combined(seq: &str, edits: &[ResolvedEdit]) -> ResolvedEdit {
 }
 
 impl VariantMapper<'_> {
-    /// The protein consequence of an allele in cis of `c.` members. The
+    /// The protein consequence of a cis allele of `c.` members. The
     /// members are applied to the transcript together and the protein is
     /// read from the sequence they make, by the rules
     /// [`c_to_p`](Self::c_to_p) reads one change by: `c.[4A>T;6A>T]` is
@@ -118,7 +118,7 @@ impl VariantMapper<'_> {
     /// codon the allele states unchanged, and the changes leave as they were,
     /// are members beside them, `c.[13T>G;10_12=]` giving
     /// `p.[(Ala4=;Tyr5Asp)]`. One prediction alone is written as a single
-    /// variant. An allele of one member predicts what its member does.
+    /// description. An allele of one member predicts what its member does.
     ///
     /// # Errors
     ///
@@ -169,8 +169,8 @@ impl VariantMapper<'_> {
         )?))
     }
 
-    /// The protein an allele in cis of `c.` members leaves, as
-    /// [`predicted_protein`](Self::predicted_protein) reads one variant's:
+    /// The protein a cis allele of `c.` members leaves, as
+    /// [`predicted_protein`](Self::predicted_protein) reads one description's:
     /// no residues when it deletes the CDS, those its changes leave whatever
     /// it states beside them, and `None` when its prediction is a statement
     /// (`p.?`, `p.(Met1?)`) or it changes no base.

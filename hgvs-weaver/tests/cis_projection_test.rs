@@ -1,4 +1,4 @@
-//! Projecting an allele in cis between the genome and its transcripts, and
+//! Projecting a cis allele between the genome and its transcripts, and
 //! between a transcript's `c.`, `n.` and `r.` spellings: member by member,
 //! the members reversed across strands, all or nothing.
 
@@ -169,7 +169,7 @@ fn a_member_that_fails_to_project_fails_the_allele_and_is_named() {
     };
     assert_eq!((*index, member.as_str()), (1, "NM_S.1:r.5_6del"));
     assert!(
-        matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("splice junction")),
+        matches!(source.as_ref(), HgvsError::UnsupportedOperation(m) if m.contains("exon junction")),
         "{source}"
     );
 }

@@ -1,5 +1,5 @@
 //! Issue #36: an intronic genomic position must be anchored on the right
-//! exon boundary on the minus strand, so that `g_to_c(c_to_g(v)) == v`.
+//! exon border on the minus strand, so that `g_to_c(c_to_g(v)) == v`.
 
 mod support;
 

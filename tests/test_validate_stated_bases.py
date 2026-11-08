@@ -1,4 +1,4 @@
-"""The binding of stated-base checks: validate's answer, and the error a mismatch raises."""
+"""The binding of written-base checks: validate's answer, and the error a mismatch raises."""
 
 from __future__ import annotations
 
