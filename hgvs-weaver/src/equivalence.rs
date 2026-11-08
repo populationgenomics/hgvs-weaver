@@ -12,13 +12,13 @@ use crate::structs::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquivalenceLevel {
-    /// The same spelling: identical text after spelling comparison.
+    /// The same after spelling comparison, or one projects exactly onto the other, or one is a coding change and the other its prediction.
     Identity,
     /// A different spelling of the same change (e.g., ins vs dup).
     Analogous,
     /// Two understood descriptions that name different changes.
     Different,
-    /// A pair weaver could not judge: missing data or an unsupported kind of description.
+    /// Not returned by weaver, which refuses a pair it cannot judge with an error; kept for callers that record a refusal.
     Unknown,
 }
 
@@ -638,7 +638,7 @@ impl<'a> VariantEquivalence<'a> {
     }
 
     /// A nucleotide description against a protein description: through every
-    /// coding transcript the description lies on that encodes the description's
+    /// coding transcript the nucleotide description lies on that encodes the protein description's
     /// protein (see `encodes`), its prediction compared with the description
     /// as two protein descriptions are, the prediction leaving the protein the
     /// edited transcript encodes. A transcript of another protein takes no

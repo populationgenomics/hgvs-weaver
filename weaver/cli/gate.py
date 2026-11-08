@@ -2,7 +2,7 @@
 
 The validation needs a GRCh38 store and genome built by hgvs-weaver-data's `weaver-data-build`: the current
 annotation release's shard with NCBI's historical set of transcript versions stacked under it, so
-that the variants ClinVar names on historical versions project too. This fetches the inputs, builds what is
+that the descriptions ClinVar names on historical versions project too. This fetches the inputs, builds what is
 missing, runs the validation (`weaver.cli.validate`) over the result and compares the output with a baseline
 run, row by row. Every step is skipped when its output is already there, so a rerun after a weaver change
 costs only the validation itself.
@@ -348,8 +348,8 @@ def _print_disagreements(rows: dict[str, dict[str, str]]) -> None:
     """The rows whose verdict through c_to_p (rs_equiv) differs from the direct one (rs_nuc_equiv), by pattern.
 
     Rows both columns judge come first, a contradiction (equivalent one way, Different the other) apart from a
-    difference of verdict (Identity one way, Analogous the other); then rows only one column judges. A row with no ClinVar protein, or that neither judges,
-    says nothing about transitivity and is only counted.
+    difference of verdict (Identity one way, Analogous the other); then rows only one column judges. A row with no
+    ClinVar protein, or that neither judges, says nothing about transitivity and is only counted.
     """
     groups: dict[str, collections.Counter[tuple[str, str]]] = {
         "contradict": collections.Counter(),

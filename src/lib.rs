@@ -955,7 +955,7 @@ macro_rules! expect_one_or_cis {
                 _ => Err(pyo3::exceptions::PyValueError::new_err(concat!(
                     "Expected ",
                     $what,
-                    " or a cis allele of them"
+                    " or a cis allele of such descriptions"
                 ))),
             }
         }
@@ -999,7 +999,7 @@ expect_one_or_cis!(
     Coding,
     ::hgvs_weaver::CVariant,
     "c",
-    "coding description (c.)"
+    "a coding description (c.)"
 );
 
 // --- Mapper and DataProvider Bridge ---

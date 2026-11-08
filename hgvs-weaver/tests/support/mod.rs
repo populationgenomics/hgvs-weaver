@@ -6,7 +6,7 @@
 //!
 //! The fixture serves named sequences over any `[start, end)` range, clamped to
 //! the sequence as the [`DataProvider::get_seq`] contract requires; serves the
-//! transcripts it was given; pairs transcripts with proteins and back through
+//! transcripts it was given; pairs transcripts with proteins both ways through
 //! [`DataProvider::get_symbol_accessions`]; classifies accessions by prefix
 //! unless told otherwise; finds transcripts by reference for
 //! [`TranscriptSearch`]; looks sequences up by refget digest for

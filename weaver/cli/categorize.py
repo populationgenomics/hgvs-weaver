@@ -1,5 +1,5 @@
 """
-Categorization of projection failures.
+Categorization of validation failures.
 
 """
 
@@ -19,7 +19,7 @@ def is_p_match(pred: str, truth: str) -> bool:
 
 
 def categorize_rs_failure(row: dict[str, str]) -> str:
-    """Categorizes the reason for a weaver projection failure."""
+    """Categorizes the reason for a weaver validation failure."""
     rs_p = row["rs_p"]
     rs_spdi = row["rs_spdi"]
     cv_p = row["variant_prot"]
@@ -42,7 +42,7 @@ def categorize_rs_failure(row: dict[str, str]) -> str:
             return "Protein: Frameshift Logic"
         if "del" in cv_spdi and "ins" in cv_spdi:
             return "Complex Delins"
-        return "General Projection Failure"
+        return "General Validation Failure"
 
     if not p_match:
         if "Ter?" in rs_p:
@@ -59,7 +59,7 @@ def categorize_rs_failure(row: dict[str, str]) -> str:
 
 def main() -> None:
     """Main entry point for categorization."""
-    parser = argparse.ArgumentParser(description="Categorize weaver projection failures.")
+    parser = argparse.ArgumentParser(description="Categorize weaver validation failures.")
     parser.add_argument("input_file", help="Input disagreements TSV file.")
     args = parser.parse_args()
 

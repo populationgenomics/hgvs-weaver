@@ -157,7 +157,7 @@ pub enum AaEdit {
         ref_: Option<String>,
         uncertain: bool,
     },
-    /// Identity (`=`): the bases are as the reference has them.
+    /// Identity (`=`): the residues are as the reference has them.
     Identity { uncertain: bool },
     /// A statement about the whole protein: `p.0`, `p.?`, `p.=`. At a
     /// residue, `Unknown` is `p.Met1?`, an unknown change from that residue on.

@@ -204,7 +204,7 @@ fn validate_checks_stated_reference_through_transcript_coordinates() {
 
 #[test]
 fn normalize_leaves_intronic_coding_variants_as_written() {
-    // An insertion straddling an exon junction has no transcript
+    // An insertion straddling an exon border has no transcript
     // normalisation. It must come back unchanged, not as an error, so that
     // c_to_p (p.?) and to_spdi (via g.) still run on it.
     let hdp = provider();

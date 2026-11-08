@@ -372,7 +372,7 @@ impl Reading {
     }
 
     /// Where translation of the edited sequence ends, as an index into the
-    /// reference coding sequence: one past the alternate stop codon, projected
+    /// reference coding sequence: one past the alternate stop codon, carried
     /// back over the bases the edit adds or removes; `None` when translation
     /// runs off the end of the edited transcript.
     pub(crate) fn translation_end(&self) -> Option<i64> {

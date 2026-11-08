@@ -4,7 +4,7 @@
 //! deletes, duplicates or inverts left unstated, and an insertion that copies
 //! the bases just before it written as a duplication. All of that is decided
 //! here, on a 0-based half-open range over a [`Reference`]. The coordinate
-//! systems (g., c., n.) only carry their positions in and out; see
+//! systems (g., c., n.) only translate their positions in and out; see
 //! [`VariantMapper::normalize_variant`](crate::mapper::VariantMapper::normalize_variant).
 
 use crate::data::IdentifierType;

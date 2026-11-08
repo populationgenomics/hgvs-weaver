@@ -381,7 +381,7 @@ impl TranscriptMapper {
         )))
     }
 
-    /// Projects a 0-based transcript position to a 0-based coding position and anchor.
+    /// Numbers a 0-based transcript position as a 0-based coding position and anchor.
     /// A position that would be numbered from an open CDS end is an error.
     pub fn n_to_c(
         &self,

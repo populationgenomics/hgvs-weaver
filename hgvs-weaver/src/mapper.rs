@@ -3050,7 +3050,7 @@ impl<'a> VariantMapper<'a> {
         as_rna_error(r, self.c_to_p(&self.r_to_c(r)?, protein_ac))
     }
 
-    /// Projects a coding description (`c.`) to its protein consequence (`p.`).
+    /// Predicts the protein consequence (`p.`) of a coding description (`c.`).
     pub fn c_to_p(
         &self,
         var_c: &CVariant,
@@ -3465,9 +3465,9 @@ impl<'a> VariantMapper<'a> {
         })
     }
 
-    /// Projects a single amino acid substitution (p.Xxx###Yyy) back to a coding description (c.).
+    /// Back-translates a single amino acid substitution (p.Xxx###Yyy) to a coding description (c.).
     ///
-    /// Only handles `AaEdit::Subst` currently. For an ambiguous back-projection (multiple
+    /// Only handles `AaEdit::Subst` currently. For an ambiguous back-translation (multiple
     /// codons with the same minimum nucleotide distance), the first alphabetically is chosen
     /// and `is_unique` is set to false. The residue it names is read on the
     /// protein, so the provider must serve the protein's sequence.

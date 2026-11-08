@@ -1,4 +1,4 @@
-"""Extraction of weaver projection failures."""
+"""Extraction of weaver validation failures."""
 
 from __future__ import annotations
 

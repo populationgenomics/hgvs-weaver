@@ -421,7 +421,7 @@ intron g.21 to g.30; exon 1 of `NM_R.1` ends at r.45):
 | `NC_J.1:g.19_31=`         | `→`  | `NM_JD.1:c.4G>A`                                                                                                                                      |                                          |
 | `NM_J.1:c.4_6=`           | *vs* | `NC_J.1:g.19_31=`                                                                                                                                     | Identity                                 |
 | `NM_J.1:c.4_6=`           | *vs* | `NC_J.1:g.21_30del`                                                                                                                                   | Different                                |
-| `NM_R.1:r.44_47del`       | `→`  | `UnsupportedOperation`: "spans a splice junction"                                                                                                     |                                          |
+| `NM_R.1:r.44_47del`       | `→`  | `UnsupportedOperation`: "spans an exon junction"                                                                                                      |                                          |
 | `NM_R.1:c.44_47del`       | `→`  | projects, over the intron                                                                                                                             |                                          |
 
 - **Agrees:** VariantValidator on the inversion: `NM_000546.6:c.73_76inv`, across the exon junction after TP53's c.74,
@@ -1173,7 +1173,7 @@ it in `NC_S.1`, so c.4 is g.19 and c.6 is g.31):
 | `NR_XR.1:n.[22_23insA;23_25dup]`          | `→` | `NC_X.1:g.[25_26insCCT;28_29insT]`                                                | the copy written where the transcript puts it     |
 | `NC_X.1:g.[25_26insA;26_28dup]`           | `→` | `NM_XR.1:c.[19_20insAGG;22_23insT]`                                               |                                                   |
 | `NR_XR.1:n.[26_28dup;22_23insA;23_25dup]` | `→` | `NC_X.1:g.[25_26insCCT;28_29insT;22_23insTGG]`                                    | the second copy meets the first, rewritten        |
-| `NM_S.1:r.[4a>u;5_6del]`                  | `→` | `UnsupportedOperation`, member 2, `NM_S.1:r.5_6del`: spans a splice junction      |                                                   |
+| `NM_S.1:r.[4a>u;5_6del]`                  | `→` | `UnsupportedOperation`, member 2, `NM_S.1:r.5_6del`: spans an exon junction       |                                                   |
 | `NM_S.1:c.[4_6=;7C>T]`                    | `→` | `NC_S.1:g.[19_31=;32C>T]`                                                         | a range across the exon junction, intron included |
 | `NM_S.1:c.[5_6insT;7C>T]`                 | `→` | `UnsupportedOperation`, member 1, `NM_S.1:c.5_6insT`: inserts at an exon junction |                                                   |
 | `NM_X.1:c.[7C>T;*20del]`                  | `→` | `PositionOutsideSequenceError`, member 2, `NM_X.1:c.*20del`: past the last exon   |                                                   |
