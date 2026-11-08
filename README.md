@@ -276,28 +276,28 @@ The `r.` projections were cross-checked against VariantValidator on fourteen que
 
 ### Validation Results (100,000 variants)
 
-Summary of results comparing `weaver` and `ref-hgvs` against ClinVar ground truth:
+Summary of results comparing `weaver` and `biocommons hgvs` against ClinVar ground truth:
 
-| Implementation | Protein Identity | Protein Analogous | SPDI (Genomic) | Total Success | Parse Errors |
-| :------------- | :--------------: | :---------------: | :------------: | :-----------: | :----------: |
-| weaver         |   **93.902%**    |    **4.928%**     |  **98.768%**   |  **98.830%**  |    **0**     |
-| ref-hgvs       |     93.352%      |      4.890%       |    97.726%     |  **98.242%**  |     394      |
+| Implementation  | Protein Identity | Protein Analogous | SPDI (Genomic) | Total Success | Parse Errors |
+| :-------------- | :--------------: | :---------------: | :------------: | :-----------: | :----------: |
+| weaver          |   **93.902%**    |    **4.928%**     |  **98.768%**   |  **98.830%**  |    **0**     |
+| biocommons hgvs |     93.352%      |      4.890%       |    97.726%     |  **98.242%**  |     394      |
 
 Transcripts absent from the RefSeq annotation (LRG, superseded versions): 1,126 (1.1%)
 
-#### Protein Translation Agreement
+#### Protein Consequence Agreement
 
-|                     | ref-hgvs Match | ref-hgvs Mismatch |
-| :------------------ | :------------: | :---------------: |
-| **weaver Match**    |     93,351     |        551        |
-| **weaver Mismatch** |       1        |       6,097       |
+|                     | biocommons hgvs Match | biocommons hgvs Mismatch |
+| :------------------ | :-------------------: | :----------------------: |
+| **weaver Match**    |        93,351         |           551            |
+| **weaver Mismatch** |           1           |          6,097           |
 
-#### SPDI Mapping Agreement
+#### SPDI Agreement
 
-|                     | ref-hgvs Match | ref-hgvs Mismatch |
-| :------------------ | :------------: | :---------------: |
-| **weaver Match**    |     97,724     |       1,044       |
-| **weaver Mismatch** |       2        |       1,230       |
+|                     | biocommons hgvs Match | biocommons hgvs Mismatch |
+| :------------------ | :-------------------: | :----------------------: |
+| **weaver Match**    |        97,724         |          1,044           |
+| **weaver Mismatch** |           2           |          1,230           |
 
 ## Type stubs
 
